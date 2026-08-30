@@ -220,6 +220,8 @@ namespace Database
 {
 	public static class UserDevices
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(UserDevices));
+
 		public static readonly Func<AppDbContext, long, string, string, string, Task<UserDevice?>> FindDevice =
 				EF.CompileAsyncQuery(
 					(AppDbContext db, long userId, string h0, string h1, string h2) =>
@@ -294,8 +296,7 @@ namespace Database
 					return;
 				}
 
-				Console.WriteLine($"[ERROR] RegisterUserDevice failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "RegisterUserDevice failed");
 			}
 		}
 	}
@@ -303,6 +304,8 @@ namespace Database
 
 	public static class Users
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(Users));
+
 		private static readonly Func<AppDbContext, long, Task<EloData?>> GetEloData =
 				EF.CompileAsyncQuery(
 					(AppDbContext db, long userId) =>
@@ -409,8 +412,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetBulkELOData failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetBulkELOData failed");
 			}
 
 			return results;
@@ -464,8 +466,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] IsUserAdmin failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "IsUserAdmin failed");
 				return false;
 			}
 		}
@@ -486,8 +487,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetDisplayNameBulk failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetDisplayNameBulk failed");
 			}
 
 			return dict;
@@ -501,8 +501,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] IsUserBanned failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "IsUserBanned failed");
 				return false;
 			}
 		}
@@ -515,8 +514,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetUserBanStatus failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetUserBanStatus failed");
 				return null;
 			}
 		}
@@ -530,8 +528,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetDisplayName failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetDisplayName failed");
 				return string.Empty;
 			}
 		}
@@ -544,8 +541,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetUserLobbyPreferences failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetUserLobbyPreferences failed");
 				return null;
 			}
 		}
@@ -563,8 +559,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SetFavorite_LimitSuperweapons failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SetFavorite_LimitSuperweapons failed");
 			}
 		}
 
@@ -583,8 +578,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetELOData API call failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetELOData API call failed");
 			}
 
 			try
@@ -596,8 +590,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetELOData fallback failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "GetELOData fallback failed");
 			}
 
 			return new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
@@ -620,8 +613,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SetFavorite_Map failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SetFavorite_Map failed");
 			}
 		}
 
@@ -638,8 +630,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] UpdateLastLoginData failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "UpdateLastLoginData failed");
 			}
 		}
 
@@ -655,8 +646,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SetFavorite_StartingMoney failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SetFavorite_StartingMoney failed");
 			}
 		}
 
@@ -671,8 +661,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SetFavorite_Side failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SetFavorite_Side failed");
 			}
 		}
 
@@ -703,8 +692,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SetDisplayName failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SetDisplayName failed");
 				return false;
 			}
 		}
@@ -720,8 +708,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SetFavorite_Color failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SetFavorite_Color failed");
 			}
 		}
 
@@ -747,8 +734,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] SaveELOData failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "SaveELOData failed");
 			}
 		}
 

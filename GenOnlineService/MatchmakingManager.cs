@@ -181,6 +181,7 @@ public class Playlist
 
 static class MatchmakingManager
 {
+	private static readonly ILogger s_log = AppLog.For(typeof(MatchmakingManager));
 	// World Series 2026 Qualification in September requires the matchmaking to be
 	// based off the monthly ELO.
 	internal static int GetMatchmakingElo(PlayerStats stats)
@@ -304,6 +305,7 @@ static class MatchmakingManager
 
 	public class MatchmakingBucket
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(MatchmakingBucket));
 		private ConcurrentList<MatchmakingBucketMember> m_lstMembers = new();
 		public ConcurrentList<int> lstMapIndices { get; set; } = new();
 
@@ -468,7 +470,7 @@ static class MatchmakingManager
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"QuickMatch formation failed: {ex}");
+				s_log.LogError(ex, "QuickMatch formation failed for bucket {BucketId}", m_BucketID);
 				await AbortQuickMatchAutoStartAsync("QuickMatch setup failed or a player left during formation.");
 			}
 			finally
@@ -830,7 +832,7 @@ static class MatchmakingManager
 
 		private async Task StartGameAfterSuccessfulMeshCheck(Lobby lobby)
 		{
-			Console.WriteLine("START GAME");
+			s_log.LogInformation("Starting QuickMatch game for lobby {LobbyId}", lobby.LobbyID);
 
 			WebSocketMessage_MatchmakerStartGame startGameAction = new WebSocketMessage_MatchmakerStartGame();
 			startGameAction.msg_id = (int)EWebSocketMessageID.MATCHMAKING_ACTION_START_GAME;
@@ -1249,7 +1251,7 @@ static class MatchmakingManager
 						if (lobby == null)
 						{
 							// the lobby went away underneath us (deleted/failed) - don't leave everyone stuck waiting forever
-							Console.WriteLine("Matchmaking bucket lost its QuickMatch lobby {0} while waiting on joins, abandoning bucket", m_LobbyID);
+							s_log.LogWarning("Matchmaking bucket lost QuickMatch lobby {LobbyId} while waiting on joins; abandoning bucket", m_LobbyID);
 
 							foreach (MatchmakingBucketMember member in m_lstMembers)
 							{
@@ -1342,7 +1344,7 @@ static class MatchmakingManager
 				.Any(size => !playlist.Maps.Any(map => map.MaxPlayers == size)))
 				error = "an allowed formation size has no exact-size map";
 			if (error == null) continue;
-			Console.WriteLine($"Disabling matchmaking playlist {id} ({playlist.Name}): {error}.");
+			s_log.LogError("Disabling matchmaking playlist {PlaylistId} ({PlaylistName}): {Reason}", id, playlist.Name, error);
 			g_Playlists.Remove(id);
 		}
 	}
@@ -1763,6 +1765,7 @@ static class MatchmakingManager
 		// validate the request - a bad playlist or out of range map index from a client must never reach a bucket
 		if (!g_Playlists.TryGetValue(playlistID, out Playlist? playlist))
 		{
+			s_log.LogWarning("User {UserId} requested unavailable matchmaking playlist {PlaylistId}", plr.m_UserID, playlistID);
 			await SendMatchmakingMessage(plr, "That playlist is not available. Matchmaking was not started.");
 			return;
 		}
@@ -1775,6 +1778,7 @@ static class MatchmakingManager
 		int minSelectedMaps = Math.Max(1, playlist.MinSelectedMaps);
 		if (validatedMapIndices.Count < minSelectedMaps)
 		{
+			s_log.LogWarning("User {UserId} selected {SelectedMapCount} valid maps for playlist {PlaylistId}; minimum is {MinimumMapCount}", plr.m_UserID, validatedMapIndices.Count, playlistID, minSelectedMaps);
 			await SendMatchmakingMessage(plr, String.Format("You must select at least {0} valid map(s) to matchmake in this playlist.", minSelectedMaps));
 			return;
 		}
@@ -1810,10 +1814,12 @@ static class MatchmakingManager
 
 		if (detached.CancellationRejected)
 		{
+			s_log.LogWarning("User {UserId} could not restart matchmaking because the game is starting", plr.m_UserID);
 			await SendMatchmakingMessage(plr, "Matchmaking cannot be restarted because your game is already starting.");
 			return;
 		}
 
+		s_log.LogInformation("User {UserId} started matchmaking in playlist {PlaylistId} with {SelectedMapCount} maps", plr.m_UserID, playlistID, validatedMapIndices.Count);
         await SendMatchmakingMessage(plr, "Started matchmaking... Searching for players...");
 	}
 

@@ -113,7 +113,7 @@ public partial class LobbyManager
 		}
 		catch (Exception ex)
 		{
-			SentrySdk.CaptureException(ex);
+			_logger.LogError(ex, "Destroying session for user {UserId} failed", session.m_UserID);
 			throw;
 		}
 		finally

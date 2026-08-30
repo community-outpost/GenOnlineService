@@ -150,6 +150,7 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class LoginCode : ControllerBase
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(LoginCode));
 
 		[HttpPost]
 		public async Task Post([FromHeader(Name = "X-Api-Key")] string apiKey)
@@ -203,22 +204,26 @@ namespace GenOnlineService.Controllers
 
 							if (!bUpdated)
 							{
+								s_log.LogWarning("Login-code callback referenced a missing, expired, or completed pending login for user {UserId}", user_id);
 								Response.StatusCode = (int)HttpStatusCode.NotFound;
 							}
 
 						}
-						catch
+						catch (Exception ex)
 						{
+							s_log.LogWarning(ex, "Login-code callback had invalid field values");
 							Response.StatusCode = (int)HttpStatusCode.PreconditionFailed;
 						}
 					}
 					else
 					{
+						s_log.LogWarning("Login-code callback was missing required fields");
 						Response.StatusCode = (int)HttpStatusCode.Unauthorized;
 					}
 				}
-				catch
+				catch (Exception ex)
 				{
+					s_log.LogError(ex, "Login-code callback could not be processed");
 					Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 				}
 			}

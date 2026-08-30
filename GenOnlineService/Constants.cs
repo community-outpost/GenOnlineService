@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Net;
@@ -373,6 +374,8 @@ namespace GenOnlineService
 	// TODO
 	static class WebSocketManager
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(WebSocketManager));
+
 		public static int g_PeakConnectionCount = 0;
 		public static Task<UserWebSocketInstance> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, bool bIsAdmin)
 		{
@@ -389,7 +392,7 @@ namespace GenOnlineService
 			if (bIsReconnect)
 			{
 				// this is a reconnect, re-use cache
-				Console.WriteLine("--> WEBSOCKET RECONNECT");
+				s_log.LogDebug("WebSocket reconnect for user {UserId} ({SessionType})", ownerID, sessionType);
 
 				// if its a reconnect, and we dont have cache OR shared data, its probably a server restart, so return null
 				if (userCacheData == null)
@@ -431,7 +434,7 @@ namespace GenOnlineService
 			}
 			else
 			{
-				Console.WriteLine("--> WEBSOCKET CONNECT");
+				s_log.LogDebug("WebSocket connect for user {UserId} ({SessionType})", ownerID, sessionType);
 
 				// how many other sessions do they have online?
 				bool bIsFirstSessionForUser = WebSocketManager.GetAllDataFromUser(ownerID).Count == 0;
@@ -482,7 +485,7 @@ namespace GenOnlineService
 			// close the previous socket first: it may still be open, and its send loop must stop reading the session's queue
 			if (m_dictWebsockets[sessionType].TryRemove(ownerID, out UserWebSocketInstance? supersededSess) && supersededSess != null)
 			{
-				Console.WriteLine("Closing superseded websocket for {0} ({1})", ownerID, strDisplayName);
+				s_log.LogDebug("Closing superseded websocket for {UserId} ({DisplayName})", ownerID, strDisplayName);
 				await supersededSess.CloseAsync(WebSocketCloseStatus.NormalClosure, "Superseded by a newer connection");
 			}
 
@@ -752,7 +755,7 @@ namespace GenOnlineService
 			if (m_dictMiddlewareIDs.TryGetValue(userID, out string? strCurrent) &&
 				!String.Equals(strCurrent, strMiddlewareUserID, StringComparison.Ordinal))
 			{
-				Console.WriteLine($"[WARN] Ignoring attempt to replace the middleware ID of user {userID} while in a lobby");
+				s_log.LogWarning("Ignoring attempt to replace the middleware ID of user {UserId} while in a lobby", userID);
 			}
 
 			return false;
@@ -808,8 +811,7 @@ namespace GenOnlineService
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine($"[ERROR] DisconnectUser failed for user {userID}, session {userSession.GetSessionType()}: {ex.Message}");
-					SentrySdk.CaptureException(ex);
+					s_log.LogError(ex, "DisconnectUser failed for user {UserId}, session {SessionType}", userID, userSession.GetSessionType());
 				}
 			}
 		}
@@ -1214,6 +1216,8 @@ namespace GenOnlineService
 
 	public class UserSession
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(UserSession));
+
 		private int retired;
 		internal bool IsRetired => Volatile.Read(ref retired) != 0;
 		internal void Retire() => Interlocked.Exchange(ref retired, 1);
@@ -1367,7 +1371,7 @@ namespace GenOnlineService
 				// too far behind to catch up: drop the connection so the client reconnects
 				if (WebSocketManager.GetWebSocketForSession(this)?.AbortIfOpen() == true)
 				{
-					Console.WriteLine("[WebSocket] Outbound queue full for {0}, connection aborted", m_UserID);
+					s_log.LogWarning("Outbound websocket queue full for user {UserId}; connection aborted", m_UserID);
 				}
 			}
 		}
@@ -1517,7 +1521,8 @@ namespace GenOnlineService
 		{
 			if (!RoomCatalog.TryResolveTargetRoomID(newRoomID, out Int16 targetRoomID))
 			{
-				Console.WriteLine($"Rejected invalid network room selection {newRoomID} from user {m_UserID}; keeping selected room {selectedNetworkRoomID}.");
+				s_log.LogWarning("Rejected invalid network room selection {RequestedRoomId} from user {UserId}, keeping selected room {SelectedRoomId}",
+					newRoomID, m_UserID, selectedNetworkRoomID);
 				return false;
 			}
 
@@ -1555,6 +1560,8 @@ namespace GenOnlineService
 
 	public class UserWebSocketInstance
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(UserWebSocketInstance));
+
 		// cached user data, useful
 		public EUserSessionType m_SessionType = EUserSessionType.None;
 		public Int64 m_UserID = -1;
@@ -1655,7 +1662,7 @@ namespace GenOnlineService
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[WebSocket] Send loop failed for {m_UserID}: {ex}");
+				s_log.LogError(ex, "Websocket send loop failed for user {UserId}", m_UserID);
 			}
 		}
 
@@ -1675,7 +1682,7 @@ namespace GenOnlineService
 			}
 			catch (OperationCanceledException)
 			{
-				Console.WriteLine("[WebSocket] Send to {0} stalled for {1}s, connection aborted", m_UserID, c_SendStallTimeout.TotalSeconds);
+				s_log.LogWarning("Websocket send to user {UserId} stalled for {StallSeconds}s; connection aborted", m_UserID, c_SendStallTimeout.TotalSeconds);
 				return false;
 			}
 			catch
@@ -1719,6 +1726,8 @@ namespace GenOnlineService
 	};
 	public static class SessionHelpers
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(SessionHelpers));
+
 		public static bool SessionTypeHasAccessTo(EUserSessionType sessType, ESessionAccessType accessType)
 		{
 			if (sessType == EUserSessionType.GameClient) // client can do anything
@@ -1742,18 +1751,14 @@ namespace GenOnlineService
 			// TODO_EFCORE: Move away from db for this and just have website login call endpoint on service
 			//UInt16 clientID = clientIDStr == "gen_online_60hz" ? (UInt16)1 : (UInt16)0;
 
-			Console.ForegroundColor = ConsoleColor.Cyan;
-			Console.WriteLine("StartSession deleing other sessions for user {0}", userID);
-			Console.ForegroundColor = ConsoleColor.Gray;
+			s_log.LogInformation("StartSession deleting other sessions for user {UserId}", userID);
 
 			// kill any WS they had too, StartSession comes before WS connects
 			// disconnect any other sessions with this ID
 			UserSession? sess = GenOnlineService.WebSocketManager.GetSessionFromUser(userID, sessionType);
 			if (sess != null)
 			{
-				Console.ForegroundColor = ConsoleColor.Cyan;
-				Console.WriteLine("Found duplicate session for user {0}", userID);
-				Console.ForegroundColor = ConsoleColor.Gray;
+				s_log.LogInformation("Found duplicate session for user {UserId}", userID);
 
 				UserWebSocketInstance? oldWS = GenOnlineService.WebSocketManager.GetWebSocketForSession(sess);
 				await GenOnlineService.WebSocketManager.DeleteSession(userID, sessionType, oldWS, false, sess);
@@ -2452,6 +2457,8 @@ namespace GenOnlineService
 
 	public static class S3CredentialManager
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(S3CredentialManager));
+
 		private static AmazonS3Client m_s3client = null;
 		private static bool s_uploadsEnabled = false;
 
@@ -2467,7 +2474,7 @@ namespace GenOnlineService
 			// When uploads are disabled, the S3 settings are intentionally optional.
 			if (!s_uploadsEnabled)
 			{
-				Console.WriteLine("MatchData: upload_match_data is false, replay and screenshot uploads are disabled.");
+				s_log.LogInformation("MatchData: upload_match_data is false, replay and screenshot uploads are disabled");
 				return;
 			}
 
@@ -2628,6 +2635,8 @@ namespace GenOnlineService
 
 	public static class TURNCredentialManager
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(TURNCredentialManager));
+
 		private static ConcurrentDictionary<Int64, string> g_DictTURNUsernames = new();
 
 		private static void GetTURNConfig(out int TTL, out string token, out string key, out bool bShouldInvalidateTokensAutomatically)
@@ -2744,13 +2753,13 @@ namespace GenOnlineService
 				//client.DefaultRequestHeaders.Add("Content-Type", "application/json");
 				try
 				{
-					Console.WriteLine("Start req turn credentials at {0}", Environment.TickCount);
+					var sw = Stopwatch.StartNew();
 					string strURI = String.Format("https://rtc.live.cloudflare.com/v1/turn/keys/{0}/credentials/generate-ice-servers", TurnKey);
 					HttpResponseMessage response = await client.PostAsync(strURI, requestContent);
 
 					if (response.IsSuccessStatusCode)
 					{
-						Console.WriteLine("Finish req turn credentials at {0}", Environment.TickCount);
+						s_log.LogDebug("TURN credential request for user {UserId} took {ElapsedMs}ms", userID, sw.ElapsedMilliseconds);
 						string responseBody = await response.Content.ReadAsStringAsync();
 						TURNResponse? resp = JsonSerializer.Deserialize<TURNResponse>(responseBody);
 

@@ -21,10 +21,12 @@ namespace GenOnlineService
 		private const int c_MaxBatchSize = 8;
 
 		private readonly IDbContextFactory<AppDbContext> _dbFactory;
+		private readonly ILogger<ExternalLeaderboardPublicationWorker> _logger;
 
-		public ExternalLeaderboardPublicationWorker(IDbContextFactory<AppDbContext> dbFactory)
+		public ExternalLeaderboardPublicationWorker(IDbContextFactory<AppDbContext> dbFactory, ILogger<ExternalLeaderboardPublicationWorker> logger)
 		{
 			_dbFactory = dbFactory;
+			_logger = logger;
 		}
 
 		protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -43,8 +45,7 @@ namespace GenOnlineService
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine($"[ERROR] External leaderboard publication poll failed: {ex}");
-					SentrySdk.CaptureException(ex);
+					_logger.LogError(ex, "External leaderboard publication poll failed");
 				}
 
 				try
@@ -86,8 +87,7 @@ namespace GenOnlineService
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine($"[ERROR] External publication bookkeeping failed for match {item.MatchId}: {ex}");
-					SentrySdk.CaptureException(ex);
+					_logger.LogError(ex, "External publication bookkeeping failed for match {MatchId}", item.MatchId);
 					throw;
 				}
 			}
@@ -124,7 +124,7 @@ namespace GenOnlineService
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine($"[WARNING] Match {item.MatchId} was ingested, but its optional ratings response could not be applied: {ex}");
+					_logger.LogWarning(ex, "Match {MatchId} was ingested, but its optional ratings response could not be applied", item.MatchId);
 					SentrySdk.CaptureException(ex);
 				}
 
@@ -141,7 +141,7 @@ namespace GenOnlineService
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[WARNING] Failed to publish match {item.MatchId} to the external leaderboard (attempt {item.Attempt}): {ex.Message}");
+				_logger.LogWarning(ex, "Failed to publish match {MatchId} to the external leaderboard on attempt {Attempt}", item.MatchId, item.Attempt);
 				await RecordFailure(item, ex, stoppingToken);
 			}
 		}
@@ -155,7 +155,7 @@ namespace GenOnlineService
 			if (string.IsNullOrWhiteSpace(responseBody))
 			{
 				if (matchEntry.lobby_type == ELobbyType.QuickMatch)
-					Console.WriteLine($"[WARNING] External Match Ingest response for QuickMatch {matchId} contained no ratings body.");
+					_logger.LogWarning("External Match Ingest response for QuickMatch {MatchId} contained no ratings body", matchId);
 				return;
 			}
 
@@ -166,14 +166,14 @@ namespace GenOnlineService
 			}
 			catch (JsonException ex)
 			{
-				Console.WriteLine($"[WARNING] External Match Ingest response for match {matchId} could not be deserialized: {ex.Message}");
+				_logger.LogWarning(ex, "External Match Ingest response for match {MatchId} could not be deserialized", matchId);
 				SentrySdk.CaptureException(ex);
 				return;
 			}
 
 			if (refreshResponse?.data == null)
 			{
-				Console.WriteLine($"[WARNING] External Match Ingest response for match {matchId} contained no ratings data.");
+				_logger.LogWarning("External Match Ingest response for match {MatchId} contained no ratings data", matchId);
 				return;
 			}
 
@@ -187,13 +187,13 @@ namespace GenOnlineService
 			{
 				if (!expectedPlayerIds.Contains(userId))
 				{
-					Console.WriteLine($"[WARNING] External Match Ingest response for match {matchId} contained unexpected player_id {userId}; skipping (ELO left unchanged).");
+					_logger.LogWarning("External Match Ingest response for match {MatchId} contained unexpected player ID {UserId}; skipping", matchId, userId);
 					continue;
 				}
 
 				if (updatedPlayer?.overall == null || updatedPlayer.season == null)
 				{
-					Console.WriteLine($"[WARNING] External Match Ingest response for match {matchId} contained incomplete ratings for player_id {userId}; skipping.");
+					_logger.LogWarning("External Match Ingest response for match {MatchId} contained incomplete ratings for player ID {UserId}; skipping", matchId, userId);
 					continue;
 				}
 
@@ -223,7 +223,7 @@ namespace GenOnlineService
 					if (saved)
 						savedUpdates.Add((userId, data));
 					else
-						Console.WriteLine($"[WARNING] External Match Ingest response for match {matchId} referenced missing user_id {userId}; skipping.");
+						_logger.LogWarning("External Match Ingest response for match {MatchId} referenced missing user ID {UserId}; skipping", matchId, userId);
 				}
 
 				await transaction.CommitAsync(stoppingToken);
@@ -262,8 +262,7 @@ namespace GenOnlineService
 
 			if (!retry)
 			{
-				Console.WriteLine($"[ERROR] External publication for match {item.MatchId} stopped after {item.Attempt} attempts.");
-				SentrySdk.CaptureException(publicationException);
+				_logger.LogError(publicationException, "External publication for match {MatchId} stopped after {Attempt} attempts", item.MatchId, item.Attempt);
 			}
 		}
 

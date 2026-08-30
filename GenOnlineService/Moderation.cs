@@ -34,6 +34,7 @@ namespace GenOnlineService
 
 	public static class ModerationManager
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(ModerationManager));
 		public const int MaximumReasonLength = 256;
 
 		public static async Task<ModerationResult> KickUser(Int64 targetUserID, string reason)
@@ -59,6 +60,7 @@ namespace GenOnlineService
 
 		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason)
 		{
+			s_log.LogInformation("Applying moderation action {Action} to user {UserId}", action, userID);
 			WebSocketMessage_ModerationNotice notice = new WebSocketMessage_ModerationNotice
 			{
 				msg_id = (int)EWebSocketMessageID.MODERATION_NOTICE,

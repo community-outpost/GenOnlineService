@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService;
 using Microsoft.EntityFrameworkCore;		
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.Extensions.Primitives;
@@ -259,6 +260,8 @@ namespace Database
 {
 	public static class AntiCheat
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(AntiCheat));
+
 		private static DbParameter CreateParameter(bool postgres, string name, object value)
 		{
 			return postgres ? new NpgsqlParameter(name, value) : new MySqlParameter(name, value);
@@ -280,8 +283,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] AC_BanUser failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "AC_BanUser failed");
 			}
 		}
 
@@ -320,8 +322,7 @@ namespace Database
 					return;
 				}
 
-				Console.WriteLine($"[ERROR] FlagAccountForReview failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "FlagAccountForReview failed");
 			}
 		}
 
@@ -386,8 +387,7 @@ namespace Database
 					return true;
 				}
 
-				Console.WriteLine($"[ERROR] FlagAccountForReview_Modules failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "FlagAccountForReview_Modules failed");
 				return false;
 			}
 		}
@@ -413,8 +413,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] FlagAccountForReview_SuspectProbes failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "FlagAccountForReview_SuspectProbes failed");
 			}
 		}
 
@@ -436,8 +435,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] FlagAccountForReview_NewAccount_FirstMatches failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
+				s_log.LogError(ex, "FlagAccountForReview_NewAccount_FirstMatches failed");
 			}
 		}
 
