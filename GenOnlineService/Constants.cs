@@ -1593,6 +1593,7 @@ namespace GenOnlineService
 		private bool closed;
 		private readonly UserSession m_OwnerSession;
 		internal UserSession OwnerSession => m_OwnerSession;
+		internal bool IsOpen => m_SockInternal?.State == WebSocketState.Open;
 		private readonly CancellationTokenSource m_sendLoopStop = new CancellationTokenSource();
 		private Task m_sendLoop = Task.CompletedTask;
 
@@ -3086,6 +3087,9 @@ namespace GenOnlineService
 
 	public class WebSocketMessage_FullMeshConnectivityCheckOutcome: WebSocketMessage
 	{
+		public long mesh_check_id { get; set; }
+		public int attempt { get; set; }
+		public string reason { get; set; } = string.Empty;
 		public bool mesh_complete { get; set; }
 		public List<MissingConnectionEntry> missing_connections { get; set; } = new();
 	}

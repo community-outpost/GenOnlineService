@@ -1017,52 +1017,12 @@ namespace GenOnlineService.Controllers
 				}
 				else if (msgID == EWebSocketMessageID.FULL_MESH_CONNECTIVITY_CHECK_HOST_REQUESTS_BEGIN)
 				{
-					// Host has requested this, as part of the start game flow
-
-					// must be in a lobby
-					Lobby? lobbyInfo = null;
-					if (sourceUserSession.currentLobbyID != -1)
-					{
-						// must be lobby owner too
-						lobbyInfo = _lobbyManager.GetLobby(sourceUserSession.currentLobbyID);
-
-						if (lobbyInfo == null || lobbyInfo.Owner != sourceUserSession.m_UserID)
-						{
-							return;
-						}
-					}
-
-					if (lobbyInfo == null)
-					{
-						return;
-					}
-
-					// lock slots (more people joining when we're already doing connectivity checks won't help the situation)
-					// Awaited separately from StartFullMeshConnectivityCheck below: each is its own
-					// gated operation on the lobby, so neither ever nests inside the other's gate use.
-					await lobbyInfo.CloseOpenSlots();
-
-					// mark lobby as in progress of full mesh connectivity checks
-					await lobbyInfo.StartFullMeshConnectivityCheck();
-
-					// start full mesh connectivity checks
-					lobbyInfo.SendFullMeshConnectivityCheckRequestToMembers();
+					await _lobbyManager.StartMeshCheckAsync(sourceUserSession, sourceWS);
 				}
 				else if (msgID == EWebSocketMessageID.FULL_MESH_CONNECTIVITY_CHECK_RESPONSE)
 				{
-					// process a response from a user
-					WebSocketMessage_FullMeshConnectivityCheckResponseFromUser? fullMeshMsg =
-						JsonSerializer.Deserialize<WebSocketMessage_FullMeshConnectivityCheckResponseFromUser>(payload, JsonOpts);
-
-					// store response
-					if (fullMeshMsg != null)
-					{
-						Lobby? lobby = _lobbyManager.GetLobby(sourceUserSession.currentLobbyID);
-						if (lobby != null)
-						{
-							await lobby.StoreFullMeshConnectivityResponse(sourceUserSession.m_UserID, fullMeshMsg);
-						}
-					}
+					var response = JsonSerializer.Deserialize<WebSocketMessage_FullMeshConnectivityCheckResponseFromUser>(payload, JsonOpts);
+					if (response != null) await _lobbyManager.StoreMeshResponseAsync(sourceUserSession, sourceWS, response);
 				}
 				else if (msgID == EWebSocketMessageID.NETWORK_CONNECTION_CLIENT_REQUEST_SIGNALLING)
 				{
