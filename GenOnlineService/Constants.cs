@@ -659,7 +659,7 @@ namespace GenOnlineService
 					// If the player was in an active game when their connection dropped, record the
 					// abandon time NOW (before any lobby-structure cleanup runs).  This timestamp is
 					// the authoritative "who quit first" signal used by DetermineLobbyWinnerIfNotPresent,
-					// and must be captured here rather than in RemoveMember, because RemoveMember may
+					// and must be captured here rather than in RemoveMemberAsync, because RemoveMemberAsync may
 					// execute much later (e.g. 30 s after the first abandonment) or at an unexpected
 					// time (e.g. when the other player reconnects with a fresh session and their old
 					// session is forcibly evicted, causing them to appear as "last to leave" even
@@ -1852,9 +1852,9 @@ namespace GenOnlineService
 			Console.WriteLine("[Source 2] User {0} Leave Any Lobby", user_id);
 
 			var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-			await lobbyManager.LeaveAnyLobby(user_id);
+			await lobbyManager.LeaveAllLobbiesAsync(user_id);
 
-			await lobbyManager.CleanupUserLobbiesNotStarted(user_id);
+			await lobbyManager.CleanupUserLobbiesNotStartedAsync(user_id);
 
 			// remove from any matchmaking
 			if (userData != null)
