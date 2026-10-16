@@ -1859,7 +1859,7 @@ namespace GenOnlineService
 			// remove from any matchmaking
 			if (userData != null)
 			{
-				await MatchmakingManager.DeregisterPlayer(userData);
+				await MatchmakingManager.DeregisterPlayerAsync(userData);
 			}
 
 			// TODO: Client needs to handle this... itll start returning 404

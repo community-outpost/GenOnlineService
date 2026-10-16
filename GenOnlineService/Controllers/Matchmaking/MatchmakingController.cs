@@ -128,7 +128,7 @@ namespace GenOnlineService.Controllers
 
 				if (playerSession != null)
 				{
-					await MatchmakingManager.DeregisterPlayer(playerSession);
+					await MatchmakingManager.DeregisterPlayerAsync(playerSession);
 				}
 			}
 		}
