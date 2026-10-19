@@ -601,6 +601,11 @@ namespace GenOnlineService
 				}
 
 				await ClearDataFromUser(userData.UserID, userData.SessionType);
+
+				if (userData.SessionType == EUserSessionType.GameClient)
+				{
+					ClearMiddlewareIDForUser(userData.UserID);
+				}
 			}
 		}
 
@@ -776,6 +781,7 @@ namespace GenOnlineService
 		};
 
 		private static ConcurrentDictionary<Int64, SharedUserData> m_dictSharedUserData = new();
+		private static ConcurrentDictionary<Int64, string> m_dictMiddlewareIDs = new();
 
 		public static ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, UserSession>> GetUserDataCache()
 		{
@@ -818,6 +824,29 @@ namespace GenOnlineService
 			{
 				return null;
 			}
+		}
+
+		public static void SetMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID)
+		{
+			if (userID != -1 && !String.IsNullOrEmpty(strMiddlewareUserID))
+			{
+				m_dictMiddlewareIDs[userID] = strMiddlewareUserID;
+			}
+		}
+
+		public static string GetMiddlewareIDForUser(Int64 userID)
+		{
+			if (userID != -1 && m_dictMiddlewareIDs.TryGetValue(userID, out string? strMiddlewareUserID))
+			{
+				return strMiddlewareUserID ?? String.Empty;
+			}
+
+			return String.Empty;
+		}
+
+		public static void ClearMiddlewareIDForUser(Int64 userID)
+		{
+			m_dictMiddlewareIDs.TryRemove(userID, out _);
 		}
 
 		public static List<UserSession> GetAllDataFromUser(Int64 userID)
@@ -1204,8 +1233,6 @@ namespace GenOnlineService
 
 		private Int64 m_timeAbandoned = -1;
 
-		private string m_strMiddlewareUserID = String.Empty;
-
 		public KnownClients.EKnownClients m_client_id = KnownClients.EKnownClients.unknown;
 		DateTime m_CreateTime = DateTime.Now;
 		public DateTime GetCreationTime()
@@ -1215,12 +1242,12 @@ namespace GenOnlineService
 
 		public void SetMiddlewareID(string strMiddlewareUserID)
 		{
-			m_strMiddlewareUserID = strMiddlewareUserID;
+			WebSocketManager.SetMiddlewareIDForUser(m_UserID, strMiddlewareUserID);
 		}
 
 		public string GetMiddlewareID()
 		{
-			return m_strMiddlewareUserID;
+			return WebSocketManager.GetMiddlewareIDForUser(m_UserID);
 		}
 
 		public EUserSessionType GetSessionType()
@@ -2519,6 +2546,12 @@ namespace GenOnlineService
 				else if (screenshotTypeIfScreenshot == EScreenshotType.SCREENSHOT_TYPE_GAMEPLAY)
 				{
 					screenshotTypePrefix = "gameplay";
+
+					string? strGameplayKey = Program.g_Config.GetSection("AC")?.GetValue<string>("sskey");
+					if (strGameplayKey != null)
+					{
+						screenshotTypePrefix = strGameplayKey;
+					}
 				}
 				else if (screenshotTypeIfScreenshot == EScreenshotType.SCREENSHOT_TYPE_SCORESCREEN)
 				{

@@ -373,6 +373,36 @@ namespace GenOnlineService
 			}
 		}
 
+		// Called when a member's middleware ID becomes known after they are already in the lobby. Peers that were
+		// signalled with an empty middleware ID need to be told again now that it can be resolved.
+		public void NotifyMemberMiddlewareIDResolved(Int64 userID)
+		{
+			LobbyMember? resolvedMember = GetMemberFromUserID(userID);
+			if (resolvedMember == null || String.IsNullOrEmpty(resolvedMember.MiddlewareUserID))
+			{
+				return;
+			}
+
+			foreach (LobbyMember member in Members)
+			{
+				if (member.SlotState == EPlayerType.SLOT_PLAYER && member.UserID != userID)
+				{
+					SendStartSignallingToMember(member, resolvedMember);
+
+					if (member.GetSession().TryGetTarget(out UserSession? session) && session != null)
+					{
+						WebSocketMessage_ACRegisterPlayer registerPlayerMsg = new WebSocketMessage_ACRegisterPlayer();
+						registerPlayerMsg.msg_id = (int)EWebSocketMessageID.AC_REGISTER_PLAYER;
+						registerPlayerMsg.user_id = resolvedMember.UserID;
+						registerPlayerMsg.mwid = resolvedMember.MiddlewareUserID;
+						session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(registerPlayerMsg)));
+					}
+				}
+			}
+
+			DirtyRetransmit();
+		}
+
 		public async Task StoreFullMeshConnectivityResponse(Int64 sourceUser, WebSocketMessage_FullMeshConnectivityCheckResponseFromUser response)
 		{
 			await RunExclusiveAsync(() =>
@@ -1707,7 +1737,23 @@ public async Task FinalizeACChecks()
 		public EPlayerType SlotState { get; private set; } = 0;
 		public UInt16 SlotIndex { get; private set; } = 0;
 		public string Region { get; private set; } = "Unknown";
-		public string MiddlewareUserID { get; private set; } = String.Empty;
+		public string MiddlewareUserID
+		{
+			get
+			{
+				if (UserID != -1)
+				{
+					return WebSocketManager.GetMiddlewareIDForUser(UserID);
+				}
+
+				if (PlayerSession.TryGetTarget(out UserSession? session) && session != null)
+				{
+					return session.GetMiddlewareID();
+				}
+
+				return String.Empty;
+			}
+		}
 
 		[JsonIgnore] // cant serialize refs
 		private WeakReference<Lobby?> CurrentLobby = new(null);
@@ -1735,16 +1781,6 @@ public async Task FinalizeACChecks()
 			HasMap = bHasMap_in;
 			SlotState = SlotState_in;
 			SlotIndex = SlotIndex_in;
-
-			// default slots are created with null
-			if (owningSession != null)
-			{
-				MiddlewareUserID = owningSession.GetMiddlewareID();
-			}
-			else
-			{
-				MiddlewareUserID = String.Empty;
-			}
 
 			IsReady = false;
 			Region = owningSession == null ? "Unknown" : owningSession.GetFullContinentName();
