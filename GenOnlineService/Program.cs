@@ -624,6 +624,9 @@ namespace GenOnlineService
 	{
 		private const string BannedUserContextKey = "GenOnlineService.BannedUserID";
 
+		// Main lobby/websocket tick interval. See the comment at the tick timer for why 50ms is sufficient.
+		private const int c_LobbyTickIntervalMS = 50;
+
 		public static IConfiguration? g_Config = null;
 		public static DiscordBot? g_Discord = null;
 
@@ -1645,8 +1648,11 @@ namespace GenOnlineService
 			timerCleanup.Start();
 
 			// tick lobby
+			// Nothing in the tick needs finer than 50ms resolution: initial lobby syncs are spaced 200ms apart, mesh check
+			// snapshots/retries/window are 1s/3s/8s, probes are 30s+, and the dirty-flag coalescing only adds up to one
+			// interval of latency. 5ms made every lobby spin ~200x/s while idle.
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(5); // 5ms tick
+				System.Timers.Timer timerTick = new System.Timers.Timer(c_LobbyTickIntervalMS);
 				timerTick.AutoReset = false;
 				timerTick.Elapsed += async (sender, e) =>
 				{
@@ -1668,29 +1674,11 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-            // tick lobby cleanup - this is a separate timer to prevent main lobby tick from being blocked by cleanup
-            // @hotfix SkyAero 15/08/2026
-			{
-                System.Timers.Timer timerTick = new System.Timers.Timer(5); // 5ms tick
-                timerTick.AutoReset = false;
-                timerTick.Elapsed += async (sender, e) =>
-                {
-                    try
-                    {
-                        var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-                        await lobbyManager.ProcessLobbiesNeedingDestroyed();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[cleanupTick lobby] Exception: {ex}");
-                    }
-                    finally
-                    {
-                        timerTick.Start();
-                    }
-                };
-                timerTick.Start();
-            }
+			// lobby destroy loop - this is separate from the main lobby tick to prevent the tick from being blocked by cleanup
+			// @hotfix SkyAero 15/08/2026
+			// Event-driven: sleeps on a semaphore released when a lobby is queued for destruction, rather than polling.
+			_ = Task.Run(() => ServiceLocator.Services.GetRequiredService<LobbyManager>()
+				.RunLobbyDestroyLoopAsync(app.Lifetime.ApplicationStopping));
 
             // tick matchmaking (done at lower frequency)
             {

@@ -99,8 +99,16 @@ namespace GenOnlineService
 
 		public DateTime TimeCreated { get; private set; } = DateTime.UtcNow;
 
+		// Only written while holding m_LobbyGate; read lock-free by the per-tick early-out in
+		// ProcessPendingFullMeshConnectivityChecks, hence the backing field + Volatile access.
+		private bool m_PendingFullMeshConnectivityChecks = false;
+
 		[JsonIgnore]
-		public bool PendingFullMeshConnectivityChecks { get; private set; } = false;
+		public bool PendingFullMeshConnectivityChecks
+		{
+			get => Volatile.Read(ref m_PendingFullMeshConnectivityChecks);
+			private set => Volatile.Write(ref m_PendingFullMeshConnectivityChecks, value);
+		}
 
 		[JsonIgnore]
 		public Int64 TimeStartFullMeshChecks { get; private set; } = -1;
@@ -438,6 +446,15 @@ namespace GenOnlineService
 
 		public async Task ProcessPendingFullMeshConnectivityChecks()
 		{
+			// Idle early-out: skip the gate (semaphore + closure + async state machine) when no check is
+			// pending, which is the case for almost every lobby on almost every tick. This read is
+			// deliberately lock-free; a check that starts right after it is simply picked up on the next
+			// tick, and the authoritative re-check still happens under the gate in the Internal method.
+			if (!PendingFullMeshConnectivityChecks)
+			{
+				return;
+			}
+
 			await RunExclusiveAsync(() =>
 			{
 				ProcessPendingFullMeshConnectivityChecksInternal();
@@ -1108,7 +1125,6 @@ public async Task FinalizeACChecks()
 						UserSession? sess = WebSocketManager.GetSessionFromUser(session.m_UserID, session.GetSessionType());
 						if (sess != null)
 						{
-							Console.WriteLine("[DIRTY LOBBY] Sending WS lobby update for lobby {0}", LobbyID);
 							sess.QueueWebsocketSend(bytesJSON);
 						}
 					}
@@ -1934,9 +1950,35 @@ public async Task FinalizeACChecks()
 		// escape unobserved and leave the lobby leaked in m_dictLobbies forever).
 		private readonly ConcurrentQueue<Lobby> m_queueLobbiesNeedingDestroyed = new();
 
+		// Released once per enqueue so the destroy loop sleeps until there is work instead of polling.
+		private readonly SemaphoreSlim m_signalLobbiesNeedingDestroyed = new(0);
+
 		private void HandleLobbyNeedsDestroyed(Lobby lobby)
 		{
 			m_queueLobbiesNeedingDestroyed.Enqueue(lobby);
+			m_signalLobbiesNeedingDestroyed.Release();
+		}
+
+		// Long-running loop that destroys queued lobbies as soon as they are signalled. Kept separate from the
+		// main lobby tick so a slow delete never blocks it. Never exits on an exception; only on cancellation.
+		public async Task RunLobbyDestroyLoopAsync(CancellationToken cancellationToken)
+		{
+			while (!cancellationToken.IsCancellationRequested)
+			{
+				try
+				{
+					await m_signalLobbiesNeedingDestroyed.WaitAsync(cancellationToken);
+					await ProcessLobbiesNeedingDestroyed();
+				}
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+				{
+					break;
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"[cleanupTick lobby] Exception: {ex}");
+				}
+			}
 		}
 
 		public async Task ProcessLobbiesNeedingDestroyed()
