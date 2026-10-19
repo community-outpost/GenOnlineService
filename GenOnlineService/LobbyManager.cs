@@ -375,32 +375,39 @@ namespace GenOnlineService
 
 		// Called when a member's middleware ID becomes known after they are already in the lobby. Peers that were
 		// signalled with an empty middleware ID need to be told again now that it can be resolved.
-		public void NotifyMemberMiddlewareIDResolved(Int64 userID)
+		public async Task NotifyMemberMiddlewareIDResolved(Int64 userID)
 		{
-			LobbyMember? resolvedMember = GetMemberFromUserID(userID);
-			if (resolvedMember == null || String.IsNullOrEmpty(resolvedMember.MiddlewareUserID))
+			// Iterates Members, so it must run under the lobby gate. Everything called from inside
+			// (GetMemberFromUserID, SendStartSignallingToMember, QueueWebsocketSend, DirtyRetransmit)
+			// is non-blocking and never re-enters the gate.
+			await RunExclusiveAsync(() =>
 			{
-				return;
-			}
-
-			foreach (LobbyMember member in Members)
-			{
-				if (member.SlotState == EPlayerType.SLOT_PLAYER && member.UserID != userID)
+				LobbyMember? resolvedMember = GetMemberFromUserID(userID);
+				if (resolvedMember == null || String.IsNullOrEmpty(resolvedMember.MiddlewareUserID))
 				{
-					SendStartSignallingToMember(member, resolvedMember);
+					return Task.CompletedTask;
+				}
 
-					if (member.GetSession().TryGetTarget(out UserSession? session) && session != null)
+				foreach (LobbyMember member in Members)
+				{
+					if (member.SlotState == EPlayerType.SLOT_PLAYER && member.UserID != userID)
 					{
-						WebSocketMessage_ACRegisterPlayer registerPlayerMsg = new WebSocketMessage_ACRegisterPlayer();
-						registerPlayerMsg.msg_id = (int)EWebSocketMessageID.AC_REGISTER_PLAYER;
-						registerPlayerMsg.user_id = resolvedMember.UserID;
-						registerPlayerMsg.mwid = resolvedMember.MiddlewareUserID;
-						session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(registerPlayerMsg)));
+						SendStartSignallingToMember(member, resolvedMember);
+
+						if (member.GetSession().TryGetTarget(out UserSession? session) && session != null)
+						{
+							WebSocketMessage_ACRegisterPlayer registerPlayerMsg = new WebSocketMessage_ACRegisterPlayer();
+							registerPlayerMsg.msg_id = (int)EWebSocketMessageID.AC_REGISTER_PLAYER;
+							registerPlayerMsg.user_id = resolvedMember.UserID;
+							registerPlayerMsg.mwid = resolvedMember.MiddlewareUserID;
+							session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(registerPlayerMsg)));
+						}
 					}
 				}
-			}
 
-			DirtyRetransmit();
+				DirtyRetransmit();
+				return Task.CompletedTask;
+			});
 		}
 
 		public async Task StoreFullMeshConnectivityResponse(Int64 sourceUser, WebSocketMessage_FullMeshConnectivityCheckResponseFromUser response)

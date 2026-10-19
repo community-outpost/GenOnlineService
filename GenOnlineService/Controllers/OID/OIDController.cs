@@ -299,7 +299,11 @@ namespace GenOnlineService.Controllers.LoginWithToken
 						if (currentLobbyID != -1)
 						{
 							LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-							lobbyManager.GetLobby(currentLobbyID)?.NotifyMemberMiddlewareIDResolved(user_id);
+							Lobby? currentLobby = lobbyManager.GetLobby(currentLobbyID);
+							if (currentLobby != null)
+							{
+								await currentLobby.NotifyMemberMiddlewareIDResolved(user_id);
+							}
 						}
 					}
 				}

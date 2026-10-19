@@ -601,11 +601,6 @@ namespace GenOnlineService
 				}
 
 				await ClearDataFromUser(userData.UserID, userData.SessionType);
-
-				if (userData.SessionType == EUserSessionType.GameClient)
-				{
-					ClearMiddlewareIDForUser(userData.UserID);
-				}
 			}
 		}
 
@@ -922,7 +917,17 @@ namespace GenOnlineService
 
 			}
 
-			return m_dictUserSessions[sessionType].Remove(userID, out var itemRemoved);
+			bool bRemoved = m_dictUserSessions[sessionType].Remove(userID, out var itemRemoved);
+
+			// This is the single true-teardown point (abandoned sweep, DeleteSession with invalidate, explicit
+			// login/logout flows), so the per-user middleware ID is dropped here and nowhere else. Transient
+			// websocket drops never reach this, which is what lets the ID survive a reconnect.
+			if (sessionType == EUserSessionType.GameClient)
+			{
+				ClearMiddlewareIDForUser(userID);
+			}
+
+			return bRemoved;
 		}
 
 
