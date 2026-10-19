@@ -623,12 +623,10 @@ namespace GenOnlineService
 				try
 				{
 					// dont remove by ID, user could have re-opened another websocket open via reconnection, remove by instance, if its not there, thats OK, it was already closed and the new instance is a reconnect
-					var item = m_dictWebsockets[sessionType].First(kvp => kvp.Value == oldWS); // safe to lookup by sessionType here since we only ever remove old WS of the same type
-					m_dictWebsockets[sessionType].Remove(item.Key, out UserWebSocketInstance? destroyedSess);
-
-					if (destroyedSess != null)
+					// we already know the key (user_id); TryRemove(KeyValuePair) only removes when the stored value is the same instance (safe to lookup by sessionType here since we only ever remove old WS of the same type)
+					if (((ICollection<KeyValuePair<Int64, UserWebSocketInstance>>)m_dictWebsockets[sessionType]).Remove(new KeyValuePair<Int64, UserWebSocketInstance>(user_id, oldWS)))
 					{
-						await destroyedSess.CloseAsync(WebSocketCloseStatus.NormalClosure, "User signed in from another point of presence [A]");
+						await oldWS.CloseAsync(WebSocketCloseStatus.NormalClosure, "User signed in from another point of presence [A]");
 					}
 				}
 				catch
@@ -938,8 +936,23 @@ namespace GenOnlineService
 		private static readonly object g_dirtyMemberRoomsLock = new();
 		private static readonly HashSet<int> g_dirtyMemberRooms = new();
 
+		// Bumped whenever the set/state of lobbies may have changed, so cached lobby-list snapshots built before it are discarded
+		private static long g_lobbyListCacheVersion = 0;
+
+		public static void InvalidateLobbyListCache()
+		{
+			Interlocked.Increment(ref g_lobbyListCacheVersion);
+		}
+
+		public static long GetLobbyListCacheVersion()
+		{
+			return Volatile.Read(ref g_lobbyListCacheVersion);
+		}
+
 		public static void QueueLobbyListUpdateForViewers(int networkRoomID)
 		{
+			InvalidateLobbyListCache();
+
 			if (networkRoomID < 0)
 			{
 				return;
@@ -959,8 +972,20 @@ namespace GenOnlineService
 			}
 		}
 
+		// Lobby list refresh notifications are coalesced: dirty state keeps accumulating in between flushes,
+		// so nothing is lost, but the (expensive) fan-out over every session runs at most once per interval.
+		// The client throttles its own refresh far above this, so the added latency is not observable.
+		private const long LOBBY_LIST_FLUSH_INTERVAL_MS = 250;
+		private static long g_lastLobbyListFlushMs = 0;
+
 		internal static void FlushLobbyListUpdates()
 		{
+			long nowMs = Environment.TickCount64;
+			if (nowMs - Volatile.Read(ref g_lastLobbyListFlushMs) < LOBBY_LIST_FLUSH_INTERVAL_MS)
+			{
+				return;
+			}
+
 			int[] dirtyRooms;
 			HashSet<UserSession> directlyDirtySessions;
 			lock (g_dirtyLobbyRoomsLock)
@@ -976,15 +1001,59 @@ namespace GenOnlineService
 				return;
 			}
 
+			Volatile.Write(ref g_lastLobbyListFlushMs, nowMs);
+
 			byte[] bytesJSON = CreateLobbyListUpdateBytes();
-			HashSet<UserSession> sessionsToCheck = new(m_dictUserSessions.Values.SelectMany(sessions => sessions.Values));
-			sessionsToCheck.UnionWith(directlyDirtySessions);
-			foreach (UserSession session in sessionsToCheck)
+
+			// CanViewLobby only depends on the session's selected room, so evaluate it once per distinct room
+			Dictionary<int, bool> canViewByRoom = new();
+
+			// a UserSession object is registered under exactly one session type, so a single pass visits each once
+			HashSet<UserSession>? visitedDirectSessions = directlyDirtySessions.Count > 0 ? new HashSet<UserSession>() : null;
+			foreach (ConcurrentDictionary<Int64, UserSession> sessionsByUser in m_dictUserSessions.Values)
 			{
-				if (directlyDirtySessions.Contains(session)
-					|| dirtyRooms.Any(roomID => RoomCatalog.CanViewLobby(session.selectedNetworkRoomID, roomID)))
+				foreach (KeyValuePair<Int64, UserSession> kvp in sessionsByUser)
 				{
-					session.QueueWebsocketSend(bytesJSON);
+					UserSession session = kvp.Value;
+					bool bShouldSend = false;
+					if (visitedDirectSessions != null && directlyDirtySessions.Contains(session))
+					{
+						visitedDirectSessions.Add(session);
+						bShouldSend = true;
+					}
+					else
+					{
+						int selectedRoomID = session.selectedNetworkRoomID;
+						if (!canViewByRoom.TryGetValue(selectedRoomID, out bShouldSend))
+						{
+							for (int i = 0; i < dirtyRooms.Length; ++i)
+							{
+								if (RoomCatalog.CanViewLobby(selectedRoomID, dirtyRooms[i]))
+								{
+									bShouldSend = true;
+									break;
+								}
+							}
+							canViewByRoom[selectedRoomID] = bShouldSend;
+						}
+					}
+
+					if (bShouldSend)
+					{
+						session.QueueWebsocketSend(bytesJSON);
+					}
+				}
+			}
+
+			// directly dirty sessions that are no longer registered in the session table still get the update
+			if (visitedDirectSessions != null)
+			{
+				foreach (UserSession session in directlyDirtySessions)
+				{
+					if (!visitedDirectSessions.Contains(session))
+					{
+						session.QueueWebsocketSend(bytesJSON);
+					}
 				}
 			}
 		}
@@ -1030,13 +1099,24 @@ namespace GenOnlineService
 				return memberListUpdate;
 			}
 
+			List<UserSession> roomSessions = new();
 			foreach (UserSession session in m_dictUserSessions.Values.SelectMany(byType => byType.Values))
 			{
-				EUserSessionType sessionType = session.GetSessionType();
-				if (session.networkRoomID != roomID)
+				if (session.networkRoomID == roomID)
 				{
-					continue;
+					roomSessions.Add(session);
 				}
+			}
+
+			FillRoomMemberList(memberListUpdate, roomSessions);
+			return memberListUpdate;
+		}
+
+		private static void FillRoomMemberList(WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate, List<UserSession> roomSessions)
+		{
+			foreach (UserSession session in roomSessions)
+			{
+				EUserSessionType sessionType = session.GetSessionType();
 
 				SharedUserData? sharedUserData = GetSharedDataForUser(session.m_UserID);
 				if (sharedUserData == null)
@@ -1059,8 +1139,6 @@ namespace GenOnlineService
 
 				memberListUpdate.members.Add(new RoomMember(session.m_UserID, displayName, sharedUserData.IsAdmin()));
 			}
-
-			return memberListUpdate;
 		}
 
 		public static void TickRoomMemberList()
@@ -1072,17 +1150,52 @@ namespace GenOnlineService
 				g_dirtyMemberRooms.Clear();
 			}
 
+			if (dirtyRooms.Length == 0)
+			{
+				return;
+			}
+
+			// one pass over all sessions, bucketed by network room (dirty rooms only); enumeration order matches the
+			// per-room scan this replaces, so member order inside each payload is unchanged
+			Dictionary<int, List<UserSession>> sessionsByRoom = new();
 			foreach (int roomID in dirtyRooms)
 			{
-				WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate = CreateRoomMemberListUpdate(roomID);
-				byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(memberListUpdate));
-
-				foreach (UserSession session in m_dictUserSessions.Values.SelectMany(byType => byType.Values))
+				if (roomID >= 0)
 				{
-					if (session.networkRoomID == roomID)
+					sessionsByRoom[roomID] = new List<UserSession>();
+				}
+			}
+
+			foreach (ConcurrentDictionary<Int64, UserSession> sessionsByUser in m_dictUserSessions.Values)
+			{
+				foreach (KeyValuePair<Int64, UserSession> kvp in sessionsByUser)
+				{
+					UserSession session = kvp.Value;
+					if (sessionsByRoom.TryGetValue(session.networkRoomID, out List<UserSession>? bucket))
 					{
-						session.QueueWebsocketSend(bytesJSON);
+						bucket.Add(session);
 					}
+				}
+			}
+
+			foreach (int roomID in dirtyRooms)
+			{
+				WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate = new()
+				{
+					msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_MEMBER_LIST_UPDATE
+				};
+
+				if (!sessionsByRoom.TryGetValue(roomID, out List<UserSession>? roomSessions))
+				{
+					// negative room IDs have no members and nobody to notify
+					continue;
+				}
+
+				FillRoomMemberList(memberListUpdate, roomSessions);
+				byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(memberListUpdate));
+				foreach (UserSession session in roomSessions)
+				{
+					session.QueueWebsocketSend(bytesJSON);
 				}
 			}
 		}

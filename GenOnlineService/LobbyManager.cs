@@ -1494,6 +1494,7 @@ public async Task FinalizeACChecks()
 
 		public void DirtyRetransmitLobbyList()
 		{
+			WebSocketManager.InvalidateLobbyListCache();
 			DirtyRetransmit();
 			Interlocked.Exchange(ref m_lobbyListUpdatePending, 1);
 		}
@@ -2131,6 +2132,41 @@ public async Task FinalizeACChecks()
 			}
 
 			return listLobbies;
+		}
+
+		// Short-lived cache of the requester-independent part of GET lobbies: which lobbies are visible from a given
+		// selected room. Snapshots are immutable (never modified after publication) and swapped atomically via the
+		// dictionary slot, so no lock is held while requests read or serialize. The returned list is a per-request
+		// copy, and the live Lobby objects are still what gets serialized, exactly as before.
+		private const long LOBBY_VISIBILITY_CACHE_TTL_MS = 250;
+
+		private sealed class LobbyVisibilitySnapshot
+		{
+			public long BuiltAtMs;
+			public long Version;
+			public Lobby[] Lobbies = Array.Empty<Lobby>();
+		}
+
+		private readonly ConcurrentDictionary<(Int16 RoomID, bool IncludeAllRooms), LobbyVisibilitySnapshot> m_dictLobbyVisibilityCache = new();
+
+		// Same result as GetAllLobbies(selectedRoomID, true, true, false, false, bIncludeAllNetworkRooms) (the game client query)
+		public List<Lobby> GetAllLobbiesForClientCached(Int16 selectedRoomID, bool bIncludeAllNetworkRooms)
+		{
+			var key = (selectedRoomID, bIncludeAllNetworkRooms);
+			long nowMs = Environment.TickCount64;
+			long version = WebSocketManager.GetLobbyListCacheVersion();
+
+			if (m_dictLobbyVisibilityCache.TryGetValue(key, out LobbyVisibilitySnapshot? cached)
+				&& cached.Version == version
+				&& nowMs - cached.BuiltAtMs < LOBBY_VISIBILITY_CACHE_TTL_MS)
+			{
+				return new List<Lobby>(cached.Lobbies);
+			}
+
+			// read the version BEFORE building: a change racing the build leaves the snapshot already outdated
+			List<Lobby> fresh = GetAllLobbies(selectedRoomID, true, true, false, false, bIncludeAllNetworkRooms);
+			m_dictLobbyVisibilityCache[key] = new LobbyVisibilitySnapshot { BuiltAtMs = nowMs, Version = version, Lobbies = fresh.ToArray() };
+			return fresh;
 		}
 
 		public Lobby? GetLobby(Int64 lobbyID)

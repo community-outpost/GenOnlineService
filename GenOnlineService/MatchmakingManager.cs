@@ -1591,15 +1591,23 @@ static class MatchmakingManager
 
 		// tick mm buckets
 		// TODO_QUICKMATCH: This is slow
-		List<MatchmakingBucket> lstBucketsMergedNeedingDeleted = new();
+		List<MatchmakingBucket> lstBucketsMergedNeedingDeleted = new(); // keeps deletion order
+		HashSet<MatchmakingBucket> setBucketsMergedNeedingDeleted = new(); // O(1) membership checks for the same buckets
 		foreach (var kvPair in m_dictMatchmakingBuckets)
 		{
+			// merging needs at least two buckets in the playlist; the bucket tick itself still runs for a lone bucket
+			bool bCanMergeInPlaylist = kvPair.Value.Count >= 2;
 			foreach (MatchmakingBucket mmBucket in kvPair.Value)
 			{
 				// if we've already been merged and are awaiting delayed deletion, dont process it anymore
-				if (!lstBucketsMergedNeedingDeleted.Contains(mmBucket) && !mmBucket.IsMergedAway())
+				if (!setBucketsMergedNeedingDeleted.Contains(mmBucket) && !mmBucket.IsMergedAway())
 				{
 					await mmBucket.Tick();
+
+					if (!bCanMergeInPlaylist)
+					{
+						continue;
+					}
 
 					// try to merge with any other bucket within this playlist
 					foreach (MatchmakingBucket mmBucketMergeCandidate in kvPair.Value)
@@ -1607,18 +1615,21 @@ static class MatchmakingManager
 						if (mmBucketMergeCandidate != mmBucket)
 						{
 							// if either bucket has already been merged and is awaiting delayed deletion, dont process it anymore
-							if (lstBucketsMergedNeedingDeleted.Contains(mmBucket) || mmBucket.IsMergedAway())
+							if (setBucketsMergedNeedingDeleted.Contains(mmBucket) || mmBucket.IsMergedAway())
 							{
 								break;
 							}
 
-							if (!lstBucketsMergedNeedingDeleted.Contains(mmBucketMergeCandidate) && !mmBucketMergeCandidate.IsMergedAway())
+							if (!setBucketsMergedNeedingDeleted.Contains(mmBucketMergeCandidate) && !mmBucketMergeCandidate.IsMergedAway())
 							{
 								if (mmBucket.CanMergeWithOtherBucket(mmBucketMergeCandidate))
 								{
 									await mmBucket.MergeWithOtherBucket(mmBucketMergeCandidate);
 
-									lstBucketsMergedNeedingDeleted.Add(mmBucketMergeCandidate);
+									if (setBucketsMergedNeedingDeleted.Add(mmBucketMergeCandidate))
+									{
+										lstBucketsMergedNeedingDeleted.Add(mmBucketMergeCandidate);
+									}
 								}
 							}
 						}
