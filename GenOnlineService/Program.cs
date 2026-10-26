@@ -1997,6 +1997,17 @@ namespace GenOnlineService
 
 			app.MapControllers();
 
+			// Unauthenticated liveness probe used by deployment tooling. Exposes only status and build version.
+			// Load balancers probe with HEAD as well as GET (Kestrel drops the body of a HEAD response).
+			app.MapMethods("/healthz", new[] { "GET", "HEAD" }, () => Results.Json(new
+			{
+				status = "ok",
+				version = typeof(Program).Assembly
+					.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+					.OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+					.FirstOrDefault()?.InformationalVersion
+			})).AllowAnonymous().DisableRateLimiting();
+
 
 			// cleanup
 			System.Timers.Timer timerCleanup = new System.Timers.Timer(5000); // 5s tick
