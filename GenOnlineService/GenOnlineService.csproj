@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Platforms>x64;ARM64</Platforms>
+    <!-- The version comes from the git tag (see GoResolveVersion below); the SDK must not append its own +SourceRevisionId. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -78,5 +80,55 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!--
+    The git tag is the only source of the version. _GoVersion is the full informational version, which /healthz reports:
+      HEAD on tag v1.2.3               1.2.3+<8-char sha>
+      HEAD 20 commits after v1.2.3     1.2.3+20.<8-char sha>
+      no vX.Y.Z tag reachable          0.0.0+<8-char sha>
+      no git                           0.0.0+unknown
+    Only plain vX.Y.Z tags count; any other tag is ignored. It is always computed here, there is no override, so
+    builds (Docker included) need the .git directory. The value is also written to version.txt in the publish output.
+    Version, AssemblyVersion and FileVersion get the numeric X.Y.Z part.
+  -->
+  <Target Name="GoResolveVersion" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+    <!-- Prints the bare sha when no vX.Y.Z tag is reachable (git describe always mode); a failing or missing git leaves the output empty or unparsable. -->
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; describe --tags --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; --exclude &quot;v*-*&quot; --long --abbrev=8 --always"
+          ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true"
+          StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GoDescribe" />
+    </Exec>
+
+    <PropertyGroup>
+      <!-- vX.Y.Z-<commits since tag>-g<sha> -->
+      <_GoTagPattern>^v(\d+\.\d+\.\d+)-(\d+)-g([0-9a-f]+)$</_GoTagPattern>
+      <_GoShaPattern>^([0-9a-f]{7,40})$</_GoShaPattern>
+      <_GoVersion>0.0.0+unknown</_GoVersion>
+    </PropertyGroup>
+    <!-- On the tag itself the distance is 0 and left out, so a release is told apart from the commits after it. -->
+    <PropertyGroup Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_GoDescribe)', '$(_GoTagPattern)'))">
+      <_GoVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(_GoDescribe)', '$(_GoTagPattern)', '$1+$2.$3'))</_GoVersion>
+      <_GoVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(_GoVersion)', '\+0\.', '+'))</_GoVersion>
+    </PropertyGroup>
+    <PropertyGroup Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_GoDescribe)', '$(_GoShaPattern)'))">
+      <_GoVersion>0.0.0+$([System.Text.RegularExpressions.Regex]::Replace('$(_GoDescribe)', '$(_GoShaPattern)', '$1'))</_GoVersion>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <Version>$([System.Text.RegularExpressions.Regex]::Replace('$(_GoVersion)', '^(\d+\.\d+\.\d+).*$', '$1'))</Version>
+      <AssemblyVersion>$(Version)</AssemblyVersion>
+      <FileVersion>$(Version)</FileVersion>
+      <InformationalVersion>$(_GoVersion)</InformationalVersion>
+    </PropertyGroup>
+
+    <!-- CI reads the version for the artifact name from the publish output. -->
+    <WriteLinesToFile File="$(IntermediateOutputPath)version.txt" Lines="$(_GoVersion)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="GoPublishVersionFile" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(IntermediateOutputPath)version.txt" RelativePath="version.txt" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
 </Project>

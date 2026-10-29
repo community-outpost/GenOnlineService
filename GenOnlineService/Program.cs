@@ -1547,6 +1547,12 @@ namespace GenOnlineService
 				sentry_env = "production";
 			}
 
+			// Informational version stamped into the build from the git tag (GoResolveVersion in the csproj)
+			string buildVersion = typeof(Program).Assembly
+				.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+				.OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+				.FirstOrDefault()?.InformationalVersion ?? "unknown";
+
 			if ((bool)sentry_enabled)
 			{
 				double sentryTracesSampleRate = sentrySettings.GetValue<double?>("traces_sample_rate") ?? 0.1;
@@ -1562,7 +1568,7 @@ namespace GenOnlineService
 
 					options.Environment = sentry_env;
 
-					options.Release = "generalsonline-services@100126";
+					options.Release = buildVersion;
 					options.EnableLogs = sentryEnableLogs;
 					// Sentry's own EF/SqlClient listener would put SQL into span descriptions
 					options.DisableDiagnosticSourceIntegration();
@@ -2002,10 +2008,7 @@ namespace GenOnlineService
 			app.MapMethods("/healthz", new[] { "GET", "HEAD" }, () => Results.Json(new
 			{
 				status = "ok",
-				version = typeof(Program).Assembly
-					.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-					.OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-					.FirstOrDefault()?.InformationalVersion
+				version = buildVersion
 			})).AllowAnonymous().DisableRateLimiting();
 
 
