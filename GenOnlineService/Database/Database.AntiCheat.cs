@@ -20,6 +20,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.Extensions.Primitives;
 using MySqlConnector;
+using Npgsql;
+using System.Data.Common;
 using System.Text;
 using System.Text.Json;
 
@@ -152,22 +154,20 @@ public class AcReviewCrcConfiguration : IEntityTypeConfiguration<AcReviewCrc>
 		entity.HasKey(e => new { e.UserId, e.OriginalCrc, e.DiffCrc, e.MostRecentMatch });
 
 		entity.Property(e => e.UserId)
-			.HasColumnName("user_id")
-			.HasColumnType("bigint(20)");
+			.HasColumnName("user_id");
 
 		entity.Property(e => e.OriginalCrc)
 			.HasColumnName("original_crc")
-			.HasColumnType("varchar(64)")
+			.HasMaxLength(64)
 			.IsRequired();
 
 		entity.Property(e => e.DiffCrc)
 			.HasColumnName("diff_crc")
-			.HasColumnType("varchar(64)")
+			.HasMaxLength(64)
 			.IsRequired();
 
 		entity.Property(e => e.MostRecentMatch)
-			.HasColumnName("most_recent_match")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("most_recent_match");
 	}
 }
 
@@ -181,30 +181,26 @@ public class AcReviewModuleConfiguration : IEntityTypeConfiguration<AcReviewModu
 
 		entity.Property(e => e.ReportId)
 			.HasColumnName("report_id")
-			.HasColumnType("bigint(20) unsigned")
 			.ValueGeneratedOnAdd();
 
 		entity.Property(e => e.UserId)
-			.HasColumnName("user_id")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("user_id");
 
 		entity.Property(e => e.MatchId)
-			.HasColumnName("match_id")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("match_id");
 
 		entity.Property(e => e.ModuleName)
 			.HasColumnName("module_name")
-			.HasColumnType("varchar(128)")
+			.HasMaxLength(128)
 			.IsRequired();
 
 		entity.Property(e => e.ModulePath)
 			.HasColumnName("module_path")
-			.HasColumnType("varchar(512)")
+			.HasMaxLength(512)
 			.IsRequired();
 
 		entity.Property(e => e.ModuleSize)
-			.HasColumnName("module_size")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("module_size");
 
 		entity.HasIndex(e => new { e.UserId, e.MatchId, e.ModuleName })
 			.IsUnique()
@@ -222,16 +218,13 @@ public class AcReviewNewAccountGameConfiguration : IEntityTypeConfiguration<AcRe
 
 		entity.Property(e => e.ReportId)
 			.HasColumnName("report_id")
-			.HasColumnType("bigint(20) unsigned")
 			.ValueGeneratedOnAdd();
 
 		entity.Property(e => e.UserId)
-			.HasColumnName("user_id")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("user_id");
 
 		entity.Property(e => e.MatchId)
-			.HasColumnName("match_id")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("match_id");
 	}
 }
 
@@ -245,20 +238,17 @@ public class AcReviewProbeConfiguration : IEntityTypeConfiguration<AcReviewProbe
 
 		entity.Property(e => e.ReportId)
 			.HasColumnName("report_id")
-			.HasColumnType("bigint(20) unsigned")
 			.ValueGeneratedOnAdd();
 
 		entity.Property(e => e.UserId)
-			.HasColumnName("user_id")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("user_id");
 
 		entity.Property(e => e.MatchId)
-			.HasColumnName("match_id")
-			.HasColumnType("bigint(20) unsigned");
+			.HasColumnName("match_id");
 
 		entity.Property(e => e.Reason)
 			.HasColumnName("reason")
-			.HasColumnType("varchar(256)")
+			.HasMaxLength(256)
 			.IsRequired();
 	}
 }
@@ -267,25 +257,13 @@ public class AcReviewProbeConfiguration : IEntityTypeConfiguration<AcReviewProbe
 
 namespace Database
 {
-	internal static class DbErrors
-	{
-		// MySQL/MariaDB error 1062 (ER_DUP_ENTRY), anywhere in the exception chain
-		public static bool IsDuplicateKey(Exception ex)
-		{
-			for (Exception? current = ex; current != null; current = current.InnerException)
-			{
-				if (current is MySqlException mysqlEx && mysqlEx.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
-				{
-					return true;
-				}
-			}
-
-			return false;
-		}
-	}
-
 	public static class AntiCheat
 	{
+		private static DbParameter CreateParameter(bool postgres, string name, object value)
+		{
+			return postgres ? new NpgsqlParameter(name, value) : new MySqlParameter(name, value);
+		}
+
 		public static async Task AC_BanUser(AppDbContext db, long userId, string reason)
 		{
 			try
@@ -319,14 +297,25 @@ namespace Database
 			{
 				// Idempotent insert: every column is part of the primary key, so a duplicate is an identical report
 				// (same match) and is ignored; a new match still records a new row, as before
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO ac_reviews_crc (user_id, original_crc, diff_crc, most_recent_match)
-					VALUES ({userId}, {originalCrc}, {diffCrc}, {matchId})
-					ON DUPLICATE KEY UPDATE user_id = user_id");
+				if (db.Database.IsNpgsql())
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO ac_reviews_crc (user_id, original_crc, diff_crc, most_recent_match)
+						VALUES ({userId}, {originalCrc}, {diffCrc}, {(long)matchId})
+						ON CONFLICT (user_id, original_crc, diff_crc, most_recent_match) DO NOTHING");
+				}
+				else
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO ac_reviews_crc (user_id, original_crc, diff_crc, most_recent_match)
+						VALUES ({userId}, {originalCrc}, {diffCrc}, {matchId})
+						ON DUPLICATE KEY UPDATE user_id = user_id");
+				}
+
 			}
 			catch (Exception ex)
 			{
-				if (DbErrors.IsDuplicateKey(ex))
+				if (DbHelpers.IsUniqueViolation(ex))
 				{
 					return;
 				}
@@ -357,12 +346,13 @@ namespace Database
 				for (int offset = 0; offset < modules.Count; offset += ChunkSize)
 				{
 					int count = Math.Min(ChunkSize, modules.Count - offset);
+					bool postgres = db.Database.IsNpgsql();
 
 					// Only parameter placeholders are concatenated here, all values are bound as parameters
 					StringBuilder sql = new StringBuilder("INSERT INTO ac_reviews_modules (user_id, match_id, module_name, module_path, module_size) VALUES ");
 					List<object> parameters = new List<object>(2 + (count * 3));
-					parameters.Add(new MySqlParameter("@uid", userId));
-					parameters.Add(new MySqlParameter("@mid", matchId));
+					parameters.Add(CreateParameter(postgres, "@uid", userId));
+					parameters.Add(CreateParameter(postgres, "@mid", postgres ? (long)matchId : (object)matchId));
 
 					for (int i = 0; i < count; ++i)
 					{
@@ -374,13 +364,15 @@ namespace Database
 						}
 
 						sql.Append("(@uid, @mid, @n").Append(i).Append(", @p").Append(i).Append(", @s").Append(i).Append(')');
-						parameters.Add(new MySqlParameter("@n" + i, module.ModuleName));
-						parameters.Add(new MySqlParameter("@p" + i, module.ModulePath));
-						parameters.Add(new MySqlParameter("@s" + i, (ulong)module.ModuleSize));
+						parameters.Add(CreateParameter(postgres, "@n" + i, module.ModuleName));
+						parameters.Add(CreateParameter(postgres, "@p" + i, module.ModulePath));
+						parameters.Add(CreateParameter(postgres, "@s" + i, postgres ? (long)module.ModuleSize : (object)(ulong)module.ModuleSize));
 					}
 
-					// No-op update on the unique key (user_id, match_id, module_name): repeats are ignored, other errors still surface
-					sql.Append(" ON DUPLICATE KEY UPDATE report_id = report_id");
+					// Repeats on the unique key (user_id, match_id, module_name) are ignored (a no-op update on MySQL), other errors still surface
+					sql.Append(postgres
+						? " ON CONFLICT (user_id, match_id, module_name) DO NOTHING"
+						: " ON DUPLICATE KEY UPDATE report_id = report_id");
 
 					await db.Database.ExecuteSqlRawAsync(sql.ToString(), parameters);
 				}
@@ -389,7 +381,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				if (DbErrors.IsDuplicateKey(ex))
+				if (DbHelpers.IsUniqueViolation(ex))
 				{
 					return true;
 				}

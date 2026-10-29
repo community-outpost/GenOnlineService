@@ -310,6 +310,15 @@ namespace GenOnlineService.Controllers
 							Response.StatusCode = (int)HttpStatusCode.BadRequest;
 							return result;
 						}
+						// NUL characters are never legitimate here and PostgreSQL rejects them. Reject the request instead of
+						// rewriting the values: they must stay exactly what the client sent.
+						if ((strName != null && strName.Contains('\0'))
+							|| (strMapName != null && strMapName.Contains('\0'))
+							|| (strMapPath != null && strMapPath.Contains('\0')))
+						{
+							Response.StatusCode = (int)HttpStatusCode.BadRequest;
+							return result;
+						}
 
 
 

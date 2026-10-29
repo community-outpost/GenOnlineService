@@ -64,12 +64,24 @@ namespace Database
 			try
 			{
 				// Atomic upsert (GREATEST semantics), safe against concurrent/repeated commits for the same day+hour
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO service_stats (day_of_year, hour_of_day, player_peak, lobbies_peak)
-					VALUES ({day_of_year}, {hour_of_day}, {player_peak}, {lobbies_peak})
-					ON DUPLICATE KEY UPDATE
-						player_peak = GREATEST(player_peak, VALUES(player_peak)),
-						lobbies_peak = GREATEST(lobbies_peak, VALUES(lobbies_peak))");
+				if (db.Database.IsNpgsql())
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO service_stats (day_of_year, hour_of_day, player_peak, lobbies_peak)
+						VALUES ({day_of_year}, {hour_of_day}, {player_peak}, {lobbies_peak})
+						ON CONFLICT (day_of_year, hour_of_day) DO UPDATE SET
+							player_peak = GREATEST(service_stats.player_peak, EXCLUDED.player_peak),
+							lobbies_peak = GREATEST(service_stats.lobbies_peak, EXCLUDED.lobbies_peak)");
+				}
+				else
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO service_stats (day_of_year, hour_of_day, player_peak, lobbies_peak)
+						VALUES ({day_of_year}, {hour_of_day}, {player_peak}, {lobbies_peak})
+						ON DUPLICATE KEY UPDATE
+							player_peak = GREATEST(player_peak, VALUES(player_peak)),
+							lobbies_peak = GREATEST(lobbies_peak, VALUES(lobbies_peak))");
+				}
 
 				// DELETE old rows
 				int cutoff = day_of_year - 30;

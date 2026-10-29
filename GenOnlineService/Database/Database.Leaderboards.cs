@@ -221,22 +221,42 @@ namespace Database
 
 				int basePoints = EloConfig.BaseRating;
 
-				// One atomic "INSERT IGNORE"-style upsert per table (no-op update on duplicate). Independent statements so an
+				// One atomic "INSERT IGNORE"-style upsert per table (no-op on duplicate). Independent statements so an
 				// existing row in one table (e.g. yearly) can't roll back the creation of the others (e.g. a new daily row).
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO leaderboard_daily (user_id, points, day_of_year, year, wins, losses)
-					VALUES ({playerId}, {basePoints}, {dayOfYear}, {year}, 0, 0)
-					ON DUPLICATE KEY UPDATE user_id = user_id");
+				if (db.Database.IsNpgsql())
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO leaderboard_daily (user_id, points, day_of_year, year, wins, losses)
+						VALUES ({playerId}, {basePoints}, {dayOfYear}, {year}, 0, 0)
+						ON CONFLICT (user_id, day_of_year, year) DO NOTHING");
 
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO leaderboard_monthly (user_id, points, month_of_year, year, wins, losses)
-					VALUES ({playerId}, {basePoints}, {monthOfYear}, {year}, 0, 0)
-					ON DUPLICATE KEY UPDATE user_id = user_id");
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO leaderboard_monthly (user_id, points, month_of_year, year, wins, losses)
+						VALUES ({playerId}, {basePoints}, {monthOfYear}, {year}, 0, 0)
+						ON CONFLICT (user_id, month_of_year, year) DO NOTHING");
 
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO leaderboard_yearly (user_id, points, year, wins, losses)
-					VALUES ({playerId}, {basePoints}, {year}, 0, 0)
-					ON DUPLICATE KEY UPDATE user_id = user_id");
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO leaderboard_yearly (user_id, points, year, wins, losses)
+						VALUES ({playerId}, {basePoints}, {year}, 0, 0)
+						ON CONFLICT (user_id, year) DO NOTHING");
+				}
+				else
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO leaderboard_daily (user_id, points, day_of_year, year, wins, losses)
+						VALUES ({playerId}, {basePoints}, {dayOfYear}, {year}, 0, 0)
+						ON DUPLICATE KEY UPDATE user_id = user_id");
+
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO leaderboard_monthly (user_id, points, month_of_year, year, wins, losses)
+						VALUES ({playerId}, {basePoints}, {monthOfYear}, {year}, 0, 0)
+						ON DUPLICATE KEY UPDATE user_id = user_id");
+
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO leaderboard_yearly (user_id, points, year, wins, losses)
+						VALUES ({playerId}, {basePoints}, {year}, 0, 0)
+						ON DUPLICATE KEY UPDATE user_id = user_id");
+				}
 			}
 			catch (Exception ex)
 			{

@@ -44,6 +44,8 @@ public class FriendConfiguration : IEntityTypeConfiguration<FriendEntry>
 		builder.ToTable("friends");
 
 		builder.HasKey(f => new { f.UserId1, f.UserId2 });
+		builder.HasIndex(f => f.UserId2)
+			.HasDatabaseName("ix_friends_user_id_2");
 
 		builder.Property(f => f.UserId1)
 			.HasColumnName("user_id_1");
@@ -60,6 +62,8 @@ public class FriendRequestConfiguration : IEntityTypeConfiguration<FriendRequest
 		builder.ToTable("friends_requests");
 
 		builder.HasKey(f => new { f.SourceUserId, f.TargetUserId });
+		builder.HasIndex(f => f.TargetUserId)
+			.HasDatabaseName("ix_friends_requests_target_user_id");
 
 		builder.Property(f => f.SourceUserId)
 			.HasColumnName("source_user_id");
@@ -240,10 +244,8 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				// If two concurrent calls both passed the existence check, MySQL will throw a
-				// duplicate-key error (ER_DUP_ENTRY, code 1062). The friendship was already
-				// created by the other call, so this is not an error worth reporting.
-				if (ex.InnerException is MySqlConnector.MySqlException mysqlEx && mysqlEx.Number == 1062)
+				// A concurrent call already created the friendship
+				if (DbHelpers.IsUniqueViolation(ex))
 					return;
 
 				Console.WriteLine($"[ERROR] CreateFriendship failed: {ex.Message}");

@@ -104,14 +104,26 @@ public class UserDevicesConfiguration : IEntityTypeConfiguration<UserDevice>
 		// prim key
 		builder.HasKey(e => new { e.UserID, e.HWID_0, e.HWID_1, e.HWID_2, e.IPAddress});
 
+		// Lookups of other accounts that share a hardware ID or IP address (anti cheat / ban alias detection)
+		builder.HasIndex(e => new { e.HWID_0, e.HWID_1, e.HWID_2, e.UserID })
+			.HasDatabaseName("idx_user_devices_hwid_triplet_user");
+		builder.HasIndex(e => new { e.HWID_0, e.UserID })
+			.HasDatabaseName("idx_user_devices_hwid_0_user");
+		builder.HasIndex(e => new { e.HWID_1, e.UserID })
+			.HasDatabaseName("idx_user_devices_hwid_1_user");
+		builder.HasIndex(e => new { e.HWID_2, e.UserID })
+			.HasDatabaseName("idx_user_devices_hwid_2_user");
+		builder.HasIndex(e => new { e.IPAddress, e.UserID })
+			.HasDatabaseName("idx_user_devices_ip_user");
+
 		builder.Property(e => e.UserID).HasColumnName("user_id");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_0").HasColumnType("varchar(128)");
-		builder.Property(e => e.HWID_1).HasColumnName("hwid_1").HasColumnType("varchar(128)");
-		builder.Property(e => e.HWID_2).HasColumnName("hwid_2").HasColumnType("varchar(128)");
-		builder.Property(e => e.HWID_3).HasColumnName("hwid_3").HasColumnType("varchar(50)");
-		builder.Property(e => e.HWID_4).HasColumnName("hwid_4").HasColumnType("varchar(50)");
-		builder.Property(e => e.HWID_5).HasColumnName("hwid_5").HasColumnType("varchar(50)");
-		builder.Property(e => e.IPAddress).HasColumnName("ip_addr").HasColumnType("varchar(45)");
+		builder.Property(e => e.HWID_0).HasColumnName("hwid_0").HasMaxLength(128);
+		builder.Property(e => e.HWID_1).HasColumnName("hwid_1").HasMaxLength(128);
+		builder.Property(e => e.HWID_2).HasColumnName("hwid_2").HasMaxLength(128);
+		builder.Property(e => e.HWID_3).HasColumnName("hwid_3").HasMaxLength(50).IsRequired(false);
+		builder.Property(e => e.HWID_4).HasColumnName("hwid_4").HasMaxLength(50).IsRequired(false);
+		builder.Property(e => e.HWID_5).HasColumnName("hwid_5").HasMaxLength(50).IsRequired(false);
+		builder.Property(e => e.IPAddress).HasColumnName("ip_addr").HasMaxLength(45);
 	}
 }
 
@@ -123,33 +135,84 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
 		// prim key
 		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => e.IsBanned)
+			.HasDatabaseName("ix_users_banned");
 
-		builder.Property(e => e.ID).HasColumnName("user_id");
+		builder.Property(e => e.ID).HasColumnName("user_id").ValueGeneratedOnAdd();
 
 		builder.Property(e => e.AccountType).HasColumnName("account_type");
 		builder.Property(e => e.SteamID).HasColumnName("steam_id");
 		builder.Property(e => e.DiscordID).HasColumnName("discord_id");
-		builder.Property(e => e.DiscordUsername).HasColumnName("discord_username").HasColumnType("varchar(32)"); ;
+		builder.Property(e => e.DiscordUsername).HasColumnName("discord_username").HasMaxLength(32);
 		builder.Property(e => e.GameReplaysID).HasColumnName("gamereplays_id");
-		builder.Property(e => e.GameReplaysUsername).HasColumnName("gamereplays_username").HasColumnType("varchar(32)"); ;
-		builder.Property(e => e.DisplayName).HasColumnName("displayname").HasColumnType("varchar(32)"); ;
-		builder.Property(e => e.LastLogin).HasColumnName("lastlogin").HasColumnType("datetime(6)");
-		builder.Property(e => e.LastIPAddress).HasColumnName("last_ip").HasColumnType("varchar(45)"); ;
-		builder.Property(e => e.ClientID).HasColumnName("client_id");
-		builder.Property(e => e.FavoriteColor).HasColumnName("favorite_color");
-		builder.Property(e => e.FavoriteSide).HasColumnName("favorite_side");
-		builder.Property(e => e.FavoriteMap).HasColumnName("favorite_map").HasColumnType("varchar(128)"); ;
-		builder.Property(e => e.FavoriteStartingMoney).HasColumnName("favorite_starting_money");
-		builder.Property(e => e.LimitSuperweapons).HasColumnName("favorite_limit_superweapons");
-		builder.Property(e => e.IsAdmin).HasColumnName("admin");
-		builder.Property(e => e.IsBanned).HasColumnName("banned");
-		builder.Property(e => e.EloRating).HasColumnName("elo_rating");
-		builder.Property(e => e.MonthlyEloRating).HasColumnName("monthly_elo_rating");
-		builder.Property(e => e.EloNumberOfMatches).HasColumnName("elo_num_matches");
-		builder.Property(e => e.BanReason).HasColumnName("ban_reason").HasColumnType("varchar(128)"); ;
-		builder.Property(e => e.BannedBy).HasColumnName("banned_by").HasColumnType("varchar(50)"); ;
-		builder.Property(e => e.BanVerifiedBy).HasColumnName("ban_verified_by").HasColumnType("varchar(50)"); ;
-		builder.Property(e => e.BanAliases).HasColumnName("ban_aliases").HasColumnType("varchar(50)"); ;
+		builder.Property(e => e.GameReplaysUsername).HasColumnName("gamereplays_username").HasMaxLength(32);
+		builder.Property(e => e.DisplayName).HasColumnName("displayname").HasMaxLength(32);
+		builder.Property(e => e.LastLogin).HasColumnName("lastlogin").HasDefaultValueSql("now()");
+		builder.Property(e => e.LastIPAddress).HasColumnName("last_ip").HasMaxLength(45).IsRequired().HasDefaultValue("");
+		builder.Property(e => e.ClientID).HasColumnName("client_id").HasDefaultValueSql("0").HasSentinel(KnownClients.EKnownClients.unknown); // 0 is a real client (gen_online_30hz), so "unset" must be a value that never occurs
+		builder.Property(e => e.FavoriteColor).HasColumnName("favorite_color").HasDefaultValue(-1);
+		builder.Property(e => e.FavoriteSide).HasColumnName("favorite_side").HasDefaultValue(-1);
+		builder.Property(e => e.FavoriteMap).HasColumnName("favorite_map").HasMaxLength(128);
+		builder.Property(e => e.FavoriteStartingMoney).HasColumnName("favorite_starting_money").HasDefaultValue(-1);
+		builder.Property(e => e.LimitSuperweapons).HasColumnName("favorite_limit_superweapons").HasDefaultValue(false);
+		builder.Property(e => e.IsAdmin).HasColumnName("admin").HasDefaultValue(false);
+		builder.Property(e => e.IsBanned).HasColumnName("banned").HasDefaultValue(false);
+		builder.Property(e => e.EloRating).HasColumnName("elo_rating").HasDefaultValue(1000);
+		builder.Property(e => e.MonthlyEloRating).HasColumnName("monthly_elo_rating").HasDefaultValue(1000);
+		builder.Property(e => e.EloNumberOfMatches).HasColumnName("elo_num_matches").HasDefaultValue(0);
+		builder.Property(e => e.BanReason).HasColumnName("ban_reason").HasMaxLength(128);
+		builder.Property(e => e.BannedBy).HasColumnName("banned_by").HasMaxLength(50);
+		builder.Property(e => e.BanVerifiedBy).HasColumnName("ban_verified_by").HasMaxLength(50);
+		builder.Property(e => e.BanAliases).HasColumnName("ban_aliases").HasMaxLength(50);
+
+		// Columns owned by the website / admin tooling that shares this database. This service never reads or writes
+		// them, so they are shadow properties: they only exist so the schema (and therefore a fresh install) has them.
+		builder.Property<string?>("GoogleId").HasColumnName("google_id").HasMaxLength(50);
+		builder.Property<string?>("GoogleEmail").HasColumnName("google_email").HasMaxLength(255);
+		builder.Property<int?>("PermissionsLevel").HasColumnName("permissionslevel").HasDefaultValue(0);
+
+		// Columns the website / middleware writes when it inserts a user. This service never reads them, they are kept
+		// (with the same defaults the old schema had) so those INSERTs, which omit them, keep working.
+		builder.Property<short>("RelayRegion").HasColumnName("relay_region").HasDefaultValue((short)-1);
+		builder.Property<short>("PortmappingTech").HasColumnName("portmapping_tech").HasDefaultValue((short)-2);
+		builder.Property<bool>("Ipv4").HasColumnName("ipv4").HasDefaultValue(false);
+		builder.Property<bool>("Ipv6").HasColumnName("ipv6").HasDefaultValue(false);
+		builder.Property<bool>("Active").HasColumnName("active").HasDefaultValue(false);
+	}
+}
+
+// A login session of the website. The table belongs to the website, this service never reads or writes it and only
+// owns its schema so that a fresh install has the table the website expects.
+public class WebSession
+{
+	public string SessionId { get; set; } = String.Empty;
+	public Int64 UserId { get; set; }
+	public DateTime Created { get; set; }
+	public DateTime Expiration { get; set; }
+	public DateTime LastUsed { get; set; }
+	public string IpAddress { get; set; } = String.Empty;
+	public string Os { get; set; } = String.Empty;
+	public string Browser { get; set; } = String.Empty;
+}
+
+public class WebSessionConfiguration : IEntityTypeConfiguration<WebSession>
+{
+	public void Configure(EntityTypeBuilder<WebSession> builder)
+	{
+		builder.ToTable("web_sessions");
+
+		builder.HasKey(e => e.SessionId);
+		builder.HasIndex(e => e.UserId)
+			.HasDatabaseName("user_id");
+
+		builder.Property(e => e.SessionId).HasColumnName("session_id").HasMaxLength(64);
+		builder.Property(e => e.UserId).HasColumnName("user_id");
+		builder.Property(e => e.Created).HasColumnName("created");
+		builder.Property(e => e.Expiration).HasColumnName("expiration");
+		builder.Property(e => e.LastUsed).HasColumnName("last_used");
+		builder.Property(e => e.IpAddress).HasColumnName("ip_addr").HasMaxLength(45);
+		builder.Property(e => e.Os).HasColumnName("os").HasMaxLength(64);
+		builder.Property(e => e.Browser).HasColumnName("browser").HasMaxLength(256);
 	}
 }
 
@@ -209,14 +272,24 @@ namespace Database
 					return;
 
 				// insert new (if doesnt exist), as an atomic upsert since concurrent logins can race past the check above
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO user_devices (user_id, hwid_0, hwid_1, hwid_2, ip_addr, hwid_3, hwid_4, hwid_5)
-					VALUES ({userId}, {h0}, {h1}, {h2}, {ipAddr}, {hwid_3}, {hwid_4}, {hwid_5})
-					ON DUPLICATE KEY UPDATE user_id = user_id");
+				if (db.Database.IsNpgsql())
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO user_devices (user_id, hwid_0, hwid_1, hwid_2, ip_addr, hwid_3, hwid_4, hwid_5)
+						VALUES ({userId}, {h0}, {h1}, {h2}, {ipAddr}, {hwid_3}, {hwid_4}, {hwid_5})
+						ON CONFLICT (user_id, hwid_0, hwid_1, hwid_2, ip_addr) DO NOTHING");
+				}
+				else
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO user_devices (user_id, hwid_0, hwid_1, hwid_2, ip_addr, hwid_3, hwid_4, hwid_5)
+						VALUES ({userId}, {h0}, {h1}, {h2}, {ipAddr}, {hwid_3}, {hwid_4}, {hwid_5})
+						ON DUPLICATE KEY UPDATE user_id = user_id");
+				}
 			}
 			catch (Exception ex)
 			{
-				if (DbErrors.IsDuplicateKey(ex))
+				if (DbHelpers.IsUniqueViolation(ex))
 				{
 					return;
 				}
@@ -531,6 +604,10 @@ namespace Database
 		}
 
 
+		// Column sizes of users.favorite_map and users.displayname
+		private const int UserFavoriteMapMaxLength = 128;
+		private const int UserDisplayNameMaxLength = 32;
+
 		public static async Task SetFavorite_Map(
 			AppDbContext db,
 			long userId,
@@ -538,7 +615,8 @@ namespace Database
 		{
 			try
 			{
-				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteMap, strMap));
+				string cleanMap = TextSanitizer.Clean(strMap, UserFavoriteMapMaxLength);
+				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteMap, cleanMap));
 			}
 			catch (Exception ex)
 			{
@@ -602,6 +680,13 @@ namespace Database
 		{
 			try
 			{
+				// Client-supplied, and the column is 32 characters. Never store a different value than the one the caller
+				// validated: refuse a name that contains NUL (PostgreSQL rejects it) or does not fit instead of rewriting it
+				if (!String.Equals(TextSanitizer.Clean(newName, UserDisplayNameMaxLength), newName, StringComparison.Ordinal))
+				{
+					return false;
+				}
+
 				bool nameTaken = await db.Users
 					.AnyAsync(u => u.ID != userId && u.DisplayName.ToLower() == newName.ToLower());
 

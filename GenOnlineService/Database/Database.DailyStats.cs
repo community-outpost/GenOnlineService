@@ -48,13 +48,11 @@ public class DailyStatsConfiguration : IEntityTypeConfiguration<DailyStat>
 		// prim key
 		builder.HasKey(e => e.DayOfYear);
 
-		builder.Property(e => e.DayOfYear).HasColumnName("day_of_year");
-
-		// TODO_EFCORE: use column type json later (needs db update)
+		builder.Property(e => e.DayOfYear).HasColumnName("day_of_year").ValueGeneratedNever();
 
 		builder.Property(e => e.Stats)
 			.HasColumnName("stats_structure")
-			.HasColumnType("longtext")
+			.IsRequired()
 			.HasConversion(
 				v => JsonSerializer.Serialize(v, (JsonSerializerOptions)null),
 				v => JsonSerializer.Deserialize<DailyStatsStructure>(v, (JsonSerializerOptions)null)

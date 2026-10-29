@@ -53,10 +53,10 @@ public class UserTokenStateConfiguration : IEntityTypeConfiguration<UserTokenSta
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.SessionType).HasColumnName("session_type");
 		builder.Property(e => e.TokenGeneration).HasColumnName("token_generation");
-		builder.Property(e => e.RefreshJti).HasColumnName("refresh_jti").HasColumnType("varchar(64)");
-		builder.Property(e => e.PreviousRefreshJti).HasColumnName("previous_refresh_jti").HasColumnType("varchar(64)");
-		builder.Property(e => e.PreviousRefreshJtiExpires).HasColumnName("previous_refresh_jti_expires").HasColumnType("datetime");
-		builder.Property(e => e.Updated).HasColumnName("updated").HasColumnType("datetime");
+		builder.Property(e => e.RefreshJti).HasColumnName("refresh_jti").HasMaxLength(64);
+		builder.Property(e => e.PreviousRefreshJti).HasColumnName("previous_refresh_jti").HasMaxLength(64);
+		builder.Property(e => e.PreviousRefreshJtiExpires).HasColumnName("previous_refresh_jti_expires");
+		builder.Property(e => e.Updated).HasColumnName("updated");
 	}
 }
 
@@ -82,17 +82,43 @@ namespace Database
 		{
 			try
 			{
-				int sessionTypeValue = (int)sessionType;
+				DateTime now = DateTime.UtcNow;
 
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO user_token_state (user_id, session_type, token_generation, refresh_jti, previous_refresh_jti, previous_refresh_jti_expires, updated)
-					VALUES ({userID}, {sessionTypeValue}, {tokenGeneration}, {refreshJti}, {previousRefreshJti}, {previousRefreshJtiExpires}, UTC_TIMESTAMP())
-					ON DUPLICATE KEY UPDATE
-						token_generation = VALUES(token_generation),
-						refresh_jti = VALUES(refresh_jti),
-						previous_refresh_jti = VALUES(previous_refresh_jti),
-						previous_refresh_jti_expires = VALUES(previous_refresh_jti_expires),
-						updated = VALUES(updated)");
+				Task<int> UpdateExisting() => db.UserTokenStates
+					.Where(t => t.UserID == userID && t.SessionType == sessionType)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(t => t.TokenGeneration, tokenGeneration)
+						.SetProperty(t => t.RefreshJti, refreshJti)
+						.SetProperty(t => t.PreviousRefreshJti, previousRefreshJti)
+						.SetProperty(t => t.PreviousRefreshJtiExpires, previousRefreshJtiExpires)
+						.SetProperty(t => t.Updated, now));
+
+				if (await UpdateExisting() > 0)
+				{
+					return;
+				}
+
+				db.UserTokenStates.Add(new UserTokenState
+				{
+					UserID = userID,
+					SessionType = sessionType,
+					TokenGeneration = tokenGeneration,
+					RefreshJti = refreshJti,
+					PreviousRefreshJti = previousRefreshJti,
+					PreviousRefreshJtiExpires = previousRefreshJtiExpires,
+					Updated = now
+				});
+
+				try
+				{
+					await db.SaveChangesAsync();
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+				{
+					// A concurrent call inserted the row first, last write wins
+					db.ChangeTracker.Clear();
+					await UpdateExisting();
+				}
 			}
 			catch (Exception ex)
 			{
@@ -105,7 +131,8 @@ namespace Database
 		{
 			try
 			{
-				return await db.Users.AsNoTracking().Where(u => u.IsBanned).Select(u => u.ID).ToListAsync();
+				// "!= false" so MySQL matches any non-zero value (banned <> 0), not just 1
+				return await db.Users.AsNoTracking().Where(u => u.IsBanned != false).Select(u => u.ID).ToListAsync();
 			}
 			catch (Exception ex)
 			{
@@ -164,7 +191,7 @@ namespace GenOnlineService
 					Generation = row.TokenGeneration,
 					RefreshJti = row.RefreshJti ?? String.Empty,
 					PreviousRefreshJti = row.PreviousRefreshJti ?? String.Empty,
-					PreviousRefreshJtiExpires = DateTime.SpecifyKind(row.PreviousRefreshJtiExpires, DateTimeKind.Utc)
+					PreviousRefreshJtiExpires = row.PreviousRefreshJtiExpires
 				};
 			}
 

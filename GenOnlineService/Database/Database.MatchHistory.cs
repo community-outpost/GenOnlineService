@@ -31,6 +31,12 @@ using System.Threading.Tasks;
 
 public class MatchHistoryEntry
 {
+	// Column sizes. The history columns are narrower than the live lobby limits (255/255/512), so the live values are
+	// clamped to these when they are stored (see TextSanitizer). The live lobby values are never modified.
+	public const int NameMaxLength = 64;
+	public const int MapNameMaxLength = 128;
+	public const int MapPathMaxLength = 256;
+
 	public long MatchId { get; set; }
 	public long Owner { get; set; }
 	public string Name { get; set; } = string.Empty;
@@ -78,25 +84,21 @@ public class MatchHistoryConfiguration : IEntityTypeConfiguration<MatchHistoryEn
 
 		entity.Property(e => e.Name)
 			.HasColumnName("name")
-			.HasMaxLength(64)
+			.HasMaxLength(MatchHistoryEntry.NameMaxLength)
 			.IsRequired();
 
 		entity.Property(e => e.Finished)
 			.HasColumnName("finished");
 
 		entity.Property(e => e.Started)
-			.HasColumnName("started")
-			.HasColumnType("datetime")
-			.HasDefaultValueSql("current_timestamp()");
+			.HasColumnName("started");
 
 		entity.Property(e => e.TimeFinished)
-			.HasColumnName("time_finished")
-			.HasColumnType("datetime")
-			.HasDefaultValueSql("current_timestamp()");
+			.HasColumnName("time_finished");
 
 		entity.Property(e => e.MapName)
 			.HasColumnName("map_name")
-			.HasMaxLength(128)
+			.HasMaxLength(MatchHistoryEntry.MapNameMaxLength)
 			.IsRequired();
 
 		entity.Property(e => e.MapOfficial)
@@ -109,15 +111,13 @@ public class MatchHistoryConfiguration : IEntityTypeConfiguration<MatchHistoryEn
 
 		entity.Property(e => e.LobbyType)
 			.HasColumnName("lobby_type")
-			.HasConversion<byte?>()
-			.HasColumnType("tinyint unsigned");
+			.HasConversion<byte?>();
 
 		entity.Property(e => e.VanillaTeams)
 			.HasColumnName("vanilla_teams");
 
 		entity.Property(e => e.StartingCash)
-			.HasColumnName("starting_cash")
-			.HasColumnType("int unsigned");
+			.HasColumnName("starting_cash");
 
 		entity.Property(e => e.LimitSuperweapons)
 			.HasColumnName("limit_superweapons");
@@ -129,29 +129,27 @@ public class MatchHistoryConfiguration : IEntityTypeConfiguration<MatchHistoryEn
 			.HasColumnName("allow_observers");
 
 		entity.Property(e => e.MaxCamHeight)
-			.HasColumnName("max_cam_height")
-			.HasColumnType("smallint unsigned");
+			.HasColumnName("max_cam_height");
 
 		entity.Property(e => e.ExeCRC)
-			.HasColumnName("exe_crc")
-			.HasColumnType("int unsigned");
+			.HasColumnName("exe_crc");
 
 		entity.Property(e => e.IniCRC)
-			.HasColumnName("ini_crc")
-			.HasColumnType("int unsigned");
+			.HasColumnName("ini_crc");
 
 		entity.Property(e => e.MapPath)
 			.HasColumnName("map_path")
-			.HasMaxLength(128);
+			.HasMaxLength(MatchHistoryEntry.MapPathMaxLength);
+
+		// Serves the match feed: finished matches since a point in time, ordered by finish time
+		entity.HasIndex(e => new { e.Finished, e.TimeFinished, e.MatchId })
+			.HasDatabaseName("idx_finished_time");
 
 		// JSON columns
 		for (int i = 0; i < 8; i++)
 		{
 			entity.Property<string?>($"MemberSlot{i}")
-				.HasColumnName($"member_slot_{i}")
-				.HasColumnType("longtext")
-				.HasCharSet("utf8mb4")
-				.HasCollation("utf8mb4_bin");
+				.HasColumnName($"member_slot_{i}");
 		}
 	}
 }
@@ -172,8 +170,8 @@ public class ExternalPublicationConfiguration : IEntityTypeConfiguration<Externa
 		entity.ToTable("external_publication");
 		entity.HasKey(e => e.MatchId);
 		entity.Property(e => e.MatchId).HasColumnName("match_id").ValueGeneratedNever();
-		entity.Property(e => e.NextAttemptAt).HasColumnName("next_attempt_at").HasColumnType("datetime");
-		entity.Property(e => e.PublishedAt).HasColumnName("published_at").HasColumnType("datetime");
+		entity.Property(e => e.NextAttemptAt).HasColumnName("next_attempt_at");
+		entity.Property(e => e.PublishedAt).HasColumnName("published_at");
 		entity.Property(e => e.Attempts).HasColumnName("attempts").HasDefaultValue(0);
 		entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(512);
 		entity.HasIndex(e => new { e.PublishedAt, e.NextAttemptAt })
@@ -207,7 +205,7 @@ namespace GenOnlineService
 		public EMetadataFileType file_type { get; set; }
 	}
 
-	// Handles JSON booleans stored as integers (0/1) from legacy MySQL tinyint serialization.
+	// Handles JSON booleans stored as integers (0/1) by older versions of the service.
 	public sealed class BoolFromIntConverter : JsonConverter<bool>
 	{
 		public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -293,7 +291,7 @@ namespace Database
 	);
 
 
-		private static Expression<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>
+		private static Action<UpdateSettersBuilder<MatchHistoryEntry>>
 	BuildSetter(int slotIndex, string? json)
 		{
 			return slotIndex switch
@@ -311,7 +309,7 @@ namespace Database
 		}
 
 
-		private static readonly Action<SetPropertyCalls<MatchHistoryEntry>, string?>[] _slotSetters =
+		private static readonly Action<UpdateSettersBuilder<MatchHistoryEntry>, string?>[] _slotSetters =
 {
 	(s, v) => s.SetProperty(m => m.MemberSlot0, v),
 	(s, v) => s.SetProperty(m => m.MemberSlot1, v),
@@ -520,12 +518,15 @@ namespace Database
 				string rosterType = ComputeRosterType(playersPerTeam);
 
 				// Build EF entity
+				DateTime now = DateTime.UtcNow;
 				var entity = new MatchHistoryEntry
 				{
+					Started = now,
+					TimeFinished = now,
 					Owner = lobby.Owner,
-					Name = lobby.Name,
-					MapName = lobby.MapName,
-					MapPath = lobby.MapPath,
+					Name = TextSanitizer.Clean(lobby.Name, MatchHistoryEntry.NameMaxLength),
+					MapName = TextSanitizer.Clean(lobby.MapName, MatchHistoryEntry.MapNameMaxLength),
+					MapPath = TextSanitizer.Clean(lobby.MapPath, MatchHistoryEntry.MapPathMaxLength),
 					MapOfficial = lobby.IsMapOfficial,
 					MatchRosterType = rosterType,
 					LobbyType = lobby.LobbyType,
@@ -1209,7 +1210,7 @@ namespace Database
 		}
 
 		// METADATA
-		private static Expression<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>
+		private static Action<UpdateSettersBuilder<MatchHistoryEntry>>
 	BuildSlotSetter(int slotIndex, string updatedJson)
 		{
 			return slotIndex switch

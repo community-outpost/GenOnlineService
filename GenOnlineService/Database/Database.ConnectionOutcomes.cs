@@ -39,7 +39,8 @@ public class ConnectionOutcomeConfiguration : IEntityTypeConfiguration<Connectio
 		builder.HasKey(x => x.DayOfYear);
 
 		builder.Property(x => x.DayOfYear)
-			.HasColumnName("day_of_year");
+			.HasColumnName("day_of_year")
+			.ValueGeneratedNever();
 
 		builder.Property(x => x.Ipv4Count)
 			.HasColumnName("ipv4_count");
@@ -83,14 +84,28 @@ namespace Database
 				int successInc = (outcome == EConnectionState.CONNECTED_DIRECT || outcome == EConnectionState.CONNECTED_RELAY) ? 1 : 0;
 				int failedInc = outcome == EConnectionState.CONNECTION_FAILED ? 1 : 0;
 
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO connection_outcomes (day_of_year, ipv4_count, ipv6_count, success_count, failed_count)
-					VALUES ({dayOfYear}, {ipv4Inc}, {ipv6Inc}, {successInc}, {failedInc})
-					ON DUPLICATE KEY UPDATE
-						ipv4_count = COALESCE(ipv4_count, 0) + VALUES(ipv4_count),
-						ipv6_count = COALESCE(ipv6_count, 0) + VALUES(ipv6_count),
-						success_count = COALESCE(success_count, 0) + VALUES(success_count),
-						failed_count = COALESCE(failed_count, 0) + VALUES(failed_count)");
+				if (db.Database.IsNpgsql())
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO connection_outcomes (day_of_year, ipv4_count, ipv6_count, success_count, failed_count)
+						VALUES ({dayOfYear}, {ipv4Inc}, {ipv6Inc}, {successInc}, {failedInc})
+						ON CONFLICT (day_of_year) DO UPDATE SET
+							ipv4_count = COALESCE(connection_outcomes.ipv4_count, 0) + EXCLUDED.ipv4_count,
+							ipv6_count = COALESCE(connection_outcomes.ipv6_count, 0) + EXCLUDED.ipv6_count,
+							success_count = COALESCE(connection_outcomes.success_count, 0) + EXCLUDED.success_count,
+							failed_count = COALESCE(connection_outcomes.failed_count, 0) + EXCLUDED.failed_count");
+				}
+				else
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO connection_outcomes (day_of_year, ipv4_count, ipv6_count, success_count, failed_count)
+						VALUES ({dayOfYear}, {ipv4Inc}, {ipv6Inc}, {successInc}, {failedInc})
+						ON DUPLICATE KEY UPDATE
+							ipv4_count = COALESCE(ipv4_count, 0) + VALUES(ipv4_count),
+							ipv6_count = COALESCE(ipv6_count, 0) + VALUES(ipv6_count),
+							success_count = COALESCE(success_count, 0) + VALUES(success_count),
+							failed_count = COALESCE(failed_count, 0) + VALUES(failed_count)");
+				}
 
 				// Cleanup: delete rows older than 30 days
 				int cutoff = dayOfYear - 30;

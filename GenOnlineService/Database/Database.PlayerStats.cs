@@ -37,19 +37,12 @@ public class UserStatsConfiguration : IEntityTypeConfiguration<UserStatsEntry>
 		builder.HasKey(x => x.UserId);
 
 		builder.Property(x => x.UserId)
-			.HasColumnName("user_id");
+			.HasColumnName("user_id")
+			.ValueGeneratedNever();
 
 		builder.Property(x => x.Stats)
 			.HasColumnName("stats")
-			.HasColumnType("longtext")
-			.UseCollation("utf8mb4_bin")     // matches your CREATE TABLE
 			.IsRequired();
-
-		// JSON validity constraint
-		builder.HasCheckConstraint(
-			"CK_user_stats_v2_stats_json_valid",
-			"json_valid(`stats`)"
-		);
 	}
 }
 
@@ -135,10 +128,21 @@ namespace Database
 				string statPath = "$.\"" + statKey + "\"";
 				string initialJson = JsonSerializer.Serialize(new Dictionary<string, int> { [statKey] = statVal });
 
-				await db.Database.ExecuteSqlInterpolatedAsync($@"
-					INSERT INTO user_stats_v2 (user_id, stats)
-					VALUES ({userId}, {initialJson})
-					ON DUPLICATE KEY UPDATE stats = JSON_SET(stats, {statPath}, {statVal})");
+				if (db.Database.IsNpgsql())
+				{
+					// stats is jsonb: the document is cast explicitly, and jsonb_set takes the key as a path element instead of a JSON path
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO user_stats_v2 (user_id, stats)
+						VALUES ({userId}, {initialJson}::jsonb)
+						ON CONFLICT (user_id) DO UPDATE SET stats = jsonb_set(user_stats_v2.stats, ARRAY[{statKey}]::text[], to_jsonb({statVal}::int))");
+				}
+				else
+				{
+					await db.Database.ExecuteSqlInterpolatedAsync($@"
+						INSERT INTO user_stats_v2 (user_id, stats)
+						VALUES ({userId}, {initialJson})
+						ON DUPLICATE KEY UPDATE stats = JSON_SET(stats, {statPath}, {statVal})");
+				}
 			}
 			catch (Exception ex)
 			{

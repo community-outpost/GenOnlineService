@@ -728,6 +728,24 @@ namespace GenOnlineService.Controllers
 							"ronin"
 						};
 
+						// Reject control characters (a NUL would otherwise slip past the checks below and be dropped later) and
+						// names that do not fit the 32 character column, before any other check looks at the name
+						if (nameChangeRequest.name == null
+							|| nameChangeRequest.name.Any(Char.IsControl)
+							|| !String.Equals(TextSanitizer.Clean(nameChangeRequest.name, 32), nameChangeRequest.name, StringComparison.Ordinal))
+						{
+							WebSocketMessage_NetworkRoomChatMessageOutbound invalidMsg = new WebSocketMessage_NetworkRoomChatMessageOutbound();
+							invalidMsg.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
+							invalidMsg.message = "--NAME CHANGE-- Display names cannot contain control characters or be longer than 32 characters";
+							invalidMsg.admin = true; // dont care for actions
+							invalidMsg.action = false;
+							invalidMsg.name_change = true;
+							byte[] bytesInvalidJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(invalidMsg));
+							sourceUserSession.QueueWebsocketSend(bytesInvalidJSON);
+
+							return;
+						}
+
 						string strNameRequestLower = nameChangeRequest.name.ToLower();
 
 						// dont allow protected names

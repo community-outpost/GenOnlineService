@@ -630,15 +630,39 @@ namespace GenOnlineService
 		public static IConfiguration? g_Config = null;
 		public static DiscordBot? g_Discord = null;
 
-		private static async Task InitializeDatabase(WebApplicationBuilder builder)
+		private enum DbProvider
 		{
-			// TODO_EFCORE: Check connection immediately like old impl
-			if (Program.g_Config == null)
+			MySql,
+			Postgres
+		}
+
+		// "Database:db_provider": "postgres" (default when the key is absent or empty) or "mysql" ("mariadb" is accepted too).
+		private static DbProvider GetDbProvider(IConfiguration config)
+		{
+			string? value = config.GetSection("Database").GetValue<string>("db_provider");
+
+			if (string.IsNullOrWhiteSpace(value))
 			{
-				throw new Exception("Config is null. Check config file exists.");
+				return DbProvider.Postgres;
 			}
 
-			IConfiguration? dbSettings = Program.g_Config.GetSection("Database");
+			switch (value.Trim().ToLowerInvariant())
+			{
+				case "postgres":
+					return DbProvider.Postgres;
+
+				case "mysql":
+				case "mariadb":
+					return DbProvider.MySql;
+
+				default:
+					throw new Exception($"Unsupported Database:db_provider \"{value}\" in config. Supported values are \"postgres\" (default) and \"mysql\" (also \"mariadb\").");
+			}
+		}
+
+		private static string BuildDbConnectionString(IConfiguration config, DbProvider provider)
+		{
+			IConfiguration? dbSettings = config.GetSection("Database");
 
 			if (dbSettings == null)
 			{
@@ -649,9 +673,9 @@ namespace GenOnlineService
 			string? dbname = dbSettings.GetValue<string>("db_name");
 			string? username = dbSettings.GetValue<string>("db_username");
 			string? password = dbSettings.GetValue<string>("db_password");
-			UInt16? port = dbSettings.GetValue<UInt16>("db_port");
+			UInt16 port = dbSettings.GetValue<UInt16?>("db_port") ?? (provider == DbProvider.Postgres ? (UInt16)5432 : (UInt16)3306);
 
-			// Fall back to MySqlConnector's own defaults when a key is absent, rather than silently
+			// Fall back to the connection library's own defaults when a key is absent, rather than silently
 			// disabling pooling / zeroing the pool size for deployments predating these settings.
 			int db_min_poolsize = dbSettings.GetValue<int?>("db_min_poolsize") ?? 0;
 			int db_max_poolsize = dbSettings.GetValue<int?>("db_max_poolsize") ?? 100;
@@ -680,10 +704,117 @@ namespace GenOnlineService
 				throw new Exception("DB Hostname is null / not set in config");
 			}
 
-			if (port == null)
+			string? targetSessionAttributes = dbSettings.GetValue<string>("db_target_session_attributes");
+
+			if (provider == DbProvider.Postgres)
 			{
-				throw new Exception("DB Hostname is null / not set in config");
+				var csb = new Npgsql.NpgsqlConnectionStringBuilder
+				{
+					Host = hostname,
+					Port = port,
+					Database = dbname,
+					Username = username,
+					Password = password,
+					Timeout = db_connect_timeout.Value,
+					CommandTimeout = db_command_timeout.Value,
+					SslMode = Npgsql.SslMode.Prefer,
+					Pooling = db_use_pooling,
+					MinPoolSize = db_min_poolsize,
+					MaxPoolSize = db_max_poolsize,
+					NoResetOnClose = !db_conn_reset
+				};
+
+				// db_host may list several servers ("a,b,c"); "primary" makes Npgsql pick the writable one after a failover
+				if (!string.IsNullOrWhiteSpace(targetSessionAttributes))
+				{
+					csb.TargetSessionAttributes = targetSessionAttributes;
+				}
+
+				return csb.ConnectionString;
 			}
+			else
+			{
+				// Refuse instead of ignoring it: the operator expects a failover guarantee that MySQL does not provide here
+				if (!string.IsNullOrWhiteSpace(targetSessionAttributes))
+				{
+					throw new Exception("Database:db_target_session_attributes is a PostgreSQL setting and has no effect with db_provider \"mysql\". Remove it or leave it empty.");
+				}
+
+				var csb = new MySqlConnector.MySqlConnectionStringBuilder
+				{
+					Server = hostname,
+					Port = port,
+					Database = dbname,
+					UserID = username,
+					Password = password,
+					ConnectionTimeout = (uint)db_connect_timeout.Value,
+					DefaultCommandTimeout = (uint)db_command_timeout.Value,
+					SslMode = MySqlConnector.MySqlSslMode.Preferred,
+					Pooling = db_use_pooling,
+					MinimumPoolSize = (uint)db_min_poolsize,
+					MaximumPoolSize = (uint)db_max_poolsize,
+					ConnectionReset = db_conn_reset,
+					// MariaDB allows '0000-00-00' dates (the old schema's defaults and website writes produce them), which would
+					// otherwise throw on read. They come back as DateTime.MinValue.
+					ConvertZeroDateTime = true
+				};
+
+				return csb.ConnectionString;
+			}
+		}
+
+		private static ServerVersion? DetectMySqlServerVersion(DbProvider provider, string connectionString)
+		{
+			return provider == DbProvider.MySql ? ServerVersion.AutoDetect(connectionString) : null;
+		}
+
+		private static void ConfigureDbContextOptions(DbContextOptionsBuilder options, DbProvider provider, string connectionString, ServerVersion? mySqlServerVersion)
+		{
+			if (provider == DbProvider.Postgres)
+			{
+				options.UseNpgsql(connectionString);
+			}
+			else
+			{
+				options.UseMySql(connectionString, mySqlServerVersion!);
+			}
+
+			options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+
+#if RELEASE
+			options.UseLoggerFactory(LoggerFactory.Create(builder => { })); // Empty logger
+			options.EnableSensitiveDataLogging(false); // Ensure sensitive data is not logged
+			options.EnableDetailedErrors(false);      // Disable detailed error messages
+#endif
+		}
+
+		private static AppDbContext CreateDbContext(DbProvider provider, string connectionString, ServerVersion? mySqlServerVersion)
+		{
+			if (provider == DbProvider.Postgres)
+			{
+				var optionsBuilder = new DbContextOptionsBuilder<PostgresAppDbContext>();
+				ConfigureDbContextOptions(optionsBuilder, provider, connectionString, mySqlServerVersion);
+				return new PostgresAppDbContext(optionsBuilder.Options);
+			}
+			else
+			{
+				var optionsBuilder = new DbContextOptionsBuilder<MySqlAppDbContext>();
+				ConfigureDbContextOptions(optionsBuilder, provider, connectionString, mySqlServerVersion);
+				return new MySqlAppDbContext(optionsBuilder.Options);
+			}
+		}
+
+		private static async Task InitializeDatabase(WebApplicationBuilder builder)
+		{
+			// TODO_EFCORE: Check connection immediately like old impl
+			if (Program.g_Config == null)
+			{
+				throw new Exception("Config is null. Check config file exists.");
+			}
+
+			DbProvider provider = GetDbProvider(Program.g_Config);
+			string connectionString = BuildDbConnectionString(Program.g_Config, provider);
+			ServerVersion? mySqlServerVersion = DetectMySqlServerVersion(provider, connectionString);
 
 			// TODO_EFCORE: Log exceptions to disk again
 			if (!Directory.Exists("Exceptions"))
@@ -693,42 +824,141 @@ namespace GenOnlineService
 
 			// EFCore connect
 			{
-				//var builder = WebApplication.CreateBuilder(args);
-
-				var csb = new MySqlConnector.MySqlConnectionStringBuilder
-				{
-					Server = hostname,
-					Port = (uint)port,
-					Database = dbname,
-					UserID = username,
-					Password = password,
-					ConnectionTimeout = (uint)db_connect_timeout,
-					DefaultCommandTimeout = (uint)db_command_timeout,
-					SslMode = MySqlConnector.MySqlSslMode.Preferred,
-					Pooling = db_use_pooling,
-					MinimumPoolSize = (uint)db_min_poolsize,
-					MaximumPoolSize = (uint)db_max_poolsize,
-					ConnectionReset = db_conn_reset
-				};
-
 				// TODO_EFCORE: Consider use of ExecuteDeleteAsync and options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-				// TODO_EFCORE: Move to AddPooledDbContextFactory instead and use private readonly IDbContextFactory<AppDbContext> _factory;
-				builder.Services.AddPooledDbContextFactory<AppDbContext>(options =>
+				if (provider == DbProvider.Postgres)
 				{
-					options.UseMySql(
-						csb.ConnectionString,
-						ServerVersion.AutoDetect(csb.ConnectionString));
-
-					options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-
-#if RELEASE
-					options.UseLoggerFactory(LoggerFactory.Create(builder => { })); // Empty logger
-					options.EnableSensitiveDataLogging(false); // Ensure sensitive data is not logged
-					options.EnableDetailedErrors(false);      // Disable detailed error messages
-#endif
-
-				});
+					builder.Services.AddPooledDbContextFactory<PostgresAppDbContext>(options => ConfigureDbContextOptions(options, provider, connectionString, mySqlServerVersion));
+					builder.Services.AddSingleton<IDbContextFactory<AppDbContext>, AppDbContextFactoryAdapter<PostgresAppDbContext>>();
+				}
+				else
+				{
+					builder.Services.AddPooledDbContextFactory<MySqlAppDbContext>(options => ConfigureDbContextOptions(options, provider, connectionString, mySqlServerVersion));
+					builder.Services.AddSingleton<IDbContextFactory<AppDbContext>, AppDbContextFactoryAdapter<MySqlAppDbContext>>();
+				}
 			}
+		}
+
+		private static bool Confirm(bool assumeYes, string prompt, string nonInteractiveHint)
+		{
+			if (assumeYes)
+			{
+				return true;
+			}
+
+			if (Console.IsInputRedirected)
+			{
+				Console.Error.WriteLine(nonInteractiveHint);
+				return false;
+			}
+
+			Console.Write($"{prompt} [y/N] ");
+			string? answer = Console.ReadLine()?.Trim();
+
+			if (!"y".Equals(answer, StringComparison.OrdinalIgnoreCase) && !"yes".Equals(answer, StringComparison.OrdinalIgnoreCase))
+			{
+				Console.WriteLine("Aborted.");
+				return false;
+			}
+
+			return true;
+		}
+
+		// "GenOnlineService migrate [--yes] [--baseline]": applies pending migrations without starting the web host.
+		// --baseline is the one-time step for databases created from the old structure.sql, see README.md.
+		private static async Task<int> RunMigrateCommand(string[] args)
+		{
+			bool assumeYes = args.Skip(1).Any(a => a.Equals("--yes", StringComparison.OrdinalIgnoreCase));
+			bool baseline = args.Skip(1).Any(a => a.Equals("--baseline", StringComparison.OrdinalIgnoreCase));
+
+			try
+			{
+				var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+
+				DbProvider provider = GetDbProvider(config);
+				string connectionString = BuildDbConnectionString(config, provider);
+
+				await using var db = CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
+
+				if (baseline)
+				{
+					return await RunBaseline(db, assumeYes);
+				}
+
+				var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
+				var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+
+				Console.WriteLine($"Applied migrations: {applied.Count} (latest: {(applied.Count > 0 ? applied[applied.Count - 1] : "none")})");
+
+				if (pending.Count == 0)
+				{
+					Console.WriteLine("Database is up to date.");
+					return 0;
+				}
+
+				Console.WriteLine($"Pending migrations: {pending.Count}");
+				foreach (string name in pending)
+				{
+					Console.WriteLine($"  {name}");
+				}
+
+				// Applying the first migration to a database that already has the tables would fail halfway, so point
+				// the operator at the baseline step instead.
+				if (applied.Count == 0 && await MigrationBaseline.LooksLikeUnbaselinedInstall(db))
+				{
+					Console.Error.WriteLine("This database already contains the service's tables but has no migration history (an install from before migrations).");
+					Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then run \"GenOnlineService migrate\" again.");
+					return 1;
+				}
+
+				if (!Confirm(assumeYes, $"Apply {pending.Count} pending migration(s)?", "Input is not interactive. Pass --yes to apply pending migrations in an unattended run."))
+				{
+					return 1;
+				}
+
+				await db.Database.MigrateAsync();
+				Console.WriteLine($"Applied {pending.Count} migration(s) successfully.");
+				return 0;
+			}
+			catch (Exception ex)
+			{
+				Console.Error.WriteLine($"Migration failed: {ex}");
+				return 1;
+			}
+		}
+
+		private static async Task<int> RunBaseline(AppDbContext db, bool assumeYes)
+		{
+			var plan = await MigrationBaseline.Plan(db);
+
+			if (plan.Error != null)
+			{
+				Console.Error.WriteLine(plan.Error);
+				return 1;
+			}
+
+			Console.WriteLine($"Baseline: the {plan.ExpectedTableCount} tables, {plan.ExpectedColumnCount} columns and {plan.ExpectedIndexCount} indexes of migration {plan.MigrationId} all exist.");
+			Console.WriteLine($"This records {plan.MigrationId} as applied WITHOUT running it. No table or data is changed.");
+
+			if (!Confirm(assumeYes, "Baseline this database?", "Input is not interactive. Pass --yes to baseline in an unattended run."))
+			{
+				return 1;
+			}
+
+			await MigrationBaseline.Apply(db, plan);
+
+			Console.WriteLine($"Baselined: recorded {plan.MigrationId} as applied.");
+
+			var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+			if (pending.Count > 0)
+			{
+				Console.WriteLine($"{pending.Count} migration(s) are still pending. Run \"GenOnlineService migrate\" to apply them:");
+				foreach (string name in pending)
+				{
+					Console.WriteLine($"  {name}");
+				}
+			}
+
+			return 0;
 		}
 
 		// The signing key is the only thing standing between a user and a forged token, so refuse to
@@ -1163,6 +1393,12 @@ namespace GenOnlineService
 
 		public static async Task Main(string[] args)
 		{
+			if (args.Length > 0 && args[0].Equals("migrate", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await RunMigrateCommand(args);
+				return;
+			}
+
 #if !DEBUG
 			AppDomain.CurrentDomain.UnhandledException += GlobalExceptionHandler;
 #endif
@@ -1537,6 +1773,33 @@ namespace GenOnlineService
 
 			var app = builder.Build();
 			ServiceLocator.Services = app.Services;
+
+			// Schema changes only happen through "GenOnlineService migrate"
+			using (var migrationScope = app.Services.CreateScope())
+			{
+				var migrationFactory = migrationScope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var migrationDb = await migrationFactory.CreateDbContextAsync();
+				var pendingMigrations = (await migrationDb.Database.GetPendingMigrationsAsync()).ToList();
+
+				if (pendingMigrations.Count > 0)
+				{
+					Console.Error.WriteLine($"[ERROR] The database has {pendingMigrations.Count} pending migration(s):");
+					foreach (string name in pendingMigrations)
+					{
+						Console.Error.WriteLine($"  {name}");
+					}
+					Console.Error.WriteLine("Run \"GenOnlineService migrate\" to apply them, then start the service again.");
+
+					if (await MigrationBaseline.LooksLikeUnbaselinedInstall(migrationDb))
+					{
+						Console.Error.WriteLine("This database already contains the service's tables but has no migration history (an install from before migrations).");
+						Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then \"GenOnlineService migrate\".");
+					}
+
+					Environment.ExitCode = 1;
+					return;
+				}
+			}
 
 			if (useForwardedHeaders)
 			{
