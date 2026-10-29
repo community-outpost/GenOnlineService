@@ -1,0 +1,77 @@
+name: Container image
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v[0-9]+.[0-9]+.[0-9]+" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: Build and push linux/amd64 image
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false # .git goes into the Docker context and the build cache, keep the token out of it
+        fetch-depth: 0 # the build derives the version from the latest vX.Y.Z tag, so the tags and .git go into the Docker context
+        # Pull requests build the pushed commit, not GitHub's temporary merge commit, so the version names a real commit.
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Name the image and tag
+      id: names
+      run: |
+        echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/genonlineservice" >> "$GITHUB_OUTPUT"
+        echo "short_sha=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Image metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ steps.names.outputs.image }}
+        # latest follows the newest release tag (metadata-action default).
+        tags: |
+          type=raw,value=${{ steps.names.outputs.short_sha }}
+          type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+          type=semver,pattern={{version}}
+
+    - uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GHCR
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64
+        load: true
+        tags: genonlineservice:check
+        cache-from: type=gha
+
+    - name: Check the version
+      run: |
+        # The build computes the version itself; fail instead of publishing an image that reports the wrong one.
+        .github/check-version.sh "$(docker run --rm --entrypoint cat genonlineservice:check /app/version.txt | tr -d '\r\n')"
+
+    - name: Push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max

@@ -1,0 +1,15 @@
+.github
+.vs
+.vscode
+**/bin
+**/obj
+**/Exceptions
+**/*.key
+**/*.pem
+**/*.pfx
+**/*.suo
+**/*.user
+artifacts
+GenOnlineService/crcfiles
+GenOnlineService/data/GeoLite2-City.mmdb
+GenOnlineService/data/anticheatconfig.dat
