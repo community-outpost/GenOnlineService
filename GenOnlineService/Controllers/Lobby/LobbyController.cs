@@ -216,7 +216,7 @@ namespace GenOnlineService.Controllers
 			await reader.ReadToEndAsync();
 			try
 			{
-				result.success = await _lobbyManager.LeaveAsync(new LeaveLobbyCommand(
+				result.success = await _lobbyManager.LeaveAsync(new LeaveLobbyCommand(lobbyID,
 					TokenHelper.GetUserID(this), TokenHelper.GetSessionType(this)));
 			}
 			catch
@@ -703,7 +703,7 @@ namespace GenOnlineService.Controllers
 				if (data == null || !data.ContainsKey("preferred_port") || !data.ContainsKey("anticheat_id")) return result;
 				var joined = await _lobbyManager.JoinAsync(new JoinLobbyCommand(lobbyID,
 					TokenHelper.GetUserID(this), TokenHelper.GetSessionType(this),
-					data["preferred_port"].GetUInt16(), data["has_map"].GetBoolean(),
+					data["preferred_port"].GetUInt16(), data.TryGetValue("has_map", out var hasMap) && hasMap.GetBoolean(),
 					(EKnownAnticheatID)data["anticheat_id"].GetInt32(),
 					data.TryGetValue("password", out var password) ? password.GetString() : null));
 				result.success = joined.Status == LobbyMembershipStatus.Success;

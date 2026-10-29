@@ -933,6 +933,7 @@ static class MatchmakingManager
 		private async Task AbortQuickMatchAutoStart(string reason)
 		{
 			List<UserSession> sessionsToRequeue = new();
+			long abortedLobbyID;
 			lock (m_StateLock)
 			{
 				if (m_bAbortInProgress || m_bStartCommitted)
@@ -941,6 +942,7 @@ static class MatchmakingManager
 				}
 
 				m_bAbortInProgress = true;
+				abortedLobbyID = m_LobbyID;
 				m_bPendingDeletion = true;
 
 				foreach (MatchmakingBucketMember member in m_lstMembers)
@@ -959,7 +961,7 @@ static class MatchmakingManager
 			}
 
 			LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-			Lobby? quickMatchLobby = lobbyManager.GetLobby(m_LobbyID);
+			Lobby? quickMatchLobby = lobbyManager.GetLobby(abortedLobbyID);
 			if (quickMatchLobby != null)
 			{
 				foreach (UserSession memberSession in sessionsToRequeue)
@@ -983,7 +985,7 @@ static class MatchmakingManager
 
 			foreach (UserSession memberSession in sessionsToRequeue)
 			{
-				if (await TryRequeueRegisteredPlayer(memberSession, requeueActionJSON))
+				if (await lobbyManager.TryRequeueMatchmakingAsync(memberSession, abortedLobbyID, requeueActionJSON))
 				{
 					await SendMatchmakingMessage(memberSession, reason);
 					await SendMatchmakingMessage(memberSession, "Re-queueing you into matchmaking...");
@@ -1669,7 +1671,7 @@ static class MatchmakingManager
 				{
 					// A cancellation can remove the weak reference while this tick is iterating a snapshot.
 					// Re-check registration while holding the per-session gate before assigning any bucket.
-					if (!thisSession.IsRegisteredForMatchmaking || !IsPendingSession(thisSession))
+					if (thisSession.IsRetired || !thisSession.IsRegisteredForMatchmaking || !IsPendingSession(thisSession))
 					{
 						lstDestroy.Add(wrSession);
 						continue;
@@ -1831,12 +1833,12 @@ static class MatchmakingManager
 		}
 	}
 
-	private static async Task<bool> TryRequeueRegisteredPlayer(UserSession session, byte[] requeueActionJSON)
+	internal static async Task<bool> TryRequeueRegisteredPlayer(UserSession session, byte[] requeueActionJSON)
 	{
 		await session.MatchmakingStateLock.WaitAsync();
 		try
 		{
-			if (!session.IsRegisteredForMatchmaking)
+			if (session.IsRetired || !session.IsRegisteredForMatchmaking)
 			{
 				return false;
 			}
@@ -1846,7 +1848,6 @@ static class MatchmakingManager
 				lstSessions.Add(new WeakReference<UserSession>(session));
 			}
 
-			session.UpdateSessionLobbyID(-1);
 			session.QueueWebsocketSend(requeueActionJSON);
 			return true;
 		}
@@ -1888,6 +1889,7 @@ static class MatchmakingManager
 		await plr.MatchmakingStateLock.WaitAsync();
 		try
 		{
+			if (plr.IsRetired) return;
 			plr.IsRegisteredForMatchmaking = false;
 			RemovePendingSession(plr);
 			detached = RemovePlayerFromAllBuckets(plr);
@@ -1962,12 +1964,6 @@ static class MatchmakingManager
 		}
 	}
 
-	public static async Task DeregisterPlayerAsync(UserSession player)
-	{
-		var detached = await DetachSessionAsync(player);
-		var lobbies = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-		foreach (var entry in detached.Members)
-			await lobbies.RemoveMatchmakingMemberAsync(entry.Lobby, entry.Member);
-		if (!detached.CancellationRejected) await lobbies.LeaveAllLobbiesAsync(player.m_UserID);
-	}
+	public static Task DeregisterPlayerAsync(UserSession player) =>
+		ServiceLocator.Services.GetRequiredService<LobbyManager>().CancelMatchmakingAsync(player);
 }

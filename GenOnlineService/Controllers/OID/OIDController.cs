@@ -295,16 +295,9 @@ namespace GenOnlineService.Controllers.LoginWithToken
 						WebSocketManager.SetMiddlewareIDForUser(user_id, mwUserID);
 
 						// if the player is already in a lobby, peers were signalled before the ID was known, so tell them now
-						Int64 currentLobbyID = WebSocketManager.GetSessionFromUser(user_id, sessionType)?.currentLobbyID ?? -1;
-						if (currentLobbyID != -1)
-						{
-							LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-							Lobby? currentLobby = lobbyManager.GetLobby(currentLobbyID);
-							if (currentLobby != null)
-							{
-								await currentLobby.NotifyMemberMiddlewareIDResolved(user_id);
-							}
-						}
+						// (serialized by the manager under the user's membership gate and the lobby gate)
+						LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+						await lobbyManager.NotifyMiddlewareIDResolvedAsync(user_id, sessionType);
 					}
 				}
 			}
