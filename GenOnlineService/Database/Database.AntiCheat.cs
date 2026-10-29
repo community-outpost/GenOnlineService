@@ -262,6 +262,16 @@ namespace Database
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(AntiCheat));
 
+		// Column limits of ac_reviews_modules (module_name varchar(128), module_path varchar(512))
+		public const int ModuleNameMaxLength = 128;
+		public const int ModulePathMaxLength = 512;
+
+		// Client-supplied module text must fit the column: see TextSanitizer.Clean
+		public static string CleanModuleText(string? value, int maxLength)
+		{
+			return TextSanitizer.Clean(value, maxLength);
+		}
+
 		private static DbParameter CreateParameter(bool postgres, string name, object value)
 		{
 			return postgres ? new NpgsqlParameter(name, value) : new MySqlParameter(name, value);

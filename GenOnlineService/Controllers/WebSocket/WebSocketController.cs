@@ -75,6 +75,9 @@ namespace GenOnlineService.Controllers
 		// longer chat is dropped rather than relayed
 		private const int MaxChatMessageLength = 512;
 
+		// most new modules one anticheat probe response may add; the rest of the response is dropped
+		private const int MaxNewModulesPerProbeResponse = 256;
+
 		private static readonly JsonSerializerOptions JsonOpts = new()
 		{
 			PropertyNameCaseInsensitive = true,
@@ -1257,14 +1260,21 @@ namespace GenOnlineService.Controllers
 							UInt64 mostRecentMatchID = sourceUserSession.GetLatestMatchID();
 							List<AcModuleReport> lstModulesToFlag = new();
 							HashSet<string> setSeenModules = new(StringComparer.Ordinal);
+							int droppedByCap = 0;
 
 							foreach (List<object> moduleData in result)
 							{
 								string strFullModulePath = moduleData[0].ToString().Replace('\\', '/').ToLower(); // Fix for linux
 
-								string strModuleFilename = Path.GetFileName(strFullModulePath);
-								string strModulePath = Path.GetDirectoryName(strFullModulePath);
+								// clean to the column limits before anything else, so the dedupe key and the stored value agree
+								string strModuleFilename = Database.AntiCheat.CleanModuleText(Path.GetFileName(strFullModulePath), Database.AntiCheat.ModuleNameMaxLength);
+								string strModulePath = Database.AntiCheat.CleanModuleText(Path.GetDirectoryName(strFullModulePath), Database.AntiCheat.ModulePathMaxLength);
 								int sizeBytes = Convert.ToInt32(moduleData[1].ToString());
+
+								if (strModuleFilename.Length == 0)
+								{
+									continue;
+								}
 
 								// is it whitelisted?
 								if (AntiCheatModuleAllowList.IsAllowed(strModuleFilename, strModulePath))
@@ -1278,7 +1288,19 @@ namespace GenOnlineService.Controllers
 									continue;
 								}
 
+								// bound what one response can add; the rest is picked up by later probes if the client keeps reporting it
+								if (lstModulesToFlag.Count >= MaxNewModulesPerProbeResponse)
+								{
+									++droppedByCap;
+									continue;
+								}
+
 								lstModulesToFlag.Add(new AcModuleReport(strModuleFilename, strModulePath, sizeBytes));
+							}
+
+							if (droppedByCap > 0)
+							{
+								_logger.LogWarning("Anti-cheat probe response from user {UserId} exceeded the module cap, dropped {Dropped} new modules", sourceUserSession.m_UserID, droppedByCap);
 							}
 
 							if (lstModulesToFlag.Count > 0)
