@@ -1172,6 +1172,7 @@ namespace GenOnlineService
 
 			var builder = WebApplication.CreateBuilder(args);
 			RoomCatalog.Initialize(Path.Combine(builder.Environment.ContentRootPath, "data", "rooms.json"));
+			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();
 
 			// Add services to the container.
 
