@@ -292,12 +292,11 @@ namespace GenOnlineService.Controllers.LoginWithToken
 					if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay)) // only game clients should be doing middleware login
 					{
 						// stored per user (not per session) so it survives session churn and lobby members can resolve it live
-						WebSocketManager.SetMiddlewareIDForUser(user_id, mwUserID);
-
-						// if the player is already in a lobby, peers were signalled before the ID was known, so tell them now
-						// (serialized by the manager under the user's membership gate and the lobby gate)
+						// if the player is already in a lobby, peers were signalled before the ID was known, so the manager tells
+						// them (serialized under the user's membership gate and the lobby gate, and only when the value changed).
+						// A rejected change (different ID while in a lobby) is not reported to the client: the response is the same.
 						LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-						await lobbyManager.NotifyMiddlewareIDResolvedAsync(user_id, sessionType);
+						await lobbyManager.ApplyMiddlewareIDAsync(user_id, sessionType, mwUserID);
 					}
 				}
 			}

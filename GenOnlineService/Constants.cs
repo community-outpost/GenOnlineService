@@ -726,12 +726,36 @@ namespace GenOnlineService
 			}
 		}
 
-		public static void SetMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID)
+		// Returns true only when the stored value changed. While the user is a member of a lobby (any state) their
+		// middleware ID may go from empty to set (late resolve), but an existing ID is never replaced by a
+		// different one: peers and anti-cheat have already registered it. Outside a lobby a new login may set a new value.
+		// The caller must hold the user's membership gate so the in-lobby decision cannot race a join or leave.
+		public static bool ApplyMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID, bool bInLobby)
 		{
-			if (userID != -1 && !String.IsNullOrEmpty(strMiddlewareUserID))
+			if (userID == -1 || String.IsNullOrEmpty(strMiddlewareUserID))
 			{
-				m_dictMiddlewareIDs[userID] = strMiddlewareUserID;
+				return false;
 			}
+
+			if (!bInLobby)
+			{
+				m_dictMiddlewareIDs.TryGetValue(userID, out string? strPrevious);
+				m_dictMiddlewareIDs[userID] = strMiddlewareUserID;
+				return !String.Equals(strPrevious, strMiddlewareUserID, StringComparison.Ordinal);
+			}
+
+			if (m_dictMiddlewareIDs.TryAdd(userID, strMiddlewareUserID))
+			{
+				return true;
+			}
+
+			if (m_dictMiddlewareIDs.TryGetValue(userID, out string? strCurrent) &&
+				!String.Equals(strCurrent, strMiddlewareUserID, StringComparison.Ordinal))
+			{
+				Console.WriteLine($"[WARN] Ignoring attempt to replace the middleware ID of user {userID} while in a lobby");
+			}
+
+			return false;
 		}
 
 		public static string GetMiddlewareIDForUser(Int64 userID)
@@ -1230,10 +1254,6 @@ namespace GenOnlineService
 			return m_CreateTime;
 		}
 
-		public void SetMiddlewareID(string strMiddlewareUserID)
-		{
-			WebSocketManager.SetMiddlewareIDForUser(m_UserID, strMiddlewareUserID);
-		}
 
 		public string GetMiddlewareID()
 		{
