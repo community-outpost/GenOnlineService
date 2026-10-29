@@ -66,6 +66,10 @@ namespace GenOnlineService.Controllers.RefreshToken
 		public async Task<APIResult> Post_InternalHandler(string ipAddr)
 		{
 			POST_RefreshToken_Result result = new POST_RefreshToken_Result();
+			using IDisposable authenticationMetric = AppMetrics.TrackAuthentication(
+				"refresh_token",
+				"client",
+				() => result.result.ToMetricLabel());
 
 			try
 			{

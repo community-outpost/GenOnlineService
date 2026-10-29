@@ -1122,6 +1122,18 @@ namespace Database
 				.ToList();
 		}
 
+		public static async Task<DateTime?> GetOldestUnpublishedMatchTime(
+			AppDbContext db,
+			CancellationToken cancellationToken)
+		{
+			return await (
+				from publication in db.ExternalPublications.AsNoTracking()
+				join match in db.MatchHistory.AsNoTracking() on publication.MatchId equals match.MatchId
+				where publication.PublishedAt == null && match.Finished
+				select (DateTime?)match.TimeFinished)
+				.MinAsync(cancellationToken);
+		}
+
 		public static async Task MarkExternalPublicationSucceeded(
 			AppDbContext db,
 			ulong matchId,

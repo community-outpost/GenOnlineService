@@ -41,12 +41,14 @@ namespace GenOnlineService
 		{
 			if (reason.Length > MaximumReasonLength)
 			{
+				AppMetrics.RecordSecurityAction(EModerationAction.Kick.ToMetricLabel(), "reason_too_long");
 				return new ModerationResult { Result = EModerationResult.ReasonTooLong };
 			}
 
 			SharedUserData? target = WebSocketManager.GetSharedDataForUser(targetUserID);
 			if (target == null)
 			{
+				AppMetrics.RecordSecurityAction(EModerationAction.Kick.ToMetricLabel(), "target_offline");
 				return new ModerationResult { Result = EModerationResult.TargetNotOnline };
 			}
 
@@ -60,6 +62,7 @@ namespace GenOnlineService
 
 		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason)
 		{
+			AppMetrics.RecordSecurityAction(action.ToMetricLabel(), "applied");
 			s_log.LogInformation("Applying moderation action {Action} to user {UserId}", action, userID);
 			WebSocketMessage_ModerationNotice notice = new WebSocketMessage_ModerationNotice
 			{

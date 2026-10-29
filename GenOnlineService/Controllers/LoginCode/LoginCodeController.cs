@@ -155,6 +155,10 @@ namespace GenOnlineService.Controllers
 		[HttpPost]
 		public async Task Post([FromHeader(Name = "X-Api-Key")] string apiKey)
 		{
+			using IDisposable authenticationMetric = AppMetrics.TrackAuthentication(
+				"login_code_callback",
+				"partner",
+				() => Response.StatusCode < 400 ? "success" : $"http_{Response.StatusCode}");
 			if (string.IsNullOrEmpty(apiKey))
 			{
 				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
@@ -237,6 +241,7 @@ namespace GenOnlineService.Controllers
 			result.login_code = GenerateLoginCode();
 			// a collision with a live code must not be handed out to a second client
 			result.success = PendingLoginManager.AddPendingLogin(result.login_code);
+			AppMetrics.RecordAuthentication("login_code_issue", "client", result.success ? "success" : "collision");
 
 			return result;
 		}

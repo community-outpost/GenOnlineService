@@ -377,6 +377,15 @@ namespace GenOnlineService
 		private static readonly ILogger s_log = AppLog.For(typeof(WebSocketManager));
 
 		public static int g_PeakConnectionCount = 0;
+
+		private static void RecordConnectionSnapshot()
+		{
+			foreach (var entry in m_dictWebsockets)
+			{
+				AppMetrics.RecordWebSocketConnections(entry.Key, entry.Value.Count);
+			}
+		}
+
 		public static Task<UserWebSocketInstance> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, bool bIsAdmin)
 		{
 			return ServiceLocator.Services.GetRequiredService<LobbyManager>().OpenSessionAsync(_db, sessionType, bIsReconnect, ownerID, client_id, ipAddr, strContinent, strCountry, dLatitude, dLongitude, bIsAdmin);
@@ -491,6 +500,7 @@ namespace GenOnlineService
 
 			UserWebSocketInstance newSess = new UserWebSocketInstance(sessionType, ownerID, userCacheData);
 			m_dictWebsockets[sessionType][ownerID] = newSess;
+			RecordConnectionSnapshot();
 
 
 			// TODO_EFCORE: Optimize this, dont iterate all the time
@@ -602,13 +612,16 @@ namespace GenOnlineService
 		{
 			var sockets = m_dictWebsockets[session.GetSessionType()];
 			if (!sockets.TryGetValue(session.m_UserID, out var socket) || !ReferenceEquals(socket.OwnerSession, session)) return null;
-			return sockets.TryRemove(new KeyValuePair<long, UserWebSocketInstance>(session.m_UserID, socket)) ? socket : null;
+			if (!sockets.TryRemove(new KeyValuePair<long, UserWebSocketInstance>(session.m_UserID, socket))) return null;
+			RecordConnectionSnapshot();
+			return socket;
 		}
 
 		internal static bool RemoveSessionData(UserSession session)
 		{
 			if (!m_dictUserSessions[session.GetSessionType()].TryRemove(new KeyValuePair<long, UserSession>(session.m_UserID, session)))
 				return false;
+			session.ReleasePendingWebsocketSendAccounting();
 
 			// Every real teardown (abandoned expiry, logout, kick/ban, superseding or fresh login) ends here via
 			// DestroySessionAsync, so the per-user middleware ID is dropped here and nowhere else. Transient
@@ -1235,6 +1248,7 @@ namespace GenOnlineService
 
 		// Matchmaking data
 		public UInt16 MatchmakingPlaylistID = 0;
+		public long MatchmakingStartedTimestamp = 0;
 		public ConcurrentList<int> MatchmakingMapIndicies = new();
 		internal bool IsRegisteredForMatchmaking { get; set; } = false;
 		internal SemaphoreSlim MatchmakingStateLock { get; } = new(1, 1);
@@ -1366,8 +1380,13 @@ namespace GenOnlineService
 				return;
 			}
 
-			if (!m_outbound.Writer.TryWrite(bytesJSON))
+			if (m_outbound.Writer.TryWrite(bytesJSON))
 			{
+				AppMetrics.AdjustWebSocketSendQueueDepth(1);
+			}
+			else
+			{
+				AppMetrics.RecordWebSocketFailure("outbound", "queue_full");
 				// too far behind to catch up: drop the connection so the client reconnects
 				if (WebSocketManager.GetWebSocketForSession(this)?.AbortIfOpen() == true)
 				{
@@ -1405,6 +1424,16 @@ namespace GenOnlineService
 		});
 
 		public ChannelReader<byte[]> OutboundWebsocketSends => m_outbound.Reader;
+
+		// the session is gone: take its unsent messages off the queue-depth gauge
+		public void ReleasePendingWebsocketSendAccounting()
+		{
+			int pending = m_outbound.Reader.Count;
+			if (pending > 0)
+			{
+				AppMetrics.AdjustWebSocketSendQueueDepth(-pending);
+			}
+		}
 
 		public bool NeedsCleanup()
 		{
@@ -1653,7 +1682,10 @@ namespace GenOnlineService
 							return;
 						}
 
-						outbound.TryRead(out _);
+						if (outbound.TryRead(out _))
+						{
+							AppMetrics.AdjustWebSocketSendQueueDepth(-1);
+						}
 					}
 				}
 			}
@@ -1682,11 +1714,13 @@ namespace GenOnlineService
 			}
 			catch (OperationCanceledException)
 			{
+				AppMetrics.RecordWebSocketFailure("outbound", "timeout");
 				s_log.LogWarning("Websocket send to user {UserId} stalled for {StallSeconds}s; connection aborted", m_UserID, c_SendStallTimeout.TotalSeconds);
 				return false;
 			}
 			catch
 			{
+				AppMetrics.RecordWebSocketFailure("outbound", "error");
 				return false;
 			}
 		}

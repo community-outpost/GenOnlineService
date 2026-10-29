@@ -78,3 +78,6 @@ The model is shared, but every provider has its own context (`MySqlAppDbContext`
 - `GenOnlineService migrate` uses the configured `db_provider`, lists the applied and pending migrations and asks for confirmation. It does not start the service. Without `--yes` it refuses to run when input is redirected (e.g. in CI)
 - `GenOnlineService migrate --baseline` is the one-time step for existing MySQL/MariaDB installs described above
 
+# Observability
+
+The service can export OpenTelemetry logs, metrics, and traces over OTLP, with Sentry as an optional destination for errors, logs, and traces. See [docs/observability.md](docs/observability.md) for configuration, coverage, metric names, privacy controls, and an Alloy example.

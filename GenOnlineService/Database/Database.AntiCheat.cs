@@ -280,9 +280,11 @@ namespace Database
 						.SetProperty(u => u.BanVerifiedBy, "x64")
 						.SetProperty(u => u.BanAliases, "")
 					);
+				AppMetrics.RecordSecurityAction("anticheat_", "success");
 			}
 			catch (Exception ex)
 			{
+				AppMetrics.RecordSecurityAction("anticheat_", "error");
 				s_log.LogError(ex, "AC_BanUser failed");
 			}
 		}
@@ -314,6 +316,7 @@ namespace Database
 						ON DUPLICATE KEY UPDATE user_id = user_id");
 				}
 
+				AppMetrics.RecordSecurityAction("anticheat_", "success");
 			}
 			catch (Exception ex)
 			{
@@ -322,6 +325,7 @@ namespace Database
 					return;
 				}
 
+				AppMetrics.RecordSecurityAction("anticheat_", "error");
 				s_log.LogError(ex, "FlagAccountForReview failed");
 			}
 		}
@@ -378,6 +382,7 @@ namespace Database
 					await db.Database.ExecuteSqlRawAsync(sql.ToString(), parameters);
 				}
 
+				AppMetrics.RecordSecurityAction("anticheat_", "success");
 				return true;
 			}
 			catch (Exception ex)
@@ -387,6 +392,7 @@ namespace Database
 					return true;
 				}
 
+				AppMetrics.RecordSecurityAction("anticheat_", "error");
 				s_log.LogError(ex, "FlagAccountForReview_Modules failed");
 				return false;
 			}
@@ -410,9 +416,11 @@ namespace Database
 				});
 
 				await db.SaveChangesAsync();
+				AppMetrics.RecordSecurityAction("anticheat_", "success");
 			}
 			catch (Exception ex)
 			{
+				AppMetrics.RecordSecurityAction("anticheat_", "error");
 				s_log.LogError(ex, "FlagAccountForReview_SuspectProbes failed");
 			}
 		}
@@ -432,9 +440,11 @@ namespace Database
 				});
 
 				await db.SaveChangesAsync();
+				AppMetrics.RecordSecurityAction("anticheat_", "success");
 			}
 			catch (Exception ex)
 			{
+				AppMetrics.RecordSecurityAction("anticheat_", "error");
 				s_log.LogError(ex, "FlagAccountForReview_NewAccount_FirstMatches failed");
 			}
 		}

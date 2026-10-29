@@ -54,8 +54,14 @@
     <PackageReference Include="Microting.EntityFrameworkCore.MySql" Version="10.0.13" />
     <PackageReference Include="MySqlConnector" Version="2.6.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
     <PackageReference Include="Sentry" Version="6.8.0" />
     <PackageReference Include="Sentry.Extensions.Logging" Version="6.8.0" />
+    <PackageReference Include="Sentry.OpenTelemetry" Version="6.8.0" />
   </ItemGroup>
 
   <ItemGroup>

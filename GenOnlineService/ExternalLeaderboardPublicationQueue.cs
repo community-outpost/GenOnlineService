@@ -92,7 +92,23 @@ namespace GenOnlineService
 				}
 			}
 
+			await RecordBacklogAge(stoppingToken);
 			return pending.Count;
+		}
+
+		// separate from publishing so a telemetry query failure never blocks it
+		private async Task RecordBacklogAge(CancellationToken stoppingToken)
+		{
+			try
+			{
+				await using AppDbContext db = await _dbFactory.CreateDbContextAsync(stoppingToken);
+				DateTime? oldest = await Database.MatchHistory.GetOldestUnpublishedMatchTime(db, stoppingToken);
+				AppMetrics.RecordExternalPublicationBacklogAge(oldest is { } finishedAt ? DateTime.UtcNow - finishedAt : TimeSpan.Zero);
+			}
+			catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+			{
+				_logger.LogWarning(ex, "External publication backlog age could not be read");
+			}
 		}
 
 		private async Task PublishItem(
@@ -124,8 +140,7 @@ namespace GenOnlineService
 				}
 				catch (Exception ex)
 				{
-					_logger.LogWarning(ex, "Match {MatchId} was ingested, but its optional ratings response could not be applied", item.MatchId);
-					SentrySdk.CaptureException(ex);
+					_logger.LogError(ex, "Match {MatchId} was ingested, but its optional ratings response could not be applied", item.MatchId);
 				}
 
 				await using AppDbContext completionDb = await _dbFactory.CreateDbContextAsync(stoppingToken);
@@ -166,8 +181,7 @@ namespace GenOnlineService
 			}
 			catch (JsonException ex)
 			{
-				_logger.LogWarning(ex, "External Match Ingest response for match {MatchId} could not be deserialized", matchId);
-				SentrySdk.CaptureException(ex);
+				_logger.LogError(ex, "External Match Ingest response for match {MatchId} could not be deserialized", matchId);
 				return;
 			}
 
@@ -260,6 +274,7 @@ namespace GenOnlineService
 				publicationException.Message,
 				stoppingToken);
 
+			AppMetrics.RecordExternalPublicationFailure(retry ? "retrying" : "exhausted");
 			if (!retry)
 			{
 				_logger.LogError(publicationException, "External publication for match {MatchId} stopped after {Attempt} attempts", item.MatchId, item.Attempt);
