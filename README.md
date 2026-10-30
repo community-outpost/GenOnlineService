@@ -69,7 +69,17 @@ Installs from before migrations existed have their schema from the old `structur
 - Run `GenOnlineService migrate`. It applies the later migrations; items the database already has (for example from the website) are skipped
 - Start the new version
 
-The service refuses to start on such a database until this is done, and says so. `users.favorite_limit_superweapons` stays an `int` on MySQL/MariaDB where `-1` means unset, and only values above zero are true. Moving a MySQL/MariaDB install to PostgreSQL later is not automated by the service: create the PostgreSQL schema with `migrate` and copy the data.
+The service refuses to start on such a database until this is done, and says so. `users.favorite_limit_superweapons` stays an `int` on MySQL/MariaDB where `-1` means unset, and only values above zero are true. Moving a MySQL/MariaDB install to PostgreSQL later is done with `GenOnlineService import`, see below.
+
+# Moving From MariaDB To PostgreSQL
+`GenOnlineService import [--dry-run] [--restart] [--yes]` copies a MariaDB/MySQL database into an empty PostgreSQL database. The `Database` section is the target (`db_provider` must be `postgres`), the `Import` section is the source (`db_provider` `mysql` or `mariadb`, `db_host`, `db_port`, `db_ssl_mode`, `db_name`, `db_username`, `db_password`); the source may be on another server. The source is only read.
+- On the MariaDB install: set `db_provider` to `mysql`, run `GenOnlineService migrate --baseline` (only for an install from before migrations), then `GenOnlineService migrate --yes`
+- Create an empty PostgreSQL database and run `GenOnlineService migrate --yes` against it
+- Run `GenOnlineService import` while the service is live, as often as you like. A run while the service is live ends with differences (rows written while it copied), exits with an error and keeps its progress: that is the expected catch-up result
+- Stop the service and run `GenOnlineService import` until it completes (row counts and lowest/highest key match for every table, the import state is removed). Set `db_provider` to `postgres` and start the service. While an import is unfinished the service refuses to start on PostgreSQL
+- Only `ac_reviews_modules` is incremental (new rows by key, resumable). Every run reloads all other tables, `match_history` included, so reruns are not cheap
+- `--dry-run` writes nothing and lists values PostgreSQL cannot store (NUL characters, invalid JSON for jsonb) with table and key; a real run stops on them with the same detail, the import never changes data. `--restart` discards the imported data and starts over. The import refuses a target that has data but no import in progress
+- Limitation: a quiet live run could pass verification and complete while the service still writes, so the service must be stopped for the run that completes the import
 
 # Changing The Database Schema
 The schema is defined by the EF Core model (`GenOnlineService\Database`) and applied through code-first migrations. Migrations are only applied by `GenOnlineService migrate`, never by the service itself.

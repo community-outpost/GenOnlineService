@@ -946,6 +946,54 @@ namespace GenOnlineService
 			}
 		}
 
+		// "GenOnlineService import [--dry-run] [--restart] [--yes]": moves the data from the database in the Import
+		// section (MySQL/MariaDB) into the one in the Database section (PostgreSQL). See README.md.
+		private static async Task<int> RunImportCommand(string[] args)
+		{
+			var flags = args.Skip(1).Select(a => a.ToLowerInvariant()).ToList();
+			string? unknown = flags.FirstOrDefault(f => f != "--dry-run" && f != "--restart" && f != "--yes");
+
+			if (unknown != null)
+			{
+				Console.Error.WriteLine($"Unknown option \"{unknown}\". Usage: GenOnlineService import [--dry-run] [--restart] [--yes]");
+				return 1;
+			}
+
+			bool assumeYes = flags.Contains("--yes");
+
+			try
+			{
+				var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+
+				DbProvider provider = GetDbProvider(config);
+				Database.ImportSource source = Database.Import.ReadSource(config, provider == DbProvider.Postgres);
+				string connectionString = BuildDbConnectionString(config, provider);
+
+				await using var db = CreateDbContext(provider, connectionString, null);
+
+				var options = new Database.ImportOptions
+				{
+					DryRun = flags.Contains("--dry-run"),
+					Restart = flags.Contains("--restart"),
+					Confirm = (prompt, hint) => Confirm(assumeYes, prompt, hint)
+				};
+
+				return await Database.Import.Execute(db, connectionString, source, options);
+			}
+			catch (Database.ImportException ex)
+			{
+				Console.Error.WriteLine($"Import failed: {ex.Message}");
+				return 1;
+			}
+			catch (Exception ex)
+			{
+				// Message only: the full exception text can carry connection details
+				Console.Error.WriteLine($"Import failed: {ex.GetType().Name}: {ex.Message}");
+				Console.Error.WriteLine("Progress is kept, run the import again to resume.");
+				return 1;
+			}
+		}
+
 		private static async Task<int> RunBaseline(AppDbContext db, bool assumeYes)
 		{
 			var plan = await MigrationBaseline.Plan(db);
@@ -1444,6 +1492,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("import", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await RunImportCommand(args);
+				return;
+			}
+
 #if !DEBUG
 			AppDomain.CurrentDomain.UnhandledException += GlobalExceptionHandler;
 #endif
@@ -1919,6 +1973,15 @@ namespace GenOnlineService
 						Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then \"GenOnlineService migrate\".");
 					}
 
+					Environment.ExitCode = 1;
+					return;
+				}
+
+				// An import into this PostgreSQL database that was started and not completed
+				if (migrationDb.Database.IsNpgsql() && await Database.Import.IsUnfinished(migrationDb))
+				{
+					Console.Error.WriteLine("[ERROR] An import into this database is unfinished (table __import_state exists), so the service will not start on it.");
+					Console.Error.WriteLine("Run \"GenOnlineService import\" with the service stopped to complete it. To discard the imported data and start over, run \"GenOnlineService import --restart\".");
 					Environment.ExitCode = 1;
 					return;
 				}
