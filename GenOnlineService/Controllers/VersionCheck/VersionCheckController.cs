@@ -150,6 +150,170 @@ namespace GenOnlineService.Controllers
 			return manifest;
 		}
 
+		// Fills the patcher download details that tell an outdated client to update.
+		private static async Task ApplyPatcherResult(POST_VersionCheck_Result result, JsonSerializerOptions options)
+		{
+			var jsonPatchData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(await System.IO.File.ReadAllTextAsync(Path.Combine("data", "patchdata.json")), options);
+
+			if (jsonPatchData != null)
+			{
+				result.patcher_name = jsonPatchData["patcher_name"].ToString();
+				result.patcher_path = jsonPatchData["patcher_path"].ToString();
+
+#if !DEBUG
+				string strPatcherPath = Path.Combine(Directory.GetCurrentDirectory(), "crcfiles", result.patcher_name);
+				//string strPatchPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "public_html", "updater", "v1.gopatch");
+
+				result.patcher_size = (UInt32)new FileInfo(strPatcherPath).Length;
+#else
+			// large patch test
+#if LARGE_PATCH_TEST
+			result.patcher_path = "http://ipv4.download.thinkbroadband.com/100MB.zip";
+
+			result.patcher_size = 100 * 1048576;
+#else
+
+			// TODO: Client should probably just make HEAD requests later
+			// debug hack... since we dont have local data
+
+			async Task<long> GetHTTPSize(string url)
+			{
+				using (System.Net.Http.HttpClient client = new System.Net.Http.HttpClient())
+				{
+					try
+					{
+						HttpRequestMessage request = new HttpRequestMessage(System.Net.Http.HttpMethod.Head, url);
+						HttpResponseMessage response = await client.SendAsync(request);
+
+						if (response.IsSuccessStatusCode && response.Content.Headers.ContentLength.HasValue)
+						{
+							return response.Content.Headers.ContentLength.Value;
+						}
+					}
+					catch (HttpRequestException ex)
+					{
+						s_log.LogWarning(ex, "Failed to determine patch download size");
+					}
+
+					return -1; // Return -1 if the size could not be determined
+				}
+			}
+
+			result.patcher_size = await GetHTTPSize(result.patcher_path);
+#endif
+
+#endif
+
+				result.result = EVersionCheckResult.NeedsUpdate;
+			}
+			else
+			{
+				result.result = EVersionCheckResult.Failed;
+			}
+		}
+
+		private static readonly string[] s_KnownGames = { "generals", "generalsmd" };
+
+		private const string DefaultMinClientVersion = "0.0.0";
+
+		// Reads the leading YYYY.MM.PATCH numbers from a CalVer or git describe version string.
+		private static bool TryParseClientVersion(string? strVersion, out (int, int, int) version)
+		{
+			version = (0, 0, 0);
+
+			if (string.IsNullOrWhiteSpace(strVersion))
+			{
+				return false;
+			}
+
+			string strCore = strVersion.Trim().Split('-', '+')[0];
+			string[] parts = strCore.Split('.');
+			if (parts.Length != 3
+				|| !int.TryParse(parts[0], out int year)
+				|| !int.TryParse(parts[1], out int month)
+				|| !int.TryParse(parts[2], out int patch))
+			{
+				return false;
+			}
+
+			version = (year, month, patch);
+			return true;
+		}
+
+		// Returns the configured minimum client version for a game or the default when it is missing or invalid.
+		private static (int, int, int) GetMinClientVersion(string strGame)
+		{
+			string? strMin = Program.g_Config?.GetSection("VersionCheck").GetSection("MinClientVersion").GetValue<string>(strGame);
+			if (TryParseClientVersion(strMin, out (int, int, int) minVersion))
+			{
+				return minVersion;
+			}
+
+			TryParseClientVersion(DefaultMinClientVersion, out minVersion);
+			return minVersion;
+		}
+
+		// Returns the CRC of every executable under crcfiles/<game>.
+		private static HashSet<UInt32> GetExeCRCs(string strGame)
+		{
+			HashSet<UInt32> crcs = new HashSet<UInt32>();
+#if DEBUG
+			crcs.Add(0);
+#else
+			string strDir = Path.Combine(Directory.GetCurrentDirectory(), "crcfiles", strGame);
+			if (Directory.Exists(strDir))
+			{
+				foreach (string strExe in Directory.GetFiles(strDir, "*.exe"))
+				{
+					crcs.Add(CRC32Calculator.CalculateCRC32(strExe));
+				}
+			}
+#endif
+			return crcs;
+		}
+
+		private static async Task<APIResult> Post_ClientVersionHandler(Dictionary<string, JsonElement> data, JsonSerializerOptions options)
+		{
+			POST_VersionCheck_Result result = new POST_VersionCheck_Result();
+
+			string? strClientVersion = data["client_version"].ValueKind == JsonValueKind.String ? data["client_version"].GetString() : null;
+			string? strGame = data.TryGetValue("game", out JsonElement gameElement) && gameElement.ValueKind == JsonValueKind.String ? gameElement.GetString() : null;
+
+			if (!TryParseClientVersion(strClientVersion, out (int, int, int) clientVersion)
+				|| strGame == null
+				|| !s_KnownGames.Contains(strGame)
+				|| !data.TryGetValue("exe_crc", out JsonElement exeCRCElement)
+				|| !UInt32.TryParse(exeCRCElement.ToString(), out UInt32 exeCRC))
+			{
+				result.result = EVersionCheckResult.Failed;
+				return result;
+			}
+
+#if DEBUG
+#if LARGE_PATCH_TEST
+			const bool bDoCRCChecks = true;
+#else
+			const bool bDoCRCChecks = false;
+#endif
+#else
+			const bool bDoCRCChecks = true;
+#endif
+
+			bool bVersionAllowed = clientVersion.CompareTo(GetMinClientVersion(strGame)) >= 0;
+			bool bExeCRCMatches = GetExeCRCs(strGame).Contains(exeCRC);
+
+			if (!bDoCRCChecks || (bVersionAllowed && bExeCRCMatches))
+			{
+				result.result = EVersionCheckResult.OK;
+			}
+			else
+			{
+				await ApplyPatcherResult(result, options);
+			}
+
+			return result;
+		}
+
 #if !DEBUG
 		public static async Task<APIResult> Post_InternalHandler(string jsonData)
 #else
@@ -166,6 +330,12 @@ namespace GenOnlineService.Controllers
 			try
 			{
 				var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonData, options);
+
+				// Clients that send client_version use the release version check.
+				if (data != null && data.ContainsKey("client_version"))
+				{
+					return await Post_ClientVersionHandler(data, options);
+				}
 
 				if (data != null && data.ContainsKey("ver") && data.ContainsKey("netver") && data.ContainsKey("servicesver"))
 				{
@@ -207,63 +377,7 @@ namespace GenOnlineService.Controllers
 						}
 						else
 						{
-							var jsonPatchData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(await System.IO.File.ReadAllTextAsync(Path.Combine("data", "patchdata.json")), options);
-
-							if (jsonPatchData != null)
-							{
-								result.patcher_name = jsonPatchData["patcher_name"].ToString();
-								result.patcher_path = jsonPatchData["patcher_path"].ToString();
-
-#if !DEBUG
-								string strPatcherPath = Path.Combine(Directory.GetCurrentDirectory(), "crcfiles", result.patcher_name);
-								//string strPatchPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "public_html", "updater", "v1.gopatch");
-
-								result.patcher_size = (UInt32)new FileInfo(strPatcherPath).Length;
-#else
-							// large patch test
-#if LARGE_PATCH_TEST
-							result.patcher_path = "http://ipv4.download.thinkbroadband.com/100MB.zip";
-
-							result.patcher_size = 100 * 1048576;
-#else
-
-							// TODO: Client should probably just make HEAD requests later
-							// debug hack... since we dont have local data
-
-							async Task<long> GetHTTPSize(string url)
-							{
-								using (System.Net.Http.HttpClient client = new System.Net.Http.HttpClient())
-								{
-									try
-									{
-										HttpRequestMessage request = new HttpRequestMessage(System.Net.Http.HttpMethod.Head, url);
-										HttpResponseMessage response = await client.SendAsync(request);
-
-										if (response.IsSuccessStatusCode && response.Content.Headers.ContentLength.HasValue)
-										{
-											return response.Content.Headers.ContentLength.Value;
-										}
-									}
-									catch (HttpRequestException ex)
-									{
-										s_log.LogWarning(ex, "Failed to determine patch download size");
-									}
-
-									return -1; // Return -1 if the size could not be determined
-								}
-							}
-
-							result.patcher_size = await GetHTTPSize(result.patcher_path);
-#endif
-
-#endif
-
-								result.result = EVersionCheckResult.NeedsUpdate;
-							}
-							else
-							{
-								result.result = EVersionCheckResult.Failed;
-							}
+							await ApplyPatcherResult(result, options);
 						}
 					}
 					else
