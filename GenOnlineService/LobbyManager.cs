@@ -1645,6 +1645,33 @@ public async Task FinalizeACChecks()
 				return Task.CompletedTask;
 			});
 
+			await OnStateUpdated(state);
+		}
+
+		// Moves a lobby in setup into the match and returns false when another start already moved it.
+		public async Task<bool> TryStartMatch()
+		{
+			bool bStarted = await RunExclusiveAsync(() =>
+			{
+				if (State != ELobbyState.GAME_SETUP)
+				{
+					return Task.FromResult(false);
+				}
+
+				State = ELobbyState.INGAME;
+				return Task.FromResult(true);
+			});
+
+			if (bStarted)
+			{
+				await OnStateUpdated(ELobbyState.INGAME);
+			}
+
+			return bStarted;
+		}
+
+		private async Task OnStateUpdated(ELobbyState state)
+		{
 			// if start, init our AC probe
 			if (state == ELobbyState.INGAME)
 			{

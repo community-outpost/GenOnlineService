@@ -2971,7 +2971,8 @@ namespace GenOnlineService
 		MATCHMAKING_ACTION_SETUP_PROGRESS = 45,
 		MODERATION_NOTICE = 46,
 		MODERATION_COMMAND = 47,
-		MODERATION_COMMAND_RESULT = 48
+		MODERATION_COMMAND_RESULT = 48,
+		START_GAME_REJECTED = 49
 	};
 
 	public static class UserPresence
@@ -3067,6 +3068,11 @@ namespace GenOnlineService
 	public class WebSocketMessage_StartMatch : WebSocketMessage
 	{
 		public string screenshot_url { get; set; } = String.Empty;
+	}
+
+	public class WebSocketMessage_StartGameRejected : WebSocketMessage
+	{
+		public string reason { get; set; } = String.Empty;
 	}
 
 	public class WebSocketMessage_ModerationNotice : WebSocketMessage

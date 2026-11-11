@@ -120,6 +120,16 @@ namespace GenOnlineService.Controllers
 			session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result)));
 		}
 
+		private static void QueueStartGameRejected(UserSession session, string reason)
+		{
+			WebSocketMessage_StartGameRejected rejected = new()
+			{
+				msg_id = (int)EWebSocketMessageID.START_GAME_REJECTED,
+				reason = reason
+			};
+			session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rejected)));
+		}
+
 		private async Task ProcessModerationCommand(
 			byte[] payload,
 			UserSession session,
@@ -1032,23 +1042,29 @@ namespace GenOnlineService.Controllers
 					Lobby? lobbyInfo = null;
 					if (sourceUserSession.currentLobbyID != -1)
 					{
-						// must be lobby owner too
 						lobbyInfo = _lobbyManager.GetLobby(sourceUserSession.currentLobbyID);
-
-						if (lobbyInfo == null || lobbyInfo.Owner != sourceUserSession.m_UserID)
-						{
-							return;
-						}
 					}
 
-					// only a lobby still in setup can start
-					if (lobbyInfo == null || lobbyInfo.State != ELobbyState.GAME_SETUP)
+					if (lobbyInfo == null)
 					{
+						QueueStartGameRejected(sourceUserSession, "no_lobby");
 						return;
 					}
 
+					// must be lobby owner too
+					if (lobbyInfo.Owner != sourceUserSession.m_UserID)
+					{
+						QueueStartGameRejected(sourceUserSession, "not_owner");
+						return;
+					}
+
+					// only a lobby still in setup can start
 					// start match + create placeholder match
-					await lobbyInfo.UpdateState(ELobbyState.INGAME);
+					if (!await lobbyInfo.TryStartMatch())
+					{
+						QueueStartGameRejected(sourceUserSession, "already_started");
+						return;
+					}
 
 					// simple websocket msg, has no data, so dont even read anything
 
