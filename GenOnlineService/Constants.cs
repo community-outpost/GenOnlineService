@@ -99,7 +99,9 @@ namespace GenOnlineService
 		UNKNOWN = -1,
 		GAME_SETUP,
 		INGAME,
-		COMPLETE
+		COMPLETE,
+		// a custom lobby start runs its mesh check and countdown in this state
+		COUNTDOWN
 	}
 
 	[Flags]
@@ -2972,7 +2974,9 @@ namespace GenOnlineService
 		MODERATION_NOTICE = 46,
 		MODERATION_COMMAND = 47,
 		MODERATION_COMMAND_RESULT = 48,
-		START_GAME_REJECTED = 49
+		START_GAME_REJECTED = 49,
+		LOBBY_EVENT = 50,
+		LOBBY_HOST_START_INTENT = 51
 	};
 
 	public static class UserPresence
@@ -3027,6 +3031,10 @@ namespace GenOnlineService
 						{
 							strThisPresence = String.Format("In lobby '{0}' - Waiting on game setup", plrLobby.Name);
 						}
+						else if (plrLobby.State == ELobbyState.COUNTDOWN)
+						{
+							strThisPresence = String.Format("In lobby '{0}' - Match Starting", plrLobby.Name);
+						}
 						else if (plrLobby.State == ELobbyState.INGAME)
 						{
 							strThisPresence = String.Format("In lobby '{0}' -  Match In Progress", plrLobby.Name);
@@ -3073,6 +3081,29 @@ namespace GenOnlineService
 	public class WebSocketMessage_StartGameRejected : WebSocketMessage
 	{
 		public string reason { get; set; } = String.Empty;
+
+		// unordered user id pairs, only for mesh_incomplete
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public List<Int64[]>? missing { get; set; }
+	}
+
+	public class WebSocketMessage_LobbyEvent : WebSocketMessage
+	{
+		public string @event { get; set; } = String.Empty;
+	}
+
+	public class WebSocketMessage_LobbyEvent_CountdownStarted : WebSocketMessage_LobbyEvent
+	{
+		public int duration_ms { get; set; }
+	}
+
+	public class WebSocketMessage_LobbyEvent_CountdownCancelled : WebSocketMessage_LobbyEvent
+	{
+		public string reason { get; set; } = String.Empty;
+
+		// unordered user id pairs, only for mesh_incomplete
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public List<Int64[]>? missing { get; set; }
 	}
 
 	public class WebSocketMessage_ModerationNotice : WebSocketMessage

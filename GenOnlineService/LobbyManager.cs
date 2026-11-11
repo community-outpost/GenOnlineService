@@ -296,21 +296,178 @@ namespace GenOnlineService
 						if (member.SlotState == EPlayerType.SLOT_OPEN) member.SetPlayerSlotState(EPlayerType.SLOT_CLOSED);
 					DirtyRetransmit();
 				}
-				FullMeshCheckID = Interlocked.Increment(ref s_NextFullMeshCheckID);
-				FullMeshCheckAttempt = 1;
-				m_MembershipVersionAtMeshCheckStart = m_MembershipVersion;
-				m_MeshParticipants = new();
-				foreach (var member in Members.Where(member => member.IsHuman()))
-					if (member.GetSession().TryGetTarget(out var session))
-						m_MeshParticipants[member.UserID] = new(member, session, WebSocketManager.GetWebSocketForSession(session));
-				m_MeshHost = m_MeshParticipants.GetValueOrDefault(Owner);
-				m_TimeToRetryFullMeshChecks = -1;
-				LastFullMeshConnectivityCheckOutcome = null;
-				LastFullMeshCheckFailureReason = null;
-				BeginFullMeshConnectivityCheckAttempt();
+				BeginMeshCheckLocked();
 				if (EnsureMeshCheckIsCurrentLocked()) SendFullMeshConnectivityCheckRequestToMembers();
 				return Task.FromResult(FullMeshCheckID);
 			});
+		}
+
+		private void BeginMeshCheckLocked()
+		{
+			FullMeshCheckID = Interlocked.Increment(ref s_NextFullMeshCheckID);
+			FullMeshCheckAttempt = 1;
+			m_MembershipVersionAtMeshCheckStart = m_MembershipVersion;
+			m_MeshParticipants = new();
+			foreach (var member in Members.Where(member => member.IsHuman()))
+				if (member.GetSession().TryGetTarget(out var session))
+					m_MeshParticipants[member.UserID] = new(member, session, WebSocketManager.GetWebSocketForSession(session));
+			m_MeshHost = m_MeshParticipants.GetValueOrDefault(Owner);
+			m_TimeToRetryFullMeshChecks = -1;
+			LastFullMeshConnectivityCheckOutcome = null;
+			LastFullMeshCheckFailureReason = null;
+			BeginFullMeshConnectivityCheckAttempt();
+		}
+
+		private enum EStartPhase { None, MeshCheck, Countdown }
+
+		// a custom lobby start counts down this long once its mesh check passes
+		internal const int StartCountdownMs = 5000;
+
+		private volatile EStartPhase m_StartPhase = EStartPhase.None;
+		private Int64 m_TimeCountdownEnds = -1;
+
+		// only legacy clients announce their own countdown, so their start keeps the immediate path
+		private bool m_bLegacyCountdownStarted = false;
+
+		internal enum EStartResult { Begun, Legacy, AlreadyStarted, NotReady }
+
+		// Moves a custom lobby from setup into COUNTDOWN and starts the mesh check that gates the countdown.
+		internal Task<EStartResult> BeginStartAsync() => RunExclusiveAsync(() =>
+		{
+			if (State != ELobbyState.GAME_SETUP) return Task.FromResult(EStartResult.AlreadyStarted);
+			if (m_bLegacyCountdownStarted) return Task.FromResult(EStartResult.Legacy);
+			if (Members.Any(member => member.IsHuman() && member.UserID != Owner && !member.IsReady))
+				return Task.FromResult(EStartResult.NotReady);
+
+			State = ELobbyState.COUNTDOWN;
+			m_StartPhase = EStartPhase.MeshCheck;
+			DirtyRetransmitLobbyList();
+			s_log.LogInformation("Lobby {LobbyId}: start requested, running the mesh check", LobbyID);
+			BeginMeshCheckLocked();
+			if (EnsureMeshCheckIsCurrentLocked()) SendFullMeshConnectivityCheckRequestToMembers();
+			return Task.FromResult(EStartResult.Begun);
+		});
+
+		internal Task MarkLegacyCountdownStartedAsync() => RunExclusiveAsync(() =>
+		{
+			m_bLegacyCountdownStarted = true;
+			return Task.CompletedTask;
+		});
+
+		// Caller holds the lobby gate.
+		internal void CancelStartForSettingsChangeLocked()
+		{
+			if (m_StartPhase != EStartPhase.None) CancelStartLocked("settings_changed");
+		}
+
+		private string StartCancelReasonLocked() =>
+			m_MeshHost == null || Owner != m_MeshHost.Session.m_UserID || !IsCurrentMeshParticipant(m_MeshHost)
+				? "host_left" : "member_left";
+
+		private void ResetStartLocked(string reason)
+		{
+			m_StartPhase = EStartPhase.None;
+			m_TimeCountdownEnds = -1;
+			PendingFullMeshConnectivityChecks = false;
+			TimeStartFullMeshChecks = -1;
+			m_TimeToRetryFullMeshChecks = -1;
+			LastFullMeshConnectivityCheckOutcome = false;
+			LastFullMeshCheckFailureReason = reason;
+			State = ELobbyState.GAME_SETUP;
+			DirtyRetransmitLobbyList();
+		}
+
+		private void CancelStartLocked(string reason, List<Int64[]>? missing = null)
+		{
+			s_log.LogInformation("Lobby {LobbyId}: start cancelled ({Reason})", LobbyID, reason);
+			ResetStartLocked(reason);
+			SendToMembersLocked(new WebSocketMessage_LobbyEvent_CountdownCancelled
+			{
+				msg_id = (int)EWebSocketMessageID.LOBBY_EVENT, @event = "countdown_cancelled", reason = reason, missing = missing
+			});
+		}
+
+		private void FailStartMeshCheckLocked(List<MissingConnectionEntry> missing)
+		{
+			s_log.LogInformation("Lobby {LobbyId}: start refused, mesh check incomplete", LobbyID);
+			ResetStartLocked("mesh_incomplete");
+			if (m_MeshHost == null || Owner != m_MeshHost.Session.m_UserID || !IsCurrentMeshParticipant(m_MeshHost)) return;
+			var rejected = new WebSocketMessage_StartGameRejected
+			{
+				msg_id = (int)EWebSocketMessageID.START_GAME_REJECTED, reason = "mesh_incomplete", missing = ToUserPairs(missing)
+			};
+			m_MeshHost.Session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rejected)));
+		}
+
+		private void BeginCountdownLocked()
+		{
+			m_StartPhase = EStartPhase.Countdown;
+			m_TimeCountdownEnds = Environment.TickCount64 + StartCountdownMs;
+			m_TimeNextFullMeshSnapshotRequest = Environment.TickCount64 + FullMeshCheckSettings.SnapshotIntervalMs;
+			s_log.LogInformation("Lobby {LobbyId}: mesh check complete, countdown started", LobbyID);
+			SendToMembersLocked(new WebSocketMessage_LobbyEvent_CountdownStarted
+			{
+				msg_id = (int)EWebSocketMessageID.LOBBY_EVENT, @event = "countdown_started", duration_ms = StartCountdownMs
+			});
+		}
+
+		private static List<Int64[]> ToUserPairs(IEnumerable<MissingConnectionEntry> missing) => missing
+			.Select(connection => (Math.Min(connection.source_user_id, connection.target_user_id), Math.Max(connection.source_user_id, connection.target_user_id)))
+			.Distinct()
+			.Select(pair => new[] { pair.Item1, pair.Item2 })
+			.ToList();
+
+		private void SendToMembersLocked<T>(T message) where T : WebSocketMessage
+		{
+			byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+			foreach (LobbyMember member in Members)
+				if (member.GetSession().TryGetTarget(out UserSession? session) && session != null)
+					session.QueueWebsocketSend(bytesJSON);
+		}
+
+		// The countdown only watches the mesh and cancels on a missing link without re-signalling.
+		public async Task ProcessStartCountdown()
+		{
+			if (m_StartPhase != EStartPhase.Countdown) return;
+
+			bool bStart = await RunExclusiveAsync(() =>
+			{
+				if (m_StartPhase != EStartPhase.Countdown || !EnsureMeshCheckIsCurrentLocked()) return Task.FromResult(false);
+				if (Environment.TickCount64 >= m_TimeCountdownEnds)
+				{
+					m_StartPhase = EStartPhase.None;
+					m_TimeCountdownEnds = -1;
+					State = ELobbyState.INGAME;
+					DirtyRetransmitLobbyList();
+					return Task.FromResult(true);
+				}
+				if (Environment.TickCount64 >= m_TimeNextFullMeshSnapshotRequest)
+				{
+					m_TimeNextFullMeshSnapshotRequest = Environment.TickCount64 + FullMeshCheckSettings.SnapshotIntervalMs;
+					SendFullMeshConnectivityCheckRequestToMembers();
+				}
+				return Task.FromResult(false);
+			});
+
+			if (bStart)
+			{
+				await OnStateUpdated(ELobbyState.INGAME);
+				await BroadcastStartGameAsync();
+			}
+		}
+
+		public async Task BroadcastStartGameAsync()
+		{
+			foreach (LobbyMember lobbyMember in Members)
+			{
+				if (lobbyMember.GetSession().TryGetTarget(out UserSession? sess) && sess != null)
+				{
+					WebSocketMessage_StartMatch startCommand = new WebSocketMessage_StartMatch();
+					startCommand.msg_id = (int)EWebSocketMessageID.START_GAME;
+					startCommand.screenshot_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_LOADSCREEN, MatchID, lobbyMember.UserID, lobbyMember.SlotIndex, TimeCreated) ?? String.Empty;
+					sess.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(startCommand)));
+				}
+			}
 		}
 
 		private bool IsCurrentMeshParticipant(MeshParticipant participant) =>
@@ -322,7 +479,7 @@ namespace GenOnlineService
 		private bool EnsureMeshCheckIsCurrentLocked()
 		{
 			if (FullMeshCheckID == 0) return false;
-			string? reason = State != ELobbyState.GAME_SETUP ? "lobby_state_changed"
+			string? reason = State != ELobbyState.GAME_SETUP && State != ELobbyState.COUNTDOWN ? "lobby_state_changed"
 				: m_MembershipVersion != m_MembershipVersionAtMeshCheckStart
 				|| m_MeshParticipants.Count != GetNumberOfHumans() ? "membership_changed"
 				: m_MeshParticipants.Values.Any(participant => !IsCurrentMeshParticipant(participant)) ? "session_changed"
@@ -334,7 +491,8 @@ namespace GenOnlineService
 
 		private void InvalidateMeshCheck(string reason)
 		{
-			if (PendingFullMeshConnectivityChecks) CompleteMeshCheck(false, reason, new());
+			if (m_StartPhase != EStartPhase.None) CancelStartLocked(StartCancelReasonLocked());
+			else if (PendingFullMeshConnectivityChecks) CompleteMeshCheck(false, reason, new());
 			else if (FullMeshCheckID != 0)
 			{
 				LastFullMeshConnectivityCheckOutcome = false;
@@ -364,6 +522,12 @@ namespace GenOnlineService
 			m_TimeToRetryFullMeshChecks = -1;
 			LastFullMeshConnectivityCheckOutcome = success;
 			LastFullMeshCheckFailureReason = reason;
+			if (m_StartPhase == EStartPhase.MeshCheck)
+			{
+				if (success) BeginCountdownLocked();
+				else FailStartMeshCheckLocked(missing);
+				return;
+			}
 			if (m_MeshHost == null || Owner != m_MeshHost.Session.m_UserID || !IsCurrentMeshParticipant(m_MeshHost)) return;
 			var outcome = new WebSocketMessage_FullMeshConnectivityCheckOutcome
 			{
@@ -513,11 +677,21 @@ namespace GenOnlineService
 			WebSocketMessage_FullMeshConnectivityCheckResponseFromUser response) => RunExclusiveAsync(() =>
 		{
 			// Legacy zero IDs cannot distinguish successive checks on the same socket.
-			if (!EnsureMeshCheckIsCurrentLocked() || !PendingFullMeshConnectivityChecks || m_TimeToRetryFullMeshChecks != -1
+			if (!EnsureMeshCheckIsCurrentLocked() || (!PendingFullMeshConnectivityChecks && m_StartPhase != EStartPhase.Countdown) || m_TimeToRetryFullMeshChecks != -1
 				|| !m_MeshParticipants.TryGetValue(source.m_UserID, out var participant)
 				|| !ReferenceEquals(participant.Session, source) || !ReferenceEquals(participant.Socket, socket)
 				|| !FullMeshCheckProtocol.MatchesCurrentAttempt(response, FullMeshCheckID, FullMeshCheckAttempt))
 				return Task.CompletedTask;
+			if (m_StartPhase == EStartPhase.Countdown)
+			{
+				var connected = response.connectivity_map ?? new();
+				var missingLinks = m_MeshParticipants.Keys
+					.Where(target => target != source.m_UserID && !connected.Contains(target))
+					.Select(target => new MissingConnectionEntry { source_user_id = source.m_UserID, target_user_id = target })
+					.ToList();
+				if (missingLinks.Count > 0 && !IsFullMeshCheckDisabled()) CancelStartLocked("mesh_incomplete", ToUserPairs(missingLinks));
+				return Task.CompletedTask;
+			}
 			m_bCurrentAttemptHasLegacyResponse |= FullMeshCheckProtocol.IsLegacyResponse(response);
 			FullMeshConnectivityChecks[source.m_UserID] = new(response.connectivity_map ?? new());
 			m_FullMeshConnecting[source.m_UserID] = new(response.connecting_map ?? new());
@@ -561,7 +735,7 @@ namespace GenOnlineService
 				foreach (var target in m_MeshParticipants.Keys)
 					if (source != target && (!FullMeshConnectivityChecks.TryGetValue(source, out var connected) || !connected.Contains(target)))
 						missing.Add(new() { source_user_id = source, target_user_id = target });
-			bool disabled = Program.g_Config?.GetSection("Core").GetValue<bool>("disable_full_mesh_check") == true;
+			bool disabled = IsFullMeshCheckDisabled();
 			bool allReported = m_MeshParticipants.Keys.All(FullMeshConnectivityChecks.ContainsKey);
 			bool complete = disabled || (allReported && missing.Count == 0);
 			bool attemptTimedOut = Environment.TickCount64 - TimeStartFullMeshChecks >= FullMeshCheckSettings.AttemptWindowMs;
@@ -584,6 +758,9 @@ namespace GenOnlineService
 			}
 			CompleteMeshCheck(complete, complete ? null : allReported ? "missing_connections" : "timeout", disabled ? new() : missing);
 		}
+
+		private static bool IsFullMeshCheckDisabled() =>
+			Program.g_Config?.GetSection("Core").GetValue<bool>("disable_full_mesh_check") == true;
 
 		public void AddPassword(string password)
 		{
@@ -964,6 +1141,7 @@ public async Task FinalizeACChecks()
 		private void DoHostMigration()
 		{
 			Int64 oldOwner = Owner;
+			m_bLegacyCountdownStarted = false;
 
 			foreach (LobbyMember member in Members)
 			{
@@ -1009,6 +1187,7 @@ public async Task FinalizeACChecks()
 		public async Task Tick()
 		{
 			await ProcessPendingFullMeshConnectivityChecks();
+			await ProcessStartCountdown();
 
 			if (m_NextProbe != 0 && Environment.TickCount64 >= m_NextProbe)
 			{
@@ -2123,7 +2302,7 @@ public async Task FinalizeACChecks()
 					bMeetsCriteria = false;
 				}
 
-				if (lobby.State == ELobbyState.GAME_SETUP && !bAllowInSetup)
+				if ((lobby.State == ELobbyState.GAME_SETUP || lobby.State == ELobbyState.COUNTDOWN) && !bAllowInSetup)
 				{
 					bMeetsCriteria = false;
 				}
@@ -2203,7 +2382,7 @@ public async Task FinalizeACChecks()
 					bMeetsCriteria = false;
 				}
 
-				if (lobby.State == ELobbyState.GAME_SETUP && !bAllowInSetup)
+				if ((lobby.State == ELobbyState.GAME_SETUP || lobby.State == ELobbyState.COUNTDOWN) && !bAllowInSetup)
 				{
 					bMeetsCriteria = false;
 				}

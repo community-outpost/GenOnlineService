@@ -1035,6 +1035,7 @@ namespace GenOnlineService.Controllers
 
 					// lock slots
 					await lobbyInfo.CloseOpenSlots();
+					await lobbyInfo.MarkLegacyCountdownStartedAsync();
 				}
 				else if (msgID == EWebSocketMessageID.START_GAME)
 				{
@@ -1051,6 +1052,13 @@ namespace GenOnlineService.Controllers
 						return;
 					}
 
+					// the matchmaker starts quick match lobbies
+					if (lobbyInfo.LobbyType == ELobbyType.QuickMatch)
+					{
+						QueueStartGameRejected(sourceUserSession, "already_started");
+						return;
+					}
+
 					// must be lobby owner too
 					if (lobbyInfo.Owner != sourceUserSession.m_UserID)
 					{
@@ -1058,41 +1066,36 @@ namespace GenOnlineService.Controllers
 						return;
 					}
 
-					// only a lobby still in setup can start
-					// start match + create placeholder match
+					switch (await lobbyInfo.BeginStartAsync())
+					{
+						case Lobby.EStartResult.AlreadyStarted:
+							QueueStartGameRejected(sourceUserSession, "already_started");
+							return;
+						case Lobby.EStartResult.NotReady:
+							QueueStartGameRejected(sourceUserSession, "not_ready");
+							return;
+						case Lobby.EStartResult.Begun:
+							return;
+					}
+
+					// a legacy host already ran its own countdown, so its start goes straight into the match
 					if (!await lobbyInfo.TryStartMatch())
 					{
 						QueueStartGameRejected(sourceUserSession, "already_started");
 						return;
 					}
 
-					// simple websocket msg, has no data, so dont even read anything
-
-
-					foreach (LobbyMember lobbyMember in lobbyInfo.Members)
-					{
-						if (lobbyMember != null)
-						{
-							if (lobbyMember.GetSession().TryGetTarget(out UserSession? sess))
-							{
-								if (sess != null)
-								{
-									// response
-									WebSocketMessage_StartMatch startCommand = new WebSocketMessage_StartMatch();
-									startCommand.msg_id = (int)EWebSocketMessageID.START_GAME;
-									startCommand.screenshot_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_LOADSCREEN, lobbyInfo.MatchID, lobbyMember.UserID, lobbyMember.SlotIndex, lobbyInfo.TimeCreated) ?? String.Empty;
-
-									// Serialize once before broadcasting
-									byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(startCommand));
-
-									sess.QueueWebsocketSend(bytesJSON);
-								}
-							}
-						}
-					}
+					await lobbyInfo.BroadcastStartGameAsync();
 				}
 				else if (msgID == EWebSocketMessageID.FULL_MESH_CONNECTIVITY_CHECK_HOST_REQUESTS_BEGIN)
 				{
+					// the matchmaker runs the mesh check of quick match lobbies
+					Lobby? lobbyInfo = _lobbyManager.GetLobby(sourceUserSession.currentLobbyID);
+					if (lobbyInfo?.LobbyType == ELobbyType.QuickMatch)
+					{
+						return;
+					}
+
 					await _lobbyManager.StartMeshCheckAsync(sourceUserSession, sourceWS);
 				}
 				else if (msgID == EWebSocketMessageID.FULL_MESH_CONNECTIVITY_CHECK_RESPONSE)
