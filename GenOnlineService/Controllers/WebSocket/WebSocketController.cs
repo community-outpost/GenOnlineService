@@ -142,7 +142,7 @@ namespace GenOnlineService.Controllers
 				return;
 			}
 
-			if (!userData.IsAdmin())
+			if (!userData.HasPermission(Permissions.ModerationKick))
 			{
 				QueueModerationCommandResult(session, command.request_id, false,
 					"You are not allowed to perform moderation actions.", "forbidden");
@@ -158,7 +158,8 @@ namespace GenOnlineService.Controllers
 					return;
 				}
 
-				ModerationResult kickResult = await ModerationManager.KickUser(command.target_user_id.Value, command.reason);
+				var actor = new Database.ModerationActor { UserID = session.m_UserID, Name = $"user:{session.m_UserID}", Source = ModerationSources.WebSocket };
+				ModerationResult kickResult = await ModerationManager.KickUser(command.target_user_id.Value, command.reason, actor);
 				switch (kickResult.Result)
 				{
 					case EModerationResult.Success:
@@ -260,8 +261,6 @@ namespace GenOnlineService.Controllers
 				// keep defaults
 			}
 
-			bool bIsAdmin = HttpContext.User.IsInRole("Admin");
-
 			KnownClients.EKnownClients client_id = KnownClients.EKnownClients.unknown;
 			if (int.TryParse(firstEntryClientID.Value, out int clientIDInt32))
 			{
@@ -292,8 +291,7 @@ namespace GenOnlineService.Controllers
 				ipContinent,
 				ipCountry,
 				dLatitude,
-				dLongitude,
-				bIsAdmin);
+				dLongitude);
 
 			// if null, it was probably a reconnect and they need to fully reconnect, so return an error instead
 			if (wsSess == null)
@@ -664,7 +662,7 @@ namespace GenOnlineService.Controllers
 						}
 						else
 						{
-							if (sourceUserData.IsAdmin())
+							if (sourceUserData.HasPermission(Permissions.ChatStaffBadge))
 							{
 								outboundMsg.message = String.Format("[\u2605\u2605GO STAFF\u2605\u2605] [{0}] {1}", sourceUserData.m_strDisplayName, chatMessage.message);
 								outboundMsg.admin = true;
@@ -801,7 +799,7 @@ namespace GenOnlineService.Controllers
 						string strNameRequestLower = nameChangeRequest.name.ToLower();
 
 						// dont allow protected names
-						if (!sourceUserData.IsAdmin())
+						if (!sourceUserData.HasPermission(Permissions.NamesProtected))
 						{
 							foreach (string strProtectedName in lstProtectedNames)
 							{

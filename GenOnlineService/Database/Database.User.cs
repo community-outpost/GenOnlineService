@@ -315,14 +315,6 @@ namespace Database
 						  .FirstOrDefault()
 				);
 
-		private static readonly Func<AppDbContext, long, Task<bool>> _isUserAdminQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.Users
-				  .AsNoTracking()
-				  .Where(u => u.ID == userId)
-				  .Select(u => u.IsAdmin)
-				  .FirstOrDefault());
-
 		private static readonly Func<AppDbContext, long, Task<bool>> _isUserBannedQuery =
 			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
 				db.Users
@@ -458,19 +450,6 @@ namespace Database
 
 #endif
 
-		public static async Task<bool> IsUserAdmin(AppDbContext db, long userId)
-		{
-			try
-			{
-				return await _isUserAdminQuery(db, userId);
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "IsUserAdmin failed");
-				return false;
-			}
-		}
-
 		public static async Task<Dictionary<long, string>> GetDisplayNameBulk(AppDbContext db, List<long> lstUserIDs)
 		{
 			var dict = new Dictionary<long, string>(lstUserIDs.Count);
@@ -510,7 +489,20 @@ namespace Database
 		{
 			try
 			{
-				return await _getUserBanStatusQuery(db, userId);
+				UserBanStatus? legacy = await _getUserBanStatusQuery(db, userId);
+				if (legacy?.IsBanned == true)
+				{
+					return legacy;
+				}
+
+				Ban? ban = await Database.Moderation.GetActiveBan(db, userId);
+				if (ban == null)
+				{
+					return legacy;
+				}
+
+				string reason = ban.ExpiresAt == null ? ban.Reason : $"{ban.Reason} (until {ban.ExpiresAt.Value:yyyy-MM-dd HH:mm} UTC)";
+				return new UserBanStatus { IsBanned = true, BanReason = reason };
 			}
 			catch (Exception ex)
 			{

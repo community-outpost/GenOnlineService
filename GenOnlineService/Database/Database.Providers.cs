@@ -95,6 +95,17 @@ public class MySqlAppDbContext : AppDbContext
 			e.Property(x => x.Updated).HasColumnType("datetime");
 		});
 
+		modelBuilder.Entity<UserRole>().Property(x => x.GrantedAt).HasColumnType("datetime");
+
+		modelBuilder.Entity<Ban>(e =>
+		{
+			e.Property(x => x.CreatedAt).HasColumnType("datetime");
+			e.Property(x => x.ExpiresAt).HasColumnType("datetime");
+			e.Property(x => x.RevokedAt).HasColumnType("datetime");
+		});
+
+		modelBuilder.Entity<ModerationLogEntry>().Property(x => x.CreatedAt).HasColumnType("datetime");
+
 		modelBuilder.Entity<User>(e =>
 		{
 			e.Property(x => x.AccountType).HasColumnType("int(1)");

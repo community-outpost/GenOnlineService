@@ -324,11 +324,6 @@ namespace GenOnlineService
 			return roles;
 		}
 
-		public static bool IsAdmin(ControllerBase controller)
-		{
-			return controller.User.IsInRole("Admin");
-		}
-
 		public static KnownClients.EKnownClients GetClientID(ControllerBase controller)
 		{
 			var first = controller.User.FindFirst("client_id");
@@ -858,6 +853,15 @@ namespace GenOnlineService
 			}
 		}
 
+		// The CLI commands use the same Database section as the service
+		internal static AppDbContext OpenConfiguredDbContext()
+		{
+			var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+			DbProvider provider = GetDbProvider(config);
+			string connectionString = BuildDbConnectionString(config, provider);
+			return CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
+		}
+
 		private static bool Confirm(bool assumeYes, string prompt, string nonInteractiveHint)
 		{
 			if (assumeYes)
@@ -1250,12 +1254,12 @@ namespace GenOnlineService
 
 			public const string TokenGenerationClaim = "tgen";
 
-			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, bool bIsAdmin)
+			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, IReadOnlyCollection<string> staffRoles)
 			{
-				return GenerateToken(displayname, userID, ipAddr, tokenType, knownClientID, sessionType, bIsAdmin, out _);
+				return GenerateToken(displayname, userID, ipAddr, tokenType, knownClientID, sessionType, staffRoles, out _);
 			}
 
-			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, bool bIsAdmin, out string jti)
+			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, IReadOnlyCollection<string> staffRoles, out string jti)
 			{
 				var jwtSettings = _configuration.GetSection("JwtSettings");
 
@@ -1310,9 +1314,16 @@ namespace GenOnlineService
 					throw new Exception("Unhandled session type: " + sessionType);
 				}
 
-				if (bIsAdmin)
+				// the claims only inform clients, the service decides with StaffRoles
+				if (staffRoles.Contains(StaffRoles.Admin))
 				{
 					claims.Add(new Claim(ClaimTypes.Role, "Admin"));
+				}
+
+				// an admin has every moderator permission, so clients see both claims
+				if (staffRoles.Contains(StaffRoles.Moderator) || staffRoles.Contains(StaffRoles.Admin))
+				{
+					claims.Add(new Claim(ClaimTypes.Role, "Moderator"));
 				}
 
 
@@ -1495,6 +1506,18 @@ namespace GenOnlineService
 			if (args.Length > 0 && args[0].Equals("import", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await RunImportCommand(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("roles", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunRoles(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("bans", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunBans(args);
 				return;
 			}
 
@@ -2206,7 +2229,7 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// Pick up bans applied directly in the database.
+			// Pick up bans and staff roles changed in the database
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(5000); // 5s tick
 				timerTick.AutoReset = false;
@@ -2220,6 +2243,15 @@ namespace GenOnlineService
 							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 							await using var db = await factory.CreateDbContextAsync();
 							await TokenRevocationManager.ReconcileBans(db);
+						});
+
+						// a separate job, so a failed ban reconcile never keeps a revoked role in place
+						await RunObservedBackgroundJobAsync("staff_roles_reload", app.Logger, async () =>
+						{
+							using var scope = app.Services.CreateScope();
+							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+							await using var db = await factory.CreateDbContextAsync();
+							await StaffRoles.Reload(db);
 						});
 					}
 					finally
@@ -2249,6 +2281,7 @@ namespace GenOnlineService
 
 				// must happen before any token is issued or validated
 				await TokenRevocationManager.Initialize(factory, db);
+				await StaffRoles.Reload(db);
 			}
 
 			app.Run();

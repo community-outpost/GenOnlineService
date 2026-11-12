@@ -8,6 +8,7 @@
 **    License, or (at your option) any later version.
 */
 
+using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Text.Json;
 
@@ -37,7 +38,7 @@ namespace GenOnlineService
 		private static readonly ILogger s_log = AppLog.For(typeof(ModerationManager));
 		public const int MaximumReasonLength = 256;
 
-		public static async Task<ModerationResult> KickUser(Int64 targetUserID, string reason)
+		public static async Task<ModerationResult> KickUser(Int64 targetUserID, string reason, Database.ModerationActor actor)
 		{
 			if (reason.Length > MaximumReasonLength)
 			{
@@ -53,6 +54,14 @@ namespace GenOnlineService
 			}
 
 			await DisconnectUser(targetUserID, EModerationAction.Kick, reason);
+
+			using (var scope = ServiceLocator.Services.CreateScope())
+			{
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
+				await Database.Moderation.LogAction(db, actor, ModerationActions.Kick, targetUserID, reason);
+			}
+
 			return new ModerationResult
 			{
 				Result = EModerationResult.Success,

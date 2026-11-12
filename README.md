@@ -101,6 +101,13 @@ The model is shared, but every provider has its own context (`MySqlAppDbContext`
 - `GenOnlineService migrate` uses the configured `db_provider`, lists the applied and pending migrations and asks for confirmation. It does not start the service. Without `--yes` it refuses to run when input is redirected (e.g. in CI)
 - `GenOnlineService migrate --baseline` is the one-time step for existing MySQL/MariaDB installs described above
 
+# Staff Roles And Bans
+Staff roles live in the `user_roles` table and bans in the `bans` table. Every grant, revoke, ban, unban and kick is also written to the append-only `moderation_log` table. The commands below use the `Database` section, need all migrations applied, and work while the service runs: it applies changes within about 5 seconds without a restart. A role change keeps the player logged in, a ban disconnects them.
+- `GenOnlineService roles list [<user_id>]`, `roles grant <user_id> <role> [--reason <text>] [--by <user_id>]`, `roles revoke <user_id> <role> [--reason <text>] [--by <user_id>]`. Roles are `moderator` and `admin`; `admin` has every `moderator` permission and can manage roles
+- `GenOnlineService bans list <user_id>`, `bans add <user_id> --reason <text> [--days <n>] [--by <user_id>]` (without `--days` the ban is permanent), `bans revoke <user_id> [--reason <text>] [--by <user_id>]`. Revoked and expired bans stay in the table as history
+- `--by` records which staff account acted, otherwise the log shows `cli`
+- `users.admin` is no longer read. After upgrading, grant `admin` or `moderator` again with `roles grant`. `users.banned` is still honored next to the `bans` table, because it is written from outside the service
+
 # Observability
 
 The service can export OpenTelemetry logs, metrics, and traces over OTLP, with Sentry as an optional destination for errors, logs, and traces. See [docs/observability.md](docs/observability.md) for configuration, coverage, metric names, privacy controls, and an Alloy example.

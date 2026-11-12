@@ -477,7 +477,8 @@ public class DiscordBot
 										if (Int64.TryParse(strUser, out Int64 TargetUserID))
 										{
 											string strReason = string.Join(' ', strComponents.Skip(2));
-											ModerationResult kickResult = await ModerationManager.KickUser(TargetUserID, strReason);
+											var actor = new Database.ModerationActor { Name = $"discord:{message.Author.Id}", Source = ModerationSources.Discord };
+											ModerationResult kickResult = await ModerationManager.KickUser(TargetUserID, strReason, actor);
 
 											switch (kickResult.Result)
 											{

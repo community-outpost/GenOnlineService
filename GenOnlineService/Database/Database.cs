@@ -85,6 +85,9 @@ public abstract class AppDbContext : DbContext
 	public DbSet<FriendRequestEntry> FriendRequests => Set<FriendRequestEntry>();
 	public DbSet<ConnectionOutcome> ConnectionOutcomes => Set<ConnectionOutcome>();
 	public DbSet<UserTokenState> UserTokenStates => Set<UserTokenState>();
+	public DbSet<UserRole> UserRoles => Set<UserRole>();
+	public DbSet<Ban> Bans => Set<Ban>();
+	public DbSet<ModerationLogEntry> ModerationLog => Set<ModerationLogEntry>();
 
 	public DbSet<AcReviewModule> AcReviewsModules => Set<AcReviewModule>();
 	public DbSet<AcReviewNewAccountGame> AcReviewsNewAccountGames => Set<AcReviewNewAccountGame>();
@@ -136,6 +139,9 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new BlockedUserConfiguration());
 		modelBuilder.ApplyConfiguration(new ConnectionOutcomeConfiguration());
 		modelBuilder.ApplyConfiguration(new UserTokenStateConfiguration());
+		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
+		modelBuilder.ApplyConfiguration(new BanConfiguration());
+		modelBuilder.ApplyConfiguration(new ModerationLogConfiguration());
 		modelBuilder.ApplyConfiguration(new AcReviewModuleConfiguration());
 		modelBuilder.ApplyConfiguration(new AcReviewNewAccountGameConfiguration());
 		modelBuilder.ApplyConfiguration(new AcReviewProbeConfiguration());

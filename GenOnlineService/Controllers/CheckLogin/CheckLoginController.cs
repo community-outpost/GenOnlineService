@@ -193,7 +193,7 @@ namespace GenOnlineService.Controllers
 
 										string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
 
-										bool bIsAdmin = await Database.Users.IsUserAdmin(db, user_id);
+										List<string> staffRoles = await Database.Moderation.GetRoleNames(db, user_id);
 
 										// full login (known clients)
 										// Enum.TryParse also accepts "unknown" and arbitrary numeric strings, neither of which is mapped.
@@ -209,8 +209,8 @@ namespace GenOnlineService.Controllers
 												await Database.UserDevices.RegisterUserDevice(db, user_id, hwid_0, hwid_1, hwid_2, ipAddr);
 											}
 
-											var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, knownClientID, sessionType, bIsAdmin);
-											var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, knownClientID, sessionType, false, out string refreshJti);
+											var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, knownClientID, sessionType, staffRoles);
+											var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, knownClientID, sessionType, Array.Empty<string>(), out string refreshJti);
 
 											// rotation: only this refresh token is accepted from now on
 											await TokenRevocationManager.OnTokensIssued(user_id, sessionType, refreshJti);

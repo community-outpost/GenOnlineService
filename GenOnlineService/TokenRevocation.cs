@@ -132,7 +132,10 @@ namespace Database
 			try
 			{
 				// "!= false" so MySQL matches any non-zero value (banned <> 0), not just 1
-				return await db.Users.AsNoTracking().Where(u => u.IsBanned != false).Select(u => u.ID).ToListAsync();
+				List<Int64> legacy = await db.Users.AsNoTracking().Where(u => u.IsBanned != false).Select(u => u.ID).ToListAsync();
+
+				// users.banned is still written from outside the service, so both sources ban
+				return legacy.Union(await Database.Moderation.GetActiveBannedUserIDs(db)).ToList();
 			}
 			catch (Exception ex)
 			{
@@ -289,7 +292,7 @@ namespace GenOnlineService
 
 		}
 
-		// Picks up bans applied directly in the database (there is no in-process ban API).
+		// Picks up bans applied directly in the database or by the CLI, and drops bans that expired or were revoked
 		public static async Task ReconcileBans(AppDbContext db)
 		{
 			// Don't run before the initial seed, or every already-banned user would look "newly banned".

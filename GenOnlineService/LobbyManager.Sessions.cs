@@ -25,14 +25,14 @@ public partial class LobbyManager
 {
 	internal async Task<UserWebSocketInstance> OpenSessionAsync(AppDbContext db, EUserSessionType sessionType, bool reconnect,
 		long userID, KnownClients.EKnownClients clientID, string ipAddress, string continent, string country,
-		double latitude, double longitude, bool admin)
+		double latitude, double longitude)
 	{
 		using var membership = await AcquireMembershipGateAsync(userID);
 		var previous = membershipConnections.GetSession(userID, sessionType);
 		if (!reconnect && previous != null) await DestroySessionAsync(previous);
 		if (reconnect && (previous == null || previous.IsRetired)) return null;
 		var installed = await WebSocketManager.InstallSession(db, sessionType, reconnect, userID, clientID,
-			ipAddress, continent, country, latitude, longitude, admin);
+			ipAddress, continent, country, latitude, longitude);
 		if (reconnect && previous != null) await InvalidateSessionMeshAsync(previous);
 		return installed;
 	}

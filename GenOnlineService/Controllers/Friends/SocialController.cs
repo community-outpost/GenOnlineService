@@ -545,11 +545,11 @@ namespace GenOnlineService.Controllers
 				return;
 			}
 
-			// Target user cannot be an admin
+			// Staff with the unblockable permission cannot be blocked
 			SharedUserData? targetData = WebSocketManager.GetSharedDataForUser(target_user_id);
 			if (targetData != null)
 			{
-				if (targetData.IsAdmin())
+				if (targetData.HasPermission(Permissions.SocialUnblockable))
 				{
 					Response.StatusCode = (int)HttpStatusCode.NotAcceptable;
 					return;
