@@ -21,31 +21,6 @@ namespace GenOnlineService.Migrations.Postgres
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("AcReviewCrc", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("OriginalCrc")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("original_crc");
-
-                    b.Property<string>("DiffCrc")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("diff_crc");
-
-                    b.Property<long>("MostRecentMatch")
-                        .HasColumnType("bigint")
-                        .HasColumnName("most_recent_match");
-
-                    b.HasKey("UserId", "OriginalCrc", "DiffCrc", "MostRecentMatch");
-
-                    b.ToTable("ac_reviews_crc", (string)null);
-                });
-
             modelBuilder.Entity("AcReviewModule", b =>
                 {
                     b.Property<long>("ReportId")

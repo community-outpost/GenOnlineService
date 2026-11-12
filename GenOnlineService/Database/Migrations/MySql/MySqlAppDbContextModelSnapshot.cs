@@ -21,31 +21,6 @@ namespace GenOnlineService.Migrations.MySql
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
-            modelBuilder.Entity("AcReviewCrc", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("OriginalCrc")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("original_crc");
-
-                    b.Property<string>("DiffCrc")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("diff_crc");
-
-                    b.Property<ulong>("MostRecentMatch")
-                        .HasColumnType("bigint unsigned")
-                        .HasColumnName("most_recent_match");
-
-                    b.HasKey("UserId", "OriginalCrc", "DiffCrc", "MostRecentMatch");
-
-                    b.ToTable("ac_reviews_crc", (string)null);
-                });
-
             modelBuilder.Entity("AcReviewModule", b =>
                 {
                     b.Property<ulong>("ReportId")

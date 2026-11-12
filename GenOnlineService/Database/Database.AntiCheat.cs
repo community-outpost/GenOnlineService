@@ -26,14 +26,6 @@ using System.Data.Common;
 using System.Text;
 using System.Text.Json;
 
-public class AcReviewCrc
-{
-	public Int64 UserId { get; set; }
-	public string OriginalCrc { get; set; } = null!;
-	public string DiffCrc { get; set; } = null!;
-	public ulong MostRecentMatch { get; set; }
-}
-
 public class AcReviewModule
 {
 	public ulong ReportId { get; set; }
@@ -145,32 +137,6 @@ public class AcReviewProbe
 	public string Reason { get; set; } = null!;
 }
 
-
-public class AcReviewCrcConfiguration : IEntityTypeConfiguration<AcReviewCrc>
-{
-	public void Configure(EntityTypeBuilder<AcReviewCrc> entity)
-	{
-		entity.ToTable("ac_reviews_crc");
-
-		entity.HasKey(e => new { e.UserId, e.OriginalCrc, e.DiffCrc, e.MostRecentMatch });
-
-		entity.Property(e => e.UserId)
-			.HasColumnName("user_id");
-
-		entity.Property(e => e.OriginalCrc)
-			.HasColumnName("original_crc")
-			.HasMaxLength(64)
-			.IsRequired();
-
-		entity.Property(e => e.DiffCrc)
-			.HasColumnName("diff_crc")
-			.HasMaxLength(64)
-			.IsRequired();
-
-		entity.Property(e => e.MostRecentMatch)
-			.HasColumnName("most_recent_match");
-	}
-}
 
 public class AcReviewModuleConfiguration : IEntityTypeConfiguration<AcReviewModule>
 {
