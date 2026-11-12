@@ -248,15 +248,6 @@ namespace GenOnlineService
 			m_dictProbe1_Received.AddOrUpdate(userID, 1, (_, count) => count + 1);
 		}
 
-		public async Task RegisterProbeResponse_Malformed_Type1(Int64 userID)
-		{
-			// register immediately
-			using var scope = ServiceLocator.Services.CreateScope();
-			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-			await using var db = await factory.CreateDbContextAsync();
-			await Database.AntiCheat.FlagAccountForReview_SuspectProbes(db, userID, MatchID, "Malformed probe response (Type 1)");
-		}
-
 		public void RegisterProbeResponse_Type2(Int64 userID)
 		{
 			m_dictProbe2_Received.AddOrUpdate(userID, 1, (_, count) => count + 1);

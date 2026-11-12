@@ -1246,8 +1246,6 @@ namespace GenOnlineService
 		
 		private EUserSessionType m_sessionType = EUserSessionType.None;
 
-		private string ACExeCRC = String.Empty;
-
 		// Matchmaking data
 		public UInt16 MatchmakingPlaylistID = 0;
 		public long MatchmakingStartedTimestamp = 0;
@@ -1350,13 +1348,6 @@ namespace GenOnlineService
 			m_dLongitude = dLongitude;
 
 			m_UserID = ownerID;
-
-			// store the exe CRC (this is actually the .CODE section, for AC)
-			if (Helpers.g_dictInitialExeCRCs.ContainsKey(ownerID))
-			{
-				ACExeCRC = Helpers.g_dictInitialExeCRCs[ownerID].ToUpper();
-				Helpers.g_dictInitialExeCRCs.Remove(ownerID, out string removedCRC);
-			}
 		}
 
 		public void MarkAbandoned()
@@ -1456,24 +1447,6 @@ namespace GenOnlineService
 		public bool IsSubscribedToRealtimeSocialUpdates()
 		{
 			return m_bSubscribedToRealtimeSocialupdates;
-		}
-
-		public async Task RegisterExeCRC(string strExeCRC)
-		{
-			if (ACExeCRC.ToUpper() != strExeCRC.ToUpper())
-			{
-				// Flag the account for review
-				UInt64 mostRecentMatchID = 0;
-				if (m_lstHistoricMatchIDs.Count > 0)
-				{
-					mostRecentMatchID = m_lstHistoricMatchIDs[m_lstHistoricMatchIDs.Count - 1];
-				}
-
-				using var scope = ServiceLocator.Services.CreateScope();
-				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-				await using var db = await factory.CreateDbContextAsync();
-				await Database.AntiCheat.FlagAccountForReview(db, m_UserID, ACExeCRC, strExeCRC, mostRecentMatchID);
-			}
 		}
 
 		public string GetFullCountryName()

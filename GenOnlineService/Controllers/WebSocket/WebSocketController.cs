@@ -1245,22 +1245,10 @@ namespace GenOnlineService.Controllers
 					var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
 					Lobby? lobbyInfo = lobbyManager.GetLobby(sourceUserSession.currentLobbyID);
 
-					if (data != null && data.ContainsKey("timestamp"))
+					// a probe response counts with or without the legacy timestamp field
+					if (lobbyInfo != null)
 					{
-						string strExeCRC = data["timestamp"].GetString();
-						await sourceUserSession.RegisterExeCRC(strExeCRC);
-
-						if (lobbyInfo != null)
-						{
-							lobbyInfo.RegisterProbeResponse_Type1(sourceUserSession.m_UserID);
-						}
-					}
-					else
-					{
-						if (lobbyInfo != null)
-						{
-							lobbyInfo.RegisterProbeResponse_Malformed_Type1(sourceUserSession.m_UserID);
-						}
+						lobbyInfo.RegisterProbeResponse_Type1(sourceUserSession.m_UserID);
 					}
 				}
 				else if (msgID == EWebSocketMessageID.WS_KEEPALIVE_CLIENT)

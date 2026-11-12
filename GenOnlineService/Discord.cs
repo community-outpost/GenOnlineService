@@ -56,12 +56,6 @@ public enum DiscordCommandParsingFlags
 
 public static class Helpers
 {
-	public static ConcurrentDictionary<Int64, string> g_dictInitialExeCRCs = new();
-	public static void RegisterInitialPlayerExeCRC(Int64 user_id, string exe_crc)
-	{
-		g_dictInitialExeCRCs[user_id] = exe_crc;
-	}
-
 	public static string ComputeMD5Hash(string input)
 	{
 		using (MD5 md5 = MD5.Create())

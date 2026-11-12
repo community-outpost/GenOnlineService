@@ -145,9 +145,6 @@ namespace GenOnlineService.Controllers.LoginWithToken
 							return result;
 						}
 
-						string exe_crc = data.ContainsKey("exe_crc") ? data["exe_crc"].ToString() : "NONE";
-						Helpers.RegisterInitialPlayerExeCRC(user_id, exe_crc);
-
 						string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
 						await SessionHelpers.SetUsedLoggedIn(user_id, clientID, sessionType);
 

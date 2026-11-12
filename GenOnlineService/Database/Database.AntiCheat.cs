@@ -300,47 +300,6 @@ namespace Database
 		}
 
 
-		public static async Task FlagAccountForReview(
-	AppDbContext db,
-	Int64 userId,
-	string originalCrc,
-	string diffCrc,
-	ulong matchId)
-		{
-			try
-			{
-				// Idempotent insert: every column is part of the primary key, so a duplicate is an identical report
-				// (same match) and is ignored; a new match still records a new row, as before
-				if (db.Database.IsNpgsql())
-				{
-					await db.Database.ExecuteSqlInterpolatedAsync($@"
-						INSERT INTO ac_reviews_crc (user_id, original_crc, diff_crc, most_recent_match)
-						VALUES ({userId}, {originalCrc}, {diffCrc}, {(long)matchId})
-						ON CONFLICT (user_id, original_crc, diff_crc, most_recent_match) DO NOTHING");
-				}
-				else
-				{
-					await db.Database.ExecuteSqlInterpolatedAsync($@"
-						INSERT INTO ac_reviews_crc (user_id, original_crc, diff_crc, most_recent_match)
-						VALUES ({userId}, {originalCrc}, {diffCrc}, {matchId})
-						ON DUPLICATE KEY UPDATE user_id = user_id");
-				}
-
-				AppMetrics.RecordSecurityAction("anticheat_", "success");
-			}
-			catch (Exception ex)
-			{
-				if (DbHelpers.IsUniqueViolation(ex))
-				{
-					return;
-				}
-
-				AppMetrics.RecordSecurityAction("anticheat_", "error");
-				s_log.LogError(ex, "FlagAccountForReview failed");
-			}
-		}
-
-
 		// Flags all given modules for one probe response in a single idempotent statement.
 		// Returns true when the rows are persisted (or already were), false on a real database error.
 		public static async Task<bool> FlagAccountForReview_Modules(
