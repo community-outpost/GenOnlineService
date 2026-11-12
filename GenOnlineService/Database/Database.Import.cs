@@ -19,16 +19,32 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MySqlConnector;
 using Npgsql;
 using System.Diagnostics;
 using System.Globalization;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 namespace Database
 {
+	// Marks a migration whose raw SQL only adds schema, so the import can read a source that has not applied it
+	[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+	public sealed class ImportSafeAttribute : Attribute
+	{
+		public ImportSafeAttribute(string reason)
+		{
+			Reason = reason;
+		}
+
+		public string Reason { get; }
+	}
+
 	// An error with a message meant for the operator, printed without a stack trace
 	public sealed class ImportException : Exception
 	{
@@ -105,6 +121,7 @@ $$;";
 			public int Ordinal;
 			public string PgType = "";          // type name for the binary COPY, without a length
 			public bool PgNullable;
+			public bool HasTargetDefault;
 			public int MaxLength;               // characters, 0 = none
 			public Type ModelClr = typeof(object);
 			public Type SourceProviderClr = typeof(object);
@@ -265,6 +282,7 @@ $$;";
 						Ordinal = table.Columns.Count,
 						PgType = (paren >= 0 ? storeType.Substring(0, paren) : storeType).Trim(),
 						PgNullable = pgColumn.IsNullable,
+						HasTargetDefault = pgColumn.DefaultValue != null || pgColumn.DefaultValueSql != null || pgColumn.ComputedColumnSql != null,
 						MaxLength = pgMapping.Property.GetMaxLength() ?? 0,
 						ModelClr = modelClr,
 						SourceConverter = mySqlMapping.TypeMapping.Converter,
@@ -289,9 +307,7 @@ $$;";
 				}
 
 				table.Keys = pgKey.Select(k => table.Columns.First(c => c.Name == k)).ToList();
-				table.SelectList = string.Join(", ", table.Columns.Select(c => QM(c.Name)));
-				table.OrderBy = string.Join(", ", table.Keys.Select(k => QM(k.Name)));
-				table.CopySql = $"COPY {Q(table.Name)} ({string.Join(", ", table.Columns.Select(c => Q(c.Name)))}) FROM STDIN (FORMAT BINARY)";
+				FinishTable(table);
 				tables.Add(table);
 			}
 
@@ -304,6 +320,73 @@ $$;";
 			}
 
 			return tables;
+		}
+
+		private static void FinishTable(Table table)
+		{
+			for (int i = 0; i < table.Columns.Count; i++)
+			{
+				table.Columns[i].Ordinal = i;
+			}
+
+			table.SelectList = string.Join(", ", table.Columns.Select(c => QM(c.Name)));
+			table.OrderBy = string.Join(", ", table.Keys.Select(k => QM(k.Name)));
+			table.CopySql = $"COPY {Q(table.Name)} ({string.Join(", ", table.Columns.Select(c => Q(c.Name)))}) FROM STDIN (FORMAT BINARY)";
+		}
+
+		// An older source lacks tables and columns that later migrations add, so only what both sides have is copied
+		private static List<Table> NarrowToSource(List<Table> modelTables, Dictionary<string, HashSet<string>> sourceColumns, List<string> warnings)
+		{
+			var tables = new List<Table>();
+
+			foreach (Table model in modelTables)
+			{
+				if (!sourceColumns.TryGetValue(model.Name, out HashSet<string>? present))
+				{
+					warnings.Add($"table {model.Name} is not in the source database, it stays empty");
+					continue;
+				}
+
+				var absent = model.Columns.Where(c => !present.Contains(c.Name)).ToList();
+
+				foreach (Column c in absent)
+				{
+					if (model.Keys.Contains(c))
+					{
+						throw new ImportException($"The source table {model.Name} has no key column {c.Name}. Run \"GenOnlineService migrate --yes\" on the MariaDB host with db_provider set to mysql, then run the import again.");
+					}
+
+					if (!c.PgNullable && !c.HasTargetDefault)
+					{
+						throw new ImportException($"The source table {model.Name} has no column {c.Name}, which PostgreSQL requires and has no default for. Run \"GenOnlineService migrate --yes\" on the MariaDB host with db_provider set to mysql, then run the import again.");
+					}
+
+					warnings.Add($"column {model.Name}.{c.Name} is not in the source database, it gets its default");
+				}
+
+				foreach (string extra in present.Where(n => !model.Columns.Any(c => string.Equals(c.Name, n, StringComparison.OrdinalIgnoreCase))).OrderBy(n => n, StringComparer.Ordinal))
+				{
+					warnings.Add($"column {model.Name}.{extra} is only in the source database, it is not imported");
+				}
+
+				var table = new Table { Name = model.Name, Keys = model.Keys, Columns = model.Columns.Except(absent).ToList() };
+				FinishTable(table);
+				tables.Add(table);
+			}
+
+			foreach (string extra in sourceColumns.Keys.Where(n => !n.StartsWith("__", StringComparison.Ordinal) && !modelTables.Any(t => string.Equals(t.Name, n, StringComparison.OrdinalIgnoreCase))).OrderBy(n => n, StringComparer.Ordinal))
+			{
+				warnings.Add($"table {extra} is only in the source database, it is not imported");
+			}
+
+			return tables;
+		}
+
+		// Two runs copy the same thing only when they read the same tables and columns
+		private static string Shape(List<Table> tables)
+		{
+			string text = string.Join(";", tables.Select(t => t.Name + ":" + string.Join(",", t.Columns.Select(c => c.Name))));
+			return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..12].ToLowerInvariant();
 		}
 
 		private static Type Unwrap(Type type) => Nullable.GetUnderlyingType(type) ?? type;
@@ -442,7 +525,10 @@ $$;";
 				ConnectionTimeout = 30,
 				DefaultCommandTimeout = 600,
 				Keepalive = 30,
-				ConvertZeroDateTime = true
+				ConvertZeroDateTime = true,
+				// the EF provider behind the legacy schema check requires both on the connection it borrows
+				AllowUserVariables = true,
+				UseAffectedRows = false
 			};
 
 			var connection = new MySqlConnection(csb.ConnectionString);
@@ -493,6 +579,81 @@ $$;";
 			command.Parameters.AddRange(parameters);
 			object? value = await command.ExecuteScalarAsync();
 			return value is DBNull ? null : value;
+		}
+
+		// Null when a source without this migration can still be imported, otherwise why it cannot
+		private static Dictionary<string, string?> ClassifyMigrations(MySqlAppDbContext context)
+		{
+			var migrations = context.GetService<IMigrationsAssembly>();
+			var result = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+			foreach (var (id, type) in migrations.Migrations)
+			{
+				Migration migration = migrations.CreateMigration(type, context.Database.ProviderName!);
+				result[id] = type.GetCustomAttribute<ImportSafeAttribute>() != null ? null : UnsafeReason(migration.UpOperations);
+			}
+
+			return result;
+		}
+
+		// Renames, type changes and raw SQL can change what existing data means, so the import never guesses across them
+		private static string? UnsafeReason(IReadOnlyList<MigrationOperation> operations)
+		{
+			foreach (MigrationOperation operation in operations)
+			{
+				switch (operation)
+				{
+					case CreateTableOperation or DropTableOperation or DropColumnOperation or CreateIndexOperation or DropIndexOperation or DropForeignKeyOperation:
+						continue;
+					case AddColumnOperation add when add.IsNullable || add.DefaultValue != null || add.DefaultValueSql != null:
+						continue;
+					case AddColumnOperation add:
+						return $"it adds column {add.Table}.{add.Name} as NOT NULL without a default";
+					default:
+						return $"it contains a step of type {operation.GetType().Name.Replace("Operation", "")}, which can change existing data";
+				}
+			}
+
+			return null;
+		}
+
+		// A legacy install without migration history passes the same read only check as --baseline before it is imported as the first migration
+		private static async Task<string> CheckLegacySource(MySqlConnection source)
+		{
+			var options = new DbContextOptionsBuilder<MySqlAppDbContext>().UseMySql(source, MySqlAppDbContext.DesignTimeServerVersion).Options;
+			await using var db = new MySqlAppDbContext(options);
+			BaselinePlan plan = await MigrationBaseline.Plan(db);
+
+			if (plan.Error != null)
+			{
+				throw new ImportException($"The source database has no migration history and the import cannot tell its version. The --baseline check reports: {plan.Error.Replace("then run --baseline again", "then run the import again")}");
+			}
+
+			return plan.MigrationId;
+		}
+
+		private static async Task<Dictionary<string, HashSet<string>>> ReadSourceColumns(MySqlConnection source)
+		{
+			var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+			const string sql = "SELECT c.table_name, c.column_name FROM information_schema.columns c JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name WHERE c.table_schema = DATABASE() AND t.table_type = 'BASE TABLE'";
+
+			await using var command = new MySqlCommand(sql, source);
+			await using var reader = await command.ExecuteReaderAsync();
+
+			while (await reader.ReadAsync())
+			{
+				string table = reader.GetString(0);
+
+				if (!result.TryGetValue(table, out HashSet<string>? columns))
+				{
+					columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+					result[table] = columns;
+				}
+
+				columns.Add(reader.GetString(1));
+			}
+
+			return result;
 		}
 
 		private static async Task<List<string>> ReadSourceMigrations(MySqlConnection source)
@@ -717,8 +878,8 @@ $$;";
 
 		public static async Task<int> Execute(AppDbContext targetDb, string targetConnectionString, ImportSource source, ImportOptions options)
 		{
-			List<Table> tables = BuildPlan();
-			Console.WriteLine($"Model: {tables.Count} tables.");
+			List<Table> modelTables = BuildPlan();
+			Console.WriteLine($"Model: {modelTables.Count} tables.");
 
 			var targetCsb = new NpgsqlConnectionStringBuilder(targetConnectionString)
 			{
@@ -740,21 +901,51 @@ $$;";
 			await using var targetConnection = new NpgsqlConnection(targetCsb.ConnectionString);
 			await targetConnection.OpenAsync();
 
-			// Source: MariaDB with the current MySql migrations applied
-			var expected = new MySqlAppDbContextFactory().CreateDbContext(Array.Empty<string>()).Database.GetMigrations().OrderBy(m => m, StringComparer.Ordinal).ToList();
+			// Source: MariaDB at this version or an older one the import can bridge
+			using MySqlAppDbContext sourceModel = new MySqlAppDbContextFactory().CreateDbContext(Array.Empty<string>());
+			var expected = sourceModel.Database.GetMigrations().OrderBy(m => m, StringComparer.Ordinal).ToList();
+			var unsafeReasons = ClassifyMigrations(sourceModel);
 			var appliedSource = await ReadSourceMigrations(sourceConnection);
-			var missing = expected.Except(appliedSource).ToList();
-			var unknown = appliedSource.Except(expected).ToList();
 
-			if (missing.Count > 0 || unknown.Count > 0)
+			if (appliedSource.Count == 0)
 			{
-				string detail = missing.Count > 0
-					? $"is missing migration(s) {string.Join(", ", missing)}"
-					: $"has migration(s) this version does not know ({string.Join(", ", unknown)}), use the same version of the service for the import";
-				throw new ImportException($"The source database {detail}. On the MariaDB host run \"GenOnlineService migrate --baseline\" (only for an install from before migrations) and then \"GenOnlineService migrate --yes\" with db_provider set to mysql, then run the import again.");
+				string first = await CheckLegacySource(sourceConnection);
+				Console.WriteLine($"The source database has no migration history and matches migration {first}, it is imported as that version.");
+				appliedSource.Add(first);
 			}
 
-			string sourceMigration = expected[expected.Count - 1];
+			var unknown = appliedSource.Except(expected).ToList();
+
+			if (unknown.Count > 0)
+			{
+				throw new ImportException($"The source database has migration(s) this version does not know ({string.Join(", ", unknown)}). Use the same or a newer version of the service for the import.");
+			}
+
+			var missing = expected.Except(appliedSource).ToList();
+			var blocking = missing.Where(id => unsafeReasons[id] != null).Select(id => $"{id} ({unsafeReasons[id]})").ToList();
+
+			if (blocking.Count > 0)
+			{
+				throw new ImportException($"The source database is missing migration(s) the import cannot bridge: {string.Join(", ", blocking)}. On the MariaDB host run \"GenOnlineService migrate --yes\" with db_provider set to mysql, then run the import again.");
+			}
+
+			foreach (string id in missing)
+			{
+				Console.WriteLine($"Note: the source database has not applied migration {id}, the import bridges it.");
+			}
+
+			var warnings = new List<string>();
+			List<Table> tables = NarrowToSource(modelTables, await ReadSourceColumns(sourceConnection), warnings);
+
+			foreach (string warning in warnings)
+			{
+				Console.WriteLine($"Warning: {warning}.");
+			}
+
+			// a migration that changes data or the copied columns restarts an import in progress, any other migration does not
+			string lastApplied = appliedSource.Max(StringComparer.Ordinal)!;
+			string lastDataMigration = appliedSource.Where(id => unsafeReasons[id] != null).Max(StringComparer.Ordinal) ?? "none";
+			string sourceMigration = $"{lastDataMigration}, columns {Shape(tables)}";
 			object? version = await ScalarSource(sourceConnection, "SELECT VERSION()");
 
 			var run = new Run { Source = sourceConnection, Target = targetConnection, Config = source, SourceMigration = sourceMigration };
@@ -763,7 +954,7 @@ $$;";
 			// Target guard: rows without a state table were not put there by an import
 			if (existing == null)
 			{
-				foreach (Table t in tables)
+				foreach (Table t in modelTables)
 				{
 					if (await HasRows(targetConnection, t))
 					{
@@ -783,7 +974,7 @@ $$;";
 
 				if (sameSource && any.SourceMigration != sourceMigration && !options.Restart)
 				{
-					throw new ImportException($"The source schema changed since the import started (migration {any.SourceMigration}, now {sourceMigration}). Run with --restart to start over.");
+					throw new ImportException($"The source schema changed since the import started (was {any.SourceMigration}, now {sourceMigration}). Run with --restart to start over.");
 				}
 			}
 
@@ -796,7 +987,7 @@ $$;";
 				sourceCounts[t.Name] = Convert.ToInt64(await ScalarSource(sourceConnection, $"SELECT COUNT(*) FROM {QM(t.Name)}"), CultureInfo.InvariantCulture);
 			}
 
-			Console.WriteLine($"Source: {source.Provider} {version} at {source.Host}:{source.Port}, database {source.Name} (migration {sourceMigration}), opened read only.");
+			Console.WriteLine($"Source: {source.Provider} {version} at {source.Host}:{source.Port}, database {source.Name} (migration {lastApplied}), opened read only.");
 			Console.WriteLine($"Target: postgres at {targetCsb.Host}:{targetCsb.Port}, database {targetCsb.Database}.");
 			Console.WriteLine(existing == null ? "No import in progress." : $"Import in progress: {existing.Values.Sum(s => s.RowsCopied)} rows recorded so far.{(restart ? " --restart discards it." : "")}");
 			Console.WriteLine("Plan:");
@@ -836,7 +1027,7 @@ $$;";
 
 			if (restart)
 			{
-				await ExecTarget(targetConnection, TruncateAllSql(tables));
+				await ExecTarget(targetConnection, TruncateAllSql(modelTables));
 				await ExecTarget(targetConnection, $"DROP TABLE {StateTable}");
 				existing = null;
 				Console.WriteLine("Discarded the previous import.");

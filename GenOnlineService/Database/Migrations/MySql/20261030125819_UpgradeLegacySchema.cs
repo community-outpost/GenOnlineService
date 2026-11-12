@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace GenOnlineService.Migrations.MySql
 {
     /// <inheritdoc />
+    [global::Database.ImportSafe("Only adds nullable columns, a table and indexes, and widens match_history.map_path")]
     public partial class UpgradeLegacySchema : Migration
     {
         // These items did not exist in databases created from the old structure.sql, but a database that is shared with
