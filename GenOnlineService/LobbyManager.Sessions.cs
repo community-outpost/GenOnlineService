@@ -77,7 +77,7 @@ public partial class LobbyManager
 	// the other members. The in-lobby check, the write and the notify decision all happen under the user's membership
 	// gate (the one joins and leaves take), then the lobby gate: the documented acquisition order. The lobby callback
 	// only enqueues websocket sends and flips dirty flags, so it never re-enters either gate.
-	internal async Task<bool> ApplyMiddlewareIDAsync(long userID, EUserSessionType sessionType, string middlewareID)
+	internal async Task<WebSocketManager.EMiddlewareIDApplyResult> ApplyMiddlewareIDAsync(long userID, EUserSessionType sessionType, string middlewareID)
 	{
 		using var membership = await AcquireMembershipGateAsync(userID);
 		var session = membershipConnections.GetSession(userID, sessionType);
@@ -85,13 +85,13 @@ public partial class LobbyManager
 		// store the ID anyway (not in a lobby, nothing to notify) so the session that opens next picks it up.
 		bool live = session != null && !session.IsRetired;
 		bool inLobby = live && session!.currentLobbyID != -1;
-		bool changed = WebSocketManager.ApplyMiddlewareIDForUser(userID, middlewareID, inLobby);
-		if (changed && inLobby)
+		var result = WebSocketManager.ApplyMiddlewareIDForUser(userID, middlewareID, inLobby);
+		if (result == WebSocketManager.EMiddlewareIDApplyResult.Changed && inLobby)
 		{
 			var lobby = GetLobby(session.currentLobbyID);
 			if (lobby != null) await lobby.NotifyMemberMiddlewareIDResolved(userID);
 		}
-		return changed;
+		return result;
 	}
 
 	private bool IsCurrentSession(UserSession session) =>

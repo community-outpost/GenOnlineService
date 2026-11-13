@@ -32,6 +32,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Claims;
+using System.Globalization;
 
 namespace GenOnlineService.Controllers.LoginWithToken
 {
@@ -156,106 +157,197 @@ namespace GenOnlineService.Controllers.LoginWithToken
 		}
 
 
-	public async Task<ClaimsPrincipal> ValidateEpicJwtAsync(string jwt)
-	{
-		// MapInboundClaims defaults to true, which renames "sub" to ClaimTypes.NameIdentifier
-		// (and friends) on the validated principal. We read the Epic claims by their original
-		// names, so leave them untouched.
-		var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
-		var token = handler.ReadJwtToken(jwt);
-
-		var kid = token.Header.Kid;
-		if (kid == null)
-			throw new SecurityTokenException("JWT missing kid header");
-
-		// load settings
-		IConfigurationSection? middlewareSettings = Program.g_Config.GetSection("Middleware");
-
-		if (middlewareSettings == null)
+		public sealed class MiddlewareSettings
 		{
-			throw new Exception("Middleware section missing in config");
+			public string JwksEndpoint { get; init; } = String.Empty;
+			public string Audience { get; init; } = String.Empty;
+			public string Issuer { get; init; } = String.Empty;
+			public string ExternalAccountType { get; init; } = String.Empty;
+			public string DeploymentId { get; init; } = String.Empty;
+			public string? ProductId { get; init; }
+			public string? SandboxId { get; init; }
 		}
 
-		string? middleware_jwks_endpoint = middlewareSettings.GetValue<string>("jwks_endpoint");
-		string? middleware_audience = middlewareSettings.GetValue<string>("audience");
-		string? middleware_issuer = middlewareSettings.GetValue<string>("issuer");
+		private static readonly ILogger s_log = AppLog.For(typeof(ProvideMWToken));
 
-		if (middleware_jwks_endpoint == null)
+		// Settings without a JWKS endpoint, audience, issuer or deployment ID are unusable and yield null.
+		public static MiddlewareSettings? LoadMiddlewareSettings()
 		{
-			throw new Exception("middleware_jwks_endpoint missing in config");
-		}
+			IConfigurationSection middlewareSettings = Program.g_Config.GetSection("Middleware");
 
-		if (middleware_audience == null)
-		{
-			throw new Exception("middleware_audience missing in config");
-		}
+			string? jwksEndpoint = middlewareSettings.GetValue<string>("jwks_endpoint");
+			string? audience = middlewareSettings.GetValue<string>("audience");
+			string? issuer = middlewareSettings.GetValue<string>("issuer");
+			string? deploymentId = middlewareSettings.GetValue<string>("deployment_id");
 
-		if (middleware_issuer == null)
-		{
-			throw new Exception("middleware_issuer missing in config");
-		}
-
-		// get JWKS (cached; refreshed on an unknown kid in case of key rotation)
-		var jwks = await GetJwks(middleware_jwks_endpoint, false);
-
-		var key = jwks?.Keys?.FirstOrDefault(k => k.Kid == kid);
-		if (key == null)
-		{
-			jwks = await GetJwks(middleware_jwks_endpoint, true);
-			key = jwks?.Keys?.FirstOrDefault(k => k.Kid == kid);
-		}
-
-		if (key == null)
-			throw new SecurityTokenException($"No matching JWKS key for kid={kid}");
-
-		// build RSA pub key
-		var rsa = RSA.Create();
-		rsa.ImportParameters(new RSAParameters
-		{
-			Modulus = Base64UrlDecode(key.N),
-			Exponent = Base64UrlDecode(key.E)
-		});
-
-		var validationParameters = new TokenValidationParameters
-		{
-			ValidateIssuer = true,
-			ValidIssuer = middleware_issuer,
-
-			ValidateAudience = true,
-			ValidAudience = middleware_audience,
-
-			ValidateLifetime = true,
-			ClockSkew = TimeSpan.FromMinutes(2),
-
-			ValidateIssuerSigningKey = true,
-			IssuerSigningKey = new RsaSecurityKey(rsa)
+			if (String.IsNullOrEmpty(jwksEndpoint) || String.IsNullOrEmpty(audience) || String.IsNullOrEmpty(issuer) || String.IsNullOrEmpty(deploymentId))
 			{
-				KeyId = key.Kid
+				return null;
 			}
-		};
 
-		return handler.ValidateToken(jwt, validationParameters, out _);
-	}
+			string? externalAccountType = middlewareSettings.GetValue<string>("external_account_type");
+			string? productId = middlewareSettings.GetValue<string>("product_id");
+			string? sandboxId = middlewareSettings.GetValue<string>("sandbox_id");
 
-	public class Jwks
-	{
-		public List<Jwk> Keys { get; set; }
-	}
+			return new MiddlewareSettings
+			{
+				JwksEndpoint = jwksEndpoint,
+				Audience = audience,
+				Issuer = issuer,
+				ExternalAccountType = String.IsNullOrEmpty(externalAccountType) ? "openid" : externalAccountType,
+				DeploymentId = deploymentId,
+				ProductId = String.IsNullOrEmpty(productId) ? null : productId,
+				SandboxId = String.IsNullOrEmpty(sandboxId) ? null : sandboxId
+			};
+		}
 
-	public class Jwk
-	{
-		public string Kid { get; set; }
-		public string Kty { get; set; }
-		public string N { get; set; }
-		public string E { get; set; }
-}
+		// Throws SecurityTokenException or ArgumentException for a token that fails validation.
+		public static async Task<ClaimsPrincipal> ValidateEpicJwtAsync(string jwt, MiddlewareSettings settings)
+		{
+			// MapInboundClaims defaults to true, which renames "sub" to ClaimTypes.NameIdentifier
+			// (and friends) on the validated principal. We read the Epic claims by their original
+			// names, so leave them untouched.
+			var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+			var token = handler.ReadJwtToken(jwt);
 
+			var kid = token.Header.Kid;
+			if (kid == null)
+				throw new SecurityTokenException("JWT missing kid header");
+
+			// get JWKS (cached; refreshed on an unknown kid in case of key rotation)
+			var jwks = await GetJwks(settings.JwksEndpoint, false);
+
+			var key = jwks?.Keys?.FirstOrDefault(k => k.Kid == kid);
+			if (key == null)
+			{
+				jwks = await GetJwks(settings.JwksEndpoint, true);
+				key = jwks?.Keys?.FirstOrDefault(k => k.Kid == kid);
+			}
+
+			if (key == null)
+				throw new SecurityTokenException($"No matching JWKS key for kid={kid}");
+
+			// build RSA pub key
+			var rsa = RSA.Create();
+			rsa.ImportParameters(new RSAParameters
+			{
+				Modulus = Base64UrlDecode(key.N),
+				Exponent = Base64UrlDecode(key.E)
+			});
+
+			var validationParameters = new TokenValidationParameters
+			{
+				ValidateIssuer = true,
+				ValidIssuer = settings.Issuer,
+
+				ValidateAudience = true,
+				ValidAudience = settings.Audience,
+
+				ValidateLifetime = true,
+				ClockSkew = TimeSpan.FromMinutes(2),
+
+				ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 },
+
+				ValidateIssuerSigningKey = true,
+				IssuerSigningKey = new RsaSecurityKey(rsa)
+				{
+					KeyId = key.Kid
+				}
+			};
+
+			return handler.ValidateToken(jwt, validationParameters, out _);
+		}
+
+		// The Epic account must come from the configured identity provider, name the calling user and belong to the configured deployment.
+		public static string? CheckEpicAccountBinding(ClaimsPrincipal epicClaims, MiddlewareSettings settings, Int64 user_id)
+		{
+			string? actJson = GetClaimValue(epicClaims, "act");
+			if (String.IsNullOrEmpty(actJson))
+			{
+				return "missing_external_account";
+			}
+
+			string? externalAccountType;
+			string? externalAccountId;
+			try
+			{
+				using JsonDocument actDoc = JsonDocument.Parse(actJson);
+				if (actDoc.RootElement.ValueKind != JsonValueKind.Object)
+				{
+					return "malformed_external_account";
+				}
+
+				externalAccountType = ReadStringProperty(actDoc.RootElement, "eat");
+				externalAccountId = ReadStringProperty(actDoc.RootElement, "eaid");
+			}
+			catch (JsonException)
+			{
+				return "malformed_external_account";
+			}
+
+			if (!String.Equals(externalAccountType, settings.ExternalAccountType, StringComparison.Ordinal))
+			{
+				return "wrong_identity_provider";
+			}
+
+			if (!String.Equals(externalAccountId, user_id.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
+			{
+				return "account_mismatch";
+			}
+
+			if (!String.Equals(GetClaimValue(epicClaims, "pfdid"), settings.DeploymentId, StringComparison.Ordinal))
+			{
+				return "wrong_deployment";
+			}
+
+			if (settings.ProductId != null && !String.Equals(GetClaimValue(epicClaims, "pfpid"), settings.ProductId, StringComparison.Ordinal))
+			{
+				return "wrong_product";
+			}
+
+			if (settings.SandboxId != null && !String.Equals(GetClaimValue(epicClaims, "pfsid"), settings.SandboxId, StringComparison.Ordinal))
+			{
+				return "wrong_sandbox";
+			}
+
+			return null;
+		}
+
+		private static string? ReadStringProperty(JsonElement element, string propertyName)
+		{
+			if (element.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String)
+			{
+				return value.GetString();
+			}
+
+			return null;
+		}
+
+		public class Jwks
+		{
+			public List<Jwk> Keys { get; set; }
+		}
+
+		public class Jwk
+		{
+			public string Kid { get; set; }
+			public string Kty { get; set; }
+			public string N { get; set; }
+			public string E { get; set; }
+		}
+
+		private ObjectResult Fail(HttpStatusCode statusCode, string error)
+		{
+			return StatusCode((int)statusCode, new { error });
+		}
 
 		[HttpPost(Name = "ProvideMWToken")]
-		public async Task Post()
+		public async Task<IActionResult> Post()
 		{
-			using (var reader = new StreamReader(HttpContext.Request.Body))
+			string? mw_token = null;
+			try
 			{
+				using var reader = new StreamReader(HttpContext.Request.Body);
 				var options = new JsonSerializerOptions
 				{
 					PropertyNameCaseInsensitive = true
@@ -263,42 +355,80 @@ namespace GenOnlineService.Controllers.LoginWithToken
 
 				string jsonData = await reader.ReadToEndAsync();
 				var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonData, options);
-
-				if (data == null || !data.ContainsKey("mw_token"))
+				if (data != null && data.TryGetValue("mw_token", out JsonElement tokenElement) && tokenElement.ValueKind == JsonValueKind.String)
 				{
-					Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+					mw_token = tokenElement.GetString();
 				}
-				else
-				{
-					string mw_token = data["mw_token"].ToString();
+			}
+			catch (JsonException)
+			{
+				return Fail(HttpStatusCode.BadRequest, "malformed_body");
+			}
 
-					ClaimsPrincipal validatedClaims = await ValidateEpicJwtAsync(mw_token);
+			if (String.IsNullOrEmpty(mw_token))
+			{
+				return Fail(HttpStatusCode.BadRequest, "missing_mw_token");
+			}
 
-					if (validatedClaims == null)
-					{
-						return;
-					}
+			// only game clients should be doing middleware login
+			Int64 user_id = TokenHelper.GetUserID(this);
+			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+			if (user_id == -1 || !SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
+			{
+				return Fail(HttpStatusCode.Forbidden, "gameplay_session_required");
+			}
 
-					// read from the validated principal, never by re-parsing the raw token
-					string? mwUserID = GetClaimValue(validatedClaims, "sub");
-					if (String.IsNullOrEmpty(mwUserID))
-					{
-						Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-						return;
-					}
+			MiddlewareSettings? settings = LoadMiddlewareSettings();
+			if (settings == null)
+			{
+				s_log.LogError("Middleware config needs jwks_endpoint, audience, issuer and deployment_id");
+				return Fail(HttpStatusCode.ServiceUnavailable, "middleware_not_configured");
+			}
 
-					Int64 user_id = TokenHelper.GetUserID(this);
-					EUserSessionType sessionType = TokenHelper.GetSessionType(this);
-					if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay)) // only game clients should be doing middleware login
-					{
-						// stored per user (not per session) so it survives session churn and lobby members can resolve it live
-						// if the player is already in a lobby, peers were signalled before the ID was known, so the manager tells
-						// them (serialized under the user's membership gate and the lobby gate, and only when the value changed).
-						// A rejected change (different ID while in a lobby) is not reported to the client: the response is the same.
-						LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-						await lobbyManager.ApplyMiddlewareIDAsync(user_id, sessionType, mwUserID);
-					}
-				}
+			ClaimsPrincipal validatedClaims;
+			try
+			{
+				validatedClaims = await ValidateEpicJwtAsync(mw_token, settings);
+			}
+			catch (Exception ex) when (ex is SecurityTokenException || ex is ArgumentException)
+			{
+				s_log.LogInformation("Rejected middleware token for user {UserId}: {Reason}", user_id, ex.GetType().Name);
+				return Fail(HttpStatusCode.Unauthorized, "invalid_mw_token");
+			}
+			catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException || ex is JsonException
+				|| ex is CryptographicException || ex is NotSupportedException || ex is InvalidOperationException)
+			{
+				s_log.LogWarning(ex, "Could not fetch the middleware JWKS");
+				return Fail(HttpStatusCode.ServiceUnavailable, "middleware_jwks_unavailable");
+			}
+
+			// read from the validated principal, never by re-parsing the raw token
+			string? mwUserID = GetClaimValue(validatedClaims, "sub");
+			if (String.IsNullOrEmpty(mwUserID))
+			{
+				return Fail(HttpStatusCode.Unauthorized, "invalid_mw_token");
+			}
+
+			string? bindingError = CheckEpicAccountBinding(validatedClaims, settings, user_id);
+			if (bindingError != null)
+			{
+				s_log.LogWarning("Rejected middleware token for user {UserId}: {Reason}", user_id, bindingError);
+				return Fail(HttpStatusCode.Forbidden, bindingError);
+			}
+
+			// stored per user (not per session) so it survives session churn and lobby members can resolve it live
+			// if the player is already in a lobby, peers were signalled before the ID was known, so the manager tells
+			// them (serialized under the user's membership gate and the lobby gate, and only when the value changed).
+			LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+			var applyResult = await lobbyManager.ApplyMiddlewareIDAsync(user_id, sessionType, mwUserID);
+			switch (applyResult)
+			{
+				case WebSocketManager.EMiddlewareIDApplyResult.HeldByOtherUser:
+					return Fail(HttpStatusCode.Conflict, "mw_id_in_use");
+				case WebSocketManager.EMiddlewareIDApplyResult.LockedInLobby:
+					return Fail(HttpStatusCode.Conflict, "mw_id_locked_in_lobby");
+				default:
+					return Ok();
 			}
 		}
 	}
