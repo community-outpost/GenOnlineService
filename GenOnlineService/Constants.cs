@@ -852,12 +852,18 @@ namespace GenOnlineService
 			return lstRet;
 		}
 
-		public static async Task DisconnectUser(Int64 userID, byte[] finalMessage)
+		// Only sessions of the given type disconnect when a session type is given.
+		public static async Task DisconnectUser(Int64 userID, byte[] finalMessage, EUserSessionType? onlySessionType = null)
 		{
 			List<UserSession> userSessions = GetAllDataFromUser(userID);
 
 			foreach (UserSession userSession in userSessions)
 			{
+				if (onlySessionType != null && userSession.GetSessionType() != onlySessionType)
+				{
+					continue;
+				}
+
 				try
 				{
 					UserWebSocketInstance? oldWS = GetWebSocketForSession(userSession);

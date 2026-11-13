@@ -60,7 +60,7 @@ namespace GenOnlineService
 			};
 		}
 
-		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason)
+		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason, EUserSessionType? onlySessionType = null)
 		{
 			AppMetrics.RecordSecurityAction(action.ToMetricLabel(), "applied");
 			s_log.LogInformation("Applying moderation action {Action} to user {UserId}", action, userID);
@@ -77,7 +77,7 @@ namespace GenOnlineService
 			};
 			byte[] noticeJson = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(notice));
 
-			await WebSocketManager.DisconnectUser(userID, noticeJson);
+			await WebSocketManager.DisconnectUser(userID, noticeJson, onlySessionType);
 		}
 	}
 }
