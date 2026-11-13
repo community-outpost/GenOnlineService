@@ -890,12 +890,10 @@ namespace GenOnlineService
 			return true;
 		}
 
-		// "GenOnlineService migrate [--yes] [--baseline]": applies pending migrations without starting the web host.
-		// --baseline is the one-time step for databases created from the old structure.sql, see README.md.
+		// "GenOnlineService migrate [--yes]": applies pending migrations without starting the web host.
 		private static async Task<int> RunMigrateCommand(string[] args)
 		{
 			bool assumeYes = args.Skip(1).Any(a => a.Equals("--yes", StringComparison.OrdinalIgnoreCase));
-			bool baseline = args.Skip(1).Any(a => a.Equals("--baseline", StringComparison.OrdinalIgnoreCase));
 
 			try
 			{
@@ -905,11 +903,6 @@ namespace GenOnlineService
 				string connectionString = BuildDbConnectionString(config, provider);
 
 				await using var db = CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
-
-				if (baseline)
-				{
-					return await RunBaseline(db, assumeYes);
-				}
 
 				var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 				var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
@@ -928,15 +921,6 @@ namespace GenOnlineService
 					Console.WriteLine($"  {name}");
 				}
 
-				// Applying the first migration to a database that already has the tables would fail halfway, so point
-				// the operator at the baseline step instead.
-				if (applied.Count == 0 && await MigrationBaseline.LooksLikeUnbaselinedInstall(db))
-				{
-					Console.Error.WriteLine("This database already contains the service's tables but has no migration history (an install from before migrations).");
-					Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then run \"GenOnlineService migrate\" again.");
-					return 1;
-				}
-
 				if (!Confirm(assumeYes, $"Apply {pending.Count} pending migration(s)?", "Input is not interactive. Pass --yes to apply pending migrations in an unattended run."))
 				{
 					return 1;
@@ -951,89 +935,6 @@ namespace GenOnlineService
 				Console.Error.WriteLine($"Migration failed: {ex}");
 				return 1;
 			}
-		}
-
-		// "GenOnlineService import [--dry-run] [--restart] [--yes]": moves the data from the database in the Import
-		// section (MySQL/MariaDB) into the one in the Database section (PostgreSQL). See README.md.
-		private static async Task<int> RunImportCommand(string[] args)
-		{
-			var flags = args.Skip(1).Select(a => a.ToLowerInvariant()).ToList();
-			string? unknown = flags.FirstOrDefault(f => f != "--dry-run" && f != "--restart" && f != "--yes");
-
-			if (unknown != null)
-			{
-				Console.Error.WriteLine($"Unknown option \"{unknown}\". Usage: GenOnlineService import [--dry-run] [--restart] [--yes]");
-				return 1;
-			}
-
-			bool assumeYes = flags.Contains("--yes");
-
-			try
-			{
-				var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
-
-				DbProvider provider = GetDbProvider(config);
-				Database.ImportSource source = Database.Import.ReadSource(config, provider == DbProvider.Postgres);
-				string connectionString = BuildDbConnectionString(config, provider);
-
-				await using var db = CreateDbContext(provider, connectionString, null);
-
-				var options = new Database.ImportOptions
-				{
-					DryRun = flags.Contains("--dry-run"),
-					Restart = flags.Contains("--restart"),
-					Confirm = (prompt, hint) => Confirm(assumeYes, prompt, hint)
-				};
-
-				return await Database.Import.Execute(db, connectionString, source, options);
-			}
-			catch (Database.ImportException ex)
-			{
-				Console.Error.WriteLine($"Import failed: {ex.Message}");
-				return 1;
-			}
-			catch (Exception ex)
-			{
-				// Message only: the full exception text can carry connection details
-				Console.Error.WriteLine($"Import failed: {ex.GetType().Name}: {ex.Message}");
-				Console.Error.WriteLine("Progress is kept, run the import again to resume.");
-				return 1;
-			}
-		}
-
-		private static async Task<int> RunBaseline(AppDbContext db, bool assumeYes)
-		{
-			var plan = await MigrationBaseline.Plan(db);
-
-			if (plan.Error != null)
-			{
-				Console.Error.WriteLine(plan.Error);
-				return 1;
-			}
-
-			Console.WriteLine($"Baseline: the {plan.ExpectedTableCount} tables, {plan.ExpectedColumnCount} columns and {plan.ExpectedIndexCount} indexes of migration {plan.MigrationId} all exist.");
-			Console.WriteLine($"This records {plan.MigrationId} as applied WITHOUT running it. No table or data is changed.");
-
-			if (!Confirm(assumeYes, "Baseline this database?", "Input is not interactive. Pass --yes to baseline in an unattended run."))
-			{
-				return 1;
-			}
-
-			await MigrationBaseline.Apply(db, plan);
-
-			Console.WriteLine($"Baselined: recorded {plan.MigrationId} as applied.");
-
-			var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
-			if (pending.Count > 0)
-			{
-				Console.WriteLine($"{pending.Count} migration(s) are still pending. Run \"GenOnlineService migrate\" to apply them:");
-				foreach (string name in pending)
-				{
-					Console.WriteLine($"  {name}");
-				}
-			}
-
-			return 0;
 		}
 
 		// The signing key is the only thing standing between a user and a forged token, so refuse to
@@ -1542,12 +1443,6 @@ namespace GenOnlineService
 				return;
 			}
 
-			if (args.Length > 0 && args[0].Equals("import", StringComparison.OrdinalIgnoreCase))
-			{
-				Environment.ExitCode = await RunImportCommand(args);
-				return;
-			}
-
 			if (args.Length > 0 && args[0].Equals("roles", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await ModerationCli.RunRoles(args);
@@ -2044,25 +1939,16 @@ namespace GenOnlineService
 						Console.Error.WriteLine($"  {name}");
 					}
 					Console.Error.WriteLine("Run \"GenOnlineService migrate\" to apply them, then start the service again.");
-
-					if (await MigrationBaseline.LooksLikeUnbaselinedInstall(migrationDb))
-					{
-						Console.Error.WriteLine("This database already contains the service's tables but has no migration history (an install from before migrations).");
-						Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then \"GenOnlineService migrate\".");
-					}
-
 					Environment.ExitCode = 1;
 					return;
 				}
+			}
 
-				// An import into this PostgreSQL database that was started and not completed
-				if (migrationDb.Database.IsNpgsql() && await Database.Import.IsUnfinished(migrationDb))
-				{
-					Console.Error.WriteLine("[ERROR] An import into this database is unfinished (table __import_state exists), so the service will not start on it.");
-					Console.Error.WriteLine("Run \"GenOnlineService import\" with the service stopped to complete it. To discard the imported data and start over, run \"GenOnlineService import --restart\".");
-					Environment.ExitCode = 1;
-					return;
-				}
+			// Device values are only ever stored as HMACs with this key
+			string deviceKeyPath = DeviceHasher.GetKeyPath(builder.Configuration);
+			if (DeviceHasher.Initialize(deviceKeyPath))
+			{
+				app.Logger.LogWarning("Created the device HMAC key at {DeviceKeyPath}. Back it up with the database: without it stored device values can never be matched again.", deviceKeyPath);
 			}
 
 			if (useForwardedHeaders)
@@ -2258,7 +2144,7 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// timer to save daily stats
+			// Faction win rates are recomputed from today's finished matches every minute
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(60000); // 60s tick
 				timerTick.AutoReset = false;
@@ -2266,12 +2152,40 @@ namespace GenOnlineService
 				{
 					try
 					{
-						await RunObservedBackgroundJobAsync("daily_stats_save", app.Logger, async () =>
+						await RunObservedBackgroundJobAsync("faction_stats_refresh", app.Logger, async () =>
 						{
 							using var scope = app.Services.CreateScope();
 							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 							await using var db = await factory.CreateDbContextAsync();
-							await DailyStatsManager.SaveToDB(db);
+							await Database.FactionStats.Refresh(db, DateTime.UtcNow);
+						});
+					}
+					finally
+					{
+						timerTick.Start();
+					}
+				};
+				timerTick.Start();
+			}
+
+			// Devices and session events past their retention are purged hourly
+			{
+				System.Timers.Timer timerTick = new System.Timers.Timer(TimeSpan.FromHours(1).TotalMilliseconds);
+				timerTick.AutoReset = false;
+				timerTick.Elapsed += async (sender, e) =>
+				{
+					try
+					{
+						await RunObservedBackgroundJobAsync("retention_purge", app.Logger, async () =>
+						{
+							using var scope = app.Services.CreateScope();
+							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+							await using var db = await factory.CreateDbContextAsync();
+							var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
+							if (devices > 0 || sessionEvents > 0)
+							{
+								app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
+							}
 						});
 					}
 					finally
@@ -2323,14 +2237,12 @@ namespace GenOnlineService
 			// create a token
 			g_tokenGenerator = new JwtTokenGenerator(builder.Configuration);
 
-			// load daily stats
 			using (var scope = app.Services.CreateScope())
 			{
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
 
-				// do a cleanup on startup
-				await DailyStatsManager.LoadFromDB(db);
+				await Database.FactionStats.Refresh(db, DateTime.UtcNow);
 
 				// must happen before any token is issued or validated
 				await TokenRevocationManager.Initialize(factory, db);

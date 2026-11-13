@@ -393,9 +393,10 @@ public class DiscordBot
 		{
 			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 			await using var db = await factory.CreateDbContextAsync();
-			List<Int64> linkedUserIDs = await db.Users.AsNoTracking()
-				.Where(u => u.DiscordID == (Int64)discordUserID)
-				.Select(u => u.ID)
+			string externUid = discordUserID.ToString();
+			List<Int64> linkedUserIDs = await db.Identities.AsNoTracking()
+				.Where(i => i.Provider == IdentityProviders.Discord && i.ExternUid == externUid)
+				.Select(i => i.UserID)
 				.ToListAsync();
 
 			foreach (Int64 userID in linkedUserIDs)

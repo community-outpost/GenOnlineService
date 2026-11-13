@@ -21,7 +21,7 @@ namespace GenOnlineService.Migrations.Postgres
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("AcReviewModule", b =>
+            modelBuilder.Entity("AnticheatModuleReport", b =>
                 {
                     b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
@@ -58,12 +58,12 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.HasIndex("UserId", "MatchId", "ModuleName")
                         .IsUnique()
-                        .HasDatabaseName("user_id_match_id_module_name");
+                        .HasDatabaseName("ux_anticheat_module_reports_user_match_module");
 
-                    b.ToTable("ac_reviews_modules", (string)null);
+                    b.ToTable("anticheat_module_reports", (string)null);
                 });
 
-            modelBuilder.Entity("AcReviewNewAccountGame", b =>
+            modelBuilder.Entity("AnticheatNewAccountGame", b =>
                 {
                     b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
@@ -82,10 +82,10 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.HasKey("ReportId");
 
-                    b.ToTable("ac_reviews_new_account_games", (string)null);
+                    b.ToTable("anticheat_new_account_games", (string)null);
                 });
 
-            modelBuilder.Entity("AcReviewProbe", b =>
+            modelBuilder.Entity("AnticheatProbeReport", b =>
                 {
                     b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
@@ -110,7 +110,7 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.HasKey("ReportId");
 
-                    b.ToTable("ac_reviews_probes", (string)null);
+                    b.ToTable("anticheat_probe_reports", (string)null);
                 });
 
             modelBuilder.Entity("AuditLogEntry", b =>
@@ -247,74 +247,283 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("bans", (string)null);
                 });
 
-            modelBuilder.Entity("BlockedUserEntry", b =>
+            modelBuilder.Entity("Device", b =>
                 {
-                    b.Property<long>("SourceUserId")
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
-                        .HasColumnName("source_user_id");
+                        .HasColumnName("id");
 
-                    b.Property<long>("TargetUserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("target_user_id");
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
 
-                    b.HasKey("SourceUserId", "TargetUserId");
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_seen_at");
 
-                    b.ToTable("friends_blocked", (string)null);
-                });
-
-            modelBuilder.Entity("ConnectionOutcome", b =>
-                {
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("integer")
-                        .HasColumnName("day_of_year");
-
-                    b.Property<int?>("FailedCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("failed_count");
-
-                    b.Property<int?>("Ipv4Count")
-                        .HasColumnType("integer")
-                        .HasColumnName("ipv4_count");
-
-                    b.Property<int?>("Ipv6Count")
-                        .HasColumnType("integer")
-                        .HasColumnName("ipv6_count");
-
-                    b.Property<int?>("SuccessCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("success_count");
-
-                    b.HasKey("DayOfYear");
-
-                    b.ToTable("connection_outcomes", (string)null);
-                });
-
-            modelBuilder.Entity("DailyStat", b =>
-                {
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("integer")
-                        .HasColumnName("day_of_year");
-
-                    b.Property<string>("Stats")
+                    b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("stats_structure");
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
 
-                    b.HasKey("DayOfYear");
+                    b.Property<string>("LastIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("character varying(45)")
+                        .HasColumnName("last_ip");
 
-                    b.ToTable("daily_stats", (string)null);
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<byte[]>("ValueHmac")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea")
+                        .HasColumnName("value_hmac")
+                        .IsFixedLength();
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("LastSeenAt")
+                        .HasDatabaseName("ix_devices_last_seen_at");
+
+                    b.HasIndex("Kind", "ValueHmac")
+                        .HasDatabaseName("ix_devices_kind_value");
+
+                    b.HasIndex("UserID", "Kind", "ValueHmac")
+                        .IsUnique()
+                        .HasDatabaseName("ux_devices_user_kind_value");
+
+                    b.ToTable("devices", (string)null);
                 });
 
-            modelBuilder.Entity("ExternalPublicationEntry", b =>
+            modelBuilder.Entity("FriendRequest", b =>
+                {
+                    b.Property<long>("FromUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("from_user_id");
+
+                    b.Property<long>("ToUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("to_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("FromUserId", "ToUserId");
+
+                    b.HasIndex("ToUserId")
+                        .HasDatabaseName("ix_friend_requests_to_user_id");
+
+                    b.ToTable("friend_requests", (string)null);
+                });
+
+            modelBuilder.Entity("Friendship", b =>
+                {
+                    b.Property<long>("UserIdLow")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id_low");
+
+                    b.Property<long>("UserIdHigh")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id_high");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserIdLow", "UserIdHigh");
+
+                    b.HasIndex("UserIdHigh")
+                        .HasDatabaseName("ix_friendships_user_id_high");
+
+                    b.ToTable("friendships", (string)null);
+                });
+
+            modelBuilder.Entity("LeaderboardEntry", b =>
+                {
+                    b.Property<string>("Period")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("period");
+
+                    b.Property<DateOnly>("PeriodStart")
+                        .HasColumnType("date")
+                        .HasColumnName("period_start");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("Losses")
+                        .HasColumnType("integer")
+                        .HasColumnName("losses");
+
+                    b.Property<int>("Points")
+                        .HasColumnType("integer")
+                        .HasColumnName("points");
+
+                    b.Property<int>("Wins")
+                        .HasColumnType("integer")
+                        .HasColumnName("wins");
+
+                    b.HasKey("Period", "PeriodStart", "UserId");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_leaderboard_entries_user_id");
+
+                    b.ToTable("leaderboard_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Match", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("AllowObservers")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_observers");
+
+                    b.Property<long>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<long>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.Property<bool>("IsOfficialMap")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_official_map");
+
+                    b.Property<bool>("LimitSuperweapons")
+                        .HasColumnType("boolean")
+                        .HasColumnName("limit_superweapons");
+
+                    b.Property<string>("LobbyType")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("lobby_type");
+
+                    b.Property<string>("MapName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("map_name");
+
+                    b.Property<string>("MapPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("map_path");
+
+                    b.Property<int>("MaxCamHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_cam_height");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("name");
+
+                    b.Property<long?>("OwnerUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<string>("RosterType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("roster_type");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<long>("StartingCash")
+                        .HasColumnType("bigint")
+                        .HasColumnName("starting_cash");
+
+                    b.Property<bool>("TrackStats")
+                        .HasColumnType("boolean")
+                        .HasColumnName("track_stats");
+
+                    b.Property<bool>("VanillaTeams")
+                        .HasColumnType("boolean")
+                        .HasColumnName("vanilla_teams");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FinishedAt", "Id")
+                        .HasDatabaseName("ix_matches_finished_at");
+
+                    b.ToTable("matches", (string)null);
+                });
+
+            modelBuilder.Entity("MatchPlayer", b =>
+                {
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<short>("Slot")
+                        .HasColumnType("smallint")
+                        .HasColumnName("slot");
+
+                    b.Property<int?>("Color")
+                        .HasColumnType("integer")
+                        .HasColumnName("color");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("result");
+
+                    b.Property<int?>("Side")
+                        .HasColumnType("integer")
+                        .HasColumnName("side");
+
+                    b.Property<short?>("Team")
+                        .HasColumnType("smallint")
+                        .HasColumnName("team");
+
+                    b.Property<long?>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("MatchId", "Slot");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_match_players_user_id");
+
+                    b.ToTable("match_players", (string)null);
+                });
+
+            modelBuilder.Entity("MatchPublication", b =>
                 {
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
                     b.Property<int>("Attempts")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(0)
                         .HasColumnName("attempts");
 
                     b.Property<string>("LastError")
@@ -333,288 +542,197 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasKey("MatchId");
 
                     b.HasIndex("PublishedAt", "NextAttemptAt")
-                        .HasDatabaseName("ix_external_publication_pending")
-                        .HasFilter("published_at IS NULL");
+                        .HasDatabaseName("ix_match_publications_pending");
 
-                    b.ToTable("external_publication", (string)null);
+                    b.ToTable("match_publications", (string)null);
                 });
 
-            modelBuilder.Entity("FriendEntry", b =>
+            modelBuilder.Entity("PlayerNetwork", b =>
                 {
-                    b.Property<long>("UserId1")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id_1");
-
-                    b.Property<long>("UserId2")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id_2");
-
-                    b.HasKey("UserId1", "UserId2");
-
-                    b.HasIndex("UserId2")
-                        .HasDatabaseName("ix_friends_user_id_2");
-
-                    b.ToTable("friends", (string)null);
-                });
-
-            modelBuilder.Entity("FriendRequestEntry", b =>
-                {
-                    b.Property<long>("SourceUserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("source_user_id");
-
-                    b.Property<long>("TargetUserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("target_user_id");
-
-                    b.HasKey("SourceUserId", "TargetUserId");
-
-                    b.HasIndex("TargetUserId")
-                        .HasDatabaseName("ix_friends_requests_target_user_id");
-
-                    b.ToTable("friends_requests", (string)null);
-                });
-
-            modelBuilder.Entity("LeaderboardDaily", b =>
-                {
-                    b.Property<long>("UserId")
+                    b.Property<long>("UserID")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("integer")
-                        .HasColumnName("day_of_year");
+                    b.Property<string>("Ipv4")
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)")
+                        .HasColumnName("ipv4");
 
-                    b.Property<int>("Year")
-                        .HasColumnType("integer")
-                        .HasColumnName("year");
+                    b.Property<string>("Ipv6")
+                        .HasMaxLength(45)
+                        .HasColumnType("character varying(45)")
+                        .HasColumnName("ipv6");
 
-                    b.Property<int?>("Losses")
-                        .HasColumnType("integer")
-                        .HasColumnName("losses");
+                    b.Property<string>("PortMapping")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("port_mapping");
 
-                    b.Property<int?>("Points")
-                        .HasColumnType("integer")
-                        .HasColumnName("points");
+                    b.Property<string>("RelayRegion")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("relay_region");
 
-                    b.Property<int?>("Wins")
-                        .HasColumnType("integer")
-                        .HasColumnName("wins");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
-                    b.HasKey("UserId", "DayOfYear", "Year");
+                    b.HasKey("UserID");
 
-                    b.ToTable("leaderboard_daily", (string)null);
+                    b.ToTable("player_network", (string)null);
                 });
 
-            modelBuilder.Entity("LeaderboardMonthly", b =>
+            modelBuilder.Entity("PlayerPreference", b =>
                 {
-                    b.Property<long>("UserId")
+                    b.Property<long>("UserID")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.Property<int>("MonthOfYear")
+                    b.Property<int?>("Color")
                         .HasColumnType("integer")
-                        .HasColumnName("month_of_year");
+                        .HasColumnName("color");
 
-                    b.Property<int>("Year")
-                        .HasColumnType("integer")
-                        .HasColumnName("year");
-
-                    b.Property<int?>("Losses")
-                        .HasColumnType("integer")
-                        .HasColumnName("losses");
-
-                    b.Property<int?>("Points")
-                        .HasColumnType("integer")
-                        .HasColumnName("points");
-
-                    b.Property<int?>("Wins")
-                        .HasColumnType("integer")
-                        .HasColumnName("wins");
-
-                    b.HasKey("UserId", "MonthOfYear", "Year");
-
-                    b.ToTable("leaderboard_monthly", (string)null);
-                });
-
-            modelBuilder.Entity("LeaderboardYearly", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("Year")
-                        .HasColumnType("integer")
-                        .HasColumnName("year");
-
-                    b.Property<int?>("Losses")
-                        .HasColumnType("integer")
-                        .HasColumnName("losses");
-
-                    b.Property<int?>("Points")
-                        .HasColumnType("integer")
-                        .HasColumnName("points");
-
-                    b.Property<int?>("Wins")
-                        .HasColumnType("integer")
-                        .HasColumnName("wins");
-
-                    b.HasKey("UserId", "Year");
-
-                    b.ToTable("leaderboard_yearly", (string)null);
-                });
-
-            modelBuilder.Entity("MatchHistoryEntry", b =>
-                {
-                    b.Property<long>("MatchId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("match_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("MatchId"));
-
-                    b.Property<bool>("AllowObservers")
-                        .HasColumnType("boolean")
-                        .HasColumnName("allow_observers");
-
-                    b.Property<long>("ExeCRC")
-                        .HasColumnType("bigint")
-                        .HasColumnName("exe_crc");
-
-                    b.Property<bool>("Finished")
-                        .HasColumnType("boolean")
-                        .HasColumnName("finished");
-
-                    b.Property<long>("IniCRC")
-                        .HasColumnType("bigint")
-                        .HasColumnName("ini_crc");
-
-                    b.Property<bool>("LimitSuperweapons")
+                    b.Property<bool?>("LimitSuperweapons")
                         .HasColumnType("boolean")
                         .HasColumnName("limit_superweapons");
 
-                    b.Property<byte?>("LobbyType")
-                        .HasColumnType("smallint")
-                        .HasColumnName("lobby_type");
-
-                    b.Property<string>("MapName")
-                        .IsRequired()
+                    b.Property<string>("Map")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
-                        .HasColumnName("map_name");
+                        .HasColumnName("map");
 
-                    b.Property<bool>("MapOfficial")
-                        .HasColumnType("boolean")
-                        .HasColumnName("map_official");
-
-                    b.Property<string>("MapPath")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("map_path");
-
-                    b.Property<string>("MatchRosterType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("")
-                        .HasColumnName("match_roster_type");
-
-                    b.Property<int>("MaxCamHeight")
+                    b.Property<int?>("Side")
                         .HasColumnType("integer")
-                        .HasColumnName("max_cam_height");
+                        .HasColumnName("side");
 
-                    b.Property<string>("MemberSlot0")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_0");
+                    b.Property<int?>("StartingMoney")
+                        .HasColumnType("integer")
+                        .HasColumnName("starting_money");
 
-                    b.Property<string>("MemberSlot1")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_1");
-
-                    b.Property<string>("MemberSlot2")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_2");
-
-                    b.Property<string>("MemberSlot3")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_3");
-
-                    b.Property<string>("MemberSlot4")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_4");
-
-                    b.Property<string>("MemberSlot5")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_5");
-
-                    b.Property<string>("MemberSlot6")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_6");
-
-                    b.Property<string>("MemberSlot7")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("member_slot_7");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("name");
-
-                    b.Property<long>("Owner")
-                        .HasColumnType("bigint")
-                        .HasColumnName("owner");
-
-                    b.Property<DateTime>("Started")
+                    b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("started");
+                        .HasColumnName("updated_at");
 
-                    b.Property<long>("StartingCash")
-                        .HasColumnType("bigint")
-                        .HasColumnName("starting_cash");
+                    b.HasKey("UserID");
 
-                    b.Property<DateTime>("TimeFinished")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("time_finished");
-
-                    b.Property<bool>("TrackStats")
-                        .HasColumnType("boolean")
-                        .HasColumnName("track_stats");
-
-                    b.Property<bool>("VanillaTeams")
-                        .HasColumnType("boolean")
-                        .HasColumnName("vanilla_teams");
-
-                    b.HasKey("MatchId");
-
-                    b.HasIndex("Finished", "TimeFinished", "MatchId")
-                        .HasDatabaseName("idx_finished_time");
-
-                    b.ToTable("match_history", (string)null);
+                    b.ToTable("player_preferences", (string)null);
                 });
 
-            modelBuilder.Entity("ServiceStat", b =>
+            modelBuilder.Entity("PlayerRating", b =>
                 {
-                    b.Property<int>("DayOfYear")
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("MatchesPlayed")
                         .HasColumnType("integer")
-                        .HasColumnName("day_of_year");
+                        .HasColumnName("matches_played");
 
-                    b.Property<int>("HourOfDay")
+                    b.Property<int>("Rating")
                         .HasColumnType("integer")
-                        .HasColumnName("hour_of_day");
+                        .HasColumnName("rating");
 
-                    b.Property<int>("LobbiesPeak")
-                        .HasColumnType("integer")
-                        .HasColumnName("lobbies_peak");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
-                    b.Property<int>("PlayerPeak")
-                        .HasColumnType("integer")
-                        .HasColumnName("player_peak");
+                    b.HasKey("UserID", "Kind");
 
-                    b.HasKey("DayOfYear", "HourOfDay");
+                    b.ToTable("player_ratings", (string)null);
+                });
 
-                    b.ToTable("service_stats", (string)null);
+            modelBuilder.Entity("PlayerStat", b =>
+                {
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Stats")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("stats");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("player_stats", (string)null);
+                });
+
+            modelBuilder.Entity("SessionEvent", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Client")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("client");
+
+                    b.Property<string>("ClientVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("client_version");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(2)
+                        .HasColumnType("character(2)")
+                        .HasColumnName("country")
+                        .IsFixedLength();
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExeCrc")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<string>("Ip")
+                        .IsRequired()
+                        .HasMaxLength(45)
+                        .HasColumnType("character varying(45)")
+                        .HasColumnName("ip");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("result");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_session_events_created_at");
+
+                    b.HasIndex("UserID", "CreatedAt")
+                        .HasDatabaseName("ix_session_events_user_created");
+
+                    b.ToTable("session_events", (string)null);
                 });
 
             modelBuilder.Entity("User", b =>
@@ -622,254 +740,161 @@ namespace GenOnlineService.Migrations.Postgres
                     b.Property<long>("ID")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
-                        .HasColumnName("user_id");
+                        .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
 
-                    b.Property<int>("AccountType")
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime?>("EmailConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("email_confirmed_at");
+
+                    b.Property<string>("EmailNormalized")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("email_normalized");
+
+                    b.Property<int>("FailedSignInCount")
                         .HasColumnType("integer")
-                        .HasColumnName("account_type");
+                        .HasColumnName("failed_sign_in_count");
 
-                    b.Property<bool>("Active")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("active");
+                    b.Property<DateTime?>("LastSignInAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_sign_in_at");
 
-                    b.Property<string>("BanAliases")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("ban_aliases");
+                    b.Property<DateTime?>("LockoutEndAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lockout_end_at");
 
-                    b.Property<string>("BanReason")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("ban_reason");
-
-                    b.Property<string>("BanVerifiedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("ban_verified_by");
-
-                    b.Property<string>("BannedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("banned_by");
-
-                    b.Property<int>("ClientID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("client_id")
-                        .HasDefaultValueSql("0");
-
-                    b.Property<long?>("DiscordID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("discord_id");
-
-                    b.Property<string>("DiscordUsername")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("discord_username");
-
-                    b.Property<string>("DisplayName")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("displayname");
-
-                    b.Property<int>("EloNumberOfMatches")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("elo_num_matches");
-
-                    b.Property<int>("EloRating")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1000)
-                        .HasColumnName("elo_rating");
-
-                    b.Property<int>("FavoriteColor")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(-1)
-                        .HasColumnName("favorite_color");
-
-                    b.Property<string>("FavoriteMap")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("favorite_map");
-
-                    b.Property<int>("FavoriteSide")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(-1)
-                        .HasColumnName("favorite_side");
-
-                    b.Property<int>("FavoriteStartingMoney")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(-1)
-                        .HasColumnName("favorite_starting_money");
-
-                    b.Property<long?>("GameReplaysID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("gamereplays_id");
-
-                    b.Property<string>("GameReplaysUsername")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("gamereplays_username");
-
-                    b.Property<string>("GoogleEmail")
+                    b.Property<string>("PasswordHash")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
-                        .HasColumnName("google_email");
+                        .HasColumnName("password_hash");
 
-                    b.Property<string>("GoogleId")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("google_id");
-
-                    b.Property<bool>("Ipv4")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("ipv4");
-
-                    b.Property<bool>("Ipv6")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("ipv6");
-
-                    b.Property<bool>("IsAdmin")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("admin");
-
-                    b.Property<bool>("IsBanned")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("banned");
-
-                    b.Property<string>("LastIPAddress")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(45)
-                        .HasColumnType("character varying(45)")
-                        .HasDefaultValue("")
-                        .HasColumnName("last_ip");
-
-                    b.Property<DateTime>("LastLogin")
-                        .ValueGeneratedOnAdd()
+                    b.Property<DateTime?>("RenamedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("lastlogin")
-                        .HasDefaultValueSql("now()");
+                        .HasColumnName("renamed_at");
 
-                    b.Property<bool>("LimitSuperweapons")
-                        .ValueGeneratedOnAdd()
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("security_stamp");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("state");
+
+                    b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("favorite_limit_superweapons");
+                        .HasColumnName("two_factor_enabled");
 
-                    b.Property<int>("MonthlyEloRating")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1000)
-                        .HasColumnName("monthly_elo_rating");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
-                    b.Property<int?>("PermissionsLevel")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("permissionslevel");
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("username");
 
-                    b.Property<short>("PortmappingTech")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint")
-                        .HasDefaultValue((short)-2)
-                        .HasColumnName("portmapping_tech");
-
-                    b.Property<short>("RelayRegion")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint")
-                        .HasDefaultValue((short)-1)
-                        .HasColumnName("relay_region");
-
-                    b.Property<long?>("SteamID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("steam_id");
+                    b.Property<string>("UsernameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("username_normalized");
 
                     b.HasKey("ID");
 
-                    b.HasIndex("IsBanned")
-                        .HasDatabaseName("ix_users_banned")
-                        .HasFilter("banned");
+                    b.HasIndex("EmailNormalized")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_email_normalized");
+
+                    b.HasIndex("UsernameNormalized")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_username_normalized");
 
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("UserDevice", b =>
+            modelBuilder.Entity("UserBlock", b =>
                 {
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<long>("BlockedUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("blocked_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserId", "BlockedUserId");
+
+                    b.ToTable("blocks", (string)null);
+                });
+
+            modelBuilder.Entity("UserIdentity", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExternUid")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("extern_uid");
+
+                    b.Property<string>("ExternUsername")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("extern_username");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("provider");
+
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.Property<string>("HWID_0")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("hwid_0");
+                    b.HasKey("ID");
 
-                    b.Property<string>("HWID_1")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("hwid_1");
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_identities_user_id");
 
-                    b.Property<string>("HWID_2")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("hwid_2");
+                    b.HasIndex("Provider", "ExternUid")
+                        .IsUnique()
+                        .HasDatabaseName("ux_identities_provider_extern_uid");
 
-                    b.Property<string>("IPAddress")
-                        .HasMaxLength(45)
-                        .HasColumnType("character varying(45)")
-                        .HasColumnName("ip_addr");
-
-                    b.Property<string>("HWID_3")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("hwid_3");
-
-                    b.Property<string>("HWID_4")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("hwid_4");
-
-                    b.Property<string>("HWID_5")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("hwid_5");
-
-                    b.HasKey("UserID", "HWID_0", "HWID_1", "HWID_2", "IPAddress");
-
-                    b.HasIndex("HWID_0", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_0_user");
-
-                    b.HasIndex("HWID_1", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_1_user");
-
-                    b.HasIndex("HWID_2", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_2_user");
-
-                    b.HasIndex("IPAddress", "UserID")
-                        .HasDatabaseName("idx_user_devices_ip_user");
-
-                    b.HasIndex("HWID_0", "HWID_1", "HWID_2", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_triplet_user");
-
-                    b.ToTable("user_devices", (string)null);
+                    b.ToTable("identities", (string)null);
                 });
 
             modelBuilder.Entity("UserRole", b =>
@@ -907,22 +932,6 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("user_roles", (string)null);
                 });
 
-            modelBuilder.Entity("UserStatsEntry", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("Stats")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("stats");
-
-                    b.HasKey("UserId");
-
-                    b.ToTable("user_stats_v2", (string)null);
-                });
-
             modelBuilder.Entity("UserTokenState", b =>
                 {
                     b.Property<long>("UserID")
@@ -941,7 +950,7 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.Property<DateTime>("PreviousRefreshJtiExpires")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("previous_refresh_jti_expires");
+                        .HasColumnName("previous_refresh_jti_expires_at");
 
                     b.Property<string>("RefreshJti")
                         .IsRequired()
@@ -955,60 +964,71 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.Property<DateTime>("Updated")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated");
+                        .HasColumnName("updated_at");
 
                     b.HasKey("UserID", "SessionType");
 
-                    b.ToTable("user_token_state", (string)null);
+                    b.ToTable("user_token_states", (string)null);
                 });
 
-            modelBuilder.Entity("WebSession", b =>
+            modelBuilder.Entity("UserUsernameHistory", b =>
                 {
-                    b.Property<string>("SessionId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("session_id");
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
 
-                    b.Property<string>("Browser")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("browser");
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
 
-                    b.Property<DateTime>("Created")
+                    b.Property<DateTime>("ChangedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created");
+                        .HasColumnName("changed_at");
 
-                    b.Property<DateTime>("Expiration")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expiration");
-
-                    b.Property<string>("IpAddress")
-                        .IsRequired()
-                        .HasMaxLength(45)
-                        .HasColumnType("character varying(45)")
-                        .HasColumnName("ip_addr");
-
-                    b.Property<DateTime>("LastUsed")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_used");
-
-                    b.Property<string>("Os")
+                    b.Property<string>("ChangedBy")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
-                        .HasColumnName("os");
+                        .HasColumnName("changed_by");
 
-                    b.Property<long>("UserId")
+                    b.Property<long>("UserID")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.HasKey("SessionId");
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("username");
 
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_web_sessions_user_id");
+                    b.HasKey("ID");
 
-                    b.ToTable("web_sessions", (string)null);
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_user_username_history_user_id");
+
+                    b.ToTable("user_username_history", (string)null);
+                });
+
+            modelBuilder.Entity("MatchPlayer", b =>
+                {
+                    b.HasOne("Match", null)
+                        .WithMany("Players")
+                        .HasForeignKey("MatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MatchPublication", b =>
+                {
+                    b.HasOne("Match", null)
+                        .WithOne()
+                        .HasForeignKey("MatchPublication", "MatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Match", b =>
+                {
+                    b.Navigation("Players");
                 });
 #pragma warning restore 612, 618
         }

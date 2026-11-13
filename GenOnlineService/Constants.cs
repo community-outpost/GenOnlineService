@@ -396,7 +396,7 @@ namespace GenOnlineService
 		internal static async Task<UserWebSocketInstance> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude)
 		{
 			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
-			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr);
+			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
 			UserSession? userCacheData = WebSocketManager.GetSessionFromUser(ownerID, sessionType);

@@ -221,11 +221,6 @@ namespace GenOnlineService
 				await RequireUser(db, userID);
 				DateTime now = DateTime.UtcNow;
 
-				if (await db.Users.AsNoTracking().AnyAsync(u => u.ID == userID && u.IsBanned != false))
-				{
-					Console.WriteLine($"users.banned is set for user {userID}, which bans them regardless of the rows below.");
-				}
-
 				List<Ban> bans = await Database.Moderation.GetBans(db, userID);
 				if (bans.Count == 0)
 				{
@@ -274,11 +269,6 @@ namespace GenOnlineService
 				await RequireUser(db, userID);
 				int revoked = await Database.Moderation.RevokeActiveBans(db, userID, BanRestrictions.Play, reason, actor);
 				Console.WriteLine(revoked > 0 ? $"Revoked {revoked} active ban(s) for user {userID}." : $"User {userID} has no active ban, nothing changed.");
-
-				if (await db.Users.AsNoTracking().AnyAsync(u => u.ID == userID && u.IsBanned != false))
-				{
-					Console.WriteLine($"users.banned is still set for user {userID}, so they stay banned until it is cleared.");
-				}
 
 				return 0;
 			}

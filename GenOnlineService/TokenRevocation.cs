@@ -46,7 +46,8 @@ public class UserTokenStateConfiguration : IEntityTypeConfiguration<UserTokenSta
 {
 	public void Configure(EntityTypeBuilder<UserTokenState> builder)
 	{
-		builder.ToTable("user_token_state");
+		// Interim refresh rotation state until OpenIddict authorizations replace it
+		builder.ToTable("user_token_states");
 
 		builder.HasKey(e => new { e.UserID, e.SessionType });
 
@@ -55,8 +56,8 @@ public class UserTokenStateConfiguration : IEntityTypeConfiguration<UserTokenSta
 		builder.Property(e => e.TokenGeneration).HasColumnName("token_generation");
 		builder.Property(e => e.RefreshJti).HasColumnName("refresh_jti").HasMaxLength(64);
 		builder.Property(e => e.PreviousRefreshJti).HasColumnName("previous_refresh_jti").HasMaxLength(64);
-		builder.Property(e => e.PreviousRefreshJtiExpires).HasColumnName("previous_refresh_jti_expires");
-		builder.Property(e => e.Updated).HasColumnName("updated");
+		builder.Property(e => e.PreviousRefreshJtiExpires).HasColumnName("previous_refresh_jti_expires_at");
+		builder.Property(e => e.Updated).HasColumnName("updated_at");
 	}
 }
 
@@ -131,11 +132,7 @@ namespace Database
 		{
 			try
 			{
-				// "!= false" so MySQL matches any non-zero value (banned <> 0), not just 1
-				List<Int64> legacy = await db.Users.AsNoTracking().Where(u => u.IsBanned != false).Select(u => u.ID).ToListAsync();
-
-				// users.banned is still written from outside the service, so both sources ban
-				return legacy.Union(await Database.Moderation.GetPlayBannedUserIDs(db)).ToList();
+				return await Database.Moderation.GetPlayBannedUserIDs(db);
 			}
 			catch (Exception ex)
 			{

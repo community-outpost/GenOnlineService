@@ -60,33 +60,10 @@ GeneralsOnline Game Services Code provides RESTful web services which act as a r
 - Either leave the `Kestrel` section out of that file, so the image listens on `http://0.0.0.0:8080` (`ASPNETCORE_HTTP_PORTS`), or define a single HTTP endpoint on `0.0.0.0:8080`. Terminate TLS in front of the container
 - Apply the schema with the same mounts: `docker run --rm -v ./appsettings.json:/app/appsettings.json:ro ghcr.io/<owner>/genonlineservice:<version> migrate --yes`
 
-# Upgrading An Existing MySQL/MariaDB Install
-Installs from before migrations existed have their schema from the old `structure.sql`. They keep working on MySQL/MariaDB without recreating anything, but need a one-time baseline so the migrations know the existing tables are already there. Set `db_provider` to `"mysql"` first (it is `"postgres"` when missing).
-- The baseline is the schema of the first migration (the old `structure.sql` plus the `ac_reviews_*` anti cheat tables and the `external_publication` table of `upgrade_20260816_external_leaderboard_publication.sql`). Items added later, such as `web_sessions`, the `google_id`, `google_email` and `permissionslevel` columns of `users` and extra indexes, are created by a later migration. A database that lacks part of the baseline is listed by `--baseline` and you add those items by hand first
-- Stop the service
-- Back up the database
-- Run `GenOnlineService migrate --baseline`. It checks that every table, every column (including whether it may be NULL) and every named index the first migration creates exists, then records that migration as applied without running it. It changes no table or data. If anything is missing it lists all of it grouped by table, changes nothing and exits with an error. Extra tables, columns and indexes are left alone. Without `--yes` it asks for confirmation and refuses to run when input is redirected
-- Run `GenOnlineService migrate`. It applies the later migrations; items the database already has (for example from the website) are skipped
-- Start the new version
-
-The service refuses to start on such a database until this is done, and says so. `users.favorite_limit_superweapons` stays an `int` on MySQL/MariaDB where `-1` means unset, and only values above zero are true. Moving a MySQL/MariaDB install to PostgreSQL later is done with `GenOnlineService import`, see below.
-
-# Moving From MariaDB To PostgreSQL
-`GenOnlineService import [--dry-run] [--restart] [--yes]` copies a MariaDB/MySQL database into an empty PostgreSQL database. The `Database` section is the target (`db_provider` must be `postgres`), the `Import` section is the source (`db_provider` `mysql` or `mariadb`, `db_host`, `db_port`, `db_ssl_mode`, `db_name`, `db_username`, `db_password`); the source may be on another server. The source is only read.
-- On the MariaDB install (recommended, not required, see below): set `db_provider` to `mysql`, run `GenOnlineService migrate --baseline` (only for an install from before migrations), then `GenOnlineService migrate --yes`
-- Create an empty PostgreSQL database and run `GenOnlineService migrate --yes` against it
-- The source may run an older version. Missing migrations that only create or drop tables, columns or indexes are bridged: a column the source lacks gets its default, a table it lacks stays empty, and each is printed as a warning. A missing migration that renames, changes a type or runs raw SQL stops the import until `GenOnlineService migrate --yes` has run on the MariaDB host. A legacy install without migration history is imported as the first migration when it passes the same read only check as `migrate --baseline`, nothing is written to it
-- An import in progress restarts (`--restart`) only when the source applied a migration that can change data, or when the copied tables or columns changed
-- Run `GenOnlineService import` while the service is live, as often as you like. A run while the service is live ends with differences (rows written while it copied), exits with an error and keeps its progress: that is the expected catch-up result
-- Stop the service and run `GenOnlineService import` until it completes (row counts and lowest/highest key match for every table, the import state is removed). Set `db_provider` to `postgres` and start the service. While an import is unfinished the service refuses to start on PostgreSQL
-- Only `ac_reviews_modules` is incremental (new rows by key, resumable). Every run reloads all other tables, `match_history` included, so reruns are not cheap
-- `--dry-run` writes nothing and lists values PostgreSQL cannot store (NUL characters, invalid JSON for jsonb) with table and key; a real run stops on them with the same detail, the import never changes data. `--restart` discards the imported data and starts over. The import refuses a target that has data but no import in progress
-- Limitation: a quiet live run could pass verification and complete while the service still writes, so the service must be stopped for the run that completes the import
-
 # Changing The Database Schema
 The schema is defined by the EF Core model (`GenOnlineService\Database`) and applied through code-first migrations. Migrations are only applied by `GenOnlineService migrate`, never by the service itself.
 
-The model is shared, but every provider has its own context (`MySqlAppDbContext`, `PostgresAppDbContext`) and its own migrations (`GenOnlineService\Database\Migrations\MySql` and `...\Postgres`). **Every model change needs a migration for both contexts.** The MySQL schema mirrors the old `structure.sql` (unsigned integers, `datetime`, JSON as `longtext`) so existing installs can be baselined. Provider specific column types belong in the derived contexts (`Database.Providers.cs`), not in the shared configuration classes. Raw SQL statements need a branch for both providers. Do not write SQL outside generated migrations, except for steps that must be repeatable on a shared MySQL database (see `UpgradeLegacySchema`).
+The model is shared, but every provider has its own context (`MySqlAppDbContext`, `PostgresAppDbContext`) and its own migrations (`GenOnlineService\Database\Migrations\MySql` and `...\Postgres`). **Every model change needs a migration for both contexts.** The conventions and portability rules are in `docs/schema.md`: no unsigned types, UTC timestamps (`datetime(6)` / `timestamptz`), JSON as `json` / `jsonb`, uniqueness through `*_normalized` columns. Provider specific column types belong in the derived contexts (`Database.Providers.cs`), not in the shared configuration classes. Raw SQL statements need a branch for both providers. Do not write SQL outside generated migrations.
 - Restore the local tools once: `dotnet tool restore`
 - After changing the model, create the migrations from the `GenOnlineService` folder:
   - `dotnet ef migrations add <Name> --context MySqlAppDbContext -o Database/Migrations/MySql -n GenOnlineService.Migrations.MySql`
@@ -99,15 +76,14 @@ The model is shared, but every provider has its own context (`MySqlAppDbContext`
 
 ## The migrate command
 - `GenOnlineService migrate` uses the configured `db_provider`, lists the applied and pending migrations and asks for confirmation. It does not start the service. Without `--yes` it refuses to run when input is redirected (e.g. in CI)
-- `GenOnlineService migrate --baseline` is the one-time step for existing MySQL/MariaDB installs described above
 
 # Staff Roles And Bans
 Staff roles live in the `user_roles` table and bans in the `bans` table. Every grant, revoke, ban, unban and kick is also written to the append-only `audit_log` table. Rows in both tables carry a `source`: `local` for changes made in this environment, `upstream:<provider>` for rows an upstream sign-in provider manages. Reasons are up to 512 characters. The commands below use the `Database` section, need all migrations applied, and work while the service runs: it applies changes within about 5 seconds without a restart. A role change keeps the player logged in, a ban disconnects them.
 - `GenOnlineService roles list [<user_id>]`, `roles grant <user_id> <role> [--reason <text>] [--by <user_id>]`, `roles revoke <user_id> <role> [--reason <text>] [--by <user_id>]`. Roles are `moderator` and `admin`; `admin` has every `moderator` permission and can manage roles
 - `GenOnlineService bans list <user_id>`, `bans add <user_id> --reason <text> [--days <n>] [--by <user_id>]` (without `--days` the ban is permanent), `bans revoke <user_id> [--reason <text>] [--by <user_id>]`. Revoked and expired bans stay in the table as history
 - `--by` records which staff account acted, otherwise the log shows `cli`
-- `users.admin` is no longer read. After upgrading, grant `admin` or `moderator` again with `roles grant`. `users.banned` is still honored next to the `bans` table, because it is written from outside the service
-- The Discord bot uses slash commands only and requests no privileged intent. Set `Discord:discord_guild_id` so it registers them on start. `/players` and `/lobbies` are public; `/kick`, `/whois`, `/uptime`, `/peak` and `/announce` work only in the admin commands channel. They are allowed when the caller's Discord account is linked (`users.discord_id`) to a GenOnline account with the needed permission (`moderation.kick` for kick and whois, `server.stats` and `announcements.send` for the admin commands), or when the Discord user is listed in `Discord:discord_admins`, which is kept until staff accounts are linked
+- Schema v1 has no `users.admin` or `users.banned`: the import lists old staff to grant again with `roles grant`, and turns legacy bans into `bans` rows
+- The Discord bot uses slash commands only and requests no privileged intent. Set `Discord:discord_guild_id` so it registers them on start. `/players` and `/lobbies` are public; `/kick`, `/whois`, `/uptime`, `/peak` and `/announce` work only in the admin commands channel. They are allowed when the caller's Discord account is linked (a `discord` row in `identities`) to a GenOnline account with the needed permission (`moderation.kick` for kick and whois, `server.stats` and `announcements.send` for the admin commands), or when the Discord user is listed in `Discord:discord_admins`, which is kept until staff accounts are linked
 
 # Observability
 

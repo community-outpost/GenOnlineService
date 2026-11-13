@@ -63,35 +63,44 @@ public static class DbHelpers
 	}
 }
 
-// Provider neutral model, provider differences live in Database.Providers.cs.
+// One model for both providers; provider differences live in Database.Providers.cs.
 // Every model change needs a migration for BOTH contexts.
 public abstract class AppDbContext : DbContext
 {
+	// Accounts
 	public DbSet<User> Users => Set<User>();
-	public DbSet<UserDevice> UserDevices => Set<UserDevice>();
-	public DbSet<DailyStat> DailyStats => Set<DailyStat>();
-	public DbSet<LeaderboardDaily> LeaderboardDaily => Set<LeaderboardDaily>();
-	public DbSet<LeaderboardMonthly> LeaderboardMonthly => Set<LeaderboardMonthly>();
-	public DbSet<LeaderboardYearly> LeaderboardYearly => Set<LeaderboardYearly>();
-	public DbSet<ServiceStat> ServiceStats => Set<ServiceStat>();
-	public DbSet<MatchHistoryEntry> MatchHistory => Set<MatchHistoryEntry>();
-	public DbSet<ExternalPublicationEntry> ExternalPublications => Set<ExternalPublicationEntry>();
-	public DbSet<UserStatsEntry> UserStats => Set<UserStatsEntry>();
-
-	public DbSet<FriendEntry> Friends => Set<FriendEntry>();
-
-	public DbSet<BlockedUserEntry> BlockedUsers => Set<BlockedUserEntry>();
-
-	public DbSet<FriendRequestEntry> FriendRequests => Set<FriendRequestEntry>();
-	public DbSet<ConnectionOutcome> ConnectionOutcomes => Set<ConnectionOutcome>();
+	public DbSet<UserUsernameHistory> UserUsernameHistory => Set<UserUsernameHistory>();
+	public DbSet<UserIdentity> Identities => Set<UserIdentity>();
 	public DbSet<UserTokenState> UserTokenStates => Set<UserTokenState>();
+
+	// Moderation and audit
 	public DbSet<UserRole> UserRoles => Set<UserRole>();
 	public DbSet<Ban> Bans => Set<Ban>();
 	public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
-	public DbSet<AcReviewModule> AcReviewsModules => Set<AcReviewModule>();
-	public DbSet<AcReviewNewAccountGame> AcReviewsNewAccountGames => Set<AcReviewNewAccountGame>();
-	public DbSet<AcReviewProbe> AcReviewsProbes => Set<AcReviewProbe>();
+	// Social
+	public DbSet<Friendship> Friendships => Set<Friendship>();
+	public DbSet<FriendRequest> FriendRequests => Set<FriendRequest>();
+	public DbSet<UserBlock> Blocks => Set<UserBlock>();
+
+	// Players and devices
+	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
+	public DbSet<PlayerStat> PlayerStats => Set<PlayerStat>();
+	public DbSet<PlayerPreference> PlayerPreferences => Set<PlayerPreference>();
+	public DbSet<PlayerNetwork> PlayerNetwork => Set<PlayerNetwork>();
+	public DbSet<Device> Devices => Set<Device>();
+	public DbSet<SessionEvent> SessionEvents => Set<SessionEvent>();
+
+	// Matches and stats
+	public DbSet<Match> Matches => Set<Match>();
+	public DbSet<MatchPlayer> MatchPlayers => Set<MatchPlayer>();
+	public DbSet<MatchPublication> MatchPublications => Set<MatchPublication>();
+	public DbSet<LeaderboardEntry> LeaderboardEntries => Set<LeaderboardEntry>();
+
+	// Anti-cheat
+	public DbSet<AnticheatModuleReport> AnticheatModuleReports => Set<AnticheatModuleReport>();
+	public DbSet<AnticheatNewAccountGame> AnticheatNewAccountGames => Set<AnticheatNewAccountGame>();
+	public DbSet<AnticheatProbeReport> AnticheatProbeReports => Set<AnticheatProbeReport>();
 
 	// Non-generic so the derived contexts can pass their own DbContextOptions<TDerived>
 	protected AppDbContext(DbContextOptions options)
@@ -104,47 +113,47 @@ public abstract class AppDbContext : DbContext
 		base.ConfigureConventions(configurationBuilder);
 
 		configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+
+		// Unsigned types are never stored; each widens to the next signed type on both providers.
+		configurationBuilder.Properties<ulong>().HaveConversion<long>();
+		configurationBuilder.Properties<uint>().HaveConversion<long>();
+		configurationBuilder.Properties<ushort>().HaveConversion<int>();
 	}
 
 	// Every JSON column, so the derived contexts can set the provider specific column type
 	protected static void ConfigureJsonColumns(ModelBuilder modelBuilder, Action<PropertyBuilder> configure)
 	{
-		configure(modelBuilder.Entity<DailyStat>().Property(e => e.Stats));
-		configure(modelBuilder.Entity<UserStatsEntry>().Property(e => e.Stats));
+		configure(modelBuilder.Entity<PlayerStat>().Property(e => e.Stats));
+		configure(modelBuilder.Entity<MatchPlayer>().Property(e => e.Details));
 		configure(modelBuilder.Entity<AuditLogEntry>().Property(e => e.Details));
-
-		for (int i = 0; i < 8; i++)
-		{
-			configure(modelBuilder.Entity<MatchHistoryEntry>().Property<string?>($"MemberSlot{i}"));
-		}
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
-		// Fluent configuration here
 		base.OnModelCreating(modelBuilder);
 
 		modelBuilder.ApplyConfiguration(new UserConfiguration());
-		modelBuilder.ApplyConfiguration(new UserDevicesConfiguration());
-		modelBuilder.ApplyConfiguration(new WebSessionConfiguration());
-		modelBuilder.ApplyConfiguration(new DailyStatsConfiguration());
-		modelBuilder.ApplyConfiguration(new LeaderboardDailyConfiguration());
-		modelBuilder.ApplyConfiguration(new LeaderboardMonthlyConfiguration());
-		modelBuilder.ApplyConfiguration(new LeaderboardYearlyConfiguration());
-		modelBuilder.ApplyConfiguration(new ServiceStatsConfiguration());
-		modelBuilder.ApplyConfiguration(new MatchHistoryConfiguration());
-		modelBuilder.ApplyConfiguration(new ExternalPublicationConfiguration());
-		modelBuilder.ApplyConfiguration(new UserStatsConfiguration());
-		modelBuilder.ApplyConfiguration(new FriendConfiguration());
-		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
-		modelBuilder.ApplyConfiguration(new BlockedUserConfiguration());
-		modelBuilder.ApplyConfiguration(new ConnectionOutcomeConfiguration());
+		modelBuilder.ApplyConfiguration(new UserUsernameHistoryConfiguration());
+		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
 		modelBuilder.ApplyConfiguration(new UserTokenStateConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
 		modelBuilder.ApplyConfiguration(new BanConfiguration());
 		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
-		modelBuilder.ApplyConfiguration(new AcReviewModuleConfiguration());
-		modelBuilder.ApplyConfiguration(new AcReviewNewAccountGameConfiguration());
-		modelBuilder.ApplyConfiguration(new AcReviewProbeConfiguration());
+		modelBuilder.ApplyConfiguration(new FriendshipConfiguration());
+		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
+		modelBuilder.ApplyConfiguration(new UserBlockConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerNetworkConfiguration());
+		modelBuilder.ApplyConfiguration(new DeviceConfiguration());
+		modelBuilder.ApplyConfiguration(new SessionEventConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchPlayerConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchPublicationConfiguration());
+		modelBuilder.ApplyConfiguration(new LeaderboardEntryConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatModuleReportConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatNewAccountGameConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatProbeReportConfiguration());
 	}
 }

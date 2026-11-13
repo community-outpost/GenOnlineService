@@ -21,18 +21,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System.Text.Json;
 
-public class UserStatsEntry
+// Per-stat counters as a JSON object keyed by stat id
+public class PlayerStat
 {
 	public long UserId { get; set; }
 	public string Stats { get; set; } = "{}";
+	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
 }
 
-// TODO_EFCORE: rename to user_stats
-public class UserStatsConfiguration : IEntityTypeConfiguration<UserStatsEntry>
+public class PlayerStatConfiguration : IEntityTypeConfiguration<PlayerStat>
 {
-	public void Configure(EntityTypeBuilder<UserStatsEntry> builder)
+	public void Configure(EntityTypeBuilder<PlayerStat> builder)
 	{
-		builder.ToTable("user_stats_v2");
+		builder.ToTable("player_stats");
 
 		builder.HasKey(x => x.UserId);
 
@@ -43,6 +44,9 @@ public class UserStatsConfiguration : IEntityTypeConfiguration<UserStatsEntry>
 		builder.Property(x => x.Stats)
 			.HasColumnName("stats")
 			.IsRequired();
+
+		builder.Property(x => x.UpdatedAt)
+			.HasColumnName("updated_at");
 	}
 }
 
@@ -56,7 +60,7 @@ namespace Database
 		private static readonly Func<AppDbContext, long, Task<string?>> _getUserStatsJson =
 	EF.CompileAsyncQuery(
 		(AppDbContext db, long userId) =>
-			db.UserStats
+			db.PlayerStats
 			  .Where(s => s.UserId == userId)
 			  .Select(s => s.Stats)
 			  .FirstOrDefault()
@@ -128,20 +132,22 @@ namespace Database
 				string statPath = "$.\"" + statKey + "\"";
 				string initialJson = JsonSerializer.Serialize(new Dictionary<string, int> { [statKey] = statVal });
 
+				DateTime now = DateTime.UtcNow;
+
 				if (db.Database.IsNpgsql())
 				{
 					// stats is jsonb: the document is cast explicitly, and jsonb_set takes the key as a path element instead of a JSON path
 					await db.Database.ExecuteSqlInterpolatedAsync($@"
-						INSERT INTO user_stats_v2 (user_id, stats)
-						VALUES ({userId}, {initialJson}::jsonb)
-						ON CONFLICT (user_id) DO UPDATE SET stats = jsonb_set(user_stats_v2.stats, ARRAY[{statKey}]::text[], to_jsonb({statVal}::int))");
+						INSERT INTO player_stats (user_id, stats, updated_at)
+						VALUES ({userId}, {initialJson}::jsonb, {now})
+						ON CONFLICT (user_id) DO UPDATE SET stats = jsonb_set(player_stats.stats, ARRAY[{statKey}]::text[], to_jsonb({statVal}::int)), updated_at = EXCLUDED.updated_at");
 				}
 				else
 				{
 					await db.Database.ExecuteSqlInterpolatedAsync($@"
-						INSERT INTO user_stats_v2 (user_id, stats)
-						VALUES ({userId}, {initialJson})
-						ON DUPLICATE KEY UPDATE stats = JSON_SET(stats, {statPath}, {statVal})");
+						INSERT INTO player_stats (user_id, stats, updated_at)
+						VALUES ({userId}, {initialJson}, {now})
+						ON DUPLICATE KEY UPDATE stats = JSON_SET(stats, {statPath}, {statVal}), updated_at = VALUES(updated_at)");
 				}
 			}
 			catch (Exception ex)

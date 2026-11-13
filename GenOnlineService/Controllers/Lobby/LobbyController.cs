@@ -298,15 +298,6 @@ namespace GenOnlineService.Controllers
 									outcomeLobby.RecordPlayerOutcome(user_id, won);
 								}
 
-								// register with daily stats
-								// NOTE: only once per match - the outcome endpoint can be called repeatedly for the
-								// same match_id, and these counters are unconditional increments
-								bool bFirstOutcomeReportForMatch = sourceData.TryMarkMatchOutcomeReported(match_id);
-								if (bFirstOutcomeReportForMatch)
-								{
-									DailyStatsManager.RegisterOutcome(army, won);
-								}
-
 								// give them back signed URLs they need
 								result.screenshot_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_SCORESCREEN, match_id, user_id, slotIndexInLobby, LobbyCreationTime) ?? String.Empty;
 								result.replay_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_REPLAY, EScreenshotType.NONE, match_id, user_id, slotIndexInLobby, LobbyCreationTime) ?? String.Empty;
