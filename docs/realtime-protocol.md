@@ -83,6 +83,8 @@ The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E
 | Time | ISO 8601 UTC strings (`2026-11-13T20:00:00Z`); durations in milliseconds with an `_ms` suffix |
 | Binary data | Base64 strings (signalling, anticheat payloads) |
 | Text | The service sends codes and parameters, never display text. The only free text is user content (chat, reasons typed by staff) |
+| Optional and nullable | `field?` may be omitted. A field written as `field: T or null` (for example `password`, `screenshot_url`, `team`) is always sent and is `null` when it has no value |
+| Patch methods | In `UpdateLobby`, `UpdateMySlot` and `UpdateSlots` an omitted field stays unchanged and `null` clears a nullable field (`"team": null` means no team) |
 | Unknown data | Clients ignore unknown events and unknown fields. The service ignores unknown fields |
 | Results | Every method that expects an answer returns a `Result` (section 4). Hub errors (`completion.error`) only happen for protocol bugs, never for normal failures |
 
@@ -216,16 +218,16 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 |---|---|---|---|
 | `WatchLobbyList` | `{}` | Result `{lobbies: [LobbySummary]}` | any game session; subscribes to `LobbyListUpsert` and `LobbyListRemove` |
 | `UnwatchLobbyList` | `{}` | Result | |
-| `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password?, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128 |
-| `JoinLobby` | `{lobby_id, password?, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players |
+| `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password: string or null, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128 |
+| `JoinLobby` | `{lobby_id, password: string or null, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players |
 | `LeaveLobby` | `{}` | Result | member |
 | `UpdateLobby` | `{map?: {name, path, official, max_players}, settings?: {starting_cash?, limit_superweapons?, max_camera_height?}, visibility?}` | Result | host; only the fields present change. A new `max_players` opens or closes slots |
 | `SetLobbyPassword` | `{password}` | Result | host; `null` removes it. The password is never sent back to anyone |
-| `UpdateMySlot` | `{side?, color?, team?, start_position?}` | Result | member, own slot |
+| `UpdateMySlot` | `{side?, color?, team?: int or null, start_position?}` | Result | member, own slot; patch semantics (section 2) |
 | `SetHasMap` | `{has_map}` | Result | member |
 | `SetReady` | `{ready}` | Result | member |
 | `SetSlotState` | `{index, state}` | Result | host; `open`, `closed` or an AI state; a player slot cannot be changed this way |
-| `UpdateSlots` | `{slots: [{index, side?, color?, team?, start_position?}]}` | Result | host; any slot, players and AI |
+| `UpdateSlots` | `{slots: [{index, side?, color?, team?: int or null, start_position?}]}` | Result | host; any slot, players and AI; patch semantics (section 2) |
 | `KickFromLobby` | `{user_id}` | Result | host |
 | `ForceReady` | `{}` | Result | host; marks everyone ready |
 | `StartGame` | `{}` | Result | host; the service runs the ready check, the mesh check and the countdown, and answers `lobby.not_ready`, `lobby.mesh_incomplete` and similar codes when it cannot start |
@@ -307,7 +309,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `LobbyLeft` | `{lobby_id, reason}` (`left`, `kicked`, `closed`) |
 | `CountdownStarted` | `{lobby_id, duration_ms}` |
 | `CountdownCancelled` | `{lobby_id, reason, missing: [user_id]?}`; `reason` is `player_not_ready`, `mesh_incomplete`, `player_left` or `settings_changed` |
-| `GameStart` | `{lobby_id, match_id, rng_seed, screenshot_url?}` |
+| `GameStart` | `{lobby_id, match_id, rng_seed, screenshot_url: string or null}` |
 
 ### 6.4 Matchmaking
 
