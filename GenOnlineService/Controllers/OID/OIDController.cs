@@ -76,6 +76,17 @@ namespace GenOnlineService.Controllers.LoginWithToken
 				result.user_id = user_id.ToString();
 				result.display_name = strDisplayName;
 				result.roles = TokenHelper.GetRoles(this);
+
+				// staff hints for clients come from the roles the service holds, never from the token
+				if (StaffRoles.HasPermission(user_id, Permissions.RolesManage))
+				{
+					result.roles.Add("Admin");
+				}
+
+				if (StaffRoles.HasPermission(user_id, Permissions.ModerationKick))
+				{
+					result.roles.Add("Moderator");
+				}
 				result.client_id = client_id;
 			}
 

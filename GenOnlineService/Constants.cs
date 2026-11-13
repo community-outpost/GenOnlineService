@@ -3000,7 +3000,8 @@ namespace GenOnlineService
 		MODERATION_COMMAND_RESULT = 48,
 		START_GAME_REJECTED = 49,
 		LOBBY_EVENT = 50,
-		LOBBY_HOST_START_INTENT = 51
+		LOBBY_HOST_START_INTENT = 51,
+		AUTH_REVOKED = 52
 	};
 
 	public static class UserPresence

@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Identity;
 using Discord;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Authorization;
@@ -220,13 +221,22 @@ namespace GenOnlineService.Controllers
 			// create a session
 			Int64 user_id = Convert.ToInt64(this.User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
-			var firstEntryClientID = this.User.FindFirst("client_id");
-
-			// client ID is mandatory
-			if (firstEntryClientID == null)
+			// the client id is the OAuth client of the access token and is mandatory
+			KnownClients.EKnownClients client_id = TokenHelper.GetClientID(this);
+			if (client_id == KnownClients.EKnownClients.unknown)
 			{
-				// early out, dont accept WS
 				HttpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+				return;
+			}
+
+			// a game client connects only after registering this sign-in with POST /api/v1/auth/session
+			EUserSessionType sessType = TokenHelper.GetSessionType(this);
+			GameSessionRegistration? registration = GameSessions.Get(user_id, sessType);
+			if (sessType == EUserSessionType.GameClient
+				&& (registration == null || registration.AuthorizationID != this.User.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value))
+			{
+				HttpContext.Response.StatusCode = StatusCodes.Status409Conflict;
+				await HttpContext.Response.WriteAsJsonAsync(new { code = "session.not_registered" });
 				return;
 			}
 
@@ -260,25 +270,6 @@ namespace GenOnlineService.Controllers
 			{
 				// keep defaults
 			}
-
-			KnownClients.EKnownClients client_id = KnownClients.EKnownClients.unknown;
-			if (int.TryParse(firstEntryClientID.Value, out int clientIDInt32))
-			{
-				// Validate if the int corresponds to a defined enum value
-				if (System.Enum.IsDefined(typeof(KnownClients.EKnownClients), clientIDInt32))
-				{
-					client_id = (KnownClients.EKnownClients)clientIDInt32;
-				}
-			}
-
-			// if unknown, error
-			if (client_id == KnownClients.EKnownClients.unknown)
-			{
-				HttpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
-				return;
-			}
-
-			EUserSessionType sessType = TokenHelper.GetSessionType(this);
 
 			await using var db = await _dbFactory.CreateDbContextAsync();
 			UserWebSocketInstance wsSess = await WebSocketManager.CreateSession(

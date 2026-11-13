@@ -71,7 +71,7 @@ public abstract class AppDbContext : DbContext
 	public DbSet<User> Users => Set<User>();
 	public DbSet<UserUsernameHistory> UserUsernameHistory => Set<UserUsernameHistory>();
 	public DbSet<UserIdentity> Identities => Set<UserIdentity>();
-	public DbSet<UserTokenState> UserTokenStates => Set<UserTokenState>();
+	public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
 
 	// Moderation and audit
 	public DbSet<UserRole> UserRoles => Set<UserRole>();
@@ -131,6 +131,7 @@ public abstract class AppDbContext : DbContext
 		configure(modelBuilder.Entity<PlayerStat>().Property(e => e.Stats));
 		configure(modelBuilder.Entity<MatchPlayer>().Property(e => e.Details));
 		configure(modelBuilder.Entity<AuditLogEntry>().Property(e => e.Details));
+		configure(modelBuilder.Entity<ApplicationSetting>().Property(e => e.Value));
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -140,7 +141,7 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new UserConfiguration());
 		modelBuilder.ApplyConfiguration(new UserUsernameHistoryConfiguration());
 		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
-		modelBuilder.ApplyConfiguration(new UserTokenStateConfiguration());
+		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
 		modelBuilder.ApplyConfiguration(new BanConfiguration());
 		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
@@ -163,5 +164,6 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ServiceAccountConfiguration());
 		modelBuilder.ApplyConfiguration(new ServiceAccountPermissionConfiguration());
 		modelBuilder.ApplyConfiguration(new ApiTokenConfiguration());
+		OpenIddictModel.Configure(modelBuilder);
 	}
 }
