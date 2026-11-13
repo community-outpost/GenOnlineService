@@ -47,7 +47,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet(Name = "GlobalStats")]
-		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public APIResult Get()
 		{
 			RouteHandler_GET_GlobalStats_Result result = new RouteHandler_GET_GlobalStats_Result();

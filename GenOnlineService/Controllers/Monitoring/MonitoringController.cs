@@ -30,12 +30,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-// NOTE: Want to allow only a certain token type? use the below:
-//		 [Authorize(AuthenticationSchemes = "Basic")]
-//		 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-// Or for a specific claim:
-//		[Authorize(Roles = "Admin")] or [Authorize(Policy = "CustomPolicy")]
-
 namespace GenOnlineService.Controllers
 {
 	public class GET_MonitorDatabase_Result : APIResult
@@ -113,7 +107,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[Route("ActiveUsers")]
-		[Authorize(Policy = "MonitorOrApiKey")]
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.ServerStats)]
 		[HttpGet]
 		public APIResult Monitor_ActiveUsers()
 		{
@@ -177,17 +171,12 @@ namespace GenOnlineService.Controllers
 		}
 
 		[Route("Database")]
-		[Authorize(Roles = "Monitor")]
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.OpsDatabase)]
 		[HttpGet]
 		public async Task<APIResult> Monitor_Database()
 		{
 			GET_MonitorDatabase_Result result = new GET_MonitorDatabase_Result();
 
-			if (!this.User.IsInRole("Monitor"))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-			}
-			else
 			{
 				// db call
 				try
@@ -205,39 +194,6 @@ namespace GenOnlineService.Controllers
 			return result;
 		}
 
-		[Route("LoginWithToken")]
-		[Authorize(Roles = "Monitor")]
-		[HttpGet]
-		public async Task<APIResult?> Monitor_LoginWithToken(
-			[FromRoute] string environment,
-			[FromRoute(Name = "contract_version")] string contractVersion)
-		{
-			if (!this.User.IsInRole("Monitor"))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-			}
-			else
-			{
-				// db call
-				try
-				{
-					using var scope = ServiceLocator.Services.CreateScope();
-					var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-
-					GenOnlineService.Controllers.LoginWithToken.LoginWithToken loginWithTokenController = new GenOnlineService.Controllers.LoginWithToken.LoginWithToken(factory);
-					GenOnlineService.Controllers.LoginWithToken.POST_LoginWithToken_Result internalResult = (GenOnlineService.Controllers.LoginWithToken.POST_LoginWithToken_Result)await loginWithTokenController.Post_InternalHandler("{\"challenge\": \"abc\", \"token\": \"iamatest\", \"client_id\": \"gen_online_60hz\"}", IPAddress.Loopback.ToString(), Program.BuildWebSocketUrl(Request, environment, contractVersion));
-					return internalResult;
-				}
-				catch (Exception ex)
-				{
-					_logger.LogError(ex, "Monitoring LoginWithToken check failed");
-					Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-				}
-			}
-
-			return null;
-		}
-
 		[Route("Uptime")]
 		[HttpGet]
 		public APIResult Monitor_Uptime()
@@ -253,7 +209,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[Route("VersionCheck")]
-		[Authorize(Roles = "Monitor")]
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.ServerStats)]
 		[HttpGet]
 		// TODO: Undo all of these and make all flows use gethttpsize/head
 #if !DEBUG
@@ -262,11 +218,6 @@ namespace GenOnlineService.Controllers
 		public async Task<APIResult?> Monitor_VersionCheck()
 #endif
 		{
-			if (!this.User.IsInRole("Monitor"))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-			}
-			else
 			{
 				// db call
 				try
@@ -283,36 +234,6 @@ namespace GenOnlineService.Controllers
 				catch (Exception ex)
 				{
 					_logger.LogError(ex, "Monitoring VersionCheck failed");
-					Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-				}
-			}
-
-			return null;
-		}
-
-
-		[Route("CheckLogin")]
-		[Authorize(Roles = "Monitor")]
-		[HttpGet]
-		public async Task<APIResult?> Monitor_CheckLogin(
-			[FromRoute] string environment,
-			[FromRoute(Name = "contract_version")] string contractVersion)
-		{
-			if (!this.User.IsInRole("Monitor"))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-			}
-			else
-			{
-				try
-				{
-					GenOnlineService.Controllers.CheckLoginController checkLoginController = new GenOnlineService.Controllers.CheckLoginController(_dbFactory);
-					APIResult internalResult = await checkLoginController.Post_InternalHandler("{\"challenge\": \"abc\", \"nonce\": \"def\", \"code\": \"iamatest\", \"client_id\": \"gen_online_30hz\"}", IPAddress.Loopback.ToString(), Program.BuildWebSocketUrl(Request, environment, contractVersion));
-					return internalResult;
-				}
-				catch (Exception ex)
-				{
-					_logger.LogError(ex, "Monitoring CheckLogin check failed");
 					Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 				}
 			}

@@ -113,6 +113,102 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("anticheat_probe_reports", (string)null);
                 });
 
+            modelBuilder.Entity("ApiToken", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("AllowedIPs")
+                        .HasColumnType("text")
+                        .HasColumnName("allowed_ips");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("LastUsedIP")
+                        .HasMaxLength(45)
+                        .HasColumnType("character varying(45)")
+                        .HasColumnName("last_used_ip");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("name");
+
+                    b.Property<long?>("OwnerServiceID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_service_id");
+
+                    b.Property<long?>("OwnerUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RevokedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("revoked_by");
+
+                    b.Property<string>("Scopes")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("scopes");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea")
+                        .HasColumnName("token_hash")
+                        .IsFixedLength();
+
+                    b.Property<string>("TokenLast4")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("character(4)")
+                        .HasColumnName("token_last4")
+                        .IsFixedLength();
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_api_tokens_token_hash");
+
+                    b.HasIndex("OwnerServiceID", "Name")
+                        .HasDatabaseName("ix_api_tokens_owner_service");
+
+                    b.HasIndex("OwnerUserID", "Name")
+                        .HasDatabaseName("ix_api_tokens_owner_user");
+
+                    b.ToTable("api_tokens", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_api_tokens_one_owner", "(owner_user_id IS NULL) <> (owner_service_id IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("AuditLogEntry", b =>
                 {
                     b.Property<long>("ID")
@@ -666,6 +762,76 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("player_stats", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceAccount", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime?>("DisabledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("disabled_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("name");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ux_service_accounts_name");
+
+                    b.ToTable("service_accounts", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceAccountPermission", b =>
+                {
+                    b.Property<long>("ServiceAccountID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("service_account_id");
+
+                    b.Property<string>("Permission")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("permission");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<string>("GrantedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("granted_by");
+
+                    b.HasKey("ServiceAccountID", "Permission");
+
+                    b.ToTable("service_account_permissions", (string)null);
+                });
+
             modelBuilder.Entity("SessionEvent", b =>
                 {
                     b.Property<long>("ID")
@@ -1008,6 +1174,19 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("user_username_history", (string)null);
                 });
 
+            modelBuilder.Entity("ApiToken", b =>
+                {
+                    b.HasOne("ServiceAccount", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerServiceID")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("User", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserID")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("MatchPlayer", b =>
                 {
                     b.HasOne("Match", null)
@@ -1022,6 +1201,15 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasOne("Match", null)
                         .WithOne()
                         .HasForeignKey("MatchPublication", "MatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ServiceAccountPermission", b =>
+                {
+                    b.HasOne("ServiceAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceAccountID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

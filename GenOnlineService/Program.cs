@@ -196,95 +196,6 @@ namespace GenOnlineService
 			return false;
 		}
 	}
-	public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
-	{
-		public BasicAuthenticationHandler(
-			IOptionsMonitor<AuthenticationSchemeOptions> options,
-			ILoggerFactory logger,
-			UrlEncoder encoder,
-			TimeProvider timeProvider)
-			: base(options, logger, encoder) { }
-
-		protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-		{
-			if (!Request.Headers.ContainsKey("Authorization"))
-				return Task.FromResult(AuthenticateResult.Fail("Missing Authorization Header"));
-
-			try
-			{
-				var authType = Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").First();
-				var token = Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
-
-				if (authType != null && token != null)
-				{
-					// monitor (basic auth)
-					if (authType.ToLower() == "basic")
-					{
-						var decodedBytes = Convert.FromBase64String(token);
-						var decodedCredentials = Encoding.UTF8.GetString(decodedBytes);
-
-						var parts = decodedCredentials.Split(':', 2);
-						if (parts.Length == 2)
-						{
-							string strUsername = parts[0];
-							string strPassword = parts[1];
-
-							IConfigurationSection? monitorSettings = Program.g_Config.GetSection("Monitor");
-
-							if (monitorSettings == null)
-							{
-								throw new Exception("Monitor section missing in config");
-							}
-
-							string? monitorUsername = monitorSettings.GetValue<string>("username");
-							string? monitorPassword = monitorSettings.GetValue<string>("password");
-
-							if (monitorUsername == null)
-							{
-								throw new Exception("Monitor Username missing in config");
-							}
-
-							if (monitorPassword == null)
-							{
-								throw new Exception("Monitor Password missing in config");
-							}
-
-							if (SecretComparer.FixedTimeEquals(monitorUsername, strUsername)
-								& SecretComparer.FixedTimeEquals(monitorPassword, strPassword))
-							{
-								var claims = new[] { new Claim(ClaimTypes.Name, strUsername), new Claim(ClaimTypes.Role, "Monitor") };
-								var identity = new ClaimsIdentity(claims, "MonitorToken");
-								var principal = new ClaimsPrincipal(identity);
-								var ticket = new AuthenticationTicket(principal, Scheme.Name);
-
-								return Task.FromResult(AuthenticateResult.Success(ticket));
-							}
-							else
-							{
-								Response.StatusCode = 401;
-								return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
-							}
-						}
-					}
-
-					// shouldnt get here
-					Response.StatusCode = 401;
-					return Task.FromResult(AuthenticateResult.Fail("Authorization Failed"));
-				}
-				else
-				{
-					Response.StatusCode = 401;
-					return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Data"));
-				}
-			}
-			catch
-			{
-				Response.StatusCode = 401;
-				return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
-			}
-		}
-	}
-
 	// Marks the endpoints that accept refresh tokens (LoginWithToken and RefreshToken). Used instead
 	// of matching on the request path so a future route whose path happens to contain "loginwithtoken"
 	// can't silently accept them.
@@ -297,11 +208,6 @@ namespace GenOnlineService
 	{
 		public static Int64 GetUserID(ControllerBase controller)
 		{
-			if (controller.User.IsInRole("Monitor"))
-			{
-				return -1;
-			}
-
 			var claim = controller.User.FindFirst(ClaimTypes.NameIdentifier);
 			if (claim == null || !Int64.TryParse(claim.Value, out Int64 userId))
 				return -1;
@@ -629,6 +535,8 @@ namespace GenOnlineService
 
 	public class Program
 	{
+		private const string BearerSchemeSelector = "go_bearer";
+
 		private const string BannedUserContextKey = "GenOnlineService.BannedUserID";
 
 		// Main lobby/websocket tick interval. See the comment at the tick timer for why 50ms is sufficient.
@@ -857,6 +765,11 @@ namespace GenOnlineService
 		}
 
 		// The CLI commands use the same Database section as the service
+		internal static IConfiguration OpenConfiguration()
+		{
+			return WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+		}
+
 		internal static AppDbContext OpenConfiguredDbContext()
 		{
 			var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
@@ -1009,6 +922,12 @@ namespace GenOnlineService
 		// Authenticated callers are partitioned by user id and anonymous callers by client address.
 		private static string RateLimitPartitionKey(HttpContext httpContext, bool bPreferUser)
 		{
+			Int64? tokenID = ApiTokenPrincipals.TokenID(httpContext.User);
+			if (tokenID != null)
+			{
+				return "token:" + tokenID;
+			}
+
 			string? userID = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 			if (bPreferUser && httpContext.User.Identity?.IsAuthenticated == true && !String.IsNullOrEmpty(userID))
 			{
@@ -1513,6 +1432,18 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("tokens", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ApiTokensCli.RunTokens(args);
+				return;
+			}
+
 #if !DEBUG
 			AppDomain.CurrentDomain.UnhandledException += GlobalExceptionHandler;
 #endif
@@ -1724,20 +1655,14 @@ namespace GenOnlineService
 			var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 			builder.Services.AddAuthentication(options =>
 			{
-				options.DefaultScheme = "JwtOrBasic"; // Custom policy scheme
+				options.DefaultScheme = BearerSchemeSelector;
 			})
-			.AddPolicyScheme("JwtOrBasic", "JWT or Basic", options =>
+			// gopat- bearer values go to the API token handler, every other bearer value to the session token handler
+			.AddPolicyScheme(BearerSchemeSelector, "Bearer", options =>
 			{
-				options.ForwardDefaultSelector = context =>
-				{
-					var authHeader = context.Request.Headers["Authorization"].ToString();
-					if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-						return JwtBearerDefaults.AuthenticationScheme;
-					else if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
-						return "Basic";
-					return JwtBearerDefaults.AuthenticationScheme; // fallback
-				};
+				options.ForwardDefaultSelector = context => ApiTokenHandler.HasApiToken(context.Request) ? ApiTokenHandler.SchemeName : JwtBearerDefaults.AuthenticationScheme;
 			})
+			.AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, null)
 			.AddJwtBearer(options =>
 			{
 				var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -1772,7 +1697,7 @@ namespace GenOnlineService
 					OnTokenValidated = AdditionalValidation,
 					OnChallenge = HandleJwtChallenge
 				};
-			}).AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
+			});
 
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -1780,48 +1705,12 @@ namespace GenOnlineService
 
 			builder.Services.AddAuthorization(options =>
 			{
-				options.AddPolicy("MonitorOrApiKey", policy =>
+				options.AddPolicy(AuthPolicies.PlayerSessionOrLobbiesRead, policy =>
 					policy.RequireAssertion(context =>
-					{
-						// Check role
-						if (context.User.IsInRole("Monitor"))
-							return true;
-
-						// Check x-api-key header
-						var httpContext = context.Resource as HttpContext;
-						if (httpContext?.Request.Headers.TryGetValue("x-api-key", out var apiKey) == true)
-						{
-							return APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey) || APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.WebServerKey);
-						}
-
-						return false;
-					}));
-
-				options.AddPolicy("AnyClientOrMonitorOrApiKey", policy =>
-					policy.RequireAssertion(context =>
-					{
-						// Check roles
-						if (context.User.IsInRole("GameClient"))
-							return true;
-
-						if (context.User.IsInRole("ChatClient"))
-							return true;
-
-						if (context.User.IsInRole("GameLauncher"))
-							return true;
-
-						if (context.User.IsInRole("Monitor"))
-							return true;
-
-						// Check x-api-key header
-						var httpContext = context.Resource as HttpContext;
-						if (httpContext?.Request.Headers.TryGetValue("x-api-key", out var apiKey) == true)
-						{
-							return APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey) || APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.WebServerKey);
-						}
-
-						return false;
-					}));
+						context.User.IsInRole("GameClient")
+						|| context.User.IsInRole("ChatClient")
+						|| context.User.IsInRole("GameLauncher")
+						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
 
 			// Add in-memory caching for performance optimization
@@ -2079,6 +1968,12 @@ namespace GenOnlineService
 
 			app.UseCors();
 			app.UseAuthentication();
+			bool bTrustedProxiesConfigured = (builder.Configuration.GetSection("TrustedProxies").Get<string[]>() ?? Array.Empty<string>()).Any(v => !string.IsNullOrWhiteSpace(v));
+			app.Use((context, next) =>
+			{
+				ApiTokenCache.CheckAllowListBehindProxy(context, bTrustedProxiesConfigured);
+				return next(context);
+			});
 
 			// The limiter runs after authentication so authenticated callers are partitioned by user id.
 			app.UseRateLimiter();
@@ -2278,6 +2173,16 @@ namespace GenOnlineService
 							await using var db = await factory.CreateDbContextAsync();
 							await StaffRoles.Reload(db);
 						});
+
+						await RunObservedBackgroundJobAsync("api_tokens_reload", app.Logger, async () =>
+						{
+							using var scope = app.Services.CreateScope();
+							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+							await using var db = await factory.CreateDbContextAsync();
+							await ApiTokenCache.Reload(db);
+							await ApiTokenCache.FlushLastUsed(db);
+							await ApiTokenCache.Housekeeping(db, ApiTokenSettings.Read(builder.Configuration));
+						});
 					}
 					finally
 					{
@@ -2305,6 +2210,8 @@ namespace GenOnlineService
 				// must happen before any token is issued or validated
 				await TokenRevocationManager.Initialize(factory, db);
 				await StaffRoles.Reload(db);
+				StaffRoles.ValidateRoleDefinitions();
+				await ApiTokenCache.Reload(db);
 			}
 
 			app.Run();

@@ -27,7 +27,7 @@ using System.Text.Json;
 namespace GenOnlineService.Controllers
 {
 	[ApiController]
-	[Authorize(Roles = "GameClient,Monitor")]
+	[Authorize(Roles = "GameClient")]
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class ServiceConfigController : ControllerBase
 	{

@@ -112,7 +112,7 @@ namespace GenOnlineService.Controllers
 		// END LATENCY ESTIMATIONS
 
 		[HttpGet(Name = "GetLobbies")]
-		[Authorize(Policy = "AnyClientOrMonitorOrApiKey")]
+		[Authorize(Policy = AuthPolicies.PlayerSessionOrLobbiesRead)]
 		public async Task<APIResult> Get()
 		{
 			RouteHandler_GET_Lobbies_Result result = new RouteHandler_GET_Lobbies_Result();
@@ -209,7 +209,7 @@ namespace GenOnlineService.Controllers
 							lstLobbies.Remove(lobbyToRemove);
 						}
 					}
-					else if (this.User.IsInRole("Monitor"))
+					else if (ApiTokenPrincipals.HasPermission(User, Permissions.LobbiesRead))
 					{
 						selectedRoomID = -1;
 						bIncludeAllNetworkRooms = true;

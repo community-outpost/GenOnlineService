@@ -36,7 +36,7 @@ namespace GenOnlineService.Controllers
 	public class RoomsController : ControllerBase
 	{
 		[HttpGet(Name = "GetRooms")]
-		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public APIResult Get()
 		{
 			List<RoomData> rooms = RoomCatalog.Rooms.Select((room, index) => new RoomData

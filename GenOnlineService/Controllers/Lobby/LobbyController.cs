@@ -166,7 +166,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("{lobby_id}")]
-		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<APIResult> Get(string lobby_id)
 		{
 			RouteHandler_GET_Lobby_Result result = new RouteHandler_GET_Lobby_Result();
@@ -196,11 +196,7 @@ namespace GenOnlineService.Controllers
 
 				if (result.lobby == null)
 				{
-					// monitor cant handle a 404
-					if (!this.User.IsInRole("Monitor"))
-					{
-						Response.StatusCode = (int)HttpStatusCode.NotFound;
-					}
+					Response.StatusCode = (int)HttpStatusCode.NotFound;
 				}
 			}
 

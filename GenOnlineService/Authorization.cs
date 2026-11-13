@@ -34,6 +34,37 @@ namespace GenOnlineService
 		public const string RolesManage = "roles.manage";
 		public const string ServerStats = "server.stats";
 		public const string AnnouncementsSend = "announcements.send";
+		public const string TokensManage = "tokens.manage";
+
+		// Machine permissions are held only by service accounts, never by a staff role
+		public const string UsersRevoke = "users.revoke";
+		public const string OpsDatabase = "ops.database";
+		public const string MatchHistoryRead = "match_history.read";
+		public const string LobbiesRead = "lobbies.read";
+
+		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
+		{
+			ModerationKick, ModerationBan, ModerationMute, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage
+		};
+
+		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
+		{
+			UsersRevoke, OpsDatabase, MatchHistoryRead, LobbiesRead
+		};
+
+		// Privileged permissions act on any user's account and are granted and minted only through the CLI on the host
+		public static readonly IReadOnlySet<string> Privileged = new HashSet<string>(StringComparer.Ordinal)
+		{
+			UsersRevoke, OpsDatabase
+		};
+
+		public static IEnumerable<string> All => Human.Concat(Machine);
+
+		public static bool IsKnown(string permission) => Human.Contains(permission) || Machine.Contains(permission);
+
+		public static bool IsMachine(string permission) => Machine.Contains(permission);
+
+		public static bool IsPrivileged(string permission) => Privileged.Contains(permission);
 	}
 
 	// The in-memory copy is reloaded on the reconcile tick, so a change made in the database applies without a restart
@@ -58,7 +89,8 @@ namespace GenOnlineService
 			Permissions.SocialUnblockable,
 			Permissions.RolesManage,
 			Permissions.ServerStats,
-			Permissions.AnnouncementsSend
+			Permissions.AnnouncementsSend,
+			Permissions.TokensManage
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)
@@ -92,7 +124,22 @@ namespace GenOnlineService
 				}
 			}
 
+			// a machine permission on a role is dropped, so no staff role can carry one
+			result.ExceptWith(Permissions.Machine);
 			return result;
+		}
+
+		// Logs a role definition that carries a machine permission; PermissionsFor drops it either way
+		public static void ValidateRoleDefinitions()
+		{
+			foreach ((string role, HashSet<string> permissions) in s_rolePermissions)
+			{
+				string machine = string.Join(", ", permissions.Where(Permissions.IsMachine));
+				if (machine.Length > 0)
+				{
+					s_log.LogError("Staff role {Role} lists machine permission(s) {Permissions}; they are ignored", role, machine);
+				}
+			}
 		}
 
 		public static async Task Reload(AppDbContext db)

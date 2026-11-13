@@ -133,22 +133,10 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("{startingMatchID}")]
-		// TODO: Move to Authorize for this
-		public async Task<APIResult> GetHistorySinceMatchID([FromHeader(Name = "X-Api-Key")] string apiKey, Int64 startingMatchID)
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.MatchHistoryRead)]
+		public async Task<APIResult> GetHistorySinceMatchID(Int64 startingMatchID)
 		{
 			RouteHandler_Get_MatchHistory_Result result = new RouteHandler_Get_MatchHistory_Result();
-
-			if (string.IsNullOrEmpty(apiKey))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-				return result;
-			}
-
-			if (!APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Forbidden;
-				return result;
-			}
 
 			const Int64 maxLobbiesPerRequest = 99; // actually 100, but query is <= 
 
@@ -159,22 +147,10 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("since/{since}")]
-		// TODO: Move to Authorize for this
-		public async Task<APIResult> GetHistorySinceDateTime([FromHeader(Name = "X-Api-Key")] string apiKey, DateTime since)
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.MatchHistoryRead)]
+		public async Task<APIResult> GetHistorySinceDateTime(DateTime since)
 		{
 			RouteHandler_Get_MatchHistory_Result result = new RouteHandler_Get_MatchHistory_Result();
-
-			if (string.IsNullOrEmpty(apiKey))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-				return result;
-			}
-
-			if (!APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Forbidden;
-				return result;
-			}
 
 			const int maxLobbiesPerRequest = 500;
 
@@ -185,22 +161,10 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet]
-		// TODO: Move to Authorize for this
-		public async Task<APIResult> GetHighestMatchID([FromHeader(Name = "X-Api-Key")] string apiKey)
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.MatchHistoryRead)]
+		public async Task<APIResult> GetHighestMatchID()
 		{
 			RouteHandler_Get_MatchHistory_HighestMatchID_Result result = new RouteHandler_Get_MatchHistory_HighestMatchID_Result();
-
-			if (string.IsNullOrEmpty(apiKey))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-				return result;
-			}
-
-			if (!APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey))
-			{
-				Response.StatusCode = (int)HttpStatusCode.Forbidden;
-				return result;
-			}
 
 			await using var db = await _dbFactory.CreateDbContextAsync();
 			result.highest_match_id = await Database.MatchHistory.GetHighestMatchID(db);

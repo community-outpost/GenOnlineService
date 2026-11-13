@@ -371,7 +371,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("Friends")]
-		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<APIResult> Get_FriendsAndRequests()
 		{
 			// TODO_ASP: Set error codes properly in all places (and use variable, not magic numbers)
@@ -403,23 +403,6 @@ namespace GenOnlineService.Controllers
 
 			try
 			{
-				if (this.User.IsInRole("Monitor"))
-				{
-                    result.friends.Add(new FriendEntry()
-                    {
-                        user_id = 123,
-                        display_name = "Monitor Test Friend",
-                        online = true,
-                        presence = "Test Presence"
-                    });
-
-                    result.pending_requests.Add(new FriendEntry()
-                    {
-                        user_id = 456,
-                        display_name = "Monitor Test Pending Request"
-                    });
-                }
-				else
 				{
 					// friends
 					foreach (Int64 friend_user_id in setFriends)
@@ -463,7 +446,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("Blocked")]
-		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<APIResult> Get_Blocked()
 		{
 			// TODO_ASP: Set error codes properly in all places (and use variable, not magic numbers)
@@ -490,16 +473,6 @@ namespace GenOnlineService.Controllers
 
 			try
 			{
-				if (this.User.IsInRole("Monitor"))
-				{
-                    // Dummy result for monitor
-                    result.blocked.Add(new FriendEntry()
-                    {
-                        user_id = 123,
-                        display_name = "Monitor Test User"
-                    });
-                }
-				else
 				{
 					foreach (Int64 blocked_user_id in setBlocked)
 					{

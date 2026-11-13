@@ -80,7 +80,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("{userID}")]
-		[Authorize(Roles = "Player,Monitor")]
+		[Authorize(Roles = "Player")]
 		public async Task<APIResult> Get(Int64 userID)
 		{
 			// TODO_ASP: Set error codes properly in all places (and use variable, not magic numbers)
@@ -124,7 +124,7 @@ namespace GenOnlineService.Controllers
 
         // Bulk endpoint
         [HttpPost("Batch")]
-        [Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
+        [Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
         public async Task<APIResult> PostBatched()
         {
             RouteHandler_GET_PlayerStatsBatch_Result result = new RouteHandler_GET_PlayerStatsBatch_Result();

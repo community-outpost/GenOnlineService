@@ -50,6 +50,10 @@ namespace GenOnlineService
             s_meter.CreateCounter<long>("genonline.connection.outcomes", "{connection}", "Peer connection outcomes reported by clients, by IP protocol and result");
         private static readonly Counter<long> s_securityActions =
             s_meter.CreateCounter<long>("genonline.security.actions", "{action}", "Rate limit rejections, moderation and anti-cheat actions");
+        private static readonly Counter<long> s_apiTokenAuthFailures =
+            s_meter.CreateCounter<long>("genonline.api_token.auth_failures", "{request}", "gopat- requests refused, by reason");
+        private static readonly Counter<long> s_apiTokenRequests =
+            s_meter.CreateCounter<long>("genonline.api_token.requests", "{request}", "gopat- requests accepted, by token owner");
 
         static AppMetrics()
         {
@@ -66,12 +70,26 @@ namespace GenOnlineService
                 () => s_backgroundJobLastSuccess.Select(entry => new Measurement<long>(entry.Value, new KeyValuePair<string, object?>("job", entry.Key))),
                 "s", "Unix time of the last successful run by job");
             s_meter.CreateObservableGauge("genonline.external_publication.backlog.age", () => Volatile.Read(ref s_externalPublicationBacklogAgeSeconds), "s", "Age of the oldest unpublished match");
+            s_meter.CreateObservableGauge("genonline.api_token.expires_in",
+                () => ApiTokenCache.ActiveTokens.Select(t => new Measurement<double>((t.ExpiresAt - DateTime.UtcNow).TotalSeconds,
+                    new KeyValuePair<string, object?>("token_id", t.ID), new KeyValuePair<string, object?>("name", t.Name), new KeyValuePair<string, object?>("owner", t.OwnerLabel))),
+                "s", "Seconds until each active API token expires");
         }
 
         public static void RecordServiceSnapshot(int activeLobbies, int onlinePlayers)
         {
             Volatile.Write(ref s_activeLobbies, activeLobbies);
             Volatile.Write(ref s_onlinePlayers, onlinePlayers);
+        }
+
+        public static void RecordApiTokenAuthFailure(string reason)
+        {
+            s_apiTokenAuthFailures.Add(1, new TagList { { "reason", reason } });
+        }
+
+        public static void RecordApiTokenRequest(string owner)
+        {
+            s_apiTokenRequests.Add(1, new TagList { { "owner", owner } });
         }
 
         public static void RecordAuthentication(string flow, string source, string outcome)
