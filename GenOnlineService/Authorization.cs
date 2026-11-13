@@ -23,6 +23,7 @@ namespace GenOnlineService
 	{
 		public const string ModerationKick = "moderation.kick";
 		public const string ModerationBan = "moderation.ban";
+		public const string ModerationMute = "moderation.mute";
 		public const string ChatStaffBadge = "chat.staff_badge";
 		public const string NamesProtected = "names.protected";
 		public const string SocialUnblockable = "social.unblockable";
@@ -40,16 +41,22 @@ namespace GenOnlineService
 		private static readonly string[] s_moderatorPermissions =
 		{
 			Permissions.ModerationKick,
+			Permissions.ModerationMute
+		};
+
+		private static readonly string[] s_adminPermissions = s_moderatorPermissions.Concat(new[]
+		{
 			Permissions.ModerationBan,
 			Permissions.ChatStaffBadge,
 			Permissions.NamesProtected,
-			Permissions.SocialUnblockable
-		};
+			Permissions.SocialUnblockable,
+			Permissions.RolesManage
+		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)
 		{
 			[Moderator] = new HashSet<string>(s_moderatorPermissions, StringComparer.Ordinal),
-			[Admin] = new HashSet<string>(s_moderatorPermissions.Append(Permissions.RolesManage), StringComparer.Ordinal)
+			[Admin] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal)
 		};
 
 		private static volatile Dictionary<Int64, HashSet<string>> s_permissionsByUser = new();
