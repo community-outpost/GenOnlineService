@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Net;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -146,19 +147,26 @@ namespace GenOnlineService.Controllers.LoginWithToken
 						}
 
 						string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
-						await SessionHelpers.SetUsedLoggedIn(user_id, clientID, sessionType);
 
 						bool bIsAdmin = await Database.Users.IsUserAdmin(db, user_id);
-
-						result.result = EPendingLoginState.LoginSuccess;
 
 						// extend token
 						// TODO_TODAY_JWT: just get clientID from token
 						var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, clientID, sessionType, bIsAdmin);
 						var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, clientID, sessionType, false, out string refreshJti);
 
-						// rotation: only this refresh token is accepted from now on
-						await TokenRevocationManager.OnTokensIssued(user_id, sessionType, refreshJti);
+						// The presented refresh token is redeemed atomically before any session state changes.
+						string presentedJti = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value ?? String.Empty;
+						if (await TokenRevocationManager.TryRotateRefreshToken(user_id, sessionType, presentedJti, TokenHelper.GetTokenGeneration(User), refreshJti) != TokenRevocationManager.ERefreshTokenCheck.Accepted)
+						{
+							result.result = EPendingLoginState.LoginFailed;
+							Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+							return result;
+						}
+
+						await SessionHelpers.SetUsedLoggedIn(user_id, clientID, sessionType);
+
+						result.result = EPendingLoginState.LoginSuccess;
 
 						result.session_token = sessiontoken;
 						result.refresh_token = refreshtoken;

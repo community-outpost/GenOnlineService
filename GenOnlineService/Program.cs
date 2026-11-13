@@ -318,6 +318,18 @@ namespace GenOnlineService
 			return userId;
 		}
 
+		// A token without the generation claim counts as generation 0, and a malformed one as -1.
+		public static int GetTokenGeneration(ClaimsPrincipal principal)
+		{
+			Claim? claim = principal.FindFirst(Program.JwtTokenGenerator.TokenGenerationClaim);
+			if (claim == null)
+			{
+				return 0;
+			}
+
+			return int.TryParse(claim.Value, out int generation) ? generation : -1;
+		}
+
 		public static List<string> GetRoles(ControllerBase controller)
 		{
 			var roles = controller.User.Claims.Where(c => c.Type == ClaimTypes.Role || c.Type == "role").Select(c => c.Value).ToList();
@@ -1176,11 +1188,14 @@ namespace GenOnlineService
 				// Refresh tokens are single use - only the most recently issued one is accepted.
 				if (tokenType == JwtTokenGenerator.ETokenType.Refresh)
 				{
-					Claim? jtiClaim = context.Principal.FindFirst(JwtRegisteredClaimNames.Jti);
-					if (jtiClaim == null || !TokenRevocationManager.IsCurrentRefreshToken(userID, sessionType, jtiClaim.Value))
+					string jti = context.Principal.FindFirst(JwtRegisteredClaimNames.Jti)?.Value ?? String.Empty;
+					var refreshCheck = TokenRevocationManager.CheckRefreshToken(userID, sessionType, jti, TokenHelper.GetTokenGeneration(context.Principal));
+					if (refreshCheck != TokenRevocationManager.ERefreshTokenCheck.Accepted)
 					{
 						context.Fail("Failed Validation #15 - Refresh token has been superseded");
-						return Task.CompletedTask;
+						return refreshCheck == TokenRevocationManager.ERefreshTokenCheck.Reused
+							? TokenRevocationManager.RevokeTokensForSession(userID, sessionType, "refresh token reuse")
+							: Task.CompletedTask;
 					}
 				}
 
