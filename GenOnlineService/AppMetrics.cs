@@ -46,6 +46,8 @@ namespace GenOnlineService
             s_meter.CreateCounter<long>("genonline.background_job.failures", "{run}", "Failed background job runs");
         private static readonly Counter<long> s_externalPublicationFailures =
             s_meter.CreateCounter<long>("genonline.external_publication.failures", "{attempt}", "Failed external leaderboard publication attempts");
+        private static readonly Counter<long> s_connectionOutcomes =
+            s_meter.CreateCounter<long>("genonline.connection.outcomes", "{connection}", "Peer connection outcomes reported by clients, by IP protocol and result");
         private static readonly Counter<long> s_securityActions =
             s_meter.CreateCounter<long>("genonline.security.actions", "{action}", "Rate limit rejections, moderation and anti-cheat actions");
 
@@ -136,6 +138,25 @@ namespace GenOnlineService
         public static void RecordExternalPublicationBacklogAge(TimeSpan age)
         {
             Volatile.Write(ref s_externalPublicationBacklogAgeSeconds, Math.Max(0, age.TotalSeconds));
+        }
+
+        // Only settled outcomes count: direct, relay or failed
+        public static void RecordConnectionOutcome(EIPVersion protocol, EConnectionState outcome)
+        {
+            string? result = outcome switch
+            {
+                EConnectionState.CONNECTED_DIRECT => "direct",
+                EConnectionState.CONNECTED_RELAY => "relay",
+                EConnectionState.CONNECTION_FAILED => "failed",
+                _ => null
+            };
+
+            if (result == null)
+            {
+                return;
+            }
+
+            s_connectionOutcomes.Add(1, new TagList { { "protocol", protocol == EIPVersion.IPV6 ? "ipv6" : "ipv4" }, { "result", result } });
         }
 
         public static void RecordSecurityAction(string action, string outcome)

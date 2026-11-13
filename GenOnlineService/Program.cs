@@ -285,21 +285,6 @@ namespace GenOnlineService
 		}
 	}
 
-	public static class StatsTracker
-	{
-		public static async Task Update(int numLobbies, int numPlayers)
-		{
-			AppMetrics.RecordServiceSnapshot(numLobbies, numPlayers);
-			int hourOfDay = DateTime.Now.Hour;
-			// store stats
-
-			using var scope = ServiceLocator.Services.CreateScope();
-			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-			await using var db = await factory.CreateDbContextAsync();
-			await Database.ServiceStats.CommitStats(db, DateTime.Now.DayOfYear, hourOfDay, numPlayers, numLobbies);
-		}
-	}
-
 	// Marks the endpoints that accept refresh tokens (LoginWithToken and RefreshToken). Used instead
 	// of matching on the request path so a future route whose path happens to contain "loginwithtoken"
 	// can't silently accept them.
@@ -2179,7 +2164,7 @@ namespace GenOnlineService
 
 						var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
 						int numLobbies = lobbyManager.GetNumLobbies();
-						await StatsTracker.Update(numLobbies, WebSocketManager.GetNumberOfUsersOnline());
+						AppMetrics.RecordServiceSnapshot(numLobbies, WebSocketManager.GetNumberOfUsersOnline());
 						await lobbyManager.Cleanup();
 
 						int expiredLoginCount = PendingLoginManager.CleanupExpiredLogins();

@@ -48,13 +48,11 @@ namespace GenOnlineService.Controllers
 	{
 		private readonly ILogger<ConnectionOutcomeController> _logger;
 		private readonly LobbyManager _lobbyManager;
-		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
-		public ConnectionOutcomeController(LobbyManager lobbyManager, ILogger<ConnectionOutcomeController> logger, IDbContextFactory<AppDbContext> dbFactory)
+		public ConnectionOutcomeController(LobbyManager lobbyManager, ILogger<ConnectionOutcomeController> logger)
 		{
 			_logger = logger;
 			_lobbyManager = lobbyManager;
-			_dbFactory = dbFactory;
 		}
 
 		[HttpPost]
@@ -132,8 +130,7 @@ namespace GenOnlineService.Controllers
 									outcome = EConnectionState.NOT_CONNECTED;
 								}
 
-								await using var db = await _dbFactory.CreateDbContextAsync();
-								await Database.ConnectionOutcomes.StoreConnectionOutcome(db, protocol, outcome);
+								AppMetrics.RecordConnectionOutcome(protocol, outcome);
 
 								Response.StatusCode = (int)HttpStatusCode.OK;
 							}
