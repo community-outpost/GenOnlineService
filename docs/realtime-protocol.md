@@ -1,16 +1,19 @@
 # Realtime protocol v1 (SignalR)
 
-The game client, the launcher and the web chat talk to the service over one SignalR hub at `/v1/realtime`. Every command gets a typed result, every server event carries its data, and the service never sends display text: clients render names, badges and messages themselves. This replaces the legacy `/ws` protocol completely; there is no compatibility layer.
+The game client, the launcher and the web chat talk to the service over one SignalR hub at `/-/realtime`. Every command gets a typed result, every server event carries its data, and the service never sends display text: clients render names, badges and messages themselves. The deploy is greenfield: this is the only realtime protocol, and nothing of the legacy `/ws` protocol stays on the wire.
+
+Related designs: identity and sign-in (`docs/identity.md`, OpenIddict), permissions (`GenOnlineService/Authorization.cs`), schema v1 (`docs/schema.md`). Each environment is a separate instance, so users, friends, blocks, roles and bans in this protocol are always those of the environment the client is connected to.
 
 Status: draft for review. Field lists marked *open* are decided during implementation.
 
 ## Quick path
 
-1. Log in over REST as today and keep the session token.
-2. Open `wss://<host>/v1/realtime` with `Authorization: Bearer <session token>` and send the SignalR handshake.
-3. Wait for `Ready`, then the snapshot events (`Friends`, and `RoomMembers` or `LobbyState` when rejoining).
-4. Call hub methods for actions; each returns a `Result`.
-5. Handle server events by name; ignore events and fields you do not know.
+1. Sign in with the GenOnline login (OAuth authorization code with PKCE, see the identity design) and keep the access token.
+2. Register the game session with `POST /api/v1/auth/session`; it returns the realtime URL.
+3. Open `wss://<host>/-/realtime` with `Authorization: Bearer <access token>` and send the SignalR handshake.
+4. Wait for `Ready`, then the snapshot events (`Friends`, and `RoomMembers` or `LobbyState` when rejoining).
+5. Call hub methods for actions; each returns a `Result`.
+6. Handle server events by name; ignore events and fields you do not know.
 
 ## Contents
 
@@ -25,19 +28,19 @@ Status: draft for review. Field lists marked *open* are decided during implement
 9. [Session types](#9-session-types)
 10. [What stays on REST](#10-what-stays-on-rest)
 11. [Contract fixtures and versioning](#11-contract-fixtures-and-versioning)
-12. [Legacy mapping](#12-legacy-mapping)
+12. [Legacy reference](#12-legacy-reference)
 13. [Open questions](#13-open-questions)
 
 ## 1. Transport
 
 | Topic | Decision |
 |---|---|
-| Endpoint | `wss://<environment host>/v1/realtime`, TLS on port 443 only |
+| Endpoint | `wss://<environment host>/-/realtime`, TLS on port 443 only |
 | Transport | WebSockets only. The client connects directly (`skipNegotiation`), no HTTP negotiate call, no long polling, no QUIC |
 | HTTP version | The upgrade is plain HTTP/1.1, so the traffic looks like ordinary HTTPS on restrictive networks |
 | Hub protocol | SignalR JSON hub protocol, version 1 ([spec](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md)) |
 | Framing | Text frames. Every record is a JSON object followed by the record separator byte `0x1E` |
-| Auth | `Authorization: Bearer <session token>` on the upgrade request. Browsers cannot set that header, so the web chat passes `access_token` in the query string; the service strips it from request logs |
+| Auth | `Authorization: Bearer <access token>` (the GenOnline OAuth access token for this environment) on the upgrade request. Browsers cannot set that header, so the web chat passes `access_token` in the query string; the service strips it from request logs. The token is checked once at connect: the open connection is not re-authenticated and is closed instead when the user's state changes (`auth.revoked`, `moderation.banned`) |
 | Keep-alive | Server `KeepAliveInterval` 15 s, server `ClientTimeoutInterval` 30 s. The client sends a ping record (`{"type":6}`) every 15 s and treats 30 s without any record as a dead connection |
 | Size limit | 64 KB per record (`MaximumReceiveMessageSize`) |
 
@@ -91,7 +94,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
                               connection lost ─────────┘──> reconnect (backoff) ──> Ready ──> snapshots
 ```
 
-1. **Connect** with the session token. An invalid or revoked token fails the upgrade with HTTP 401; a banned user gets HTTP 423 with `{"code":"moderation.banned","params":{"reason":"...","until":"..."}}`.
+1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401; a game client without a registered session gets HTTP 409 `{"code":"session.not_registered"}`; a user with an active play ban gets HTTP 403 `{"code":"moderation.banned","params":{"reason":"...","until":"..."}}`. A ban never blocks signing in to the website, so appeals keep working.
 2. **Ready** is always the first event. It carries the user, permissions, badge definitions and limits (section 6.1).
 3. **Snapshots** follow immediately: `Friends` always; `RoomMembers` if the session was in a room; `LobbyState` if the user is in a lobby. After a reconnect these restore everything, so the client never re-fetches state over REST.
 4. **Reconnect** on any lost connection: wait 0.5 to 3 s random, then 2 s doubling to a 30 s cap, forever while logged in. During a match the client keeps reconnecting without a time window.
@@ -100,7 +103,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
 | `error` | `allowReconnect` | Meaning | Client does |
 |---|---|---|---|
 | `session.superseded` | false | Same user and session type connected elsewhere | Stop, show "signed in elsewhere" |
-| `auth.revoked` | false | Tokens revoked (logout, ban, role change that requires it) | Refresh the token once, otherwise return to login |
+| `auth.revoked` | false | Tokens or the session revoked (logout, session revoke, account blocked) | Refresh the access token once through `/oauth/token`, then register the session again, otherwise return to login |
 | `moderation.kicked` | true | Staff kicked the user | Show the `ModerationNotice` that came before, reconnect after 10 s |
 | `moderation.banned` | false | Banned | Show the `ModerationNotice`, return to login |
 | `server.restarting` | true | Planned restart | Reconnect with backoff |
@@ -194,14 +197,15 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 
 ### 5.5 Moderation
 
-Checked against the caller's permissions (`moderation.kick`, `moderation.mute`, `moderation.ban`). Every action is written to the moderation log.
+Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick` and `moderation.mute`; admins also hold `moderation.ban`. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log`. Reasons are up to 512 characters.
 
-| Method | Argument | Answer |
-|---|---|---|
-| `Kick` | `{user_id, reason}` | Result |
-| `Mute` | `{user_id, duration_ms, reason}` | Result |
-| `Unmute` | `{user_id, reason}` | Result |
-| `Ban` | `{user_id, duration_ms?, reason}` | Result (no `duration_ms` means permanent) |
+| Method | Argument | Answer | Permission |
+|---|---|---|---|
+| `Kick` | `{user_id, reason}` | Result | `moderation.kick` |
+| `Mute` | `{user_id, duration_ms, reason}` | Result | `moderation.mute` |
+| `Unmute` | `{user_id, reason}` | Result | `moderation.mute` |
+| `Ban` | `{user_id, duration_ms?, reason}` | Result (no `duration_ms` means permanent) | `moderation.ban` |
+| `Unban` | `{user_id, reason}` | Result | `moderation.ban` |
 
 ### 5.6 Peer networking (game sessions only)
 
@@ -289,6 +293,8 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | Code | Params | Raised by |
 |---|---|---|
 | `forbidden` | `{permission}` | Any method the caller has no permission for |
+| `session.not_registered` | | Connecting without `POST /api/v1/auth/session` first (HTTP 409) |
+| `moderation.banned` | `{reason, until?}` | Connecting while play banned (HTTP 403), and the close code when a ban starts |
 | `invalid_argument` | `{field}` | Malformed or missing fields |
 | `not_found` | `{what}` | Unknown user, lobby, room or channel |
 | `rate_limited` | `{retry_after_ms}` | Any method over its rate limit |
@@ -353,11 +359,11 @@ Anything that does not need a live session stays on REST: login and token refres
 
 - `docs/realtime-fixtures/` holds one JSON file per method argument, result and event (`SendMessage.request.json`, `SendMessage.result.json`, `MessageCreate.event.json`, ...).
 - A service test serializes the real C# types and compares them with the fixtures. A client test parses the same fixtures with the C++ code. Changing a message without updating the fixtures fails both.
-- `Ready.protocol_version` is `1`. Additive changes (new methods, events, fields, codes) keep version 1. A breaking change ships as a new hub path (`/v2/realtime`) next to the old one.
+- `Ready.protocol_version` is `1`. Additive changes (new methods, events, fields, codes) keep version 1. A breaking change ships as a new hub path (`/-/realtime/v2`) next to the old one.
 
-## 12. Legacy mapping
+## 12. Legacy reference
 
-Reference for the client team: where each legacy `/ws` message ends up. Nothing here is kept on the wire.
+For porting client code only: where the behaviour of each legacy `/ws` message lives in v1. The legacy protocol is not served by the new deployment.
 
 | Legacy | v1 |
 |---|---|
