@@ -937,6 +937,58 @@ namespace GenOnlineService
 			}
 		}
 
+		// "GenOnlineService import [--dry-run] [--yes]" converts the Import database into the empty Database database (docs/schema.md section 4)
+		private static async Task<int> RunImportCommand(string[] args)
+		{
+			var flags = args.Skip(1).Select(a => a.ToLowerInvariant()).ToList();
+			string? unknown = flags.FirstOrDefault(f => f != "--dry-run" && f != "--yes");
+
+			if (unknown != null)
+			{
+				Console.Error.WriteLine($"Unknown option \"{unknown}\". Usage: GenOnlineService import [--dry-run] [--yes]");
+				return 1;
+			}
+
+			bool assumeYes = flags.Contains("--yes");
+
+			try
+			{
+				var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+
+				DbProvider provider = GetDbProvider(config);
+				Database.ImportSettings settings = Database.Import.ReadSettings(config);
+				string connectionString = BuildDbConnectionString(config, provider);
+
+				await using var db = CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
+
+				string keyPath = DeviceHasher.GetKeyPath(config);
+				if (DeviceHasher.Initialize(keyPath))
+				{
+					Console.WriteLine($"Created the device HMAC key at {keyPath}. Back it up with the database and give the service the same key.");
+				}
+
+				var options = new Database.ImportOptions
+				{
+					DryRun = flags.Contains("--dry-run"),
+					Confirm = (prompt, hint) => Confirm(assumeYes, prompt, hint)
+				};
+
+				return await Database.Import.Execute(db, settings, options);
+			}
+			catch (Database.ImportException ex)
+			{
+				Console.Error.WriteLine($"Import failed: {ex.Message}");
+				return 1;
+			}
+			catch (Exception ex)
+			{
+				// Message only: the full exception text can carry connection details
+				Console.Error.WriteLine($"Import failed: {ex.GetType().Name}: {ex.Message}");
+				Console.Error.WriteLine("The import runs in one transaction, so nothing was written to the target.");
+				return 1;
+			}
+		}
+
 		// The signing key is the only thing standing between a user and a forged token, so refuse to
 		// start with a placeholder or a key too short for HS256.
 		private static void ValidateSigningKey(string strKey)
@@ -1440,6 +1492,12 @@ namespace GenOnlineService
 			if (args.Length > 0 && args[0].Equals("migrate", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await RunMigrateCommand(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("import", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await RunImportCommand(args);
 				return;
 			}
 
