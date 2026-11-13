@@ -4,7 +4,7 @@ The game client, the launcher and the web chat talk to the service over one Sign
 
 Related designs: identity and sign-in (`docs/identity.md`, OpenIddict), permissions (`GenOnlineService/Authorization.cs`), schema v1 (`docs/schema.md`). Each environment is a separate instance, so users, friends, blocks, roles and bans in this protocol are always those of the environment the client is connected to.
 
-Status: draft for review. Field lists marked *open* are decided during implementation.
+Status: draft for review. Every message is specified; examples for each live in `docs/realtime-fixtures/`.
 
 ## Quick path
 
@@ -143,7 +143,57 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 {"code":"name.changed","params":{"user_id":7,"old_name":"Ann","new_name":"Anna"}}
 ```
 
-**LobbySummary** (lobby list entry) and **LobbyState** (full state of the lobby the user is in): same fields as the current `GET Lobby/{id}` model in `snake_case`, with slots as `Member` plus slot data. *Open:* the exact field list is fixed during implementation from the current lobby model.
+**Lobby objects.** Enums are lowercase strings, never numbers. Every lobby has exactly 8 slots; a slot is open, closed, a player or an AI.
+
+`Slot`
+
+```json
+{"index":1,"state":"player","member":{"id":7,"name":"Ann","badges":[]},"ready":true,"has_map":true,"side":2,"color":4,"team":null,"start_position":3}
+```
+
+| Field | Values |
+|---|---|
+| `index` | 0 to 7; slot 0 is the host and is always ready |
+| `state` | `open`, `closed`, `player`, `ai_easy`, `ai_medium`, `ai_brutal` |
+| `member` | `Member` for `player` slots, absent otherwise |
+| `ready`, `has_map` | booleans; AI slots are always ready |
+| `side`, `color`, `start_position` | game ids, `-1` means random |
+| `team` | team number or `null` for no team |
+
+`LobbySummary` (lobby list entry, as one viewer sees it)
+
+```json
+{"id":991,"name":"1v1 no rush","host":{"id":42,"name":"Bob","badges":[]},"state":"setup","map":{"name":"Tournament Desert","official":true},"players":1,"max_players":2,"has_password":false,"region":"eu","latency_ms":38,"anticheat":"easy_anticheat","settings":{"starting_cash":10000,"limit_superweapons":true,"vanilla_teams":false,"track_stats":true,"allow_observers":false},"build":{"exe_crc":1234567890,"ini_crc":987654321},"created_at":"2026-11-13T20:00:00Z"}
+```
+
+- `players` counts filled slots (players and AI), `max_players` counts slots that are not closed.
+- `latency_ms` is estimated per viewer, so each watcher receives its own value.
+- The list only contains custom lobbies in `setup` or `countdown` that the viewer may join: lobbies whose host blocked the viewer and friends-only lobbies of non-friends are left out.
+
+`LobbyState` (the lobby the user is in)
+
+```json
+{"id":991,"name":"1v1 no rush","host_id":42,"type":"custom","state":"setup","visibility":"public","has_password":false,"map":{"name":"Tournament Desert","path":"maps/tournament desert/tournament desert","official":true},"region":"eu","anticheat":"easy_anticheat","settings":{"starting_cash":10000,"limit_superweapons":true,"vanilla_teams":false,"track_stats":true,"allow_observers":false,"max_camera_height":310},"match_id":null,"created_at":"2026-11-13T20:00:00Z","slots":[{"index":0,"state":"player","member":{"id":42,"name":"Bob","badges":[]},"ready":true,"has_map":true,"side":-1,"color":-1,"team":null,"start_position":-1}]}
+```
+
+| Field | Values |
+|---|---|
+| `type` | `custom` or `quick_match` |
+| `state` | `setup`, `countdown`, `in_game`, `complete` |
+| `visibility` | `public` or `friends` |
+| `anticheat` | `none`, `go_integrated`, `easy_anticheat` |
+| `match_id` | `null` until the game starts |
+| `slots` | always 8 entries (the example shows one) |
+
+Never sent to clients: the lobby password, the matchmaker's paired user ids, mesh check bookkeeping. The lobby name is the host's text only; the region and anticheat badges the legacy service baked into the name are separate fields.
+
+**Playlist**
+
+```json
+{"id":0,"name":"1v1 (Random Armies)","min_players":2,"desired_players":2,"min_selected_maps":1,"allow_teams":false,"team_size":null,"allow_army_selection":false,"grace_period_ms":0,"maps":[{"index":0,"name":"Tournament Desert","path":"maps/tournament desert/tournament desert","custom":false,"max_players":2}]}
+```
+
+**Build identity.** The executable and INI CRCs and the anticheat id are sent once, with `POST /api/v1/auth/session`. The service uses them for every lobby and queue call of that session, so no hub method carries them.
 
 ## 5. Hub methods (client to server)
 
@@ -160,28 +210,35 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 
 ### 5.2 Lobbies
 
-| Method | Argument | Answer | Notes |
+Game sessions only. Any change other than ready, has-map, force-ready and kick clears every player's ready flag and cancels a pending start.
+
+| Method | Argument | Answer | Who |
 |---|---|---|---|
-| `WatchLobbyList` | `{}` | Result `{lobbies: [LobbySummary]}` | Subscribes to `LobbyListUpsert` and `LobbyListRemove` |
+| `WatchLobbyList` | `{}` | Result `{lobbies: [LobbySummary]}` | any game session; subscribes to `LobbyListUpsert` and `LobbyListRemove` |
 | `UnwatchLobbyList` | `{}` | Result | |
-| `CreateLobby` | `{settings}` | Result `{lobby_id}` | Then `LobbyState`. *Open:* settings fields |
-| `JoinLobby` | `{lobby_id, password?}` | Result | Then `LobbyState` |
-| `LeaveLobby` | `{}` | Result | |
-| `UpdateLobby` | `{settings}` | Result | Host only. Partial update, only the fields present change |
-| `SetLobbyPassword` | `{password}` | Result | Host only. `null` removes it. The password is never sent back to anyone |
-| `KickFromLobby` | `{user_id}` | Result | Host only |
-| `SetReady` | `{ready}` | Result | Then `LobbyState` for everyone in the lobby |
-| `StartGame` | `{}` | Result | Host only. The service runs the ready check and the countdown and answers `lobby.not_ready`, `lobby.mesh_incomplete` and similar codes when it cannot start |
-| `ReportMatchOutcome` | `{match_id, outcome}` | Result | *Open:* outcome fields from the current `Lobby/Outcome` model |
+| `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password?, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128 |
+| `JoinLobby` | `{lobby_id, password?, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players |
+| `LeaveLobby` | `{}` | Result | member |
+| `UpdateLobby` | `{map?: {name, path, official, max_players}, settings?: {starting_cash?, limit_superweapons?, max_camera_height?}, visibility?}` | Result | host; only the fields present change. A new `max_players` opens or closes slots |
+| `SetLobbyPassword` | `{password}` | Result | host; `null` removes it. The password is never sent back to anyone |
+| `UpdateMySlot` | `{side?, color?, team?, start_position?}` | Result | member, own slot |
+| `SetHasMap` | `{has_map}` | Result | member |
+| `SetReady` | `{ready}` | Result | member |
+| `SetSlotState` | `{index, state}` | Result | host; `open`, `closed` or an AI state; a player slot cannot be changed this way |
+| `UpdateSlots` | `{slots: [{index, side?, color?, team?, start_position?}]}` | Result | host; any slot, players and AI |
+| `KickFromLobby` | `{user_id}` | Result | host |
+| `ForceReady` | `{}` | Result | host; marks everyone ready |
+| `StartGame` | `{}` | Result | host; the service runs the ready check, the mesh check and the countdown, and answers `lobby.not_ready`, `lobby.mesh_incomplete` and similar codes when it cannot start |
+| `ReportMatchOutcome` | `{match_id, won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | Result `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets |
 
 ### 5.3 Matchmaking
 
 | Method | Argument | Answer | Notes |
 |---|---|---|---|
-| `GetPlaylists` | `{}` | Result `{playlists}` | |
-| `JoinQueue` | `{playlist_id, ...}` | Result | *Open:* fields from the current `PUT Matchmaking` body |
+| `GetPlaylists` | `{}` | Result `{playlists: [Playlist]}` | |
+| `JoinQueue` | `{playlist_id, map_indexes: [int]}` | Result | `map_indexes` index into the playlist's `maps`; at least `min_selected_maps`. Status then arrives as `MatchmakingStatus` |
 | `LeaveQueue` | `{}` | Result | |
-| `WidenSearch` | `{}` | Result | |
+| `WidenSearch` | `{}` | Result | selects every map of the playlist |
 
 ### 5.4 Social
 
@@ -225,7 +282,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}` |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}` |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason, until?}`; a close record follows for kick and ban |
@@ -249,18 +306,29 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `LobbyState` | `{lobby: LobbyState}` (full state after every change, to members of that lobby) |
 | `LobbyLeft` | `{lobby_id, reason}` (`left`, `kicked`, `closed`) |
 | `CountdownStarted` | `{lobby_id, duration_ms}` |
-| `CountdownCancelled` | `{lobby_id, reason, missing: [user_id]?}` |
-| `GameStart` | `{lobby_id, match_id, screenshot_url?}` |
+| `CountdownCancelled` | `{lobby_id, reason, missing: [user_id]?}`; `reason` is `player_not_ready`, `mesh_incomplete`, `player_left` or `settings_changed` |
+| `GameStart` | `{lobby_id, match_id, rng_seed, screenshot_url?}` |
 
 ### 6.4 Matchmaking
 
 | Event | Data |
 |---|---|
-| `MatchmakingStatus` | `{code, params}` (for example `matchmaking.searching` with `{players, needed}`) |
-| `MatchFound` | `{lobby_id, map}` |
-| `MatchSetupProgress` | `{timeout_ms, countdown_ms}` |
+| `MatchmakingStatus` | `{code, params}` (codes below) |
+| `MatchFound` | `{lobby_id, map: {name, path, official}, players}`; join with `JoinLobby` within 45 s |
+| `MatchSetupProgress` | `{timeout_ms, countdown_ms}` (mesh check: `countdown_ms` 0; start countdown: both set) |
 | `MatchStart` | `{lobby_id}` |
-| `MatchRequeue` | `{reason}` |
+| `MatchRequeue` | `{reason}`: `player_left`, `lobby_gone`, `mesh_incomplete`, `join_timeout`, `setup_failed` |
+
+| `MatchmakingStatus` code | Params |
+|---|---|
+| `matchmaking.queued` | `{playlist_id}` |
+| `matchmaking.searching` | `{players, desired, required}` |
+| `matchmaking.expanding` | `{}` |
+| `matchmaking.grace_countdown` | `{seconds}` |
+| `matchmaking.grace_cancelled` | `{}` |
+| `matchmaking.creating` | `{players, map}` |
+| `matchmaking.preparing` | `{}` |
+| `matchmaking.starting` | `{seconds}` |
 
 ### 6.5 Social
 
@@ -310,9 +378,14 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.taken` | | `SetDisplayName` |
 | `room.unavailable` | | `JoinRoom` |
 | `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods |
+| `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
+| `lobby.slot_occupied` | `{index}` | `SetSlotState` on a player slot |
 | `lobby.not_ready` | `{missing: [user_id]}` | `StartGame` |
 | `lobby.mesh_incomplete` | `{missing: [user_id]}` | `StartGame` |
 | `matchmaking.not_queued`, `matchmaking.already_queued` | | Matchmaking methods |
+| `matchmaking.invalid_playlist` | `{playlist_id}` | `JoinQueue` |
+| `matchmaking.too_few_maps` | `{min}` | `JoinQueue` |
+| `matchmaking.stats_unavailable` | | `JoinQueue` (rating could not be loaded) |
 | `social.friend_list_full` | `{max}` | `SendFriendRequest`, `AcceptFriendRequest` |
 | `social.blocked` | | Social methods involving a block |
 | `moderation.target_offline` | | `Kick` |
@@ -357,7 +430,7 @@ Anything that does not need a live session stays on REST: login and token refres
 
 ## 11. Contract fixtures and versioning
 
-- `docs/realtime-fixtures/` holds one JSON file per method argument, result and event (`SendMessage.request.json`, `SendMessage.result.json`, `MessageCreate.event.json`, ...).
+- `docs/realtime-fixtures/` holds one JSON file per method argument, result and event (`SendMessage.request.json`, `SendMessage.result.json`, `MessageCreate.event.json`, ...). Each file is the single argument object of the hub message, not the SignalR record around it; `docs/realtime-fixtures/README.md` lists the naming rules.
 - A service test serializes the real C# types and compares them with the fixtures. A client test parses the same fixtures with the C++ code. Changing a message without updating the fixtures fails both.
 - `Ready.protocol_version` is `1`. Additive changes (new methods, events, fields, codes) keep version 1. A breaking change ships as a new hub path (`/-/realtime/v2`) next to the old one.
 
@@ -389,8 +462,8 @@ For porting client code only: where the behaviour of each legacy `/ws` message l
 
 ## 13. Open questions
 
-- [ ] Lobby settings, `LobbySummary`, `LobbyState`, match outcome and queue fields: derive from the current models during implementation.
-- [ ] `MatchFound.map`: the current client hard-codes "Alpine Assault" for prearranged lobbies; the service should send the real map.
+- [x] Lobby settings, `LobbySummary`, `LobbyState`, match outcome and queue fields: fixed in sections 4 and 5 from the current lobby, slot, playlist and outcome models.
+- [x] `MatchFound.map`: the service sends the real map; the client no longer hard-codes one.
 - [ ] Stateful reconnect (message replay after short drops): not in v1, can be added without a version bump.
 - [ ] Friend presence across session types: v1 reports every connected client type in `clients`.
 - [ ] Multiple service processes: groups work with a Redis backplane, but lobby and session state are in memory, so v1 assumes one `application` process per environment.
