@@ -87,7 +87,7 @@ public abstract class AppDbContext : DbContext
 	public DbSet<UserTokenState> UserTokenStates => Set<UserTokenState>();
 	public DbSet<UserRole> UserRoles => Set<UserRole>();
 	public DbSet<Ban> Bans => Set<Ban>();
-	public DbSet<ModerationLogEntry> ModerationLog => Set<ModerationLogEntry>();
+	public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
 	public DbSet<AcReviewModule> AcReviewsModules => Set<AcReviewModule>();
 	public DbSet<AcReviewNewAccountGame> AcReviewsNewAccountGames => Set<AcReviewNewAccountGame>();
@@ -111,6 +111,7 @@ public abstract class AppDbContext : DbContext
 	{
 		configure(modelBuilder.Entity<DailyStat>().Property(e => e.Stats));
 		configure(modelBuilder.Entity<UserStatsEntry>().Property(e => e.Stats));
+		configure(modelBuilder.Entity<AuditLogEntry>().Property(e => e.Details));
 
 		for (int i = 0; i < 8; i++)
 		{
@@ -141,7 +142,7 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new UserTokenStateConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
 		modelBuilder.ApplyConfiguration(new BanConfiguration());
-		modelBuilder.ApplyConfiguration(new ModerationLogConfiguration());
+		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
 		modelBuilder.ApplyConfiguration(new AcReviewModuleConfiguration());
 		modelBuilder.ApplyConfiguration(new AcReviewNewAccountGameConfiguration());
 		modelBuilder.ApplyConfiguration(new AcReviewProbeConfiguration());

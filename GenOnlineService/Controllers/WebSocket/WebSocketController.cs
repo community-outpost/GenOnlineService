@@ -158,7 +158,7 @@ namespace GenOnlineService.Controllers
 					return;
 				}
 
-				var actor = new Database.ModerationActor { UserID = session.m_UserID, Name = $"user:{session.m_UserID}", Source = ModerationSources.WebSocket };
+				var actor = new Database.ModerationActor { Kind = AuditActorKinds.User, UserID = session.m_UserID, Name = $"user:{session.m_UserID}", Source = ModerationSources.WebSocket };
 				ModerationResult kickResult = await ModerationManager.KickUser(command.target_user_id.Value, command.reason, actor);
 				switch (kickResult.Result)
 				{

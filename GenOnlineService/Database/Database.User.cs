@@ -495,7 +495,7 @@ namespace Database
 					return legacy;
 				}
 
-				Ban? ban = await Database.Moderation.GetActiveBan(db, userId);
+				Ban? ban = await Database.Moderation.GetActivePlayBan(db, userId);
 				if (ban == null)
 				{
 					return legacy;

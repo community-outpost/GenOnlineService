@@ -113,6 +113,74 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("ac_reviews_probes", (string)null);
                 });
 
+            modelBuilder.Entity("AuditLogEntry", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("actor");
+
+                    b.Property<long?>("ActorID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("actor_kind");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
+
+                    b.Property<long?>("TargetID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("target_kind");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("TargetKind", "TargetID")
+                        .HasDatabaseName("ix_audit_log_target");
+
+                    b.ToTable("audit_log", (string)null);
+                });
+
             modelBuilder.Entity("Ban", b =>
                 {
                     b.Property<long>("ID")
@@ -126,38 +194,46 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by");
+
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
-                    b.Property<long?>("IssuedBy")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issued_by");
-
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("reason");
 
+                    b.Property<string>("Restriction")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("restriction");
+
                     b.Property<string>("RevokeReason")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("revoke_reason");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
 
-                    b.Property<long?>("RevokedBy")
-                        .HasColumnType("bigint")
+                    b.Property<string>("RevokedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("revoked_by");
 
-                    b.Property<string>("Scope")
+                    b.Property<string>("Source")
                         .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("scope");
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
 
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")
@@ -518,70 +594,6 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("match_history", (string)null);
                 });
 
-            modelBuilder.Entity("ModerationLogEntry", b =>
-                {
-                    b.Property<long>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("action");
-
-                    b.Property<string>("Actor")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("actor");
-
-                    b.Property<long?>("ActorUserID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("actor_user_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Details")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("details");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("reason");
-
-                    b.Property<string>("Scope")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("scope");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("source");
-
-                    b.Property<long?>("TargetUserID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("target_user_id");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("TargetUserID")
-                        .HasDatabaseName("ix_moderation_log_target_user_id");
-
-                    b.ToTable("moderation_log", (string)null);
-                });
-
             modelBuilder.Entity("ServiceStat", b =>
                 {
                     b.Property<int>("DayOfYear")
@@ -871,26 +883,26 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("character varying(32)")
                         .HasColumnName("role");
 
-                    b.Property<string>("Scope")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("scope");
+                    b.Property<string>("Source")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
 
                     b.Property<DateTime>("GrantedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("granted_at");
 
-                    b.Property<long?>("GrantedBy")
-                        .HasColumnType("bigint")
+                    b.Property<string>("GrantedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("granted_by");
 
                     b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("reason");
 
-                    b.HasKey("UserID", "Role", "Scope");
+                    b.HasKey("UserID", "Role", "Source");
 
                     b.ToTable("user_roles", (string)null);
                 });

@@ -36,7 +36,7 @@ namespace GenOnlineService
 	public static class ModerationManager
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(ModerationManager));
-		public const int MaximumReasonLength = 256;
+		public const int MaximumReasonLength = 512;
 
 		public static async Task<ModerationResult> KickUser(Int64 targetUserID, string reason, Database.ModerationActor actor)
 		{
@@ -59,7 +59,7 @@ namespace GenOnlineService
 			{
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
-				await Database.Moderation.LogAction(db, actor, ModerationActions.Kick, targetUserID, reason);
+				await Database.Moderation.LogUserAction(db, actor, ModerationActions.Kick, targetUserID, reason);
 			}
 
 			return new ModerationResult

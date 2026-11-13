@@ -2,16 +2,16 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace GenOnlineService.Migrations.MySql
+namespace GenOnlineService.Migrations.Postgres
 {
-    [DbContext(typeof(MySqlAppDbContext))]
-    [Migration("20261112194601_AddModerationTables")]
+    [DbContext(typeof(PostgresAppDbContext))]
+    [Migration("20261113144631_AddModerationTables")]
     partial class AddModerationTables
     {
         /// <inheritdoc />
@@ -20,41 +20,41 @@ namespace GenOnlineService.Migrations.MySql
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.13")
-                .HasAnnotation("Relational:MaxIdentifierLength", 64);
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("AcReviewModule", b =>
                 {
-                    b.Property<ulong>("ReportId")
+                    b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned")
+                        .HasColumnType("bigint")
                         .HasColumnName("report_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("ReportId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ReportId"));
 
-                    b.Property<ulong>("MatchId")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
                     b.Property<string>("ModuleName")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("module_name");
 
                     b.Property<string>("ModulePath")
                         .IsRequired()
                         .HasMaxLength(512)
-                        .HasColumnType("varchar(512)")
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("module_path");
 
-                    b.Property<ulong>("ModuleSize")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<long>("ModuleSize")
+                        .HasColumnType("bigint")
                         .HasColumnName("module_size");
 
-                    b.Property<ulong>("UserId")
-                        .HasColumnType("bigint(20) unsigned")
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
@@ -68,19 +68,19 @@ namespace GenOnlineService.Migrations.MySql
 
             modelBuilder.Entity("AcReviewNewAccountGame", b =>
                 {
-                    b.Property<ulong>("ReportId")
+                    b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned")
+                        .HasColumnType("bigint")
                         .HasColumnName("report_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("ReportId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ReportId"));
 
-                    b.Property<ulong>("MatchId")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
-                    b.Property<ulong>("UserId")
-                        .HasColumnType("bigint(20) unsigned")
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
@@ -90,30 +90,98 @@ namespace GenOnlineService.Migrations.MySql
 
             modelBuilder.Entity("AcReviewProbe", b =>
                 {
-                    b.Property<ulong>("ReportId")
+                    b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned")
+                        .HasColumnType("bigint")
                         .HasColumnName("report_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("ReportId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ReportId"));
 
-                    b.Property<ulong>("MatchId")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
+                        .HasColumnType("character varying(256)")
                         .HasColumnName("reason");
 
-                    b.Property<ulong>("UserId")
-                        .HasColumnType("bigint(20) unsigned")
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
 
                     b.ToTable("ac_reviews_probes", (string)null);
+                });
+
+            modelBuilder.Entity("AuditLogEntry", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("actor");
+
+                    b.Property<long?>("ActorID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("actor_kind");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
+
+                    b.Property<long?>("TargetID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("target_kind");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("TargetKind", "TargetID")
+                        .HasDatabaseName("ix_audit_log_target");
+
+                    b.ToTable("audit_log", (string)null);
                 });
 
             modelBuilder.Entity("Ban", b =>
@@ -123,44 +191,52 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<DateTime?>("ExpiresAt")
-                        .HasColumnType("datetime")
-                        .HasColumnName("expires_at");
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by");
 
-                    b.Property<long?>("IssuedBy")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issued_by");
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
 
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("reason");
 
+                    b.Property<string>("Restriction")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("restriction");
+
                     b.Property<string>("RevokeReason")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("revoke_reason");
 
                     b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
 
-                    b.Property<long?>("RevokedBy")
-                        .HasColumnType("bigint")
+                    b.Property<string>("RevokedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("revoked_by");
 
-                    b.Property<string>("Scope")
+                    b.Property<string>("Source")
                         .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)")
-                        .HasColumnName("scope");
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
 
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")
@@ -192,23 +268,23 @@ namespace GenOnlineService.Migrations.MySql
             modelBuilder.Entity("ConnectionOutcome", b =>
                 {
                     b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_of_year");
 
                     b.Property<int?>("FailedCount")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("failed_count");
 
                     b.Property<int?>("Ipv4Count")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("ipv4_count");
 
                     b.Property<int?>("Ipv6Count")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("ipv6_count");
 
                     b.Property<int?>("SuccessCount")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("success_count");
 
                     b.HasKey("DayOfYear");
@@ -219,16 +295,13 @@ namespace GenOnlineService.Migrations.MySql
             modelBuilder.Entity("DailyStat", b =>
                 {
                     b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_of_year");
 
                     b.Property<string>("Stats")
                         .IsRequired()
-                        .HasColumnType("longtext")
-                        .HasColumnName("stats_structure")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("Stats"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("stats_structure");
 
                     b.HasKey("DayOfYear");
 
@@ -243,27 +316,28 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<int>("Attempts")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("attempts");
 
                     b.Property<string>("LastError")
                         .HasMaxLength(512)
-                        .HasColumnType("varchar(512)")
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("last_error");
 
                     b.Property<DateTime?>("NextAttemptAt")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_attempt_at");
 
                     b.Property<DateTime?>("PublishedAt")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("published_at");
 
                     b.HasKey("MatchId");
 
                     b.HasIndex("PublishedAt", "NextAttemptAt")
-                        .HasDatabaseName("ix_external_publication_pending");
+                        .HasDatabaseName("ix_external_publication_pending")
+                        .HasFilter("published_at IS NULL");
 
                     b.ToTable("external_publication", (string)null);
                 });
@@ -311,23 +385,23 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("user_id");
 
                     b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_of_year");
 
                     b.Property<int>("Year")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("year");
 
                     b.Property<int?>("Losses")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("losses");
 
                     b.Property<int?>("Points")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("points");
 
                     b.Property<int?>("Wins")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("wins");
 
                     b.HasKey("UserId", "DayOfYear", "Year");
@@ -342,23 +416,23 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("user_id");
 
                     b.Property<int>("MonthOfYear")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("month_of_year");
 
                     b.Property<int>("Year")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("year");
 
                     b.Property<int?>("Losses")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("losses");
 
                     b.Property<int?>("Points")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("points");
 
                     b.Property<int?>("Wins")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("wins");
 
                     b.HasKey("UserId", "MonthOfYear", "Year");
@@ -373,19 +447,19 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("user_id");
 
                     b.Property<int>("Year")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("year");
 
                     b.Property<int?>("Losses")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("losses");
 
                     b.Property<int?>("Points")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("points");
 
                     b.Property<int?>("Wins")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("wins");
 
                     b.HasKey("UserId", "Year");
@@ -400,119 +474,95 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("MatchId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("MatchId"));
 
                     b.Property<bool>("AllowObservers")
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasColumnName("allow_observers");
 
-                    b.Property<uint>("ExeCRC")
-                        .HasColumnType("int unsigned")
+                    b.Property<long>("ExeCRC")
+                        .HasColumnType("bigint")
                         .HasColumnName("exe_crc");
 
                     b.Property<bool>("Finished")
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasColumnName("finished");
 
-                    b.Property<uint>("IniCRC")
-                        .HasColumnType("int unsigned")
+                    b.Property<long>("IniCRC")
+                        .HasColumnType("bigint")
                         .HasColumnName("ini_crc");
 
                     b.Property<bool>("LimitSuperweapons")
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasColumnName("limit_superweapons");
 
                     b.Property<byte?>("LobbyType")
-                        .HasColumnType("tinyint unsigned")
+                        .HasColumnType("smallint")
                         .HasColumnName("lobby_type");
 
                     b.Property<string>("MapName")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("map_name");
 
                     b.Property<bool>("MapOfficial")
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasColumnName("map_official");
 
                     b.Property<string>("MapPath")
                         .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
+                        .HasColumnType("character varying(256)")
                         .HasColumnName("map_path");
 
                     b.Property<string>("MatchRosterType")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
+                        .HasColumnType("character varying(32)")
                         .HasDefaultValue("")
                         .HasColumnName("match_roster_type");
 
-                    b.Property<ushort>("MaxCamHeight")
-                        .HasColumnType("smallint(6) unsigned")
+                    b.Property<int>("MaxCamHeight")
+                        .HasColumnType("integer")
                         .HasColumnName("max_cam_height");
 
                     b.Property<string>("MemberSlot0")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_0")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot0"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_0");
 
                     b.Property<string>("MemberSlot1")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_1")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot1"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_1");
 
                     b.Property<string>("MemberSlot2")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_2")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot2"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_2");
 
                     b.Property<string>("MemberSlot3")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_3")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot3"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_3");
 
                     b.Property<string>("MemberSlot4")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_4")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot4"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_4");
 
                     b.Property<string>("MemberSlot5")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_5")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot5"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_5");
 
                     b.Property<string>("MemberSlot6")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_6")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot6"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_6");
 
                     b.Property<string>("MemberSlot7")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_7")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot7"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("member_slot_7");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("name");
 
                     b.Property<long>("Owner")
@@ -520,23 +570,23 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("owner");
 
                     b.Property<DateTime>("Started")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("started");
 
-                    b.Property<uint>("StartingCash")
-                        .HasColumnType("int unsigned")
+                    b.Property<long>("StartingCash")
+                        .HasColumnType("bigint")
                         .HasColumnName("starting_cash");
 
                     b.Property<DateTime>("TimeFinished")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("time_finished");
 
                     b.Property<bool>("TrackStats")
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasColumnName("track_stats");
 
                     b.Property<bool>("VanillaTeams")
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasColumnName("vanilla_teams");
 
                     b.HasKey("MatchId");
@@ -547,86 +597,22 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("match_history", (string)null);
                 });
 
-            modelBuilder.Entity("ModerationLogEntry", b =>
-                {
-                    b.Property<long>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
-                        .HasColumnName("action");
-
-                    b.Property<string>("Actor")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("actor");
-
-                    b.Property<long?>("ActorUserID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("actor_user_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Details")
-                        .HasMaxLength(1024)
-                        .HasColumnType("varchar(1024)")
-                        .HasColumnName("details");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
-                        .HasColumnName("reason");
-
-                    b.Property<string>("Scope")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)")
-                        .HasColumnName("scope");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)")
-                        .HasColumnName("source");
-
-                    b.Property<long?>("TargetUserID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("target_user_id");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("TargetUserID")
-                        .HasDatabaseName("ix_moderation_log_target_user_id");
-
-                    b.ToTable("moderation_log", (string)null);
-                });
-
             modelBuilder.Entity("ServiceStat", b =>
                 {
                     b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_of_year");
 
                     b.Property<int>("HourOfDay")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("hour_of_day");
 
                     b.Property<int>("LobbiesPeak")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("lobbies_peak");
 
                     b.Property<int>("PlayerPeak")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("player_peak");
 
                     b.HasKey("DayOfYear", "HourOfDay");
@@ -641,41 +627,41 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
 
                     b.Property<int>("AccountType")
-                        .HasColumnType("int(1)")
+                        .HasColumnType("integer")
                         .HasColumnName("account_type");
 
                     b.Property<bool>("Active")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("active");
 
                     b.Property<string>("BanAliases")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("ban_aliases");
 
                     b.Property<string>("BanReason")
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("ban_reason");
 
                     b.Property<string>("BanVerifiedBy")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("ban_verified_by");
 
                     b.Property<string>("BannedBy")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("banned_by");
 
-                    b.Property<ushort>("ClientID")
+                    b.Property<int>("ClientID")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint(5) unsigned")
+                        .HasColumnType("integer")
                         .HasColumnName("client_id")
                         .HasDefaultValueSql("0");
 
@@ -685,46 +671,46 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("DiscordUsername")
                         .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("discord_username");
 
                     b.Property<string>("DisplayName")
                         .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("displayname");
 
                     b.Property<int>("EloNumberOfMatches")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("elo_num_matches");
 
                     b.Property<int>("EloRating")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1000)
                         .HasColumnName("elo_rating");
 
                     b.Property<int>("FavoriteColor")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(-1)
                         .HasColumnName("favorite_color");
 
                     b.Property<string>("FavoriteMap")
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("favorite_map");
 
                     b.Property<int>("FavoriteSide")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(-1)
                         .HasColumnName("favorite_side");
 
                     b.Property<int>("FavoriteStartingMoney")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(-1)
                         .HasColumnName("favorite_starting_money");
 
@@ -734,84 +720,84 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("GameReplaysUsername")
                         .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("gamereplays_username");
 
                     b.Property<string>("GoogleEmail")
                         .HasMaxLength(255)
-                        .HasColumnType("varchar(255)")
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("google_email");
 
                     b.Property<string>("GoogleId")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("google_id");
 
                     b.Property<bool>("Ipv4")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("ipv4");
 
                     b.Property<bool>("Ipv6")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("ipv6");
 
-                    b.Property<sbyte>("IsAdmin")
+                    b.Property<bool>("IsAdmin")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(4)")
-                        .HasDefaultValue((sbyte)0)
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
                         .HasColumnName("admin");
 
-                    b.Property<sbyte>("IsBanned")
+                    b.Property<bool>("IsBanned")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(4)")
-                        .HasDefaultValue((sbyte)0)
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
                         .HasColumnName("banned");
 
                     b.Property<string>("LastIPAddress")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(45)
-                        .HasColumnType("varchar(45)")
+                        .HasColumnType("character varying(45)")
                         .HasDefaultValue("")
                         .HasColumnName("last_ip");
 
                     b.Property<DateTime>("LastLogin")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("lastlogin")
-                        .HasDefaultValueSql("current_timestamp()");
+                        .HasDefaultValueSql("now()");
 
-                    b.Property<int>("LimitSuperweapons")
+                    b.Property<bool>("LimitSuperweapons")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int(11)")
-                        .HasColumnName("favorite_limit_superweapons")
-                        .HasDefaultValueSql("-1");
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("favorite_limit_superweapons");
 
                     b.Property<int>("MonthlyEloRating")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1000)
                         .HasColumnName("monthly_elo_rating");
 
                     b.Property<int?>("PermissionsLevel")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int(11)")
+                        .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("permissionslevel");
 
                     b.Property<short>("PortmappingTech")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint(6)")
+                        .HasColumnType("smallint")
                         .HasDefaultValue((short)-2)
                         .HasColumnName("portmapping_tech");
 
                     b.Property<short>("RelayRegion")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint(6)")
+                        .HasColumnType("smallint")
                         .HasDefaultValue((short)-1)
                         .HasColumnName("relay_region");
 
@@ -822,7 +808,8 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("ID");
 
                     b.HasIndex("IsBanned")
-                        .HasDatabaseName("ix_users_banned");
+                        .HasDatabaseName("ix_users_banned")
+                        .HasFilter("banned");
 
                     b.ToTable("users", (string)null);
                 });
@@ -835,59 +822,38 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("HWID_0")
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("hwid_0")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_0"), "utf8mb4");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("hwid_0");
 
                     b.Property<string>("HWID_1")
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("hwid_1")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_1"), "utf8mb4");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("hwid_1");
 
                     b.Property<string>("HWID_2")
                         .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("hwid_2")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_2"), "utf8mb4");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("hwid_2");
 
                     b.Property<string>("IPAddress")
                         .HasMaxLength(45)
-                        .HasColumnType("varchar(45)")
-                        .HasColumnName("ip_addr")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("IPAddress"), "utf8mb4");
+                        .HasColumnType("character varying(45)")
+                        .HasColumnName("ip_addr");
 
                     b.Property<string>("HWID_3")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("hwid_3")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_3"), "utf8mb4");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("hwid_3");
 
                     b.Property<string>("HWID_4")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("hwid_4")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_4"), "utf8mb4");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("hwid_4");
 
                     b.Property<string>("HWID_5")
                         .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("hwid_5")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_5"), "utf8mb4");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("hwid_5");
 
                     b.HasKey("UserID", "HWID_0", "HWID_1", "HWID_2", "IPAddress");
 
@@ -917,29 +883,29 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("Role")
                         .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("role");
 
-                    b.Property<string>("Scope")
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)")
-                        .HasColumnName("scope");
+                    b.Property<string>("Source")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
 
                     b.Property<DateTime>("GrantedAt")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("granted_at");
 
-                    b.Property<long?>("GrantedBy")
-                        .HasColumnType("bigint")
+                    b.Property<string>("GrantedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("granted_by");
 
                     b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("reason");
 
-                    b.HasKey("UserID", "Role", "Scope");
+                    b.HasKey("UserID", "Role", "Source");
 
                     b.ToTable("user_roles", (string)null);
                 });
@@ -952,11 +918,8 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("Stats")
                         .IsRequired()
-                        .HasColumnType("longtext")
-                        .HasColumnName("stats")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("Stats"), "utf8mb4");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("stats");
 
                     b.HasKey("UserId");
 
@@ -970,31 +933,31 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("user_id");
 
                     b.Property<int>("SessionType")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("session_type");
 
                     b.Property<string>("PreviousRefreshJti")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("previous_refresh_jti");
 
                     b.Property<DateTime>("PreviousRefreshJtiExpires")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("previous_refresh_jti_expires");
 
                     b.Property<string>("RefreshJti")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("refresh_jti");
 
                     b.Property<int>("TokenGeneration")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("token_generation");
 
                     b.Property<DateTime>("Updated")
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated");
 
                     b.HasKey("UserID", "SessionType");
@@ -1006,37 +969,37 @@ namespace GenOnlineService.Migrations.MySql
                 {
                     b.Property<string>("SessionId")
                         .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("session_id");
 
                     b.Property<string>("Browser")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
+                        .HasColumnType("character varying(256)")
                         .HasColumnName("browser");
 
                     b.Property<DateTime>("Created")
-                        .HasColumnType("timestamp")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created");
 
                     b.Property<DateTime>("Expiration")
-                        .HasColumnType("timestamp")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("expiration");
 
                     b.Property<string>("IpAddress")
                         .IsRequired()
                         .HasMaxLength(45)
-                        .HasColumnType("varchar(45)")
+                        .HasColumnType("character varying(45)")
                         .HasColumnName("ip_addr");
 
                     b.Property<DateTime>("LastUsed")
-                        .HasColumnType("timestamp")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_used");
 
                     b.Property<string>("Os")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("os");
 
                     b.Property<long>("UserId")
@@ -1046,7 +1009,7 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("SessionId");
 
                     b.HasIndex("UserId")
-                        .HasDatabaseName("user_id");
+                        .HasDatabaseName("ix_web_sessions_user_id");
 
                     b.ToTable("web_sessions", (string)null);
                 });

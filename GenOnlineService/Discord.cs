@@ -402,7 +402,7 @@ public class DiscordBot
 			{
 				if (StaffRoles.HasPermission(userID, permission))
 				{
-					return new Database.ModerationActor { UserID = userID, Name = name, Source = ModerationSources.Discord };
+					return new Database.ModerationActor { Kind = AuditActorKinds.Discord, UserID = userID, Name = name, Source = ModerationSources.Discord };
 				}
 			}
 		}
@@ -411,7 +411,7 @@ public class DiscordBot
 		if (legacyAdmins?.Contains(discordUserID) == true)
 		{
 			s_log.LogInformation("Discord user {DiscordUserId} used {Permission} through the discord_admins list", discordUserID, permission);
-			return new Database.ModerationActor { Name = name, Source = ModerationSources.Discord };
+			return new Database.ModerationActor { Kind = AuditActorKinds.Discord, Name = name, Source = ModerationSources.Discord };
 		}
 
 		return null;

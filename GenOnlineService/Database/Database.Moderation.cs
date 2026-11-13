@@ -19,67 +19,37 @@
 using GenOnlineService;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using System.Text.Json;
 
-// Local rows apply to this instance only, global rows are shared by every environment once the accounts service exists
-public enum EAuthorityScope
+// Local rows are managed in this environment, upstream rows are replaced at each sign-in through that provider
+public static class AuthoritySources
 {
-	Local,
-	Global
+	public const string Local = "local";
+	public const string UpstreamPrefix = "upstream:";
+
+	public static string Upstream(string provider) => UpstreamPrefix + provider;
 }
 
-public static class AuthorityScopeColumn
+// A play ban keeps the user out of the game, a chat ban (mute) only silences them
+public static class BanRestrictions
 {
-	public static readonly ValueConverter<EAuthorityScope, string> Converter = new(
-		v => v == EAuthorityScope.Global ? "global" : "local",
-		v => v == "global" ? EAuthorityScope.Global : EAuthorityScope.Local);
-
-	public static string ToText(EAuthorityScope scope) => scope == EAuthorityScope.Global ? "global" : "local";
+	public const string Play = "play";
+	public const string Chat = "chat";
 }
 
-public class UserRole
+public static class AuditActorKinds
 {
-	public Int64 UserID { get; set; }
-	public string Role { get; set; } = String.Empty;
-	public EAuthorityScope Scope { get; set; } = EAuthorityScope.Local;
-	public Int64? GrantedBy { get; set; }
-	public DateTime GrantedAt { get; set; } = DateTime.UnixEpoch;
-	public string Reason { get; set; } = String.Empty;
+	public const string User = "user";
+	public const string Cli = "cli";
+	public const string Discord = "discord";
+	public const string ServiceAccount = "service_account";
 }
 
-public class Ban
+public static class AuditTargetKinds
 {
-	public Int64 ID { get; set; }
-	public Int64 UserID { get; set; }
-	public EAuthorityScope Scope { get; set; } = EAuthorityScope.Local;
-	public string Reason { get; set; } = String.Empty;
-	public Int64? IssuedBy { get; set; }
-	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
-
-	// Null means the ban never expires
-	public DateTime? ExpiresAt { get; set; }
-
-	public DateTime? RevokedAt { get; set; }
-	public Int64? RevokedBy { get; set; }
-	public string? RevokeReason { get; set; }
-}
-
-// Append only, every row is a moderation action that already happened
-public class ModerationLogEntry
-{
-	public Int64 ID { get; set; }
-	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
-	public Int64? ActorUserID { get; set; }
-
-	// Who acted when there is no account, such as "cli" or "discord:<id>"
-	public string Actor { get; set; } = String.Empty;
-
-	public string Action { get; set; } = String.Empty;
-	public Int64? TargetUserID { get; set; }
-	public string Reason { get; set; } = String.Empty;
-	public string Source { get; set; } = String.Empty;
-	public EAuthorityScope Scope { get; set; } = EAuthorityScope.Local;
-	public string? Details { get; set; }
+	public const string User = "user";
+	public const string ServiceAccount = "service_account";
+	public const string Token = "token";
 }
 
 public static class ModerationActions
@@ -87,6 +57,8 @@ public static class ModerationActions
 	public const string Kick = "kick";
 	public const string Ban = "ban";
 	public const string Unban = "unban";
+	public const string Mute = "mute";
+	public const string Unmute = "unmute";
 	public const string RoleGrant = "role_grant";
 	public const string RoleRevoke = "role_revoke";
 }
@@ -98,20 +70,69 @@ public static class ModerationSources
 	public const string Cli = "cli";
 }
 
+public class UserRole
+{
+	public Int64 UserID { get; set; }
+	public string Role { get; set; } = String.Empty;
+	public string Source { get; set; } = AuthoritySources.Local;
+
+	// An actor label such as "cli", "user:42" or "discord:123"
+	public string? GrantedBy { get; set; }
+
+	public DateTime GrantedAt { get; set; } = DateTime.UnixEpoch;
+	public string? Reason { get; set; }
+}
+
+public class Ban
+{
+	public Int64 ID { get; set; }
+	public Int64 UserID { get; set; }
+	public string Restriction { get; set; } = BanRestrictions.Play;
+	public string Source { get; set; } = AuthoritySources.Local;
+	public string Reason { get; set; } = String.Empty;
+	public string? CreatedBy { get; set; }
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+
+	// Null means the ban never expires
+	public DateTime? ExpiresAt { get; set; }
+
+	public DateTime? RevokedAt { get; set; }
+	public string? RevokedBy { get; set; }
+	public string? RevokeReason { get; set; }
+}
+
+// Append only, every row is an action that already happened
+public class AuditLogEntry
+{
+	public Int64 ID { get; set; }
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+	public string ActorKind { get; set; } = String.Empty;
+	public Int64? ActorID { get; set; }
+	public string Actor { get; set; } = String.Empty;
+	public string Action { get; set; } = String.Empty;
+	public string TargetKind { get; set; } = String.Empty;
+	public Int64? TargetID { get; set; }
+	public string? Reason { get; set; }
+	public string Source { get; set; } = String.Empty;
+
+	// A JSON object, null when the action needs no detail
+	public string? Details { get; set; }
+}
+
 public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
 {
 	public void Configure(EntityTypeBuilder<UserRole> builder)
 	{
 		builder.ToTable("user_roles");
 
-		builder.HasKey(e => new { e.UserID, e.Role, e.Scope });
+		builder.HasKey(e => new { e.UserID, e.Role, e.Source });
 
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Role).HasColumnName("role").HasMaxLength(32);
-		builder.Property(e => e.Scope).HasColumnName("scope").HasMaxLength(16).HasConversion(AuthorityScopeColumn.Converter);
-		builder.Property(e => e.GrantedBy).HasColumnName("granted_by");
+		builder.Property(e => e.Source).HasColumnName("source").HasMaxLength(32);
+		builder.Property(e => e.GrantedBy).HasColumnName("granted_by").HasMaxLength(64);
 		builder.Property(e => e.GrantedAt).HasColumnName("granted_at");
-		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(256);
+		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(ModerationManager.MaximumReasonLength);
 	}
 }
 
@@ -126,43 +147,47 @@ public class BanConfiguration : IEntityTypeConfiguration<Ban>
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.UserID).HasColumnName("user_id");
-		builder.Property(e => e.Scope).HasColumnName("scope").HasMaxLength(16).HasConversion(AuthorityScopeColumn.Converter);
-		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(256);
-		builder.Property(e => e.IssuedBy).HasColumnName("issued_by");
+		builder.Property(e => e.Restriction).HasColumnName("restriction").HasMaxLength(16);
+		builder.Property(e => e.Source).HasColumnName("source").HasMaxLength(32);
+		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(ModerationManager.MaximumReasonLength);
+		builder.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(64);
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 		builder.Property(e => e.ExpiresAt).HasColumnName("expires_at");
 		builder.Property(e => e.RevokedAt).HasColumnName("revoked_at");
-		builder.Property(e => e.RevokedBy).HasColumnName("revoked_by");
-		builder.Property(e => e.RevokeReason).HasColumnName("revoke_reason").HasMaxLength(256);
+		builder.Property(e => e.RevokedBy).HasColumnName("revoked_by").HasMaxLength(64);
+		builder.Property(e => e.RevokeReason).HasColumnName("revoke_reason").HasMaxLength(ModerationManager.MaximumReasonLength);
 	}
 }
 
-public class ModerationLogConfiguration : IEntityTypeConfiguration<ModerationLogEntry>
+public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLogEntry>
 {
-	public void Configure(EntityTypeBuilder<ModerationLogEntry> builder)
+	public void Configure(EntityTypeBuilder<AuditLogEntry> builder)
 	{
-		builder.ToTable("moderation_log");
+		builder.ToTable("audit_log");
 
 		builder.HasKey(e => e.ID);
-		builder.HasIndex(e => e.TargetUserID).HasDatabaseName("ix_moderation_log_target_user_id");
+		builder.HasIndex(e => new { e.TargetKind, e.TargetID }).HasDatabaseName("ix_audit_log_target");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
-		builder.Property(e => e.ActorUserID).HasColumnName("actor_user_id");
+		builder.Property(e => e.ActorKind).HasColumnName("actor_kind").HasMaxLength(16);
+		builder.Property(e => e.ActorID).HasColumnName("actor_id");
 		builder.Property(e => e.Actor).HasColumnName("actor").HasMaxLength(64);
-		builder.Property(e => e.Action).HasColumnName("action").HasMaxLength(32);
-		builder.Property(e => e.TargetUserID).HasColumnName("target_user_id");
-		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(256);
-		builder.Property(e => e.Source).HasColumnName("source").HasMaxLength(16);
-		builder.Property(e => e.Scope).HasColumnName("scope").HasMaxLength(16).HasConversion(AuthorityScopeColumn.Converter);
-		builder.Property(e => e.Details).HasColumnName("details").HasMaxLength(1024);
+		builder.Property(e => e.Action).HasColumnName("action").HasMaxLength(64);
+		builder.Property(e => e.TargetKind).HasColumnName("target_kind").HasMaxLength(16);
+		builder.Property(e => e.TargetID).HasColumnName("target_id");
+		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(ModerationManager.MaximumReasonLength);
+		builder.Property(e => e.Source).HasColumnName("source").HasMaxLength(32);
+		builder.Property(e => e.Details).HasColumnName("details");
 	}
 }
 
 namespace Database
 {
+	// Who performed an action: Kind is one of AuditActorKinds, Name is the label stored in granted_by, created_by and revoked_by
 	public sealed class ModerationActor
 	{
+		public string Kind { get; init; } = AuditActorKinds.Cli;
 		public Int64? UserID { get; init; }
 		public string Name { get; init; } = String.Empty;
 		public string Source { get; init; } = String.Empty;
@@ -172,24 +197,25 @@ namespace Database
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Moderation));
 
-		private static IQueryable<Ban> ActiveBans(AppDbContext db, DateTime now)
+		private static IQueryable<Ban> ActiveBans(AppDbContext db, string restriction, DateTime now)
 		{
-			return db.Bans.AsNoTracking().Where(b => b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now));
+			return db.Bans.AsNoTracking().Where(b => b.Restriction == restriction && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now));
 		}
 
-		private static ModerationLogEntry LogEntry(ModerationActor actor, string action, Int64? target, string reason, EAuthorityScope scope, string? details, DateTime now)
+		private static AuditLogEntry UserEntry(ModerationActor actor, string action, Int64 target, string? reason, object? details, DateTime now)
 		{
-			return new ModerationLogEntry
+			return new AuditLogEntry
 			{
 				CreatedAt = now,
-				ActorUserID = actor.UserID,
+				ActorKind = actor.Kind,
+				ActorID = actor.UserID,
 				Actor = actor.Name,
 				Action = action,
-				TargetUserID = target,
-				Reason = reason,
+				TargetKind = AuditTargetKinds.User,
+				TargetID = target,
+				Reason = String.IsNullOrEmpty(reason) ? null : reason,
 				Source = actor.Source,
-				Scope = scope,
-				Details = details
+				Details = details == null ? null : JsonSerializer.Serialize(details)
 			};
 		}
 
@@ -200,9 +226,10 @@ namespace Database
 
 		public static async Task<List<UserRole>> GetRoles(AppDbContext db, Int64 userID)
 		{
-			return await db.UserRoles.AsNoTracking().Where(r => r.UserID == userID).OrderBy(r => r.Role).ToListAsync();
+			return await db.UserRoles.AsNoTracking().Where(r => r.UserID == userID).OrderBy(r => r.Role).ThenBy(r => r.Source).ToListAsync();
 		}
 
+		// Every source counts, so an upstream grant and a local grant of the same role read as one role
 		public static async Task<List<string>> GetRoleNames(AppDbContext db, Int64 userID)
 		{
 			try
@@ -216,15 +243,15 @@ namespace Database
 			}
 		}
 
-		public static async Task<List<Int64>> GetActiveBannedUserIDs(AppDbContext db)
+		public static async Task<List<Int64>> GetPlayBannedUserIDs(AppDbContext db)
 		{
-			return await ActiveBans(db, DateTime.UtcNow).Select(b => b.UserID).Distinct().ToListAsync();
+			return await ActiveBans(db, BanRestrictions.Play, DateTime.UtcNow).Select(b => b.UserID).Distinct().ToListAsync();
 		}
 
-		// The ban that lasts longest decides what the player sees
-		public static async Task<Ban?> GetActiveBan(AppDbContext db, Int64 userID)
+		// The play ban that lasts longest decides what the player sees
+		public static async Task<Ban?> GetActivePlayBan(AppDbContext db, Int64 userID)
 		{
-			return await ActiveBans(db, DateTime.UtcNow)
+			return await ActiveBans(db, BanRestrictions.Play, DateTime.UtcNow)
 				.Where(b => b.UserID == userID)
 				.OrderByDescending(b => b.ExpiresAt == null)
 				.ThenByDescending(b => b.ExpiresAt)
@@ -236,22 +263,26 @@ namespace Database
 			return await db.Bans.AsNoTracking().Where(b => b.UserID == userID).OrderBy(b => b.CreatedAt).ToListAsync();
 		}
 
-		public static async Task<List<ModerationLogEntry>> GetLog(AppDbContext db, Int64 targetUserID, int limit)
+		public static async Task<List<AuditLogEntry>> GetUserLog(AppDbContext db, Int64 targetUserID, int limit)
 		{
-			return await db.ModerationLog.AsNoTracking().Where(e => e.TargetUserID == targetUserID).OrderByDescending(e => e.ID).Take(limit).ToListAsync();
+			return await db.AuditLog.AsNoTracking()
+				.Where(e => e.TargetKind == AuditTargetKinds.User && e.TargetID == targetUserID)
+				.OrderByDescending(e => e.ID)
+				.Take(limit)
+				.ToListAsync();
 		}
 
-		// The role row and its log row are saved together, so the log never misses a change
-		public static async Task<bool> GrantRole(AppDbContext db, Int64 userID, string role, EAuthorityScope scope, string reason, ModerationActor actor)
+		// The role row and its audit row are saved together, so the log never misses a change
+		public static async Task<bool> GrantRole(AppDbContext db, Int64 userID, string role, string source, string reason, ModerationActor actor)
 		{
-			if (await db.UserRoles.AnyAsync(r => r.UserID == userID && r.Role == role && r.Scope == scope))
+			if (await db.UserRoles.AnyAsync(r => r.UserID == userID && r.Role == role && r.Source == source))
 			{
 				return false;
 			}
 
 			DateTime now = DateTime.UtcNow;
-			db.UserRoles.Add(new UserRole { UserID = userID, Role = role, Scope = scope, GrantedBy = actor.UserID, GrantedAt = now, Reason = reason });
-			db.ModerationLog.Add(LogEntry(actor, ModerationActions.RoleGrant, userID, reason, scope, role, now));
+			db.UserRoles.Add(new UserRole { UserID = userID, Role = role, Source = source, GrantedBy = actor.Name, GrantedAt = now, Reason = String.IsNullOrEmpty(reason) ? null : reason });
+			db.AuditLog.Add(UserEntry(actor, ModerationActions.RoleGrant, userID, reason, new { role, source }, now));
 
 			try
 			{
@@ -267,40 +298,41 @@ namespace Database
 			return true;
 		}
 
-		public static async Task<bool> RevokeRole(AppDbContext db, Int64 userID, string role, EAuthorityScope scope, string reason, ModerationActor actor)
+		public static async Task<bool> RevokeRole(AppDbContext db, Int64 userID, string role, string source, string reason, ModerationActor actor)
 		{
-			UserRole? existing = await db.UserRoles.FirstOrDefaultAsync(r => r.UserID == userID && r.Role == role && r.Scope == scope);
+			UserRole? existing = await db.UserRoles.AsTracking().FirstOrDefaultAsync(r => r.UserID == userID && r.Role == role && r.Source == source);
 			if (existing == null)
 			{
 				return false;
 			}
 
 			db.UserRoles.Remove(existing);
-			db.ModerationLog.Add(LogEntry(actor, ModerationActions.RoleRevoke, userID, reason, scope, role, DateTime.UtcNow));
+			db.AuditLog.Add(UserEntry(actor, ModerationActions.RoleRevoke, userID, reason, new { role, source }, DateTime.UtcNow));
 			await db.SaveChangesAsync();
 			return true;
 		}
 
-		public static async Task<Ban> AddBan(AppDbContext db, Int64 userID, EAuthorityScope scope, string reason, DateTime? expiresAt, ModerationActor actor)
+		public static async Task<Ban> AddBan(AppDbContext db, Int64 userID, string restriction, string reason, DateTime? expiresAt, ModerationActor actor)
 		{
 			DateTime now = DateTime.UtcNow;
-			var ban = new Ban { UserID = userID, Scope = scope, Reason = reason, IssuedBy = actor.UserID, CreatedAt = now, ExpiresAt = expiresAt };
-			string details = expiresAt == null ? "permanent" : $"expires {expiresAt.Value:yyyy-MM-dd HH:mm} UTC";
+			var ban = new Ban { UserID = userID, Restriction = restriction, Source = AuthoritySources.Local, Reason = reason, CreatedBy = actor.Name, CreatedAt = now, ExpiresAt = expiresAt };
+			string action = restriction == BanRestrictions.Chat ? ModerationActions.Mute : ModerationActions.Ban;
 
 			db.Bans.Add(ban);
-			db.ModerationLog.Add(LogEntry(actor, ModerationActions.Ban, userID, reason, scope, details, now));
+			db.AuditLog.Add(UserEntry(actor, action, userID, reason, new { restriction, expires_at = expiresAt }, now));
 			await db.SaveChangesAsync();
 			return ban;
 		}
 
 		// Revoked bans stay in the table, so the history of every ban is kept
-		public static async Task<int> RevokeActiveBans(AppDbContext db, Int64 userID, EAuthorityScope scope, string reason, ModerationActor actor)
+		public static async Task<int> RevokeActiveBans(AppDbContext db, Int64 userID, string restriction, string reason, ModerationActor actor)
 		{
 			DateTime now = DateTime.UtcNow;
+
 			// every context defaults to no tracking, so the rows must be tracked for the revoke to be saved
 			List<Ban> active = await db.Bans
 				.AsTracking()
-				.Where(b => b.UserID == userID && b.Scope == scope && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
+				.Where(b => b.UserID == userID && b.Restriction == restriction && b.Source == AuthoritySources.Local && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
 				.ToListAsync();
 
 			if (active.Count == 0)
@@ -311,26 +343,27 @@ namespace Database
 			foreach (Ban ban in active)
 			{
 				ban.RevokedAt = now;
-				ban.RevokedBy = actor.UserID;
-				ban.RevokeReason = reason;
+				ban.RevokedBy = actor.Name;
+				ban.RevokeReason = String.IsNullOrEmpty(reason) ? null : reason;
 			}
 
-			db.ModerationLog.Add(LogEntry(actor, ModerationActions.Unban, userID, reason, scope, $"{active.Count} ban(s) revoked", now));
+			string action = restriction == BanRestrictions.Chat ? ModerationActions.Unmute : ModerationActions.Unban;
+			db.AuditLog.Add(UserEntry(actor, action, userID, reason, new { restriction, revoked = active.Count }, now));
 			await db.SaveChangesAsync();
 			return active.Count;
 		}
 
 		// A failed log write never undoes an action that already happened, it is only reported
-		public static async Task LogAction(AppDbContext db, ModerationActor actor, string action, Int64? target, string reason, string? details = null)
+		public static async Task LogUserAction(AppDbContext db, ModerationActor actor, string action, Int64 target, string reason)
 		{
 			try
 			{
-				db.ModerationLog.Add(LogEntry(actor, action, target, reason, EAuthorityScope.Local, details, DateTime.UtcNow));
+				db.AuditLog.Add(UserEntry(actor, action, target, reason, null, DateTime.UtcNow));
 				await db.SaveChangesAsync();
 			}
 			catch (Exception ex)
 			{
-				s_log.LogError(ex, "Moderation.LogAction failed for {Action} on user {UserId}", action, target);
+				s_log.LogError(ex, "Moderation.LogUserAction failed for {Action} on user {UserId}", action, target);
 			}
 		}
 	}

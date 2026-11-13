@@ -104,11 +104,11 @@ namespace GenOnlineService
 		{
 			if (!parsed.Options.TryGetValue("--by", out string? by))
 			{
-				return new ModerationActor { Name = "cli", Source = ModerationSources.Cli };
+				return new ModerationActor { Kind = AuditActorKinds.Cli, Name = "cli", Source = ModerationSources.Cli };
 			}
 
 			Int64 userID = ParseUserID(by);
-			return new ModerationActor { UserID = userID, Name = $"cli:user:{userID}", Source = ModerationSources.Cli };
+			return new ModerationActor { Kind = AuditActorKinds.Cli, UserID = userID, Name = $"cli:user:{userID}", Source = ModerationSources.Cli };
 		}
 
 		private static async Task<AppDbContext> OpenDatabase()
@@ -164,7 +164,7 @@ namespace GenOnlineService
 
 				foreach (UserRole r in rows)
 				{
-					Console.WriteLine($"user {r.UserID}  {r.Role}  {AuthorityScopeColumn.ToText(r.Scope)}  granted {r.GrantedAt:yyyy-MM-dd HH:mm} UTC by {(r.GrantedBy?.ToString(CultureInfo.InvariantCulture) ?? "cli")}  {r.Reason}");
+					Console.WriteLine($"user {r.UserID}  {r.Role}  {r.Source}  granted {r.GrantedAt:yyyy-MM-dd HH:mm} UTC by {r.GrantedBy ?? "unknown"}  {r.Reason}");
 				}
 
 				return 0;
@@ -188,12 +188,12 @@ namespace GenOnlineService
 
 				if (verb == "grant")
 				{
-					bool granted = await Database.Moderation.GrantRole(db, userID, role, EAuthorityScope.Local, reason, actor);
+					bool granted = await Database.Moderation.GrantRole(db, userID, role, AuthoritySources.Local, reason, actor);
 					Console.WriteLine(granted ? $"Granted {role} to user {userID}." : $"User {userID} already has {role}, nothing changed.");
 				}
 				else
 				{
-					bool revoked = await Database.Moderation.RevokeRole(db, userID, role, EAuthorityScope.Local, reason, actor);
+					bool revoked = await Database.Moderation.RevokeRole(db, userID, role, AuthoritySources.Local, reason, actor);
 					Console.WriteLine(revoked ? $"Revoked {role} from user {userID}." : $"User {userID} does not have {role}, nothing changed.");
 				}
 
@@ -238,7 +238,7 @@ namespace GenOnlineService
 						: b.ExpiresAt != null && b.ExpiresAt <= now ? "expired"
 						: "active";
 					string until = b.ExpiresAt == null ? "permanent" : $"until {b.ExpiresAt:yyyy-MM-dd HH:mm} UTC";
-					Console.WriteLine($"#{b.ID}  {AuthorityScopeColumn.ToText(b.Scope)}  {b.CreatedAt:yyyy-MM-dd HH:mm} UTC  {until}  {state}  {b.Reason}");
+					Console.WriteLine($"#{b.ID}  {b.Restriction}  {b.Source}  {b.CreatedAt:yyyy-MM-dd HH:mm} UTC by {b.CreatedBy ?? "unknown"}  {until}  {state}  {b.Reason}");
 				}
 
 				return 0;
@@ -263,7 +263,7 @@ namespace GenOnlineService
 
 				await using AppDbContext db = await OpenDatabase();
 				await RequireUser(db, userID);
-				Ban ban = await Database.Moderation.AddBan(db, userID, EAuthorityScope.Local, reason, expiresAt, actor);
+				Ban ban = await Database.Moderation.AddBan(db, userID, BanRestrictions.Play, reason, expiresAt, actor);
 				Console.WriteLine(expiresAt == null ? $"Banned user {userID} permanently (ban #{ban.ID})." : $"Banned user {userID} until {expiresAt:yyyy-MM-dd HH:mm} UTC (ban #{ban.ID}).");
 				return 0;
 			}
@@ -272,7 +272,7 @@ namespace GenOnlineService
 				string reason = ParseReason(parsed, required: false);
 				await using AppDbContext db = await OpenDatabase();
 				await RequireUser(db, userID);
-				int revoked = await Database.Moderation.RevokeActiveBans(db, userID, EAuthorityScope.Local, reason, actor);
+				int revoked = await Database.Moderation.RevokeActiveBans(db, userID, BanRestrictions.Play, reason, actor);
 				Console.WriteLine(revoked > 0 ? $"Revoked {revoked} active ban(s) for user {userID}." : $"User {userID} has no active ban, nothing changed.");
 
 				if (await db.Users.AsNoTracking().AnyAsync(u => u.ID == userID && u.IsBanned != false))

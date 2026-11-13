@@ -135,7 +135,7 @@ namespace Database
 				List<Int64> legacy = await db.Users.AsNoTracking().Where(u => u.IsBanned != false).Select(u => u.ID).ToListAsync();
 
 				// users.banned is still written from outside the service, so both sources ban
-				return legacy.Union(await Database.Moderation.GetActiveBannedUserIDs(db)).ToList();
+				return legacy.Union(await Database.Moderation.GetPlayBannedUserIDs(db)).ToList();
 			}
 			catch (Exception ex)
 			{
