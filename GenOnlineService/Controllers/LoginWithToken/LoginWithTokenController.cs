@@ -18,6 +18,7 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Net;
@@ -52,6 +53,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class LoginWithToken : ControllerBase
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(LoginWithToken));
 		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
 		public LoginWithToken(IDbContextFactory<AppDbContext> dbFactory)
@@ -60,6 +62,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 		}
 
 		[HttpPost(Name = "PostLoginWithToken")]
+		[EnableRateLimiting(AuthRateLimitPolicies.Refresh)]
 		//public async Task<APIResult> Post([FromHeader(Name = "CF-Connecting-IP")] string? ipAddress)
 		public async Task<APIResult> Post(
 			[FromRoute] string environment,
@@ -98,6 +101,12 @@ namespace GenOnlineService.Controllers.LoginWithToken
 			try
 			{
 				var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonData, options);
+				if (data == null)
+				{
+					result.result = EPendingLoginState.LoginFailed;
+					Response.StatusCode = (int)HttpStatusCode.BadRequest;
+					return result;
+				}
 
 				KnownClients.EKnownClients clientID = TokenHelper.GetClientID(this);
 				if (clientID == KnownClients.EKnownClients.unknown)
@@ -192,8 +201,23 @@ namespace GenOnlineService.Controllers.LoginWithToken
 					}
 				}
 			}
-			catch
+			catch (JsonException)
 			{
+				result.result = EPendingLoginState.LoginFailed;
+				Response.StatusCode = (int)HttpStatusCode.BadRequest;
+				return result;
+			}
+			catch (Exception ex)
+			{
+				// The monitor self test runs without an HTTP context and expects the failed result back.
+				result.result = EPendingLoginState.LoginFailed;
+				if (HttpContext == null)
+				{
+					return result;
+				}
+
+				s_log.LogError(ex, "LoginWithToken failed");
+				Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 				return result;
 			}
 

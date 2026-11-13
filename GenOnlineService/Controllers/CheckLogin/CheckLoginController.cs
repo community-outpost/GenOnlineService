@@ -18,6 +18,7 @@
 
 using Database;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Net;
@@ -49,6 +50,7 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class CheckLoginController : ControllerBase
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(CheckLoginController));
 		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
 		public CheckLoginController(IDbContextFactory<AppDbContext> dbFactory)
@@ -57,6 +59,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpPost]
+		[EnableRateLimiting(AuthRateLimitPolicies.CheckLogin)]
 		//public async Task<APIResult> Post([FromHeader(Name = "CF-Connecting-IP")] string? ipAddress)
 		public async Task<APIResult> Post(
 			[FromRoute] string environment,
@@ -96,6 +99,15 @@ namespace GenOnlineService.Controllers
 			try
 			{
 				var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonData, options);
+
+				// The code and the client id are strings, anything else is a malformed request.
+				if (data != null && ((data.TryGetValue("code", out JsonElement codeValue) && codeValue.ValueKind != JsonValueKind.String)
+					|| (data.TryGetValue("client_id", out JsonElement clientValue) && clientValue.ValueKind != JsonValueKind.String)))
+				{
+					result.result = EPendingLoginState.LoginFailed;
+					Response.StatusCode = (int)HttpStatusCode.BadRequest;
+					return result;
+				}
 
 				if (data != null && !data.ContainsKey("client_id"))
 				{
@@ -168,8 +180,13 @@ namespace GenOnlineService.Controllers
 								}
 								else if (loginEntry.state == EPendingLoginState.LoginSuccess)
 								{
-									// consume
-									PendingLoginManager.ConsumePendingLogin(gameCode);
+									// Only the poll that removes the code issues tokens.
+									if (!PendingLoginManager.ConsumePendingLogin(gameCode))
+									{
+										result.result = EPendingLoginState.LoginFailed;
+										Response.StatusCode = (int)HttpStatusCode.Forbidden;
+										return result;
+									}
 
 									// create a session
 									string? clientID = data["client_id"].GetString();
@@ -273,8 +290,18 @@ namespace GenOnlineService.Controllers
 					}
 				}
 			}
-			catch
+			catch (JsonException)
 			{
+				result.result = EPendingLoginState.LoginFailed;
+				Response.StatusCode = (int)HttpStatusCode.BadRequest;
+				return result;
+			}
+			catch (Exception ex)
+			{
+				if (!bIsMonitor)
+				{
+					s_log.LogError(ex, "CheckLogin failed");
+				}
 				Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 				return result;
 			}

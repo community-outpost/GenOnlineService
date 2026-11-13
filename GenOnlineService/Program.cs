@@ -96,11 +96,19 @@ namespace GenOnlineService
 				return false;
 			}
 
-			byte[] bytesA = Encoding.UTF8.GetBytes(a);
-			byte[] bytesB = Encoding.UTF8.GetBytes(b);
+			// Comparing digests keeps the comparison time independent of the secret length.
+			byte[] bytesA = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(a));
+			byte[] bytesB = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(b));
 
 			return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(bytesA, bytesB);
 		}
+	}
+
+	public static class AuthRateLimitPolicies
+	{
+		public const string LoginCode = "auth_login_code";
+		public const string CheckLogin = "auth_check_login";
+		public const string Refresh = "auth_refresh";
 	}
 
 	public enum EApiKeyType
@@ -142,19 +150,17 @@ namespace GenOnlineService
 								return false;
 							}
 
-							s_cachedApiKeys = api_keys.Select(k => k.ToUpperInvariant()).ToList();
+							s_cachedApiKeys = api_keys.Where(k => !String.IsNullOrEmpty(k)).ToList();
 						}
 					}
 				}
 
-				string strKeyUpper = strKey.ToUpperInvariant();
-
 				// Compare against every key without short-circuiting, so timing doesn't leak which key
-				// (or how much of a key) matched.
+				// (or how much of a key) matched. Keys compare case sensitively.
 				bool bMatched = false;
 				foreach (string strKnownKey in s_cachedApiKeys)
 				{
-					bMatched |= SecretComparer.FixedTimeEquals(strKnownKey, strKeyUpper);
+					bMatched |= SecretComparer.FixedTimeEquals(strKnownKey, strKey);
 				}
 
 				return bMatched;
@@ -173,18 +179,18 @@ namespace GenOnlineService
 								return false;
 							}
 							string? webserverkey = apiSettings.GetSection("webserver_key").Get<string>();
-							if (webserverkey == null)
+							if (String.IsNullOrEmpty(webserverkey))
 							{
 								return false;
 							}
 
-							s_cachedWebServerAPIKey = webserverkey.ToUpper();
+							s_cachedWebServerAPIKey = webserverkey;
 						}
 					}
 				}
 
-				string strKeyUpper = strKey.ToUpperInvariant();
-				return strKeyUpper == s_cachedWebServerAPIKey;
+				// The web server key compares case sensitively in constant time.
+				return SecretComparer.FixedTimeEquals(s_cachedWebServerAPIKey, strKey);
 			}
 
 			return false;
@@ -1058,6 +1064,39 @@ namespace GenOnlineService
 			}
 		}
 
+		// Authenticated callers are partitioned by user id and anonymous callers by client address.
+		private static string RateLimitPartitionKey(HttpContext httpContext, bool bPreferUser)
+		{
+			string? userID = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+			if (bPreferUser && httpContext.User.Identity?.IsAuthenticated == true && !String.IsNullOrEmpty(userID))
+			{
+				return "user:" + userID;
+			}
+
+			return "ip:" + (httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous");
+		}
+
+		// A limit of zero or less leaves the policy unlimited.
+		private static void AddAuthRateLimitPolicy(RateLimiterOptions options, string policyName, int permitsPerMinute, bool bPreferUser)
+		{
+			options.AddPolicy(policyName, httpContext =>
+			{
+				if (permitsPerMinute <= 0)
+				{
+					return RateLimitPartition.GetNoLimiter("unlimited");
+				}
+
+				return RateLimitPartition.GetSlidingWindowLimiter(policyName + ":" + RateLimitPartitionKey(httpContext, bPreferUser), _ => new SlidingWindowRateLimiterOptions
+				{
+					PermitLimit = permitsPerMinute,
+					Window = TimeSpan.FromMinutes(1),
+					SegmentsPerWindow = 6,
+					QueueLimit = 0,
+					AutoReplenishment = true
+				});
+			});
+		}
+
 		private static bool IsRefreshTokenEndpoint(HttpContext httpContext)
 		{
 			Endpoint? endpoint = httpContext.GetEndpoint();
@@ -1672,21 +1711,33 @@ namespace GenOnlineService
 			var rateLimitingSettings = Program.g_Config.GetSection("RateLimiting");
 			bool bUseBuiltinRateLimiter = rateLimitingSettings.GetValue<bool>("use_builtin_ratelimiter"); // use built in Kestrel/dotnet rate limiting if you do not have a reverse proxy or other rate limiter in front of service
 
-			if (bUseBuiltinRateLimiter)
+			// The auth endpoint limits apply even when the global limiter is off, because a proxy limiter does not know these endpoints.
+			bool bUseAuthRateLimits = rateLimitingSettings.GetValue<bool?>("auth_limits_enabled") ?? true;
+			builder.Services.AddRateLimiter(options =>
 			{
-				builder.Services.AddRateLimiter(options =>
+				options.OnRejected = (context, cancellationToken) =>
 				{
-					options.OnRejected = (context, cancellationToken) =>
+					// The auth policies answer 429, the global limiter keeps its existing 503.
+					string? policyName = context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+					if (policyName != null && policyName.StartsWith("auth_", StringComparison.Ordinal))
 					{
-						AppMetrics.RecordSecurityAction("http_rate_limit", "rejected");
-						return ValueTask.CompletedTask;
-					};
+						context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+					}
+
+					AppMetrics.RecordSecurityAction("http_rate_limit", "rejected");
+					return ValueTask.CompletedTask;
+				};
+
+				AddAuthRateLimitPolicy(options, AuthRateLimitPolicies.LoginCode, bUseAuthRateLimits ? rateLimitingSettings.GetValue<int?>("login_code_per_minute") ?? 20 : 0, false);
+				AddAuthRateLimitPolicy(options, AuthRateLimitPolicies.CheckLogin, bUseAuthRateLimits ? rateLimitingSettings.GetValue<int?>("check_login_per_minute") ?? 120 : 0, false);
+				AddAuthRateLimitPolicy(options, AuthRateLimitPolicies.Refresh, bUseAuthRateLimits ? rateLimitingSettings.GetValue<int?>("refresh_per_minute") ?? 20 : 0, true);
+
+				if (bUseBuiltinRateLimiter)
+				{
 					options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
 					{
 						// Use authenticated user ID or fallback to IP address
-						var userKey = httpContext.User.Identity?.IsAuthenticated == true
-							? httpContext.User.Identity.Name
-							: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
+						string userKey = RateLimitPartitionKey(httpContext, true);
 
 						return RateLimitPartition.GetTokenBucketLimiter(userKey, _ => new TokenBucketRateLimiterOptions
 						{
@@ -1698,8 +1749,8 @@ namespace GenOnlineService
 							QueueLimit = 10
 						});
 					});
-				});
-			}
+				}
+			});
 
 			CorsPolicy corsPolicy = BuildCorsPolicy(builder.Configuration);
 
@@ -2008,11 +2059,6 @@ namespace GenOnlineService
 				app.UseForwardedHeaders();
 			}
 
-			if (bUseBuiltinRateLimiter)
-			{
-				app.UseRateLimiter();
-			}
-
 			// Enable response compression (must be early in pipeline)
 			app.UseResponseCompression();
 
@@ -2077,6 +2123,9 @@ namespace GenOnlineService
 
 			app.UseCors();
 			app.UseAuthentication();
+
+			// The limiter runs after authentication so authenticated callers are partitioned by user id.
+			app.UseRateLimiter();
 			app.UseAuthorization();
 
 			app.MapControllers();

@@ -18,6 +18,7 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.IdentityModel.Tokens.Jwt;
@@ -59,6 +60,7 @@ namespace GenOnlineService.Controllers.RefreshToken
 		}
 
 		[HttpPost(Name = "PostRefreshToken")]
+		[EnableRateLimiting(AuthRateLimitPolicies.Refresh)]
 		public async Task<APIResult> Post()
 		{
 			return await Post_InternalHandler(IPHelpers.NormalizeIP(HttpContext.Connection.RemoteIpAddress?.ToString()));

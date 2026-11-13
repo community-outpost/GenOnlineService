@@ -19,6 +19,7 @@
 using GenOnlineService;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Concurrent;
@@ -234,6 +235,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet]
+		[EnableRateLimiting(AuthRateLimitPolicies.LoginCode)]
 		public async Task<APIResult> Get()
 		{
 			GET_LoginCode_Result result = new GET_LoginCode_Result();
