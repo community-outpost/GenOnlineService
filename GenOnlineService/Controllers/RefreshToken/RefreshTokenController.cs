@@ -18,8 +18,10 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using System.IdentityModel.Tokens.Jwt;
 
 namespace GenOnlineService.Controllers.RefreshToken
 {
@@ -58,6 +60,7 @@ namespace GenOnlineService.Controllers.RefreshToken
 		}
 
 		[HttpPost(Name = "PostRefreshToken")]
+		[EnableRateLimiting(AuthRateLimitPolicies.Refresh)]
 		public async Task<APIResult> Post()
 		{
 			return await Post_InternalHandler(IPHelpers.NormalizeIP(HttpContext.Connection.RemoteIpAddress?.ToString()));
@@ -123,8 +126,14 @@ namespace GenOnlineService.Controllers.RefreshToken
 				var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, clientID, sessionType, staffRoles);
 				var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, clientID, sessionType, Array.Empty<string>(), out string refreshJti);
 
-				// rotation: only this refresh token is accepted from now on
-				await TokenRevocationManager.OnTokensIssued(user_id, sessionType, refreshJti);
+				// The presented refresh token is redeemed atomically, a concurrent or replayed redemption gets nothing.
+				string presentedJti = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value ?? String.Empty;
+				if (await TokenRevocationManager.TryRotateRefreshToken(user_id, sessionType, presentedJti, TokenHelper.GetTokenGeneration(User), refreshJti) != TokenRevocationManager.ERefreshTokenCheck.Accepted)
+				{
+					result.result = EPendingLoginState.LoginFailed;
+					Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+					return result;
+				}
 
 				result.result = EPendingLoginState.LoginSuccess;
 				result.session_token = sessiontoken;

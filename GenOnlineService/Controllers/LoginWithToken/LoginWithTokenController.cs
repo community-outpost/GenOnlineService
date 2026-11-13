@@ -18,9 +18,11 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Net;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -51,6 +53,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class LoginWithToken : ControllerBase
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(LoginWithToken));
 		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
 		public LoginWithToken(IDbContextFactory<AppDbContext> dbFactory)
@@ -59,6 +62,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 		}
 
 		[HttpPost(Name = "PostLoginWithToken")]
+		[EnableRateLimiting(AuthRateLimitPolicies.Refresh)]
 		//public async Task<APIResult> Post([FromHeader(Name = "CF-Connecting-IP")] string? ipAddress)
 		public async Task<APIResult> Post(
 			[FromRoute] string environment,
@@ -97,6 +101,12 @@ namespace GenOnlineService.Controllers.LoginWithToken
 			try
 			{
 				var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonData, options);
+				if (data == null)
+				{
+					result.result = EPendingLoginState.LoginFailed;
+					Response.StatusCode = (int)HttpStatusCode.BadRequest;
+					return result;
+				}
 
 				KnownClients.EKnownClients clientID = TokenHelper.GetClientID(this);
 				if (clientID == KnownClients.EKnownClients.unknown)
@@ -146,19 +156,26 @@ namespace GenOnlineService.Controllers.LoginWithToken
 						}
 
 						string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
-						await SessionHelpers.SetUsedLoggedIn(user_id, clientID, sessionType);
 
 						List<string> staffRoles = await Database.Moderation.GetRoleNames(db, user_id);
-
-						result.result = EPendingLoginState.LoginSuccess;
 
 						// extend token
 						// TODO_TODAY_JWT: just get clientID from token
 						var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, clientID, sessionType, staffRoles);
 						var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, clientID, sessionType, Array.Empty<string>(), out string refreshJti);
 
-						// rotation: only this refresh token is accepted from now on
-						await TokenRevocationManager.OnTokensIssued(user_id, sessionType, refreshJti);
+						// The presented refresh token is redeemed atomically before any session state changes.
+						string presentedJti = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value ?? String.Empty;
+						if (await TokenRevocationManager.TryRotateRefreshToken(user_id, sessionType, presentedJti, TokenHelper.GetTokenGeneration(User), refreshJti) != TokenRevocationManager.ERefreshTokenCheck.Accepted)
+						{
+							result.result = EPendingLoginState.LoginFailed;
+							Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+							return result;
+						}
+
+						await SessionHelpers.SetUsedLoggedIn(user_id, clientID, sessionType);
+
+						result.result = EPendingLoginState.LoginSuccess;
 
 						result.session_token = sessiontoken;
 						result.refresh_token = refreshtoken;
@@ -184,8 +201,23 @@ namespace GenOnlineService.Controllers.LoginWithToken
 					}
 				}
 			}
-			catch
+			catch (JsonException)
 			{
+				result.result = EPendingLoginState.LoginFailed;
+				Response.StatusCode = (int)HttpStatusCode.BadRequest;
+				return result;
+			}
+			catch (Exception ex)
+			{
+				// The monitor self test runs without an HTTP context and expects the failed result back.
+				result.result = EPendingLoginState.LoginFailed;
+				if (HttpContext == null)
+				{
+					return result;
+				}
+
+				s_log.LogError(ex, "LoginWithToken failed");
+				Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 				return result;
 			}
 

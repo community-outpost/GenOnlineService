@@ -700,6 +700,8 @@ namespace GenOnlineService
 
 		private static ConcurrentDictionary<Int64, SharedUserData> m_dictSharedUserData = new();
 		private static ConcurrentDictionary<Int64, string> m_dictMiddlewareIDs = new();
+		private static ConcurrentDictionary<string, Int64> m_dictMiddlewareIDOwners = new(StringComparer.Ordinal);
+		private static readonly object m_middlewareIDLock = new();
 
 		public static ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, UserSession>> GetUserDataCache()
 		{
@@ -744,33 +746,71 @@ namespace GenOnlineService
 			}
 		}
 
-		// Returns true only when the stored value changed. While the user is a member of a lobby (any state) their
-		// middleware ID may go from empty to set (late resolve), but an existing ID is never replaced by a
-		// different one: peers and anti-cheat have already registered it. Outside a lobby a new login may set a new value.
+		public enum EMiddlewareIDApplyResult
+		{
+			Unchanged,
+			Changed,
+			HeldByOtherUser,
+			LockedInLobby
+		}
+
+		// While the user is a member of a lobby (any state) their middleware ID may go from empty to set (late resolve),
+		// but an existing ID is never replaced by a different one: peers and anti-cheat have already registered it.
+		// Outside a lobby a new login may set a new value.
 		// The caller must hold the user's membership gate so the in-lobby decision cannot race a join or leave.
-		public static bool ApplyMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID, bool bInLobby)
+		// A middleware ID belongs to at most one user, and a holder without any session loses it to the next claimant.
+		public static EMiddlewareIDApplyResult ApplyMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID, bool bInLobby)
 		{
 			if (userID == -1 || String.IsNullOrEmpty(strMiddlewareUserID))
 			{
-				return false;
+				return EMiddlewareIDApplyResult.Unchanged;
 			}
 
-			if (!bInLobby)
+			lock (m_middlewareIDLock)
 			{
 				m_dictMiddlewareIDs.TryGetValue(userID, out string? strPrevious);
+				if (String.Equals(strPrevious, strMiddlewareUserID, StringComparison.Ordinal))
+				{
+					return EMiddlewareIDApplyResult.Unchanged;
+				}
+
+				if (bInLobby && !String.IsNullOrEmpty(strPrevious))
+				{
+					s_log.LogWarning("Ignoring attempt to replace the middleware ID of user {UserId} while in a lobby", userID);
+					return EMiddlewareIDApplyResult.LockedInLobby;
+				}
+
+				if (m_dictMiddlewareIDOwners.TryGetValue(strMiddlewareUserID, out Int64 ownerID) && ownerID != userID)
+				{
+					if (UserHasAnySession(ownerID))
+					{
+						s_log.LogWarning("Rejecting middleware ID for user {UserId} because user {OwnerId} holds it", userID, ownerID);
+						return EMiddlewareIDApplyResult.HeldByOtherUser;
+					}
+
+					m_dictMiddlewareIDs.TryRemove(new KeyValuePair<Int64, string>(ownerID, strMiddlewareUserID));
+					m_dictMiddlewareIDOwners.TryRemove(new KeyValuePair<string, Int64>(strMiddlewareUserID, ownerID));
+				}
+
+				if (!String.IsNullOrEmpty(strPrevious))
+				{
+					m_dictMiddlewareIDOwners.TryRemove(new KeyValuePair<string, Int64>(strPrevious, userID));
+				}
+
 				m_dictMiddlewareIDs[userID] = strMiddlewareUserID;
-				return !String.Equals(strPrevious, strMiddlewareUserID, StringComparison.Ordinal);
+				m_dictMiddlewareIDOwners[strMiddlewareUserID] = userID;
+				return EMiddlewareIDApplyResult.Changed;
 			}
+		}
 
-			if (m_dictMiddlewareIDs.TryAdd(userID, strMiddlewareUserID))
+		private static bool UserHasAnySession(Int64 userID)
+		{
+			foreach (var sessionsByType in m_dictUserSessions.Values)
 			{
-				return true;
-			}
-
-			if (m_dictMiddlewareIDs.TryGetValue(userID, out string? strCurrent) &&
-				!String.Equals(strCurrent, strMiddlewareUserID, StringComparison.Ordinal))
-			{
-				s_log.LogWarning("Ignoring attempt to replace the middleware ID of user {UserId} while in a lobby", userID);
+				if (sessionsByType.ContainsKey(userID))
+				{
+					return true;
+				}
 			}
 
 			return false;
@@ -788,7 +828,13 @@ namespace GenOnlineService
 
 		public static void ClearMiddlewareIDForUser(Int64 userID)
 		{
-			m_dictMiddlewareIDs.TryRemove(userID, out _);
+			lock (m_middlewareIDLock)
+			{
+				if (m_dictMiddlewareIDs.TryRemove(userID, out string? strPrevious) && !String.IsNullOrEmpty(strPrevious))
+				{
+					m_dictMiddlewareIDOwners.TryRemove(new KeyValuePair<string, Int64>(strPrevious, userID));
+				}
+			}
 		}
 
 		public static List<UserSession> GetAllDataFromUser(Int64 userID)
@@ -806,12 +852,18 @@ namespace GenOnlineService
 			return lstRet;
 		}
 
-		public static async Task DisconnectUser(Int64 userID, byte[] finalMessage)
+		// Only sessions of the given type disconnect when a session type is given.
+		public static async Task DisconnectUser(Int64 userID, byte[] finalMessage, EUserSessionType? onlySessionType = null)
 		{
 			List<UserSession> userSessions = GetAllDataFromUser(userID);
 
 			foreach (UserSession userSession in userSessions)
 			{
+				if (onlySessionType != null && userSession.GetSessionType() != onlySessionType)
+				{
+					continue;
+				}
+
 				try
 				{
 					UserWebSocketInstance? oldWS = GetWebSocketForSession(userSession);
