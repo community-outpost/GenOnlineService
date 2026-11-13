@@ -128,7 +128,7 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 {"id":7,"name":"Ann","badges":["moderator"],"client":"game"}
 ```
 
-- `badges`: badge ids; definitions arrive in `Ready` and `BadgesUpdate`.
+- `badges`: badge ids, highest priority first; definitions (text and color) arrive in `Ready` and `BadgesUpdate`. Clients render a user's name in the color of their first badge and never hard-code badge ids, because operators define badges at runtime.
 - `client`: `game`, `launcher` or `chat`. Present in member lists, omitted in chat messages.
 
 **Message**
@@ -284,7 +284,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}` |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}`; a room whose `parent_id` is null is top level |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason, until?}`; a close record follows for kick and ban |
@@ -336,11 +336,13 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Friends` | `{friends: [Member + online], incoming: [Member], outgoing: [Member], blocked: [Member]}` (snapshot after `Ready`) |
+| `Friends` | `{friends: [Member + online + activity], incoming: [Member], outgoing: [Member], blocked: [Member]}` (snapshot after `Ready`) |
 | `FriendRequestReceived` | `{from: Member}` |
 | `FriendRequestAccepted` | `{by: Member}` |
 | `FriendRemoved` | `{user_id}` |
-| `FriendPresence` | `{user_id, online, clients: [string]}` (keyed by user id, never by name) |
+| `FriendPresence` | `{user_id, online, clients: [string], activity}` (keyed by user id, never by name) |
+
+`activity` is `offline`, `menu`, `room`, `lobby`, `matchmaking` or `in_game`; the client renders and localizes it (for example "Online - In game"). It describes the user in this environment only.
 
 ### 6.6 Peer networking (game sessions only)
 
@@ -411,6 +413,8 @@ Rules:
 - One connection per user and session type. A new connection of the same type closes the old one with `session.superseded`.
 - Group membership is per connection and rebuilt from the user's state on every connect, so reconnects never leave stale groups.
 - Events about a user (`MemberUpdate`, `FriendPresence`) go to every group that can see them, deduplicated per connection.
+- Blocks are enforced by the service: a `MessageCreate` is never delivered to a user who blocked its author, or by a user to someone who blocked them, in rooms, lobbies and direct messages. Clients do not need to filter.
+- A successful `JoinRoom` is always followed by `RoomMembers` for that room.
 - Delivery to one connection is in order. There is no ordering between different connections.
 
 ## 9. Session types
