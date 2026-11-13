@@ -16,6 +16,10 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Options;
+using System.Security.Claims;
+
 namespace GenOnlineService
 {
 	// Code checks these permissions, never role names, so a new role only changes the mapping below
@@ -108,6 +112,87 @@ namespace GenOnlineService
 
 			s_lastUnknownRoles = unknown;
 			s_permissionsByUser = next;
+		}
+	}
+
+	// [Authorize(Policy = PermissionPolicies.Prefix + Permissions.ModerationKick)] or PermissionPolicies.For(...) selects a permission policy
+	public static class PermissionPolicies
+	{
+		public const string Prefix = "perm:";
+
+		public static string For(string permission) => Prefix + permission;
+	}
+
+	// Identities created by the API token scheme use this authentication type and carry their permissions as claims
+	public static class TokenPrincipal
+	{
+		public const string AuthenticationType = "gopat";
+		public const string PermissionClaim = "go_permission";
+	}
+
+	public sealed class PermissionRequirement : IAuthorizationRequirement
+	{
+		public PermissionRequirement(string permission)
+		{
+			Permission = permission;
+		}
+
+		public string Permission { get; }
+	}
+
+	// Builds "perm:<name>" policies on demand, every other policy name keeps its configured definition
+	public sealed class PermissionPolicyProvider : IAuthorizationPolicyProvider
+	{
+		private readonly DefaultAuthorizationPolicyProvider m_fallback;
+
+		public PermissionPolicyProvider(IOptions<AuthorizationOptions> options)
+		{
+			m_fallback = new DefaultAuthorizationPolicyProvider(options);
+		}
+
+		public Task<AuthorizationPolicy> GetDefaultPolicyAsync() => m_fallback.GetDefaultPolicyAsync();
+
+		public Task<AuthorizationPolicy?> GetFallbackPolicyAsync() => m_fallback.GetFallbackPolicyAsync();
+
+		public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
+		{
+			if (policyName.StartsWith(PermissionPolicies.Prefix, StringComparison.Ordinal) && policyName.Length > PermissionPolicies.Prefix.Length)
+			{
+				AuthorizationPolicy policy = new AuthorizationPolicyBuilder()
+					.RequireAuthenticatedUser()
+					.AddRequirements(new PermissionRequirement(policyName.Substring(PermissionPolicies.Prefix.Length)))
+					.Build();
+				return Task.FromResult<AuthorizationPolicy?>(policy);
+			}
+
+			return m_fallback.GetPolicyAsync(policyName);
+		}
+	}
+
+	// A token principal passes on its permission claims, a user session passes on the staff roles of its user
+	public sealed class PermissionHandler : AuthorizationHandler<PermissionRequirement>
+	{
+		protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
+		{
+			// the identity type is set by the scheme that authenticated it, so a claim inside a token can never fake it
+			ClaimsIdentity? tokenIdentity = context.User.Identities.FirstOrDefault(i => i.IsAuthenticated && i.AuthenticationType == TokenPrincipal.AuthenticationType);
+			if (tokenIdentity != null)
+			{
+				if (tokenIdentity.HasClaim(TokenPrincipal.PermissionClaim, requirement.Permission))
+				{
+					context.Succeed(requirement);
+				}
+
+				return Task.CompletedTask;
+			}
+
+			string? subject = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+			if (Int64.TryParse(subject, out Int64 userID) && userID > 0 && StaffRoles.HasPermission(userID, requirement.Permission))
+			{
+				context.Succeed(requirement);
+			}
+
+			return Task.CompletedTask;
 		}
 	}
 }

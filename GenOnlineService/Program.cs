@@ -1770,6 +1770,10 @@ namespace GenOnlineService
 				};
 			}).AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
 
+			// "perm:<name>" policies, shared by user sessions and API tokens
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
+
 			builder.Services.AddAuthorization(options =>
 			{
 				options.AddPolicy("MonitorOrApiKey", policy =>
