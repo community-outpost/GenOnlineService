@@ -139,7 +139,7 @@ api_tokens
   revoked_at        timestamp null
   revoked_by        varchar(128) null
   check (exactly one of owner_user_id, owner_service_id is set)
-  unique (owner_user_id, owner_service_id, name)
+  -- name is a label, not unique: rotation keeps the name, tokens are told apart by id (GitLab model)
 ```
 
 Audit events go to `audit_log`, the generalized `moderation_log` from the moderation work (one append-only timeline for kicks, bans, role grants and token events). Columns: `actor_kind` (user, cli, discord, service_account), `actor_id` (nullable), `actor` (label), `action`, `target_kind` (user, service_account, token), `target_id` (nullable), `reason`, `source`, `scope`, `details`, `created_at`.
