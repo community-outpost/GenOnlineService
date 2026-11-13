@@ -35,7 +35,7 @@ Status: draft for review. Every message is specified; examples for each live in 
 
 | Topic | Decision |
 |---|---|
-| Endpoint | `wss://<environment host>/-/realtime`, TLS on port 443 only |
+| Endpoint | `wss://<host:port>/-/realtime` on the same origin (host and port) as the environment's REST API, so the bearer token only goes to an origin the client already trusts. `POST /api/v1/auth/session` returns it as `ws_url`. Production uses port 443, which matters on networks that only allow web traffic |
 | Transport | WebSockets only. The client connects directly (`skipNegotiation`), no HTTP negotiate call, no long polling, no QUIC |
 | HTTP version | The upgrade is plain HTTP/1.1, so the traffic looks like ordinary HTTPS on restrictive networks |
 | Hub protocol | SignalR JSON hub protocol, version 1 ([spec](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md)) |
