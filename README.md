@@ -107,6 +107,7 @@ Staff roles live in the `user_roles` table and bans in the `bans` table. Every g
 - `GenOnlineService bans list <user_id>`, `bans add <user_id> --reason <text> [--days <n>] [--by <user_id>]` (without `--days` the ban is permanent), `bans revoke <user_id> [--reason <text>] [--by <user_id>]`. Revoked and expired bans stay in the table as history
 - `--by` records which staff account acted, otherwise the log shows `cli`
 - `users.admin` is no longer read. After upgrading, grant `admin` or `moderator` again with `roles grant`. `users.banned` is still honored next to the `bans` table, because it is written from outside the service
+- The Discord bot uses slash commands only and requests no privileged intent. Set `Discord:discord_guild_id` so it registers them on start. `/players` and `/lobbies` are public; `/kick`, `/whois`, `/uptime`, `/peak` and `/announce` work only in the admin commands channel. They are allowed when the caller's Discord account is linked (`users.discord_id`) to a GenOnline account with the needed permission (`moderation.kick` for kick and whois, `server.stats` and `announcements.send` for the admin commands), or when the Discord user is listed in `Discord:discord_admins`, which is kept until staff accounts are linked
 
 # Observability
 

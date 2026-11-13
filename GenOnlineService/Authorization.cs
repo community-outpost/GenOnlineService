@@ -28,6 +28,8 @@ namespace GenOnlineService
 		public const string NamesProtected = "names.protected";
 		public const string SocialUnblockable = "social.unblockable";
 		public const string RolesManage = "roles.manage";
+		public const string ServerStats = "server.stats";
+		public const string AnnouncementsSend = "announcements.send";
 	}
 
 	// The in-memory copy is reloaded on the reconcile tick, so a change made in the database applies without a restart
@@ -50,7 +52,9 @@ namespace GenOnlineService
 			Permissions.ChatStaffBadge,
 			Permissions.NamesProtected,
 			Permissions.SocialUnblockable,
-			Permissions.RolesManage
+			Permissions.RolesManage,
+			Permissions.ServerStats,
+			Permissions.AnnouncementsSend
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)

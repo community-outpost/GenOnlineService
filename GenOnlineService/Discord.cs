@@ -23,6 +23,7 @@ using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
 using GenOnlineService;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Net.WebSockets;
@@ -318,385 +319,257 @@ public class DiscordBot
 				   .Any(role => role.Name.Equals(roleName, StringComparison.OrdinalIgnoreCase));
 	}
 
-	Regex g_HtmlRegex = new Regex(@"<\s*([^ >]+)[^>]*>.*?<\s*/\s*\1\s*>");
-	private async Task OnMessageReceived(SocketMessage message)
+	// Slash commands need no privileged intent, so the bot never reads message content
+	private static ApplicationCommandProperties[] BuildCommands()
 	{
-		try
+		// staff commands stay visible to everyone, the service decides who may run them
+		static SlashCommandBuilder Staff(string name, string description) => new SlashCommandBuilder()
+			.WithName(name)
+			.WithDescription(description);
+
+		return new ApplicationCommandProperties[]
 		{
-			if (message.Content.Length > 0)
+			new SlashCommandBuilder().WithName("players").WithDescription("Shows how many players are online").Build(),
+			new SlashCommandBuilder().WithName("lobbies").WithDescription("Shows how many lobbies exist").Build(),
+			Staff("uptime", "Shows when the service started").Build(),
+			Staff("peak", "Shows the highest player count since the last restart").Build(),
+			Staff("whois", "Finds the user id of an online player")
+				.AddOption("name", ApplicationCommandOptionType.String, "Display name", isRequired: true, maxLength: 32)
+				.Build(),
+			Staff("kick", "Kicks an online player from the server")
+				.AddOption("user_id", ApplicationCommandOptionType.Integer, "User id of the player", isRequired: true, minValue: 1)
+				.AddOption("reason", ApplicationCommandOptionType.String, "Reason shown to the player", isRequired: false, maxLength: ModerationManager.MaximumReasonLength)
+				.Build(),
+			Staff("announce", "Sends an announcement to every online player")
+				.AddOption("message", ApplicationCommandOptionType.String, "Announcement text", isRequired: true, maxLength: 512)
+				.Build()
+		};
+	}
+
+	private bool m_bCommandsRegistered = false;
+
+	// Guild commands appear immediately, global commands can take up to an hour
+	private async Task OnReadyAsync()
+	{
+		if (m_bCommandsRegistered || discord == null || Program.g_Config == null)
+		{
+			return;
+		}
+
+		ulong guildID = Program.g_Config.GetSection("Discord").GetValue<ulong>("discord_guild_id");
+		if (guildID == 0)
+		{
+			s_log.LogWarning("Discord:discord_guild_id is not set, slash commands are not registered");
+			return;
+		}
+
+		SocketGuild? guild = discord.GetGuild(guildID);
+		if (guild == null)
+		{
+			s_log.LogWarning("The Discord bot is not a member of guild {GuildId}, slash commands are not registered", guildID);
+			return;
+		}
+
+		await guild.BulkOverwriteApplicationCommandAsync(BuildCommands()).ConfigureAwait(false);
+		m_bCommandsRegistered = true;
+	}
+
+	private static string? RequiredPermission(string commandName) => commandName switch
+	{
+		"kick" => Permissions.ModerationKick,
+		"whois" => Permissions.ModerationKick,
+		"uptime" => Permissions.ServerStats,
+		"peak" => Permissions.ServerStats,
+		"announce" => Permissions.AnnouncementsSend,
+		_ => null
+	};
+
+	// A linked GenOnline account with the permission comes first, the legacy discord_admins list is the fallback until staff accounts are linked
+	private static async Task<Database.ModerationActor?> ResolveStaff(ulong discordUserID, string permission)
+	{
+		string name = $"discord:{discordUserID}";
+
+		using (var scope = ServiceLocator.Services.CreateScope())
+		{
+			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+			await using var db = await factory.CreateDbContextAsync();
+			List<Int64> linkedUserIDs = await db.Users.AsNoTracking()
+				.Where(u => u.DiscordID == (Int64)discordUserID)
+				.Select(u => u.ID)
+				.ToListAsync();
+
+			foreach (Int64 userID in linkedUserIDs)
 			{
-				if (message.Content[0] == '!')
+				if (StaffRoles.HasPermission(userID, permission))
 				{
-					if (!DoesDiscordClientHaveCooldown(message.Channel.Id, message.Author))
-					{
-						EDiscordChannelIDs enumChannelID = EDiscordChannelIDs.DirectMessage;
-						// Do we have this channel / is it a real channel and not DM?
-						foreach (var kvPair in g_dictChannelIDs)
-						{
-							if (kvPair.Value == message.Channel.Id)
-							{
-								enumChannelID = kvPair.Key;
-								break;
-							}
-						}
-
-						CreateCooldown(message.Channel.Id, message.Author);
-
-						if (message.Content.ToLower() == "!playercount" || message.Content.ToLower() == "!players")
-						{
-							int numPlayers = GenOnlineService.WebSocketManager.GetNumberOfUsersOnline();
-							string strMessage = String.Format("There are currently {0} players online.", numPlayers);
-
-							if (enumChannelID == EDiscordChannelIDs.DirectMessage)
-							{
-								PushDM(message.Author, strMessage);
-							}
-							else
-							{
-								PushChannelMessage(enumChannelID, strMessage);
-							}
-						}
-						else if (message.Content.ToLower() == "!lobbies")
-						{
-							var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-							int numLobbies = lobbyManager.GetNumLobbies();
-							string strMessage = String.Format("There are currently {0} lobbies.", numLobbies);
-
-							if (enumChannelID == EDiscordChannelIDs.DirectMessage)
-							{
-								PushDM(message.Author, strMessage);
-							}
-							else
-							{
-								PushChannelMessage(enumChannelID, strMessage);
-							}
-						}
-						else if (message.Content.ToLower() == "!uptime")
-						{
-							if (message.Channel.Id == g_dictChannelIDs[EDiscordChannelIDs.AdminCommands])
-							{
-								if (Program.g_Config == null)
-								{
-									return;
-								}
-
-								// TODO_DISCORD: Cache this
-								IConfiguration? discordSettings = Program.g_Config.GetSection("Discord");
-
-								if (discordSettings == null)
-								{
-									return;
-								}
-
-								List<UInt64>? discord_admins = discordSettings.GetSection("discord_admins").Get<List<UInt64>>();
-								if (discord_admins == null)
-								{
-									return;
-								}
-
-								// is it an admin?
-								if (discord_admins.Contains(message.Author.Id))
-								{
-									string start_time = Program.g_LastStartTime.ToString("yyyy-MM-dd HH:mm:ss");
-
-									TimeSpan difference = DateTime.Now.Subtract(Program.g_LastStartTime);
-									string uptime = $"Days: {difference.Days}, Hours: {difference.Hours}, Minutes: {difference.Minutes}";
-
-									string strMessage = String.Format("The server was last started at {0} and the current uptime is {1}", start_time, uptime);
-
-									if (enumChannelID == EDiscordChannelIDs.DirectMessage)
-									{
-										PushDM(message.Author, strMessage);
-									}
-									else
-									{
-										PushChannelMessage(enumChannelID, strMessage);
-									}
-								}
-							}
-						}
-						else if (message.Content.ToLower() == "!peak")
-						{
-							if (message.Channel.Id == g_dictChannelIDs[EDiscordChannelIDs.AdminCommands])
-							{
-								if (Program.g_Config == null)
-								{
-									return;
-								}
-
-								// is it an admin?
-								IConfiguration? discordSettings = Program.g_Config.GetSection("Discord");
-
-								if (discordSettings == null)
-								{
-									return;
-								}
-
-								List<UInt64>? discord_admins = discordSettings.GetSection("discord_admins").Get<List<UInt64>>();
-								if (discord_admins == null)
-								{
-									return;
-								}
-
-								if (discord_admins.Contains(message.Author.Id))
-								{
-									int peak = GenOnlineService.WebSocketManager.g_PeakConnectionCount;
-									string strMessage = String.Format("The highest player peak seen (since last server restart) is {0}", peak);
-
-									if (enumChannelID == EDiscordChannelIDs.DirectMessage)
-									{
-										PushDM(message.Author, strMessage);
-									}
-									else
-									{
-										PushChannelMessage(enumChannelID, strMessage);
-									}
-								}
-							}
-						}
-						else if (message.Content.Equals("!kick", StringComparison.OrdinalIgnoreCase)
-							|| message.Content.StartsWith("!kick ", StringComparison.OrdinalIgnoreCase))
-						{
-							if (message.Channel.Id == g_dictChannelIDs[EDiscordChannelIDs.AdminCommands])
-							{
-								if (Program.g_Config == null)
-								{
-									return;
-								}
-
-								List<UInt64>? discordAdmins = Program.g_Config
-									.GetSection("Discord")
-									.GetSection("discord_admins")
-									.Get<List<UInt64>>();
-								if (discordAdmins?.Contains(message.Author.Id) == true)
-								{
-									string[] strComponents = message.Content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-									if (strComponents.Length >= 2)
-									{
-										string strUser = strComponents[1];
-										if (Int64.TryParse(strUser, out Int64 TargetUserID))
-										{
-											string strReason = string.Join(' ', strComponents.Skip(2));
-											var actor = new Database.ModerationActor { Name = $"discord:{message.Author.Id}", Source = ModerationSources.Discord };
-											ModerationResult kickResult = await ModerationManager.KickUser(TargetUserID, strReason, actor);
-
-											switch (kickResult.Result)
-											{
-												case EModerationResult.ReasonTooLong:
-													PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"Kick reason must be {ModerationManager.MaximumReasonLength} characters or fewer.");
-													break;
-												case EModerationResult.TargetNotOnline:
-													PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {TargetUserID} is not active on the server.");
-													break;
-												case EModerationResult.Success:
-													string confirmation = $"User {TargetUserID} ({kickResult.TargetDisplayName}) has been kicked from the server.";
-													if (!String.IsNullOrWhiteSpace(strReason))
-													{
-														confirmation += $" Reason: {strReason}";
-													}
-													PushChannelMessage(EDiscordChannelIDs.AdminCommands, confirmation);
-													break;
-											}
-										}
-										else
-										{
-											PushChannelMessage(EDiscordChannelIDs.AdminCommands, "Invalid Command Syntax. !kick <user_id> [reason] (e.g. !kick 123 reconnect abuse)");
-										}
-									}
-									else
-									{
-										PushChannelMessage(EDiscordChannelIDs.AdminCommands, "Invalid Command Syntax. !kick <user_id> [reason] (e.g. !kick 123 reconnect abuse)");
-									}
-								}
-								else
-								{
-									PushDM(message.Author, "You don't have access to staff commands.");
-								}
-							}
-						}
-						else if (message.Content.ToLower().StartsWith("!whois"))
-						{
-							// TODO: In future we should validate users not just channels
-							// is it in the admin channel?
-							if (message.Channel.Id == g_dictChannelIDs[EDiscordChannelIDs.AdminCommands])
-							{
-								if (Program.g_Config == null)
-								{
-									return;
-								}
-
-								// is it an admin?
-								IConfiguration? discordSettings = Program.g_Config.GetSection("Discord");
-
-								if (discordSettings == null)
-								{
-									return;
-								}
-
-								List<UInt64>? discord_admins = discordSettings.GetSection("discord_admins").Get<List<UInt64>>();
-								if (discord_admins == null)
-								{
-									return;
-								}
-
-								if (discord_admins.Contains(message.Author.Id))
-								{
-									string[] strComponents = message.Content.Split(' ');
-
-									if (strComponents.Length >= 2)
-									{
-										string strname = string.Join(' ', strComponents.Skip(1));
-
-
-										SharedUserData? userDataFound = GenOnlineService.WebSocketManager.GetSharedDataForUser(strname);
-										if (userDataFound != null)
-										{
-											PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {userDataFound.m_strDisplayName} is user ID {userDataFound.m_UserID}.");
-										}
-										else
-										{
-											PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {strname} is not active on the server.");
-										}
-									}
-									else
-									{
-										PushChannelMessage(EDiscordChannelIDs.AdminCommands, "Invalid Command Syntax. !whois <display name> (e.g. !whois x64)");
-									}
-								}
-								else
-								{
-									PushDM(message.Author, "You don't have access to staff commands.");
-								}
-							}
-						}
-						else if (message.Content.ToLower().StartsWith("!announce"))
-						{
-							// TODO: In future we should validate users not just channels
-							// is it in the admin channel?
-							if (message.Channel.Id == g_dictChannelIDs[EDiscordChannelIDs.AdminCommands])
-							{
-								if (Program.g_Config == null)
-								{
-									return;
-								}
-
-								// is it an admin?
-								IConfiguration? discordSettings = Program.g_Config.GetSection("Discord");
-
-								if (discordSettings == null)
-								{
-									return;
-								}
-
-								List<UInt64>? discord_admins = discordSettings.GetSection("discord_admins").Get<List<UInt64>>();
-								if (discord_admins == null)
-								{
-									return;
-								}
-
-								if (discord_admins.Contains(message.Author.Id))
-								{
-									string[] strComponents = message.Content.Split(' ');
-
-
-
-									if (strComponents.Length >= 2)
-									{
-										string strMessage = string.Join(' ', strComponents.Skip(1));
-
-										// TODO: Later we should deliver this to ingame chat too
-
-										// prepare WS messages
-										// net room
-										WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsgRoom = new WebSocketMessage_NetworkRoomChatMessageOutbound();
-										outboundMsgRoom.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
-										outboundMsgRoom.message = String.Format("--- ADMIN ANNOUNCEMENT ---    {0}", strMessage);
-										outboundMsgRoom.action = true;
-										byte[] outboundMsgRoomJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsgRoom));
-
-										// lobby
-										WebSocketMessage_LobbyChatMessageOutbound outboundMsgLobby = new WebSocketMessage_LobbyChatMessageOutbound();
-										outboundMsgLobby.user_id = -2;
-										outboundMsgLobby.msg_id = (int)EWebSocketMessageID.LOBBY_CHAT_FROM_SERVER;
-										outboundMsgLobby.message = String.Format("--- ADMIN ANNOUNCEMENT ---    {0}", strMessage);
-										outboundMsgLobby.action = true;
-										outboundMsgLobby.announcement = true;
-										outboundMsgLobby.show_announcement_to_host = true;
-										byte[] outboundMsgLobbyJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsgLobby));
-
-										// send to everyone
-										int numDelivered = 0;
-										foreach (var sessionDataByClient in GenOnlineService.WebSocketManager.GetUserDataCache())
-										{
-											foreach (var sessionData in sessionDataByClient.Value)
-											{
-												UserSession sess = sessionData.Value;
-
-												if (sess != null)
-												{
-													if (sess.currentLobbyID == -1)
-													{
-														sess.QueueWebsocketSend(outboundMsgRoomJSON);
-													}
-													else
-													{
-														sess.QueueWebsocketSend(outboundMsgLobbyJSON);
-													}
-
-													++numDelivered;
-												}
-											}
-										}
-
-										PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"Announcement '{strMessage}' was delivered to {numDelivered} users");
-									}
-									else
-									{
-										PushChannelMessage(EDiscordChannelIDs.AdminCommands, "Invalid Command Syntax. !announce <message> (e.g. !announce Hello)");
-									}
-								}
-								else
-								{
-									PushDM(message.Author, "You don't have access to staff commands.");
-								}
-							}
-						}
-
-
-						//JSONRequest_PushCommand requestToSend = new JSONRequest_PushCommand(new DiscordUser(message.Author.Id, message.Author.Username), message.Content, enumChannelID);
-						//Program.GetRestClient().QueueRequest(requestToSend, CRestClient.ERestCallbackThreadingMode.ContinueOnWorkerThread, null);
-					}
-					else
-					{
-						PushDM(message.Author, "Too many commands. Please wait.");
-					}
-				}
-				else
-				{
-					// admin chat bi-directional chat
-					if (g_dictChannelIDs.ContainsKey(EDiscordChannelIDs.NetworkRoomChat) && message.Channel.Id == g_dictChannelIDs[EDiscordChannelIDs.NetworkRoomChat])
-					{
-						if (!message.Author.IsBot)
-						{
-							string strMessage = message.Content;
-							if (g_HtmlRegex.IsMatch(strMessage))
-							{
-								//strMessage = Helpers.FormatString("{0} is naughty and tried to send HTML!", message.Author.Username);
-							}
-
-							//message.Channel.SendMessageAsync(Helpers.FormatString("`{0}`: {1}", message.Author.Username, strMessage));
-
-							//JSONRequest_BiDirectionalAdminChat requestToSend = new JSONRequest_BiDirectionalAdminChat(new DiscordUser(message.Author.Id, message.Author.Username), strMessage);
-							//Program.GetRestClient().QueueRequest(requestToSend, CRestClient.ERestCallbackThreadingMode.ContinueOnWorkerThread, null);
-						}
-					}
+					return new Database.ModerationActor { UserID = userID, Name = name, Source = ModerationSources.Discord };
 				}
 			}
 		}
-		catch
-		{
 
+		List<UInt64>? legacyAdmins = Program.g_Config?.GetSection("Discord").GetSection("discord_admins").Get<List<UInt64>>();
+		if (legacyAdmins?.Contains(discordUserID) == true)
+		{
+			s_log.LogInformation("Discord user {DiscordUserId} used {Permission} through the discord_admins list", discordUserID, permission);
+			return new Database.ModerationActor { Name = name, Source = ModerationSources.Discord };
 		}
+
+		return null;
+	}
+
+	private static T? GetOption<T>(SocketSlashCommand command, string name)
+	{
+		object? value = command.Data.Options.FirstOrDefault(o => o.Name == name)?.Value;
+		return value is T typed ? typed : default;
+	}
+
+	private async Task OnSlashCommandAsync(SocketSlashCommand command)
+	{
+		try
+		{
+			if (command.CommandName == "players" || command.CommandName == "lobbies")
+			{
+				if (DoesDiscordClientHaveCooldown(command.ChannelId ?? 0, command.User))
+				{
+					await command.RespondAsync("Too many commands. Please wait.", ephemeral: true);
+					return;
+				}
+
+				CreateCooldown(command.ChannelId ?? 0, command.User);
+
+				string publicReply = command.CommandName == "players"
+					? $"There are currently {GenOnlineService.WebSocketManager.GetNumberOfUsersOnline()} players online."
+					: $"There are currently {ServiceLocator.Services.GetRequiredService<LobbyManager>().GetNumLobbies()} lobbies.";
+				await command.RespondAsync(publicReply, allowedMentions: AllowedMentions.None);
+				return;
+			}
+
+			string? permission = RequiredPermission(command.CommandName);
+			if (permission == null)
+			{
+				await command.RespondAsync("Unknown command.", ephemeral: true);
+				return;
+			}
+
+			if (!IsChannelIDDefined(command.ChannelId ?? 0, EDiscordChannelIDs.AdminCommands))
+			{
+				await command.RespondAsync("Staff commands only work in the admin commands channel.", ephemeral: true);
+				return;
+			}
+
+			Database.ModerationActor? actor = await ResolveStaff(command.User.Id, permission);
+			if (actor == null)
+			{
+				await command.RespondAsync("You don't have access to this command.", ephemeral: true);
+				return;
+			}
+
+			// kicks and announcements can take longer than the 3 second reply window
+			await command.DeferAsync();
+			string reply = await RunStaffCommand(command, actor);
+			await command.FollowupAsync(reply, allowedMentions: AllowedMentions.None);
+		}
+		catch (Exception ex)
+		{
+			s_log.LogError(ex, "Discord slash command {Command} failed", command.CommandName);
+
+			// a deferred interaction keeps showing "thinking" until it gets a follow-up
+			if (command.HasResponded)
+			{
+				await command.FollowupAsync("The command failed, check the service logs.", ephemeral: true).ConfigureAwait(false);
+			}
+		}
+	}
+
+	private static async Task<string> RunStaffCommand(SocketSlashCommand command, Database.ModerationActor actor)
+	{
+		switch (command.CommandName)
+		{
+			case "uptime":
+			{
+				string startTime = Program.g_LastStartTime.ToString("yyyy-MM-dd HH:mm:ss");
+				TimeSpan difference = DateTime.Now.Subtract(Program.g_LastStartTime);
+				return $"The server was last started at {startTime} and the current uptime is Days: {difference.Days}, Hours: {difference.Hours}, Minutes: {difference.Minutes}";
+			}
+			case "peak":
+				return $"The highest player peak seen (since last server restart) is {GenOnlineService.WebSocketManager.g_PeakConnectionCount}";
+			case "whois":
+			{
+				string name = GetOption<string>(command, "name") ?? String.Empty;
+				SharedUserData? userDataFound = GenOnlineService.WebSocketManager.GetSharedDataForUser(name);
+				return userDataFound != null
+					? $"User {userDataFound.m_strDisplayName} is user ID {userDataFound.m_UserID}."
+					: $"User {name} is not active on the server.";
+			}
+			case "kick":
+			{
+				Int64 targetUserID = GetOption<Int64>(command, "user_id");
+				string reason = GetOption<string>(command, "reason") ?? String.Empty;
+				ModerationResult kickResult = await ModerationManager.KickUser(targetUserID, reason, actor);
+
+				return kickResult.Result switch
+				{
+					EModerationResult.ReasonTooLong => $"Kick reason must be {ModerationManager.MaximumReasonLength} characters or fewer.",
+					EModerationResult.TargetNotOnline => $"User {targetUserID} is not active on the server.",
+					_ => String.IsNullOrWhiteSpace(reason)
+						? $"User {targetUserID} ({kickResult.TargetDisplayName}) has been kicked from the server."
+						: $"User {targetUserID} ({kickResult.TargetDisplayName}) has been kicked from the server. Reason: {reason}"
+				};
+			}
+			case "announce":
+			{
+				string message = GetOption<string>(command, "message") ?? String.Empty;
+				return $"Announcement '{message}' was delivered to {DeliverAnnouncement(message)} users";
+			}
+			default:
+				return "Unknown command.";
+		}
+	}
+
+	private static int DeliverAnnouncement(string strMessage)
+	{
+		// net room
+		WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsgRoom = new WebSocketMessage_NetworkRoomChatMessageOutbound();
+		outboundMsgRoom.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
+		outboundMsgRoom.message = String.Format("--- ADMIN ANNOUNCEMENT ---    {0}", strMessage);
+		outboundMsgRoom.action = true;
+		byte[] outboundMsgRoomJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsgRoom));
+
+		// lobby
+		WebSocketMessage_LobbyChatMessageOutbound outboundMsgLobby = new WebSocketMessage_LobbyChatMessageOutbound();
+		outboundMsgLobby.user_id = -2;
+		outboundMsgLobby.msg_id = (int)EWebSocketMessageID.LOBBY_CHAT_FROM_SERVER;
+		outboundMsgLobby.message = String.Format("--- ADMIN ANNOUNCEMENT ---    {0}", strMessage);
+		outboundMsgLobby.action = true;
+		outboundMsgLobby.announcement = true;
+		outboundMsgLobby.show_announcement_to_host = true;
+		byte[] outboundMsgLobbyJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsgLobby));
+
+		// send to everyone
+		int numDelivered = 0;
+		foreach (var sessionDataByClient in GenOnlineService.WebSocketManager.GetUserDataCache())
+		{
+			foreach (var sessionData in sessionDataByClient.Value)
+			{
+				UserSession sess = sessionData.Value;
+
+				if (sess != null)
+				{
+					if (sess.currentLobbyID == -1)
+					{
+						sess.QueueWebsocketSend(outboundMsgRoomJSON);
+					}
+					else
+					{
+						sess.QueueWebsocketSend(outboundMsgLobbyJSON);
+					}
+
+					++numDelivered;
+				}
+			}
+		}
+
+		return numDelivered;
 	}
 
 	private static Task LogAsync(LogMessage log)
@@ -709,13 +582,15 @@ public class DiscordBot
 	{
 #if !DEBUG || USE_DISCORD_IN_DEBUG
 		DiscordSocketConfig conf = new();
-		conf.GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.DirectMessages | GatewayIntents.MessageContent;
+		// slash commands only need the guild intent, so no privileged intent is requested
+		conf.GatewayIntents = GatewayIntents.Guilds;
 		discord = new DiscordSocketClient(conf);
 
 		// event handlers
 		discord.Connected += OnReady;
 		discord.Log += LogAsync;
-		discord.MessageReceived += OnMessageReceived;
+		discord.Ready += OnReadyAsync;
+		discord.SlashCommandExecuted += OnSlashCommandAsync;
 
 		//1354979004507226294
 
