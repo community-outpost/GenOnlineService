@@ -64,7 +64,16 @@ namespace GenOnlineService.Identity
 			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
 			{
 				// a concurrent first sign-in created the identity or took the name; the second attempt finds it
-				return await SignInOnce(provider, external, subject, externName);
+				try
+				{
+					return await SignInOnce(provider, external, subject, externName);
+				}
+				catch (DbUpdateException again) when (DbHelpers.IsUniqueViolation(again))
+				{
+					// another upstream account linked the same user in between: one identity per provider per user
+					s_log.LogWarning("{Provider} sign-in of {Subject} lost a race for its user", provider.Name, subject);
+					return UpstreamSignInResult.Refused(ErrorPlayerIDMismatch);
+				}
 			}
 		}
 

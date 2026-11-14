@@ -168,7 +168,8 @@ public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 
 		builder.HasKey(e => e.ID);
 		builder.HasIndex(e => new { e.Provider, e.ExternUid }).IsUnique().HasDatabaseName("ux_identities_provider_extern_uid");
-		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_identities_user_id");
+		// one identity per provider per user, so two upstream accounts can never both land on one user
+		builder.HasIndex(e => new { e.UserID, e.Provider }).IsUnique().HasDatabaseName("ux_identities_user_id_provider");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.UserID).HasColumnName("user_id");

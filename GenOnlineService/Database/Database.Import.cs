@@ -1391,6 +1391,18 @@ namespace Database
 				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null, user.GameReplaysUsername);
 			}
 
+			// the target allows one identity per provider per user; a second one on a user is reported and not kept
+			foreach (var group in all.GroupBy(x => (x.User.Id, x.Identity.Provider)).Where(g => g.Count() > 1))
+			{
+				foreach (var extra in group.Skip(1))
+				{
+					extra.Identity.Kept = false;
+				}
+
+				Findings.Add(ImportFindings.DuplicateIdentities,
+					$"user {group.Key.Id} has {group.Count()} {group.Key.Provider} identities ({string.Join(", ", group.Select(x => x.Identity.ExternUid))}); {group.First().Identity.ExternUid} is kept");
+			}
+
 			foreach (var group in all.GroupBy(x => (x.Identity.Provider, x.Identity.ExternUid)).Where(g => g.Count() > 1))
 			{
 				var ordered = group.OrderBy(x => x.User, Comparer<OldUser>.Create(OldUser.Precedence)).ToList();

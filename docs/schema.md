@@ -63,7 +63,7 @@ users
 user_username_history     id, user_id, username, changed_at, changed_by
 identities                id, user_id, provider varchar(32), extern_uid varchar(128),
                           extern_username varchar(128) null, created_at, last_used_at
-                          unique (provider, extern_uid)
+                          unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
 user_authenticator_keys, user_recovery_codes                   -- TOTP (ASP.NET Identity)
 oauth_applications, oauth_authorizations, oauth_scopes, oauth_tokens   -- OpenIddict, renamed via its options
 ```

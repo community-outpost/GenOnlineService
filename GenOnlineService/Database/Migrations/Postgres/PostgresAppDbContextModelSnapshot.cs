@@ -1417,12 +1417,13 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.HasKey("ID");
 
-                    b.HasIndex("UserID")
-                        .HasDatabaseName("ix_identities_user_id");
-
                     b.HasIndex("Provider", "ExternUid")
                         .IsUnique()
                         .HasDatabaseName("ux_identities_provider_extern_uid");
+
+                    b.HasIndex("UserID", "Provider")
+                        .IsUnique()
+                        .HasDatabaseName("ux_identities_user_id_provider");
 
                     b.ToTable("identities", (string)null);
                 });
