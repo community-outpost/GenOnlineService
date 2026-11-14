@@ -94,11 +94,13 @@ Added by this design:
 | Permission | Kind | Endpoints |
 |---|---|---|
 | `users.revoke` | machine, **privileged** | revoke a user's sessions (website account security page, sign out everywhere) |
-| `ops.database` | machine, **privileged** | `GET /ops/database` (internal port) |
-| `match_history.read` | machine | `GET /v1/stats/match-history*` |
-| `lobbies.read` | machine | `GET /v1/lobbies` for non-player callers |
-| `server.stats` (existing) | human | `GET /v1/stats/server` (active users, basic stats, uptime) |
+| `ops.database` | machine, **privileged** | `GET /-/database` |
+| `match_history.read` | machine | `GET /api/v1/matches`, `GET /api/v1/matches/:id` |
+| `lobbies.read` | machine | `GET /api/v1/lobbies` for non-player callers |
+| `server.stats` (existing) | human | `GET /-/self_check/version` |
 | `tokens.manage` | human (admin) | the management API in section 9 (v2) |
+| `audit.read` | human (admin) | `GET /api/v1/audit_events` |
+| `settings.manage` | human (admin) | `GET` and `PUT /api/v1/application/settings` |
 
 Monitoring self tests run on the internal ops port without a permission (section 11), so there is no `ops.self_test`.
 
@@ -194,14 +196,29 @@ GenOnlineService tokens revoke <id>
 
 The CLI writes the database directly and the running service picks changes up on the next reconcile tick. It is the only way to grant privileged permissions or mint tokens that carry them.
 
-### v2: HTTP API (after the website has staff sign-in)
+### v2: HTTP API
 
-Same operations under `/v1/tokens` and `/v1/service-accounts`, gated by `tokens.manage`:
+The CLI and the routes below share one implementation (`Rest/ApiTokenAdmin.cs`), so the rules, limits and audit entries are the same; REST actions are audited with `actor_kind=user`, the caller's id and `source=api`.
 
-- Caller must be a staff web session (never a game client session, never a `gopat-` token).
-- Privileged permissions are refused: grant and mint them through the CLI.
-- Granting a human permission to a service account requires the caller to hold it.
-- Personal tokens: scopes must be human permissions the caller holds.
+| Method and path | Caller | Answer |
+|---|---|---|
+| `GET /api/v1/personal_access_tokens` | staff web session | the caller's own tokens, newest first, paged |
+| `POST /api/v1/personal_access_tokens` | staff web session | 201, the token and its `token` secret |
+| `GET /api/v1/personal_access_tokens/self` | a `gopat-` token | the token making the request |
+| `POST /api/v1/personal_access_tokens/:id/rotate?overlap_minutes=&expires_at=` | staff web session | 201, the new token and its secret |
+| `DELETE /api/v1/personal_access_tokens/:id` | web session | 204 |
+| `GET/POST /api/v1/service_accounts` | web session with `tokens.manage` | list (paged); 201 with the new account |
+| `PATCH /api/v1/service_accounts/:id` | web session with `tokens.manage` | `{grants: {add, remove}, disabled}`, the updated account |
+| `GET/POST /api/v1/service_accounts/:id/personal_access_tokens` | web session with `tokens.manage` | the account's tokens; 201 with a new token and its secret |
+
+- Caller must be a staff web session, a session of a registered `app` client (never a game, launcher or chat client session, never a `gopat-` token); any other caller gets `forbidden {permission: "tokens.manage"}`. A web session without any staff permission gets `forbidden {}` on the personal token routes, except `DELETE`, so a user who lost a role can still revoke their own tokens.
+- A caller only sees and changes their own personal tokens; another owner's token id answers `not_found {what: "token"}`. `/self` answers `not_found {what: "token"}` to a session.
+- The create body is `{name, scopes: [permission], expires_at, allowed_ips?: [cidr]}`; `expires_at` is an ISO 8601 date (midnight UTC) or a UTC timestamp.
+- Privileged permissions are refused: grant and mint them through the CLI (`forbidden {permission}`). Removing a privileged grant is allowed.
+- Granting a human permission to a service account requires the caller to hold it (`forbidden {permission}`).
+- Personal tokens: scopes must be human permissions the caller holds (`forbidden {permission}`); an unknown scope is `invalid_argument {field: "scopes"}`.
+- Failures: `invalid_argument {field}` (`name`, `description`, `scopes`, `grants`, `expires_at`, `allowed_ips`, `overlap_minutes`), `token.limit_reached {max}` (422), `conflict` (409: a service account name in use, or rotating a revoked, expired or already rotated token), `not_found {what}` (`token`, `service_account`).
+- Tokens of a service account are rotated and revoked through the CLI only.
 
 ### Rules for both
 
@@ -226,8 +243,8 @@ Same operations under `/v1/tokens` and `/v1/service-accounts`, gated by `tokens.
 
 - Metric `api_token_expires_in_seconds{token_id, name, owner}`; alerts at 14 and 3 days. A daily log warning lists tokens inside `expiry_warning_days`.
 - Metrics `api_token_auth_failures_total{reason}` and `api_token_requests_total{owner}`.
-- The ops endpoints (`/ops/database`, self tests, metrics) listen on an internal-only port that is not exposed through the public proxy. Only `ops.database` needs a token because it reads raw database state; health and metrics need none.
-- `/healthz` and `/.well-known/jwks.json` stay public at the root.
+- The operator endpoints live under `/-/` (`/-/database`, `/-/self_check/version`) on the service port; the edge blocks `/-/*` with one rule, except the public probes below. `/-/database` needs `ops.database` because it reads raw database state.
+- `/-/health`, `/-/liveness`, `/-/readiness` and `/.well-known/jwks.json` stay public.
 
 ## 12. Security notes
 
@@ -256,4 +273,4 @@ Same operations under `/v1/tokens` and `/v1/service-accounts`, gated by `tokens.
 
 - Builds on `arctic/feat/moderation-roles` (`Authorization.cs`, `user_roles`, the reconcile tick, the moderation and audit log).
 - The `perm:` policy layer is built once in `Authorization.cs` and shared with staff sessions. Who builds it first is open.
-- Routes follow the `/v1/{module}` layout in the `application` profile; `/ops/*` lives on the internal port.
+- Routes live under `/api/v1` (`docs/api.md`); operator endpoints under `/-/`.

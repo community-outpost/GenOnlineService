@@ -437,8 +437,18 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `moderation.target_outranks` | | Sanctions and message deletes: staff only act on users of lower rank (admin above moderator above everyone else). Staff acting on themselves get `invalid_argument {field: id}` instead |
 | `moderation.reason_too_long` | `{max}` | Sanctions, lifting them, message deletes, reports |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
+| `service.unavailable` | `{what}` | A REST route whose backing service is not configured or not reachable: `eos_token`, `eos`, `config`, `database` (HTTP 503) |
+| `session.game_required` | | `POST /api/v1/me/eos_token` and `PUT /api/v1/me/linked_accounts/eos` from a session that is not a game session (HTTP 403) |
+| `eos.invalid_token` | | `PUT /api/v1/me/linked_accounts/eos` with an Epic ID token that does not validate |
+| `eos.account_mismatch` | | `PUT /api/v1/me/linked_accounts/eos` when the Epic account does not belong to the caller's binding (HTTP 403) |
+| `eos.account_in_use` | | `PUT /api/v1/me/linked_accounts/eos` when another user holds that Epic account (HTTP 409) |
+| `eos.account_locked` | | `PUT /api/v1/me/linked_accounts/eos` while the caller is in a lobby with another Epic account (HTTP 409) |
+| `token.limit_reached` | `{max}` | Minting a token over the active-token limit of its owner |
+| `method_not_allowed` | | A REST path that exists without that HTTP method (HTTP 405); an unknown path is `not_found {what: route}` |
+| `conflict` | | Token rotation of a token that is revoked, expired or already rotated; a duplicate service account name (HTTP 409) |
+| `server.announcement` | `{message}` | `Notice` to every connection from `POST /api/v1/announcements` and the Discord `/announce` command |
 
-REST endpoints return the same codes as `{"error": "<code>", "params": {...}}` with an HTTP status: 400 for `invalid_argument`, 401 `unauthorized` for a missing, unknown, expired or revoked token, 403 for `forbidden` and `moderation.target_outranks`, 404 for `not_found`, 409 for `report.duplicate`, 422 for every other rule failure, 429 for `rate_limited`.
+REST endpoints return the same codes as `{"error": "<code>", "params": {...}}` with an HTTP status: 400 for `invalid_argument`, 401 `unauthorized` for a missing, unknown, expired or revoked token, 403 for `forbidden`, `moderation.target_outranks`, `session.game_required` and `eos.account_mismatch`, 404 for `not_found`, 409 for `report.duplicate`, `eos.account_in_use`, `eos.account_locked` and `conflict`, 422 for every other rule failure, 429 for `rate_limited`, 405 for `method_not_allowed`, 503 for `service.unavailable`.
 
 New codes are added freely; clients show a generic message for codes they do not know.
 
@@ -526,7 +536,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 
 ### 10.4 Other REST
 
-Sign-in, token refresh and logout, `POST /api/v1/auth/session`, the EOS token, config and MOTD, the compatibility check, player profiles and stats, global stats, leaderboards and match history.
+Sign-in, token refresh and logout, `POST /api/v1/auth/session`, the EOS token, config and MOTD, the compatibility check, player profiles and stats, global stats, leaderboards and match history. They are listed in `docs/api.md`.
 
 ## 11. Contract fixtures and versioning
 
