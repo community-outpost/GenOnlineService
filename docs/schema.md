@@ -209,7 +209,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 - **Dropped users (`account_type` Ghost or DevAccount):** their `users`, identities, devices, ratings, stats, preferences, network, friendships, friend requests, blocks, leaderboard and anti-cheat rows are not imported. Matches they took part in are kept: their `match_players` rows keep the slot with `user_id = null`, and a match they owned gets `owner_user_id = null`. Their ids are never reused. Exits non-zero until findings are resolved or waived in an import config file.
 - **Phase 2, convert:** table by table in dependency order, batched, through the EF models of both sides.
 - **Phase 3, verify:** row counts and checksums per mapping line, printed and written to a report; identity sequences set to max(id) + 1.
-- **Keycloak file (official deployment, optional):** a Keycloak user import file with federated identity links and `player_id`, so people are matched to their prod account on first Keycloak sign-in.
+- **Keycloak file (official deployment, optional, `Import:keycloak_file`):** a Keycloak partial import with federated identity links and `player_id` = the old user id, so a person's first Keycloak sign-in lands on their prod user; `<path>.counter.json` holds `player_id_next` (highest imported id + 1) for the GenOnline Keycloak plugin's counter. Written only after a committed real run.
 - **Config switches:** legacy bans as local bans (default) or skipped; HMAC key path.
 - **Modes:** `--dry-run` into a scratch database; refuses a non-empty target.
 - **Cutover:** stop the old service, import, start the new deploy. No dual writes.
