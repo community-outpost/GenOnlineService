@@ -256,7 +256,7 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 
 ### 5.5 Moderation
 
-Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick` and `moderation.mute`; admins also hold `moderation.ban`. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log`. Reasons are up to 512 characters.
+Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick` and `moderation.mute`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute, unmute or ban an admin or another moderator. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log`. Reasons are up to 512 characters.
 
 | Method | Argument | Answer | Permission |
 |---|---|---|---|
@@ -394,6 +394,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `social.friend_list_full` | `{max}` | `SendFriendRequest`, `AcceptFriendRequest` |
 | `social.blocked` | | Social methods involving a block |
 | `moderation.target_offline` | | `Kick` |
+| `moderation.target_outranks` | | Moderation methods: staff only act on users of lower rank (admin above moderator above everyone else), never on themselves |
 | `moderation.reason_too_long` | `{max}` | Moderation methods |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
 
