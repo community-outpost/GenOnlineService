@@ -989,6 +989,11 @@ namespace GenOnlineService
 		[JsonIgnore]
 		public ConcurrentDictionary<Int64, DateTime> TimeMemberLeft { get; private set; } = new();
 
+		// every player who joined this lobby, kept for the lobby's lifetime so connection reports may name a former member
+		private readonly ConcurrentDictionary<Int64, byte> m_EverMemberUserIDs = new();
+
+		public bool WasEverMember(Int64 userID) => m_EverMemberUserIDs.ContainsKey(userID);
+
 		// Records the first time each player's in-game WebSocket connection dropped (i.e., when they first "quit"
 		// while the match was in progress). Only the first disconnect is stored � reconnects do not reset it.
 		// Used by DetermineLobbyWinnerIfNotPresent to find who abandoned first (= loser) vs last (= winner).
@@ -1445,6 +1450,7 @@ public async Task FinalizeACChecks()
 			++m_MembershipVersion;
 			InvalidateMeshCheck("membership_changed");
 			TimeMemberLeft[playerSession.m_UserID] = DateTime.UnixEpoch;
+			m_EverMemberUserIDs[playerSession.m_UserID] = 0;
 
 			// Lobby members leave public-room presence.
 			playerSession.TryUpdateSessionNetworkRoom(-1);
@@ -2123,27 +2129,19 @@ public async Task FinalizeACChecks()
 	{
 		private ConcurrentDictionary<Int64, Lobby> m_dictLobbies = new();
 
-		private Int64 m_NextLobbyID = 0;
-
-		// Concurrent CreateLobby calls (e.g. a custom lobby and a QuickMatch allocation racing) must never be
-		// handed the same ID. Interlocked.Increment returns the post-increment value, so subtracting 1 keeps
-		// the original "starts at 0" sequence while making the read-and-bump atomic.
-		// Internal (not private) so it is unit-testable via InternalsVisibleTo without needing the rest of
-		// CreateLobby's database dependencies.
-		internal Int64 GenerateNextLobbyID()
-		{
-			return Interlocked.Increment(ref m_NextLobbyID) - 1;
-		}
+		// lobby ids come from database blocks, so no restart or other service copy reuses one
+		private readonly LobbyIdAllocator m_lobbyIds;
 
 		private readonly IServiceProvider _services;
 		private readonly ILogger<LobbyManager> _logger;
 
-		public LobbyManager(IServiceProvider services, IDbContextFactory<AppDbContext> membershipDbFactory, LobbyMembershipConnections membershipConnections, ILogger<LobbyManager> logger)
+		public LobbyManager(IServiceProvider services, IDbContextFactory<AppDbContext> membershipDbFactory, LobbyMembershipConnections membershipConnections, LobbyIdAllocator lobbyIds, ILogger<LobbyManager> logger)
 		{
 			_services = services;
 			_logger = logger;
 			this.membershipDbFactory = membershipDbFactory;
 			this.membershipConnections = membershipConnections;
+			m_lobbyIds = lobbyIds;
         }
 
         public async Task Cleanup()
@@ -2231,6 +2229,9 @@ public async Task FinalizeACChecks()
 			UInt16 hostPreferredPort, bool bVanillaTeams, bool bTrackStats, UInt32 starting_cash, bool bLimitSuperweapons, bool bPassworded, String strPassword, Int16 parentNetworkRoom, bool bAllowObservers,
 			UInt16 maxCamHeight, GameBuild build, ELobbyType lobbyType, ELobbyJoinability joinability = ELobbyJoinability.Public)
 		{
+			// the id is taken before the membership gate so a block refill never holds it, a database failure throws before anything changes
+			Int64 newLobbyID = await m_lobbyIds.NextAsync();
+
 			using var membership = await AcquireMembershipGateAsync(owningSession.m_UserID);
 			if (!IsCurrentSession(owningSession) || owningSession.IsRetired) return -1;
 			_logger.LogInformation("Creating lobby for user {UserId}", owningSession.m_UserID);
@@ -2242,7 +2243,6 @@ public async Task FinalizeACChecks()
 
 			int rng_seed = new Random().Next();
 
-			Int64 newLobbyID = GenerateNextLobbyID();
 
 			// the host's settings come with the create call
 			Lobby newLobby = new Lobby(newLobbyID, owningSession, strName, ELobbyState.GAME_SETUP, strMapName, strMapPath, bVanillaTeams, starting_cash, bLimitSuperweapons, bTrackStats, bPassworded, strPassword, bMapOfficial, rng_seed, parentNetworkRoom, bAllowObservers, maxCamHeight, build, maxPlayers, lobbyType);

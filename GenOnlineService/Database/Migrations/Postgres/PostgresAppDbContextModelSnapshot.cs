@@ -754,6 +754,21 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("leaderboard_entries", (string)null);
                 });
 
+            modelBuilder.Entity("LobbyIdCounter", b =>
+                {
+                    b.Property<int>("ID")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<long>("NextID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("next_id");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("lobby_ids", (string)null);
+                });
+
             modelBuilder.Entity("Match", b =>
                 {
                     b.Property<long>("Id")

@@ -1127,6 +1127,8 @@ namespace GenOnlineService
 			}
 
 			builder.Services.AddHostedService<ExternalLeaderboardPublicationWorker>();
+			builder.Services.AddSingleton<ILobbyIdSource, DatabaseLobbyIdSource>();
+			builder.Services.AddSingleton(sp => new LobbyIdAllocator(sp.GetRequiredService<ILobbyIdSource>()));
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
 

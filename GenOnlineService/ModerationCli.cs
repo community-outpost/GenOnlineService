@@ -512,10 +512,10 @@ namespace GenOnlineService
 			throw new CliException(ConnectionsUsage);
 		});
 
-		// Lobby ids count from 0
+		// Lobby ids count from 1
 		private static Int64 ParseLobbyID(string text)
 		{
-			if (!Int64.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out Int64 id))
+			if (!Int64.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out Int64 id) || id < 1)
 			{
 				throw new CliException($"Not a lobby id: {text}");
 			}

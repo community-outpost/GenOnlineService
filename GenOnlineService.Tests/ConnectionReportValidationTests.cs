@@ -28,6 +28,12 @@ namespace GenOnlineService.Tests
 	{
 		private const long Reporter = 5;
 		private const long Lobby = 42;
+		private const long Stranger = 99;
+		private const long FormerMember = 8;
+
+		// players 5 and 7 are members, 8 left the lobby, 99 never joined it
+		private static bool IsMember(long userId) => userId is Reporter or 7;
+		private static bool WasMember(long userId) => IsMember(userId) || userId == FormerMember;
 
 		private static ConnectionReportRequest Valid() => new ConnectionReportRequest
 		{
@@ -49,7 +55,7 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void ValidReportBecomesTheStoredRowWithAttemptOne()
 		{
-			Result<ConnectionReport> result = ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 0), Event("connected_relay", 5100)] }, Reporter, Lobby);
+			Result<ConnectionReport> result = ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 0), Event("connected_relay", 5100)] }, Reporter, Lobby, WasMember);
 
 			Assert.True(result.Ok);
 			ConnectionReport row = result.Data!;
@@ -66,7 +72,7 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void MissingEventsStoreAnEmptyTimeline()
 		{
-			Assert.Equal("[]", ConnectionReportValidation.Validate(Valid() with { Attempt = 3 }, Reporter, Lobby).Data!.Events);
+			Assert.Equal("[]", ConnectionReportValidation.Validate(Valid() with { Attempt = 3 }, Reporter, Lobby, WasMember).Data!.Events);
 		}
 
 		[Theory]
@@ -76,7 +82,33 @@ namespace GenOnlineService.Tests
 		[InlineData(Reporter, "target_user_id")]
 		public void TargetMustBeAnotherPlayer(long? target, string field)
 		{
-			Assert.Equal(field, FieldOf(ConnectionReportValidation.Validate(Valid() with { TargetUserId = target }, Reporter, Lobby)));
+			Assert.Equal(field, FieldOf(ConnectionReportValidation.Validate(Valid() with { TargetUserId = target }, Reporter, Lobby, WasMember)));
+		}
+
+		[Fact]
+		public void TargetMustBeOrHaveBeenAMemberOfTheLobby()
+		{
+			Assert.Equal("target_user_id", FieldOf(ConnectionReportValidation.Validate(Valid() with { TargetUserId = Stranger }, Reporter, Lobby, WasMember)));
+			Assert.True(ConnectionReportValidation.Validate(Valid() with { TargetUserId = FormerMember }, Reporter, Lobby, WasMember).Ok);
+		}
+
+		[Fact]
+		public void MembershipIsCheckedBeforeTheBody()
+		{
+			ConnectionReportRequest bad = Valid() with { Outcome = "bogus", TargetUserId = Stranger };
+
+			Result<ConnectionReport> notMember = ConnectionReportValidation.Check(true, IsMember, WasMember, bad, null, Stranger, Lobby);
+			Assert.False(notMember.Ok);
+			Assert.Equal(ErrorCodes.LobbyNotMember, notMember.Code);
+
+			Result<ConnectionReport> malformed = ConnectionReportValidation.Check(true, IsMember, WasMember, null, Result.Invalid("body"), Stranger, Lobby);
+			Assert.Equal(ErrorCodes.LobbyNotMember, malformed.Code);
+
+			Result<ConnectionReport> noLobby = ConnectionReportValidation.Check(false, IsMember, WasMember, bad, null, Reporter, Lobby);
+			Assert.Equal(ErrorCodes.NotFound, noLobby.Code);
+
+			Assert.Equal("target_user_id", FieldOf(ConnectionReportValidation.Check(true, IsMember, WasMember, bad, null, Reporter, Lobby)));
+			Assert.True(ConnectionReportValidation.Check(true, IsMember, WasMember, Valid(), null, Reporter, Lobby).Ok);
 		}
 
 		[Theory]
@@ -89,7 +121,7 @@ namespace GenOnlineService.Tests
 		[InlineData(null, false)]
 		public void OutcomeIsOneOfTheFour(string? outcome, bool ok)
 		{
-			Result<ConnectionReport> result = ConnectionReportValidation.Validate(Valid() with { Outcome = outcome }, Reporter, Lobby);
+			Result<ConnectionReport> result = ConnectionReportValidation.Validate(Valid() with { Outcome = outcome }, Reporter, Lobby, WasMember);
 			if (ok)
 			{
 				Assert.True(result.Ok);
@@ -105,8 +137,8 @@ namespace GenOnlineService.Tests
 		[InlineData(null)]
 		public void TransportIsGnsOrEos(string? transport)
 		{
-			Assert.True(ConnectionReportValidation.Validate(Valid() with { Transport = "eos" }, Reporter, Lobby).Ok);
-			Assert.Equal("transport", FieldOf(ConnectionReportValidation.Validate(Valid() with { Transport = transport }, Reporter, Lobby)));
+			Assert.True(ConnectionReportValidation.Validate(Valid() with { Transport = "eos" }, Reporter, Lobby, WasMember).Ok);
+			Assert.Equal("transport", FieldOf(ConnectionReportValidation.Validate(Valid() with { Transport = transport }, Reporter, Lobby, WasMember)));
 		}
 
 		[Theory]
@@ -115,8 +147,8 @@ namespace GenOnlineService.Tests
 		[InlineData(null)]
 		public void IpVersionIsFourOrSix(int? version)
 		{
-			Assert.True(ConnectionReportValidation.Validate(Valid() with { IpVersion = 6 }, Reporter, Lobby).Ok);
-			Assert.Equal("ip_version", FieldOf(ConnectionReportValidation.Validate(Valid() with { IpVersion = version }, Reporter, Lobby)));
+			Assert.True(ConnectionReportValidation.Validate(Valid() with { IpVersion = 6 }, Reporter, Lobby, WasMember).Ok);
+			Assert.Equal("ip_version", FieldOf(ConnectionReportValidation.Validate(Valid() with { IpVersion = version }, Reporter, Lobby, WasMember)));
 		}
 
 		[Theory]
@@ -124,31 +156,31 @@ namespace GenOnlineService.Tests
 		[InlineData(-2)]
 		public void AttemptIsAtLeastOne(int attempt)
 		{
-			Assert.Equal("attempt", FieldOf(ConnectionReportValidation.Validate(Valid() with { Attempt = attempt }, Reporter, Lobby)));
+			Assert.Equal("attempt", FieldOf(ConnectionReportValidation.Validate(Valid() with { Attempt = attempt }, Reporter, Lobby, WasMember)));
 		}
 
 		[Fact]
 		public void AtMost32Events()
 		{
 			ConnectionReportEvent[] events = Enumerable.Range(0, 33).Select(i => Event("connecting", i)).ToArray();
-			Assert.True(ConnectionReportValidation.Validate(Valid() with { Events = events[..32] }, Reporter, Lobby).Ok);
-			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = events }, Reporter, Lobby)));
+			Assert.True(ConnectionReportValidation.Validate(Valid() with { Events = events[..32] }, Reporter, Lobby, WasMember).Ok);
+			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = events }, Reporter, Lobby, WasMember)));
 		}
 
 		[Fact]
 		public void EventTimesNeverDecreaseAndStayWithinTenMinutes()
 		{
-			Assert.True(ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 0), Event("finding_route", 0), Event("failed", 600000)] }, Reporter, Lobby).Ok);
-			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 10), Event("failed", 5)] }, Reporter, Lobby)));
-			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("failed", 600001)] }, Reporter, Lobby)));
-			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("failed", -1)] }, Reporter, Lobby)));
+			Assert.True(ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 0), Event("finding_route", 0), Event("failed", 600000)] }, Reporter, Lobby, WasMember).Ok);
+			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 10), Event("failed", 5)] }, Reporter, Lobby, WasMember)));
+			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("failed", 600001)] }, Reporter, Lobby, WasMember)));
+			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("failed", -1)] }, Reporter, Lobby, WasMember)));
 		}
 
 		[Fact]
 		public void EventStateIsFromTheList()
 		{
-			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("relaying", 0)] }, Reporter, Lobby)));
-			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [new ConnectionReportEvent { State = "connecting" }] }, Reporter, Lobby)));
+			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [Event("relaying", 0)] }, Reporter, Lobby, WasMember)));
+			Assert.Equal("events", FieldOf(ConnectionReportValidation.Validate(Valid() with { Events = [new ConnectionReportEvent { State = "connecting" }] }, Reporter, Lobby, WasMember)));
 		}
 	}
 }

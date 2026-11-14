@@ -12,6 +12,7 @@ Nothing extra. `Realtime:backplane` defaults to `none`: hub messages and close r
 - SignalR users are named by the user id in the session principal (`RealtimeUserIdProvider`, the OpenIddict subject). Server events still go through `user:<id>`, which a connection joins just before `Ready`, so `Ready` stays the first event.
 - Kicks, bans and revocations are close requests (`RealtimeControl.RequestClose`). The copy that issues one closes its own matching sessions first, then publishes it; every other copy closes only its own matching sessions with the same close record (`moderation.kicked` or `moderation.banned` after the `ModerationNotice`, `auth.revoked`). A sign-in revocation closes only the connections of that sign-in on every copy.
 - A kick of a user this copy does not hold waits up to 2 seconds for another copy to confirm it closed a session, otherwise it answers `moderation.target_offline` as before.
+- Lobby ids come from the `lobby_ids` counter row in the database. Each copy reserves a block of 100 ids with one atomic update and reserves the next block in the background when 20 are left, so no restart and no other copy ever hands out the same lobby id again. The ids left in a block when a copy stops are skipped. A database outage fails only the `CreateLobby` that needs a new block.
 
 ## The Redis backplane
 

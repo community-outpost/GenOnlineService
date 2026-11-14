@@ -27,9 +27,31 @@ namespace GenOnlineService.Api
 	// Checks a connection report body and turns it into the stored row, the first broken field is named
 	public static class ConnectionReportValidation
 	{
-		public static Result<ConnectionReport> Validate(ConnectionReportRequest body, long reporterId, long lobbyId)
+		// The caller's lobby membership is checked before the body, isMember is a current member and wasMember a current or former one
+		public static Result<ConnectionReport> Check(bool lobbyFound, Func<long, bool> isMember, Func<long, bool> wasMember, ConnectionReportRequest? body, Failure? malformed, long reporterId, long lobbyId)
 		{
-			if (body.TargetUserId is not long target || target <= 0 || target == reporterId)
+			if (!lobbyFound)
+			{
+				return Result.NotFound("lobby");
+			}
+
+			if (!isMember(reporterId))
+			{
+				return Result.Fail(ErrorCodes.LobbyNotMember);
+			}
+
+			if (malformed != null)
+			{
+				return malformed.Value;
+			}
+
+			return Validate(body ?? new ConnectionReportRequest(), reporterId, lobbyId, wasMember);
+		}
+
+		// wasLobbyMember tells whether a player is or was a member of the lobby
+		public static Result<ConnectionReport> Validate(ConnectionReportRequest body, long reporterId, long lobbyId, Func<long, bool> wasLobbyMember)
+		{
+			if (body.TargetUserId is not long target || target <= 0 || target == reporterId || !wasLobbyMember(target))
 			{
 				return Result.Invalid("target_user_id");
 			}
@@ -106,25 +128,11 @@ namespace GenOnlineService.Api
 		public async Task<IActionResult> Create(long lobbyID)
 		{
 			(ConnectionReportRequest? body, Failure? malformed) = await ReadBodyAsync<ConnectionReportRequest>();
-			if (malformed != null)
-			{
-				return ApiResults.Fail(malformed.Value);
-			}
-
-			Result<ConnectionReport> report = ConnectionReportValidation.Validate(body ?? new ConnectionReportRequest(), Me, lobbyID);
+			Lobby? lobby = m_lobbyManager.GetLobby(lobbyID);
+			Result<ConnectionReport> report = ConnectionReportValidation.Check(lobby != null, userID => lobby?.GetMemberFromUserID(userID) != null, userID => lobby?.WasEverMember(userID) == true, body, malformed, Me, lobbyID);
 			if (!report.Ok)
 			{
 				return ApiResults.Fail(new Failure(report.Code!, report.Params!));
-			}
-
-			Lobby? lobby = m_lobbyManager.GetLobby(lobbyID);
-			if (lobby == null)
-			{
-				return ApiResults.Fail(Result.NotFound("lobby"));
-			}
-			if (lobby.GetMemberFromUserID(Me) == null)
-			{
-				return ApiResults.Fail(Result.Fail(ErrorCodes.LobbyNotMember));
 			}
 
 			ConnectionReport row = report.Data!;
