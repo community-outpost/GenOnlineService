@@ -144,5 +144,28 @@ namespace GenOnlineService.Tests
 		{
 			Assert.Equal(field, FieldOf(MatchArgs.Read(Query(query)).Failure));
 		}
+
+		[Fact]
+		public void MatchSlotsCarryTheStoredTagOfTheirAccount()
+		{
+			MatchHistory_Entry entry = new MatchHistory_Entry(1201, 42, "1v1", true, "2026-11-01T10:00:00Z", "2026-11-01T10:30:00Z", "Desert", "maps/desert",
+				"1v1", ELobbyType.CustomGame, true, false, 10000, false, true, false, 310, 1, 2);
+			entry.members.Add(new MatchdataMemberModel { user_id = 42, display_name = "Bob" });
+			entry.members.Add(new MatchdataMemberModel { user_id = 7, display_name = "Ann" });
+			entry.members.Add(new MatchdataMemberModel { user_id = -1, display_name = "" });
+
+			Assert.Equal([42L, 7L], MatchResponse.UserIdsOf(entry));
+			MatchResponse match = MatchResponse.Of(entry, new Dictionary<long, int> { [42] = 42 });
+			Assert.Equal("0042", match.Slots[0].Tag);
+			Assert.Null(match.Slots[1].Tag);
+			Assert.Null(match.Slots[2].Tag);
+		}
+
+		[Fact]
+		public void PlayerTagIsWrittenWithFourDigitsAndLeftOutWithoutOne()
+		{
+			Assert.Equal("0007", PlayerTags.Of(7));
+			Assert.Null(PlayerTags.Of(0));
+		}
 	}
 }

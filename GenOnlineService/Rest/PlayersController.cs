@@ -137,7 +137,7 @@ namespace GenOnlineService.Rest
 					SharedUserData? shared = WebSocketManager.GetSharedDataForUser(userID);
 					if (shared != null && seen.Add(userID))
 					{
-						yield return RealtimeMembers.Of(userID, shared.m_strDisplayName, RealtimeMembers.ClientOf(sessionType));
+						yield return RealtimeMembers.Of(userID, shared.m_strDisplayName, RealtimeMembers.ClientOf(sessionType), shared.m_NameTag);
 					}
 				}
 			}
@@ -149,7 +149,7 @@ namespace GenOnlineService.Rest
 			(int total, List<Database.PublicPlayer> players) = await Database.PublicPlayers.Search(db, search, page.Skip, page.PerPage);
 
 			Paging.WriteOffsetHeaders(HttpContext, page, total);
-			return RestResults.Ok(new PlayerListResponse { Players = players.Select(player => RealtimeMembers.Of(player.ID, player.Name)).ToArray() });
+			return RestResults.Ok(new PlayerListResponse { Players = players.Select(player => RealtimeMembers.Of(player.ID, player.Name, null, player.NameTag)).ToArray() });
 		}
 
 		// Blocked and deactivated accounts answer not_found; ratings are the stored ones
@@ -169,6 +169,7 @@ namespace GenOnlineService.Rest
 			{
 				Id = player.Value.ID,
 				Name = player.Value.Name,
+				Tag = PlayerTags.Of(player.Value.NameTag),
 				Badges = RealtimeBadges.For(userID),
 				CreatedAt = player.Value.CreatedAt,
 				EloRating = elo.Rating,

@@ -21,6 +21,7 @@ using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Rest
 {
@@ -36,6 +37,9 @@ namespace GenOnlineService.Rest
 		public int Rank { get; init; }
 		public long UserId { get; init; }
 		public string Name { get; init; } = "";
+		// "0042": Name#tag is unique, the name alone is not (section 3.1)
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Tag { get; init; }
 		public int Rating { get; init; }
 		public int Matches { get; init; }
 	}
@@ -88,6 +92,7 @@ namespace GenOnlineService.Rest
 					Rank = page.Skip + index + 1,
 					UserId = entry.UserID,
 					Name = entry.Name,
+					Tag = PlayerTags.Of(entry.NameTag),
 					Rating = entry.Rating,
 					Matches = entry.Matches
 				}).ToArray()

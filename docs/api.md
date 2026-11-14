@@ -15,7 +15,7 @@ Every REST route of the service. The realtime hub is `/realtime` (`docs/realtime
 
 | Route | Auth | Answer and errors |
 |---|---|---|
-| `GET /api/v1/me` | session of any client, the website included | `{user_id, display_name, roles, permissions}` |
+| `GET /api/v1/me` | session of any client, the website included | `{user_id, display_name, tag, roles, permissions}` |
 | `GET /api/v1/me/sessions` | session of any client | `{sessions: [{type: game\|launcher\|chat, client_id, registered_at}]}` |
 | `POST /api/v1/me/eos_token` | game session | `{eos_token, expires_in}`; `session.game_required` (403), `service.unavailable {what: eos_token}` |
 | `PUT /api/v1/me/linked_accounts/eos` | game session | body `{id_token}` (the Epic ID token), 204; `session.game_required`, `eos.invalid_token` (422), `eos.account_mismatch` (403), `eos.account_in_use` (409), `eos.account_locked` (409), `service.unavailable {what: eos}` |
@@ -29,18 +29,20 @@ Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention d
 | `GET /api/v1/compatibility?client=&version=` | anonymous | `{compatible, min_version, service_version, update: {patcher_name, patcher_path, patcher_size}\|null}`; `client` is a registry client id, `version` is `YYYY.MM.PATCH`. The executable check is part of `POST /api/v1/auth/session`; executable CRCs for the launcher are in the CDN release manifest |
 | `GET /api/v1/config` | session | `{service_config, anticheat_level, motd}`; the MOTD is the `motd` application setting, else `data/motd.txt`, with `{0}` replaced by the players online; `service.unavailable {what: config}` when a data file is missing |
 | `GET /api/v1/stats/global` | anonymous | `{players, lobbies, factions: [{side, matches, wins}]}` |
-| `GET /api/v1/leaderboards/:id` | anonymous | `elo` only: `{id, entries: [{rank, user_id, name, rating, matches}]}`, offset paged |
+| `GET /api/v1/leaderboards/:id` | anonymous | `elo` only: `{id, entries: [{rank, user_id, name, tag, rating, matches}]}`, offset paged |
+
+`tag` is the stored name tag written like the hub's `Member.tag` (`"0042"`), so a client shows `Name#0042`; it is left out for an account without one.
 
 ## Players, matches and lobbies
 
 | Route | Auth | Answer and errors |
 |---|---|---|
 | `GET /api/v1/players?online=true&search=` | session | `{players: [Member]}`, offset paged; `search` is a case-insensitive name prefix of at least 2 characters; one of the two is required (`invalid_argument {field: search}`) |
-| `GET /api/v1/players/:id` | session | public profile `{id, name, badges, created_at, elo_rating, monthly_elo_rating, elo_matches}` |
+| `GET /api/v1/players/:id` | session | public profile `{id, name, tag, badges, created_at, elo_rating, monthly_elo_rating, elo_matches}` |
 | `GET /api/v1/players/:id/stats` | session | the player's stats |
 | `GET /api/v1/players/stats?ids=1,2,3` | session | `{stats: [...]}` in request order, unknown ids left out, at most 100 ids |
 | `GET /api/v1/matches?after_id=&since=&per_page=` | `match_history.read` | finished matches; with `after_id` or `since` (finish time) ascending by id with a next link, otherwise the newest page |
-| `GET /api/v1/matches/:id` | `match_history.read` | one match, running or finished |
+| `GET /api/v1/matches/:id` | `match_history.read` | one match, running or finished; a slot's `name` is the one the player had in the match, `tag` is the account's current tag |
 | `GET /api/v1/lobbies` | player session or `lobbies.read` | `{lobbies: [LobbySummary]}`; players get what `WatchLobbyList` shows them |
 
 ## Tokens and service accounts

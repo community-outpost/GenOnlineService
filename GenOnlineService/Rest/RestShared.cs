@@ -40,6 +40,12 @@ namespace GenOnlineService.Rest
 		public const string MethodNotAllowed = "method_not_allowed";
 	}
 
+	// The tag a player response carries, written like Member.tag ("0042"); null for an account without one
+	public static class PlayerTags
+	{
+		public static string? Of(int nameTag) => nameTag > 0 ? Database.DisplayNames.FormatTag(nameTag) : null;
+	}
+
 	// Answers with the single error body; codes not listed here keep the status of ApiResults.StatusOf
 	public static class RestResults
 	{

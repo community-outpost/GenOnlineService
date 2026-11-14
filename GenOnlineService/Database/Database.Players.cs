@@ -117,9 +117,9 @@ public class PlayerNetworkConfiguration : IEntityTypeConfiguration<PlayerNetwork
 
 namespace Database
 {
-	public readonly record struct PublicPlayer(long ID, string Name, DateTime CreatedAt);
+	public readonly record struct PublicPlayer(long ID, string Name, int NameTag, DateTime CreatedAt);
 
-	public readonly record struct RankedPlayer(long UserID, string Name, int Rating, int Matches);
+	public readonly record struct RankedPlayer(long UserID, string Name, int NameTag, int Rating, int Matches);
 
 	// Accounts other players may see: blocked and deactivated accounts are hidden, a play ban does not hide an account
 	public static class PublicPlayers
@@ -130,7 +130,7 @@ namespace Database
 		{
 			return Visible(db)
 				.Where(u => u.ID == userID)
-				.Select(u => (PublicPlayer?)new PublicPlayer(u.ID, u.Username, u.CreatedAt))
+				.Select(u => (PublicPlayer?)new PublicPlayer(u.ID, u.Username, u.NameTag, u.CreatedAt))
 				.FirstOrDefaultAsync();
 		}
 
@@ -145,7 +145,7 @@ namespace Database
 				.ThenBy(u => u.ID)
 				.Skip(skip)
 				.Take(take)
-				.Select(u => new PublicPlayer(u.ID, u.Username, u.CreatedAt))
+				.Select(u => new PublicPlayer(u.ID, u.Username, u.NameTag, u.CreatedAt))
 				.ToListAsync();
 			return (total, page);
 		}
@@ -160,7 +160,7 @@ namespace Database
 				from rating in db.PlayerRatings.AsNoTracking()
 				join user in PublicPlayers.Visible(db) on rating.UserID equals user.ID
 				where rating.Kind == RatingKinds.AllTime && rating.MatchesPlayed > 0
-				select new { rating.UserID, user.Username, rating.Rating, rating.MatchesPlayed };
+				select new { rating.UserID, user.Username, user.NameTag, rating.Rating, rating.MatchesPlayed };
 
 			int total = await ranked.CountAsync();
 			List<RankedPlayer> page = await ranked
@@ -168,7 +168,7 @@ namespace Database
 				.ThenBy(r => r.UserID)
 				.Skip(skip)
 				.Take(take)
-				.Select(r => new RankedPlayer(r.UserID, r.Username, r.Rating, r.MatchesPlayed))
+				.Select(r => new RankedPlayer(r.UserID, r.Username, r.NameTag, r.Rating, r.MatchesPlayed))
 				.ToListAsync();
 			return (total, page);
 		}

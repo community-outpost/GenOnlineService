@@ -35,6 +35,9 @@ namespace GenOnlineService.Rest
 	{
 		public long Id { get; init; }
 		public string Name { get; init; } = "";
+		// "0042": Name#tag is unique, the name alone is not (section 3.1)
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Tag { get; init; }
 		public IReadOnlyList<string> Badges { get; init; } = [];
 		public DateTime CreatedAt { get; init; }
 		public int EloRating { get; init; }

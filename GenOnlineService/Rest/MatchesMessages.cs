@@ -19,6 +19,7 @@
 using GenOnlineService.Api;
 using GenOnlineService.Realtime;
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Rest
 {
@@ -30,12 +31,15 @@ namespace GenOnlineService.Rest
 		public MatchFileType Type { get; init; }
 	}
 
-	// One of the 8 slots of a match in slot order; user_id is null for open, closed and AI slots and for removed accounts
+	// One of the 8 slots of a match in slot order; user_id is null for open, closed and AI slots and for removed accounts.
+	// name is the one the player had in the match, tag is the account's current tag
 	public sealed record MatchSlot
 	{
 		public SlotState State { get; init; }
 		public long? UserId { get; init; }
 		public string Name { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Tag { get; init; }
 		public int Side { get; init; }
 		public int Color { get; init; }
 		public int? Team { get; init; }
@@ -69,7 +73,12 @@ namespace GenOnlineService.Rest
 		public DateTime? FinishedAt { get; init; }
 		public IReadOnlyList<MatchSlot> Slots { get; init; } = [];
 
-		public static MatchResponse Of(MatchHistory_Entry entry)
+		// The user ids of the player slots, to look up their tags
+		public static IEnumerable<long> UserIdsOf(MatchHistory_Entry entry) =>
+			entry.members.Where(member => member != null && member.Value.user_id > 0).Select(member => member!.Value.user_id);
+
+		// tags maps a user id to its stored name_tag; users not in it get no tag
+		public static MatchResponse Of(MatchHistory_Entry entry, IReadOnlyDictionary<long, int> tags)
 		{
 			return new MatchResponse
 			{
@@ -91,19 +100,20 @@ namespace GenOnlineService.Rest
 				Build = new BuildIdentity { ExeCrc = entry.exe_crc, IniCrc = entry.ini_crc },
 				StartedAt = ParseTime(entry.time_started),
 				FinishedAt = entry.is_finished ? ParseTime(entry.time_finished) : null,
-				Slots = entry.members.Where(member => member != null).Select(member => SlotOf(member!.Value)).ToArray()
+				Slots = entry.members.Where(member => member != null).Select(member => SlotOf(member!.Value, tags)).ToArray()
 			};
 		}
 
 		private static DateTime ParseTime(string text) => DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
 
-		private static MatchSlot SlotOf(MatchdataMemberModel member)
+		private static MatchSlot SlotOf(MatchdataMemberModel member, IReadOnlyDictionary<long, int> tags)
 		{
 			return new MatchSlot
 			{
 				State = RealtimeLobbies.SlotStateOf(member.slot_state),
 				UserId = member.user_id > 0 ? member.user_id : null,
 				Name = member.display_name,
+				Tag = member.user_id > 0 && tags.TryGetValue(member.user_id, out int tag) ? PlayerTags.Of(tag) : null,
 				Side = member.side,
 				Color = member.color,
 				Team = member.team < 0 ? null : member.team,
