@@ -30,7 +30,11 @@ namespace GenOnlineService.Realtime
 		Task MemberAdd(MemberAddEvent e);
 		Task MemberRemove(MemberRemoveEvent e);
 		Task MemberUpdate(MemberUpdateEvent e);
-		Task MessageCreate(MessageCreateEvent e);
+		Task ChannelHistory(ChannelHistoryEvent e);
+		Task MessageCreate(Message e);
+		Task MessageDelete(MessageRefEvent e);
+		Task DirectMessages(DirectMessagesEvent e);
+		Task ReadMarker(MessageRefEvent e);
 
 		Task LobbyListUpsert(LobbyListUpsertEvent e);
 		Task LobbyListRemove(LobbyIdEvent e);

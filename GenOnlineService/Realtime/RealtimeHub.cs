@@ -110,6 +110,7 @@ namespace GenOnlineService.Realtime
 
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
+			await SendDirectMessagesSnapshotAsync(session);
 			await RestoreChannelAsync(session);
 			await RestoreLobbyAsync(session);
 			await OnConnectionOpenedAsync(session);

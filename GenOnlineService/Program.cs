@@ -939,6 +939,18 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("reports", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunReports(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("messages", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunMessages(args);
+				return;
+			}
+
 			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);

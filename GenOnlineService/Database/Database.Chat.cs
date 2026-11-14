@@ -84,7 +84,8 @@ public class ChatReport
 	public Int64 ReporterID { get; set; }
 	public string? Reason { get; set; }
 
-	// A JSON object with the reported message and up to 10 messages before it in the same conversation
+	// A JSON object with the reported message, up to 10 messages before it and up to 10 after it in the same conversation
+	// The retention purge fills "after" and "after_filled_at" just before the reported message expires
 	public string Snapshot { get; set; } = "{}";
 
 	// Whatever closes a report sets closed_at too, the purge counts from it
@@ -466,18 +467,10 @@ namespace Database
 				return ChatReportResult.Duplicate;
 			}
 
-			IQueryable<ChatMessage> conversation = db.ChatMessages.AsNoTracking().Where(m => m.ID < message.ID);
-			conversation = message.Kind switch
-			{
-				ChatMessageKinds.Channel => conversation.Where(m => m.Kind == ChatMessageKinds.Channel && m.ChannelID == message.ChannelID),
-				ChatMessageKinds.Lobby => conversation.Where(m => m.LobbyID == message.LobbyID),
-				_ => conversation.Where(m => (m.SenderID == message.SenderID && m.RecipientID == message.RecipientID) || (m.SenderID == message.RecipientID && m.RecipientID == message.SenderID))
-			};
-
-			List<ChatMessage> context = await conversation.OrderByDescending(m => m.ID).Take(SnapshotContextMessages).ToListAsync(cancellationToken);
+			List<ChatMessage> context = await ConversationOf(db, message).Where(m => m.ID < message.ID).OrderByDescending(m => m.ID).Take(SnapshotContextMessages).ToListAsync(cancellationToken);
 			context.Reverse();
 
-			ChatReportSnapshot snapshot = new(ToSnapshot(message), context.Select(ToSnapshot).ToList());
+			ChatReportSnapshot snapshot = new(ToSnapshot(message), context.Select(ToSnapshot).ToList(), new List<ChatSnapshotMessage>(), null);
 
 			db.ChatReports.Add(new ChatReport
 			{
@@ -504,11 +497,58 @@ namespace Database
 			}
 		}
 
+		// Every message of the same conversation as the given one: same channel, same lobby or the same direct pair
+		public static IQueryable<ChatMessage> ConversationOf(AppDbContext db, ChatMessage message)
+		{
+			IQueryable<ChatMessage> conversation = db.ChatMessages.AsNoTracking();
+			return message.Kind switch
+			{
+				ChatMessageKinds.Channel => conversation.Where(m => m.Kind == ChatMessageKinds.Channel && m.ChannelID == message.ChannelID),
+				ChatMessageKinds.Lobby => conversation.Where(m => m.Kind == ChatMessageKinds.Lobby && m.LobbyID == message.LobbyID),
+				_ => conversation.Where(m => m.Kind == ChatMessageKinds.Direct && ((m.SenderID == message.SenderID && m.RecipientID == message.RecipientID) || (m.SenderID == message.RecipientID && m.RecipientID == message.SenderID)))
+			};
+		}
+
+		// Up to 10 messages after the given one in its conversation, oldest first
+		public static async Task<List<ChatMessage>> GetMessagesAfter(AppDbContext db, ChatMessage message, CancellationToken cancellationToken = default)
+		{
+			return await ConversationOf(db, message).Where(m => m.ID > message.ID).OrderBy(m => m.ID).Take(SnapshotContextMessages).ToListAsync(cancellationToken);
+		}
+
+		public static async Task<List<ChatReport>> GetReports(AppDbContext db, string status, int limit, CancellationToken cancellationToken = default)
+		{
+			return await db.ChatReports.AsNoTracking().Where(r => r.Status == status).OrderBy(r => r.ID).Take(limit).ToListAsync(cancellationToken);
+		}
+
+		public static async Task<ChatReport?> GetReport(AppDbContext db, long reportId, CancellationToken cancellationToken = default)
+		{
+			return await db.ChatReports.AsNoTracking().FirstOrDefaultAsync(r => r.ID == reportId, cancellationToken);
+		}
+
+		// Closes an open report and returns false when it was not open, the purge removes it 30 days later
+		public static async Task<bool> CloseReport(AppDbContext db, long reportId, CancellationToken cancellationToken = default)
+		{
+			DateTime now = TruncateToMicroseconds(DateTime.UtcNow);
+			int updated = await db.ChatReports
+				.Where(r => r.ID == reportId && r.Status == ChatReportStatuses.Open)
+				.ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, ChatReportStatuses.Closed).SetProperty(r => r.ClosedAt, now), cancellationToken);
+			return updated > 0;
+		}
+
+		// True when the stored snapshot still waits for the purge to freeze its later messages
+		public static bool SnapshotAfterPending(string snapshot)
+		{
+			ChatReportSnapshot? parsed = ParseSnapshot(snapshot);
+			return parsed != null && parsed.AfterFilledAt == null;
+		}
+
 		// Runs hourly with the other retention purges, open reports are never purged
 		public static async Task<ChatPurgeCounts> PurgeExpired(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
 		{
 			DateTime messageCutoff = utcNow - MessageRetention;
 			DateTime reportCutoff = utcNow - ClosedReportRetention;
+
+			await FillReportsAfter(db, messageCutoff, utcNow, cancellationToken);
 
 			int messages = await db.ChatMessages.Where(m => m.CreatedAt < messageCutoff).ExecuteDeleteAsync(cancellationToken);
 
@@ -536,6 +576,60 @@ namespace Database
 
 			await transaction.CommitAsync(cancellationToken);
 			return removed;
+		}
+
+		private const int FillBatchSize = 100;
+
+		// Freezes the later messages of every open report whose reported message is about to be purged, in batches by report id
+		private static async Task FillReportsAfter(AppDbContext db, DateTime messageCutoff, DateTime utcNow, CancellationToken cancellationToken)
+		{
+			DateTime filledAt = TruncateToMicroseconds(utcNow);
+			long lastReportId = 0;
+
+			while (true)
+			{
+				var batch = await (
+					from r in db.ChatReports.AsNoTracking()
+					join m in db.ChatMessages.AsNoTracking() on r.MessageID equals m.ID
+					where r.Status == ChatReportStatuses.Open && r.ID > lastReportId && m.CreatedAt < messageCutoff
+					orderby r.ID
+					select new { Report = r, Message = m })
+					.Take(FillBatchSize)
+					.ToListAsync(cancellationToken);
+
+				if (batch.Count == 0)
+				{
+					return;
+				}
+
+				foreach (var row in batch)
+				{
+					ChatReportSnapshot? snapshot = ParseSnapshot(row.Report.Snapshot);
+					if (snapshot == null || snapshot.AfterFilledAt != null)
+					{
+						continue;
+					}
+
+					List<ChatMessage> after = await GetMessagesAfter(db, row.Message, cancellationToken);
+					string filled = JsonSerializer.Serialize(snapshot with { After = after.Select(ToSnapshot).ToList(), AfterFilledAt = filledAt }, s_snapshotJson);
+					long reportId = row.Report.ID;
+					await db.ChatReports.Where(r => r.ID == reportId).ExecuteUpdateAsync(s => s.SetProperty(r => r.Snapshot, filled), cancellationToken);
+				}
+
+				lastReportId = batch[^1].Report.ID;
+			}
+		}
+
+		private static ChatReportSnapshot? ParseSnapshot(string snapshot)
+		{
+			try
+			{
+				return JsonSerializer.Deserialize<ChatReportSnapshot>(snapshot, s_snapshotJson);
+			}
+			catch (JsonException)
+			{
+				return null;
+			}
 		}
 
 		private static ChatPage ToPage(List<ChatMessage> newestFirst, int limit)
@@ -568,7 +662,9 @@ namespace Database
 
 		private sealed record ChatReportSnapshot(
 			[property: JsonPropertyName("message")] ChatSnapshotMessage Message,
-			[property: JsonPropertyName("before")] List<ChatSnapshotMessage> Before);
+			[property: JsonPropertyName("before")] List<ChatSnapshotMessage> Before,
+			[property: JsonPropertyName("after")] List<ChatSnapshotMessage>? After,
+			[property: JsonPropertyName("after_filled_at"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] DateTime? AfterFilledAt);
 
 		private sealed record ChatSnapshotMessage(
 			[property: JsonPropertyName("id")] long ID,

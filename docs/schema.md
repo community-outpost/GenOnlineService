@@ -117,7 +117,7 @@ chat_reports              id, message_id, reporter_id, reason varchar(512) null,
                           -- retention: kept while open, purged 30 days after closed_at
 ```
 
-Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages. A report's `snapshot` holds the reported message and up to 10 messages before it in the same conversation, so its `message_id` may point at a purged message and moderation reads the snapshot instead. Closing a report sets `closed_at`. Account deletion deletes the messages the user sent, their read markers and their closed reports; their open reports stay until closed.
+Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages. A report's `snapshot` is `{message, before: [up to 10, oldest first], after: [up to 10, oldest first], after_filled_at: ISO UTC or null}` for the same conversation: the report stores the message and `before`, and the hourly purge fills `after` and `after_filled_at` for open reports just before the reported message expires. Its `message_id` may therefore point at a purged message, and moderation reads the snapshot instead. Closing a report sets `closed_at`. Account deletion deletes the messages the user sent, their read markers and their closed reports; their open reports stay until closed.
 
 ### Players and devices
 

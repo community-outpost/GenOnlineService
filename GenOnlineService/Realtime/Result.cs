@@ -64,7 +64,7 @@ namespace GenOnlineService.Realtime
 		public const string ChatTooLong = "chat.too_long";
 		public const string ChatMuted = "chat.muted";
 		public const string ChatNotFriends = "chat.not_friends";
-		public const string ChatRecipientOffline = "chat.recipient_offline";
+		public const string ReportDuplicate = "report.duplicate";
 		public const string NameLength = "name.length";
 		public const string NameInvalidCharacters = "name.invalid_characters";
 		public const string NameWhitespace = "name.whitespace";

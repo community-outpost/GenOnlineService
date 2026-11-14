@@ -52,6 +52,22 @@ namespace GenOnlineService.Realtime
 		public ClientType? Client { get; init; }
 	}
 
+	// A chat message as MessageCreate and history carry it, a tombstone has only id, channel_id, created_at and deleted
+	public sealed record Message
+	{
+		public string Id { get; init; } = "";
+		public string ChannelId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public MessageType? Type { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public Member? Author { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Content { get; init; }
+		public DateTime CreatedAt { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+		public bool Deleted { get; init; }
+	}
+
 	public sealed record FriendMember
 	{
 		public long Id { get; init; }
@@ -230,6 +246,28 @@ namespace GenOnlineService.Realtime
 		public string ChannelId { get; init; } = "";
 		public MessageType Type { get; init; }
 		public string Content { get; init; } = "";
+	}
+
+	public sealed record GetHistoryRequest
+	{
+		public string ChannelId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Before { get; init; }
+		public int Limit { get; init; }
+	}
+
+	public sealed record MarkReadRequest
+	{
+		public string ChannelId { get; init; } = "";
+		public string MessageId { get; init; } = "";
+	}
+
+	// DeleteMessage and ReportMessage
+	public sealed record MessageActionRequest
+	{
+		public string MessageId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Reason { get; init; }
 	}
 
 	public sealed record SetDisplayNameRequest
@@ -428,6 +466,12 @@ namespace GenOnlineService.Realtime
 		public string MessageId { get; init; } = "";
 	}
 
+	public sealed record HistoryData
+	{
+		public IReadOnlyList<Message> Messages { get; init; } = [];
+		public bool HasMore { get; init; }
+	}
+
 	public sealed record WatchLobbyListData
 	{
 		public IReadOnlyList<LobbySummary> Lobbies { get; init; } = [];
@@ -511,14 +555,30 @@ namespace GenOnlineService.Realtime
 		public Member Member { get; init; } = new Member();
 	}
 
-	public sealed record MessageCreateEvent
+	public sealed record ChannelHistoryEvent
 	{
-		public string Id { get; init; } = "";
 		public string ChannelId { get; init; } = "";
-		public MessageType Type { get; init; }
-		public Member Author { get; init; } = new Member();
-		public string Content { get; init; } = "";
-		public DateTime CreatedAt { get; init; }
+		public IReadOnlyList<Message> Messages { get; init; } = [];
+		public bool HasMore { get; init; }
+	}
+
+	// MessageDelete and ReadMarker
+	public sealed record MessageRefEvent
+	{
+		public string ChannelId { get; init; } = "";
+		public string MessageId { get; init; } = "";
+	}
+
+	public sealed record DirectConversationInfo
+	{
+		public long UserId { get; init; }
+		public int Unread { get; init; }
+		public Message Last { get; init; } = new Message();
+	}
+
+	public sealed record DirectMessagesEvent
+	{
+		public IReadOnlyList<DirectConversationInfo> Conversations { get; init; } = [];
 	}
 
 	public sealed record LobbyListUpsertEvent

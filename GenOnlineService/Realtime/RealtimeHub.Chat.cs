@@ -37,8 +37,6 @@ namespace GenOnlineService.Realtime
 		// Lobbies add (N) to tell duplicate names apart, so a name never ends with one
 		private static readonly Regex s_dedupeSuffix = new(@"\((1[0-9]|20|[0-9])\)$", RegexOptions.Compiled);
 
-		private static long s_lastMessageID;
-
 		public async Task<Result<Empty>> JoinChannel(JoinChannelRequest request)
 		{
 			if (request.ChannelId < 0 || request.ChannelId > Int16.MaxValue)
@@ -97,7 +95,10 @@ namespace GenOnlineService.Realtime
 			}
 
 			// the audience is resolved before any limit is spent
-			Func<MessageCreateEvent, Task> deliver;
+			string storedType = StoredType(request.Type);
+			Func<AppDbContext, Task<ChatMessage>> store;
+			Func<Message, Task> deliver;
+			bool recipientOffline = false;
 			switch (kind)
 			{
 				case "channel":
@@ -109,6 +110,7 @@ namespace GenOnlineService.Realtime
 					}
 
 					List<string> excluded = BlockedConnections(author, RealtimeAudience.AllSessions().Where(s => s.networkRoomID == channelID));
+					store = db => Database.Chat.InsertChannelMessage(db, channelID, author, storedType, content);
 					deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Channel(channelID), excluded).MessageCreate(message);
 					break;
 				}
@@ -128,8 +130,13 @@ namespace GenOnlineService.Realtime
 					}
 
 					List<UserSession> memberSessions = new();
+					List<Int64> memberIDs = new();
 					foreach (LobbyMember? member in lobby.Members.ToArray())
 					{
+						if (member != null && member.IsHuman())
+						{
+							memberIDs.Add(member.UserID);
+						}
 						UserSession? memberSession = member != null && member.IsHuman() ? WebSocketManager.GetSessionFromUser(member.UserID, EUserSessionType.GameClient) : null;
 						if (memberSession != null)
 						{
@@ -138,34 +145,42 @@ namespace GenOnlineService.Realtime
 					}
 
 					List<string> excluded = BlockedConnections(author, memberSessions);
-					deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Lobby(targetID), excluded).MessageCreate(message);
+					Int64? matchID = lobby.MatchID == 0 ? null : (Int64)lobby.MatchID;
+					store = db => Database.Chat.InsertLobbyMessage(db, targetID, matchID, author, storedType, content);
+					deliver = message =>
+					{
+						// lets members who leave later still report what they received
+						LobbyChatAudience.Record(targetID, memberIDs);
+						return RealtimeOut.GroupExcept(RealtimeGroups.Lobby(targetID), excluded).MessageCreate(message);
+					};
 					break;
 				}
 				default:
 				{
-					if (targetID == author)
+					if (targetID <= 0 || targetID == author)
 					{
 						return Result.Invalid("channel_id");
 					}
-					if (!SocialState.HasFriend(author, targetID) || RealtimeAudience.BlockedEitherWay(author, targetID))
+					if (!SocialState.HasFriend(author, targetID) || SocialState.HasBlocked(author, targetID))
 					{
 						return Result.Fail(ErrorCodes.ChatNotFriends);
 					}
-					if (WebSocketManager.GetSharedDataForUser(targetID) == null)
-					{
-						return Result.Fail(ErrorCodes.ChatRecipientOffline);
-					}
-					if (!SocialState.HasFriend(targetID, author))
+
+					// an offline friend has no cached social state, so the block check below reads the database
+					recipientOffline = WebSocketManager.GetSharedDataForUser(targetID) == null;
+					if (!recipientOffline && (SocialState.HasBlocked(targetID, author) || !SocialState.HasFriend(targetID, author)))
 					{
 						return Result.Fail(ErrorCodes.ChatNotFriends);
 					}
 
 					Int64 recipient = targetID;
-					deliver = message =>
+					store = db => Database.Chat.InsertDirectMessage(db, author, recipient, storedType, content);
+
+					// each side sees the conversation as dm:<the other user>
+					deliver = async message =>
 					{
-						List<string> connections = RealtimeAudience.ConnectionsOf(author);
-						connections.AddRange(RealtimeAudience.ConnectionsOf(recipient));
-						return RealtimeOut.Connections(connections.Distinct().ToArray()).MessageCreate(message);
+						await RealtimeOut.Connections(RealtimeAudience.ConnectionsOf(author)).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(recipient) });
+						await RealtimeOut.Connections(RealtimeAudience.ConnectionsOf(recipient)).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(author) });
 					};
 					break;
 				}
@@ -174,6 +189,10 @@ namespace GenOnlineService.Realtime
 			Ban? mute;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
+				if (recipientOffline && await Database.Social.IsBlocked(db, targetID, author))
+				{
+					return Result.Fail(ErrorCodes.ChatNotFriends);
+				}
 				mute = await Database.Moderation.GetActiveChatMute(db, author);
 			}
 			if (mute != null)
@@ -187,15 +206,22 @@ namespace GenOnlineService.Realtime
 				return Result.Fail(ErrorCodes.ChatRateLimited, new { RetryAfterMs = retryAfterMs });
 			}
 
-			string messageID = Interlocked.Increment(ref s_lastMessageID).ToString(CultureInfo.InvariantCulture);
-			MessageCreateEvent message = new MessageCreateEvent
+			// stored before delivery, so the wire id and created_at are the stored ones and history never misses a delivered message
+			ChatMessage stored;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				stored = await store(db);
+			}
+
+			string messageID = stored.ID.ToString(CultureInfo.InvariantCulture);
+			Message message = new Message
 			{
 				Id = messageID,
-				ChannelId = request.ChannelId,
+				ChannelId = ConversationIDOf(stored, author),
 				Type = request.Type,
 				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName),
 				Content = content,
-				CreatedAt = DateTime.UtcNow
+				CreatedAt = stored.CreatedAt
 			};
 			await deliver(message);
 
@@ -279,6 +305,7 @@ namespace GenOnlineService.Realtime
 			await Clients.Group(channel).MemberAdd(new MemberAddEvent { ChannelId = channel, Member = RealtimeMembers.Of(session) });
 			await Groups.AddToGroupAsync(Context.ConnectionId, channel);
 			await Clients.Caller.ChannelMembers(BuildChannelMembers(channelID));
+			await SendChannelHistoryAsync(channelID);
 		}
 
 		// A dropped connection leaves its channel for the others, the session keeps the channel for RestoreChannelAsync
@@ -320,6 +347,7 @@ namespace GenOnlineService.Realtime
 			if (newChannel >= 0)
 			{
 				await Clients.Caller.ChannelMembers(BuildChannelMembers(newChannel));
+				await SendChannelHistoryAsync(newChannel);
 			}
 		}
 
