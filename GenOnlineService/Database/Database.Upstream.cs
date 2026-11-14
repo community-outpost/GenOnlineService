@@ -43,7 +43,8 @@ namespace Database
 			{
 				CreatedAt = now,
 				ActorKind = ActorKind,
-				Actor = source,
+				// the actor is the provider name; source keeps the full "upstream:<provider>"
+				Actor = source.StartsWith(AuthoritySources.UpstreamPrefix, StringComparison.Ordinal) ? source.Substring(AuthoritySources.UpstreamPrefix.Length) : source,
 				Action = action,
 				TargetKind = AuditTargetKinds.User,
 				TargetID = userID,
