@@ -212,7 +212,7 @@ namespace GenOnlineService.Controllers
 			}
 		}
 
-		private static readonly string[] s_KnownGames = { "generals", "generalsmd" };
+		private static readonly string[] s_KnownGames = { "generals", "zerohour" };
 
 		private const string DefaultMinClientVersion = "0.0.0";
 

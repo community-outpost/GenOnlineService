@@ -306,20 +306,20 @@ namespace GenOnlineService
 		public enum EKnownClients
 		{
 			unknown = -1,
-			generalsmd = 0,
-			generals = 1,
-			launcher = 2,
-			chat = 3,
+			genonline_zerohour = 0,
+			genonline_generals = 1,
+			genonline_launcher = 2,
+			genonline_chat = 3,
 			genhub = 4,
 			custom_third_party_client = 5
 		}
 
 		public static ConcurrentDictionary<EKnownClients, EUserSessionType> KnownClientSessionTypes = new()
 		{
-			[EKnownClients.generalsmd] = EUserSessionType.GameClient,
-			[EKnownClients.generals] = EUserSessionType.GameClient,
-			[EKnownClients.launcher] = EUserSessionType.GameLauncher,
-			[EKnownClients.chat] = EUserSessionType.ChatClient,
+			[EKnownClients.genonline_zerohour] = EUserSessionType.GameClient,
+			[EKnownClients.genonline_generals] = EUserSessionType.GameClient,
+			[EKnownClients.genonline_launcher] = EUserSessionType.GameLauncher,
+			[EKnownClients.genonline_chat] = EUserSessionType.ChatClient,
 			[EKnownClients.genhub] = EUserSessionType.GameLauncher,
 			[EKnownClients.custom_third_party_client] = EUserSessionType.GameClient
 		};
