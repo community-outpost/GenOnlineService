@@ -248,24 +248,19 @@ namespace GenOnlineService.Realtime
 		internal static void PublishPresence(Int64 userID)
 		{
 			FriendPresenceEvent presence = RealtimePresence.Of(userID);
-			List<string> connections = new();
-			foreach (Int64 friendID in OnlineFriendsOf(userID))
+			IReadOnlyCollection<Int64> friends = FriendsToTell(userID);
+			if (friends.Count > 0)
 			{
-				connections.AddRange(RealtimeAudience.ConnectionsOf(friendID));
-			}
-
-			if (connections.Count > 0)
-			{
-				RealtimeOut.Fire(RealtimeOut.Connections(connections.Distinct().ToArray()).FriendPresence(presence));
+				RealtimeOut.Fire(RealtimeOut.Users(friends).FriendPresence(presence));
 			}
 		}
 
-		// The user's own cache when they are online, otherwise every online user who lists them as a friend
-		private static IEnumerable<Int64> OnlineFriendsOf(Int64 userID)
+		// The user's own cache when they are online, which reaches friends on every copy, otherwise every user on this copy who lists them as a friend
+		private static IReadOnlyCollection<Int64> FriendsToTell(Int64 userID)
 		{
 			if (SocialState.Of(userID) != null)
 			{
-				return SocialState.Snapshot(userID, c => c.Friends).Where(id => WebSocketManager.GetSharedDataForUser(id) != null);
+				return SocialState.Snapshot(userID, c => c.Friends);
 			}
 
 			return RealtimeAudience.AllSessions().Select(s => s.m_UserID).Distinct().Where(id => SocialState.HasFriend(id, userID)).ToArray();

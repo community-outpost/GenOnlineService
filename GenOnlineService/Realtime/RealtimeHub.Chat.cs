@@ -179,8 +179,8 @@ namespace GenOnlineService.Realtime
 					// each side sees the conversation as dm:<the other user>
 					deliver = async message =>
 					{
-						await RealtimeOut.Connections(RealtimeAudience.ConnectionsOf(author)).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(recipient) });
-						await RealtimeOut.Connections(RealtimeAudience.ConnectionsOf(recipient)).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(author) });
+						await RealtimeOut.User(author).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(recipient) });
+						await RealtimeOut.User(recipient).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(author) });
 					};
 					break;
 				}
@@ -284,7 +284,7 @@ namespace GenOnlineService.Realtime
 			}
 			userData.m_strDisplayName = name;
 
-			IRealtimeClient audience = RealtimeOut.Connections(NameAudience(userID));
+			IRealtimeClient audience = RealtimeOut.Groups(NameAudience(userID));
 			foreach (UserSession userSession in WebSocketManager.GetAllDataFromUser(userID))
 			{
 				await audience.MemberUpdate(new MemberUpdateEvent { Member = RealtimeMembers.Of(userSession) });
@@ -401,28 +401,29 @@ namespace GenOnlineService.Realtime
 			return excluded;
 		}
 
-		// Everyone who can see the user: their own connections, their channels, their lobby and their friends
+		// Everyone who can see the user: their own connections, their channels, their lobby and their friends, as disjoint groups so nobody hears it twice
 		private static IReadOnlyList<string> NameAudience(Int64 userID)
 		{
 			List<UserSession> own = WebSocketManager.GetAllDataFromUser(userID);
 			HashSet<Int16> channels = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
 			HashSet<Int64> lobbies = own.Where(s => s.currentLobbyID != -1).Select(s => s.currentLobbyID).ToHashSet();
-			HashSet<Int64> friends = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
 
-			HashSet<string> connections = new(StringComparer.Ordinal);
+			// the user and their friends hear it on every connection and every copy
+			HashSet<Int64> wholeUsers = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
+			wholeUsers.Add(userID);
+			HashSet<string> groups = new(wholeUsers.Select(RealtimeGroups.User), StringComparer.Ordinal);
+
+			// channel and lobby members are known from this copy's sessions only, each through its own session group
 			foreach (UserSession session in RealtimeAudience.AllSessions())
 			{
-				bool sees = session.m_UserID == userID
-					|| channels.Contains(session.networkRoomID)
-					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID))
-					|| friends.Contains(session.m_UserID);
-				string? connectionID = sees ? RealtimeAudience.ConnectionOf(session) : null;
-				if (connectionID != null)
+				bool sees = channels.Contains(session.networkRoomID)
+					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID));
+				if (sees && !wholeUsers.Contains(session.m_UserID) && RealtimeAudience.ConnectionOf(session) != null)
 				{
-					connections.Add(connectionID);
+					groups.Add(RealtimeGroups.UserSession(session.m_UserID, session.GetSessionType()));
 				}
 			}
-			return connections.ToArray();
+			return groups.ToArray();
 		}
 
 		private static string? ReservedWordIn(string name)

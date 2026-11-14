@@ -34,10 +34,10 @@ namespace GenOnlineService.Realtime
 				return failure.Value;
 			}
 
-			if (WebSocketManager.GetSharedDataForUser(request.UserId) == null)
+			// without a backplane only this copy can hold the target, with one another copy may
+			if (WebSocketManager.GetSharedDataForUser(request.UserId) == null && !RealtimeControl.IsShared)
 			{
-				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-				return await Database.Users.Exists(db, request.UserId) ? Result.Fail(ErrorCodes.ModerationTargetOffline) : Result.NotFound("user");
+				return await TargetOfflineAsync(request.UserId);
 			}
 
 			ModerationResult result = await ModerationManager.KickUser(request.UserId, request.Reason ?? String.Empty, Actor());
@@ -45,8 +45,14 @@ namespace GenOnlineService.Realtime
 			{
 				EModerationResult.Success => Result.Success(),
 				EModerationResult.ReasonTooLong => ReasonTooLong(),
-				_ => Result.Fail(ErrorCodes.ModerationTargetOffline)
+				_ => await TargetOfflineAsync(request.UserId)
 			};
+		}
+
+		private async Task<Result<Empty>> TargetOfflineAsync(Int64 target)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			return await Database.Users.Exists(db, target) ? Result.Fail(ErrorCodes.ModerationTargetOffline) : Result.NotFound("user");
 		}
 
 		public async Task<Result<Empty>> Mute(MuteRequest request)

@@ -380,10 +380,10 @@ namespace GenOnlineService.Identity
 			return revoked.Count;
 		}
 
-		// Closes the user's realtime connections with auth.revoked, all or one session type
+		// Closes the user's realtime connections on every copy with auth.revoked, all or one session type
 		public static Task CloseRealtime(Int64 userID, EUserSessionType? onlySessionType)
 		{
-			return WebSocketManager.DisconnectUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType);
+			return Realtime.RealtimeControl.RequestClose(Realtime.CloseRequest.ForUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType));
 		}
 	}
 

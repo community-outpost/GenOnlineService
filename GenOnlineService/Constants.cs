@@ -746,10 +746,11 @@ namespace GenOnlineService
 			return lstRet;
 		}
 
-		// Closes the user's connections with a protocol close code and destroys their sessions, all or one session type
-		public static async Task DisconnectUser(Int64 userID, string closeCode, bool allowReconnect, ModerationNoticeEvent? notice = null, EUserSessionType? onlySessionType = null)
+		// Closes the user's connections on this copy with a protocol close code and destroys their sessions, all or one session type; RealtimeControl.RequestClose reaches every copy
+		public static async Task<int> DisconnectUser(Int64 userID, string closeCode, bool allowReconnect, ModerationNoticeEvent? notice = null, EUserSessionType? onlySessionType = null)
 		{
 			List<UserSession> userSessions = GetAllDataFromUser(userID);
+			int closed = 0;
 
 			foreach (UserSession userSession in userSessions)
 			{
@@ -758,16 +759,13 @@ namespace GenOnlineService
 					continue;
 				}
 
+				closed++;
 				try
 				{
 					RealtimeConnection? oldWS = GetWebSocketForSession(userSession);
 					if (oldWS != null)
 					{
-						if (notice != null)
-						{
-							await oldWS.Client.ModerationNotice(notice);
-						}
-						await oldWS.CloseAsync(closeCode, allowReconnect);
+						await oldWS.CloseAsync(closeCode, allowReconnect, notice);
 					}
 
 					await DeleteSession(userID, userSession.GetSessionType(), oldWS, true, userSession);
@@ -777,10 +775,11 @@ namespace GenOnlineService
 					s_log.LogError(ex, "DisconnectUser failed for user {UserId}, session {SessionType}", userID, userSession.GetSessionType());
 				}
 			}
+			return closed;
 		}
 
-		// Closes only the connections opened with that sign-in and destroys their sessions, the user's other sign-ins stay
-		public static async Task DisconnectSignIn(string authorizationID, string closeCode)
+		// Closes only the connections on this copy opened with that sign-in and destroys their sessions, the user's other sign-ins stay
+		public static async Task<int> DisconnectSignIn(string authorizationID, string closeCode)
 		{
 			// sessions inside their reconnect grace have no connection but still belong to the sign-in
 			List<UserSession> matches = m_dictUserSessions.Values
@@ -804,6 +803,7 @@ namespace GenOnlineService
 					s_log.LogError(ex, "DisconnectSignIn failed for user {UserId}, session {SessionType}", session.m_UserID, session.GetSessionType());
 				}
 			}
+			return matches.Count;
 		}
 
 		public static Task<bool> ClearDataFromUser(Int64 userID, EUserSessionType sessionType)
@@ -1060,9 +1060,6 @@ namespace GenOnlineService
 
 		// The sign-in whose connection installed or last took over this session
 		public string? AuthorizationID { get; set; }
-
-		// Events for this session's current connection only, nothing while it is disconnected
-		public IRealtimeClient Client => RealtimeOut.Session(this);
 
 		public async Task<RealtimeConnection?> CloseWebsocket(string closeCode, bool allowReconnect)
 		{

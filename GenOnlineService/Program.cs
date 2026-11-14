@@ -1119,15 +1119,21 @@ namespace GenOnlineService
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
 
-			// realtime protocol v1, see docs/realtime-protocol.md
-			builder.Services.AddSignalR(options =>
+			// realtime protocol v1, see docs/realtime-protocol.md; Realtime:backplane redis carries it between copies, see docs/realtime-scaling.md
+			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);
+			Microsoft.AspNetCore.SignalR.ISignalRServerBuilder signalR = builder.Services.AddSignalR(options =>
 			{
 				options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 				options.MaximumReceiveMessageSize = 64 * 1024;
 				options.EnableDetailedErrors = false;
 			}).AddJsonProtocol(options => GenOnlineService.Realtime.RealtimeJson.Configure(options.PayloadSerializerOptions));
-			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>, RealtimeLifetimeManager>();
+			if (realtimeBackplane.UsesRedis)
+			{
+				signalR.AddStackExchangeRedis(realtimeBackplane.ConfigureSignalR);
+			}
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, GenOnlineService.Realtime.RealtimeUserIdProvider>();
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>>(services => new RealtimeLifetimeManager(realtimeBackplane.CreateLifetimeManager(services)));
 
 			CorsPolicy corsPolicy = BuildCorsPolicy(builder.Configuration);
 
@@ -1319,6 +1325,7 @@ namespace GenOnlineService
 			var app = builder.Build();
 			ServiceLocator.Services = app.Services;
 			GenOnlineService.Realtime.RealtimeOut.Initialize(app.Services.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<GenOnlineService.Realtime.RealtimeHub, GenOnlineService.Realtime.IRealtimeClient>>());
+			await GenOnlineService.Realtime.RealtimeControl.StartAsync(realtimeBackplane);
 
 			// These log through AppLog, which only has a logger factory once ServiceLocator.Services is set, so they run after Build
 			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();

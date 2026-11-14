@@ -102,12 +102,9 @@ namespace GenOnlineService.Realtime
 				return;
 			}
 
+			// both groups are joined right before Ready, so no event reaches the client ahead of it
+			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserSession(userID, sessionType));
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.User(userID));
-			if (sessionType == EUserSessionType.GameClient)
-			{
-				await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserGame(userID));
-			}
-
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
 			await SendDirectMessagesSnapshotAsync(session);

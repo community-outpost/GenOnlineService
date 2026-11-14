@@ -27,21 +27,6 @@ namespace GenOnlineService.Realtime
 
 		public static string? ConnectionOf(UserSession session) => WebSocketManager.GetWebSocketForSession(session)?.ConnectionId;
 
-		// Live connection ids of every session of the user
-		public static List<string> ConnectionsOf(Int64 userID)
-		{
-			List<string> result = new();
-			foreach (UserSession session in WebSocketManager.GetAllDataFromUser(userID))
-			{
-				string? connectionID = ConnectionOf(session);
-				if (connectionID != null)
-				{
-					result.Add(connectionID);
-				}
-			}
-			return result;
-		}
-
 		// True when either user blocked the other, read from the online users only
 		public static bool BlockedEitherWay(Int64 userA, Int64 userB)
 		{

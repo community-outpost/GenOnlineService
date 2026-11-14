@@ -120,9 +120,8 @@ namespace GenOnlineService.Realtime
 				}
 			}
 
-			string connectionID = Context.ConnectionId;
-			List<string> others = RealtimeAudience.ConnectionsOf(me).Where(c => c != connectionID).ToList();
-			await RealtimeOut.Connections(others).ReadMarker(new MessageRefEvent { ChannelId = conversation, MessageId = messageID.ToString(CultureInfo.InvariantCulture) });
+			// the user's other connections on any copy
+			await Clients.OthersInGroup(RealtimeGroups.User(me)).ReadMarker(new MessageRefEvent { ChannelId = conversation, MessageId = messageID.ToString(CultureInfo.InvariantCulture) });
 			return Result.Success();
 		}
 
