@@ -140,7 +140,8 @@ namespace GenOnlineService.Identity
 
 				Database.Upstream.Changes changes = await UpstreamAccounts.ApplyTrustedClaims(db, provider, userID.Value, groups);
 
-				if (changes.RolesRemoved.Count > 0)
+				// losing a role without permissions, such as streamer, only changes features and keeps the sessions
+				if (changes.RolesRemoved.Any(StaffRoles.IsStaff))
 				{
 					await SessionRevocation.RevokeUser(userID.Value, true, $"removed from a staff group in {provider.DisplayName}");
 				}

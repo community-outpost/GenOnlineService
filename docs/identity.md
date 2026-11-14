@@ -51,7 +51,7 @@ GitLab shape on top of ASP.NET Core Identity. Full table definitions in `schema-
 
 - `users`: account, display name (unique), email (optional), password hash (null without local passwords), `state` (active | blocked | deactivated), 2FA fields, sign-in timestamps.
 - `identities`: linked sign-in methods `(provider, extern_uid)`; `provider` is `keycloak`, `discord`, `steam`, `google`, `gamereplays` or a configured OIDC name.
-- `user_roles`: staff roles with a `source` (`local` or `upstream:<provider>`).
+- `user_roles`: roles (`moderator`, `admin`, and the non-staff `streamer`) with a `source` (`local` or `upstream:<provider>`).
 - `sanctions`: kicks, mutes and bans with expiry and lifting.
 - OpenIddict tables, `api_tokens`, `service_accounts`, `audit_log`, `application_settings`.
 
@@ -152,17 +152,17 @@ The EOS ID token (RS256, `sub` = user id, audience `genonline-eos`) is issued by
 
 Roles granted in Keycloak follow a person into every environment without sharing any data between environments:
 
-- Keycloak groups `genonline-admin` and `genonline-moderator` are sent as a `groups` claim.
+- Keycloak groups `genonline-admin`, `genonline-moderator` and `genonline-streamer` are sent as a `groups` claim. `streamer` is not a staff role: it grants no permission and no rank and only switches on client features (`Features:roles`, see the README).
 - The Keycloak provider entry in each environment maps groups to roles (`trusted claims`). On every sign-in through Keycloak, the user's `user_roles` rows with `source = upstream:keycloak` are replaced by the mapped set; `source = local` rows are untouched.
 - Optional group `genonline-banned` maps to a `play` ban with `source = upstream:keycloak`, refreshed the same way. It must never disable the Keycloak user, so appeals keep working.
 
 **When group changes take effect.** Refresh tokens live 30 days, so a person may not sign in again for weeks. Two levels:
 
 - **Baseline (every deployment):** upstream group changes apply at the next sign-in. For immediate effect staff use the local tools: `roles revoke`, a local ban, or revoking the user's sessions.
-- **Group sync (official deployment, recommended):** the Keycloak provider entry gets a `group_sync` setting. When on, the reconcile tick polls Keycloak admin events (group membership added or removed for the mapped groups) with a Keycloak service account client that has only `view-events` and `view-users`. A change rewrites that user's `upstream:keycloak` rows at once; a removal from a staff group or an addition to `genonline-banned` also revokes the user's game sessions in that environment. If Keycloak is unreachable the environment keeps its last state, logs and alerts, and catches up from the last event time; it never grants anything from stale data. Admin events must be enabled in the realm.
+- **Group sync (official deployment, recommended):** the Keycloak provider entry gets a `group_sync` setting. When on, the reconcile tick polls Keycloak admin events (group membership added or removed for the mapped groups) with a Keycloak service account client that has only `view-events` and `view-users`. A change rewrites that user's `upstream:keycloak` rows at once; a removal from a staff group or an addition to `genonline-banned` also revokes the user's game sessions in that environment. A removal from `genonline-streamer` keeps the sessions and only sends the new feature list (`FeaturesUpdate`). If Keycloak is unreachable the environment keeps its last state, logs and alerts, and catches up from the last event time; it never grants anything from stale data. Admin events must be enabled in the realm.
 - Only providers marked trusted may assert roles or bans; a self-hoster's Discord sign-in never grants staff.
 
-Effective permissions in `application` = all `user_roles` rows (local and upstream) → `StaffRoles` → `PermissionHandler`.
+Effective permissions in `application` = all `user_roles` rows (local and upstream) → `StaffRoles` → `PermissionHandler`. Client features = the same roles → `Features:roles` → `Ready.features`, and `FeaturesUpdate` when the role reload changes the list.
 
 ## 6. Tokens
 

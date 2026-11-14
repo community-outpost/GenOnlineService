@@ -1347,6 +1347,14 @@ namespace GenOnlineService
 			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();
 			S3CredentialManager.Initialize();
 
+			// A bad feature name in Features:roles stops the start, an unknown role there is only a warning
+			if (!ClientFeatures.Configure(builder.Configuration))
+			{
+				Console.Error.WriteLine("[ERROR] Features:roles has invalid feature names, see the log above.");
+				Environment.ExitCode = 1;
+				return;
+			}
+
 			// Schema changes only happen through "GenOnlineService migrate"
 			using (var migrationScope = app.Services.CreateScope())
 			{

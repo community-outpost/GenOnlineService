@@ -178,7 +178,7 @@ namespace GenOnlineService
 
 				if (rows.Count == 0)
 				{
-					Console.WriteLine("No staff roles.");
+					Console.WriteLine("No roles.");
 				}
 
 				foreach (UserRole r in rows)

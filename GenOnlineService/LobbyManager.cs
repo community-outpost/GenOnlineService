@@ -1405,6 +1405,12 @@ public async Task FinalizeACChecks()
 					sideToUse = -1;
 				}
 
+				// a favorite observer seat needs a lobby that allows observers, otherwise the side is random
+				if (sideToUse == ClientFeatures.ObserverSide && !AllowObservers)
+				{
+					sideToUse = -1;
+				}
+
 				// if our preferred color is already in use, revert to random
 				int colorToUse = lobbyPrefs.favorite_color;
 				foreach (var memberEntry in Members)

@@ -277,7 +277,7 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> UpdateMySlot(UpdateMySlotRequest request)
 		{
-			if (IsInvalidGameID(request.Side)) return Invalid("side");
+			if (IsInvalidSide(request.Side)) return Invalid("side");
 			if (IsInvalidGameID(request.Color)) return Invalid("color");
 			if (IsInvalidGameID(request.StartPosition)) return Invalid("start_position");
 			if (request.Team.HasValue && request.Team.Value < 0) return Invalid("team");
@@ -285,6 +285,11 @@ namespace GenOnlineService.Realtime
 			bool changes = request.Side != null || request.Color != null || request.StartPosition != null || request.Team.HasValue;
 			return ChangeLobbyAsync(hostOnly: false, resetsReady: changes, async (lobby, member) =>
 			{
+				// the observer seat follows the host's setting, as in the original game
+				if (request.Side == ClientFeatures.ObserverSide && !lobby.AllowObservers)
+				{
+					return Result.Invalid("side");
+				}
 				if (request.Side != null || request.Color != null)
 				{
 					// a player's own side and color become their favorites
@@ -352,7 +357,7 @@ namespace GenOnlineService.Realtime
 			foreach (SlotPatch patch in request.Slots)
 			{
 				if (patch == null || patch.Index < 0 || patch.Index >= Lobby.MaxLobbySize) return Invalid("slots.index");
-				if (IsInvalidGameID(patch.Side)) return Invalid("slots.side");
+				if (IsInvalidSide(patch.Side)) return Invalid("slots.side");
 				if (IsInvalidGameID(patch.Color)) return Invalid("slots.color");
 				if (IsInvalidGameID(patch.StartPosition)) return Invalid("slots.start_position");
 				if (patch.Team.HasValue && patch.Team.Value < 0) return Invalid("slots.team");
@@ -360,6 +365,15 @@ namespace GenOnlineService.Realtime
 
 			return ChangeLobbyAsync(hostOnly: true, resetsReady: request.Slots.Count > 0, (lobby, member) =>
 			{
+				// an observer seat is checked for every slot first, so a refused patch changes nothing
+				foreach (SlotPatch patch in request.Slots.Where(p => p.Side == ClientFeatures.ObserverSide))
+				{
+					LobbyMember? target = lobby.GetMemberFromSlot(patch.Index);
+					if (!lobby.AllowObservers || (target != null && target.IsAI()))
+					{
+						return Task.FromResult<Failure?>(Result.Invalid("slots.side"));
+					}
+				}
 				foreach (SlotPatch patch in request.Slots)
 				{
 					// only players and AI have anything to patch
@@ -720,5 +734,8 @@ namespace GenOnlineService.Realtime
 
 		// side, color and start position are game ids, -1 means random
 		private static bool IsInvalidGameID(int? value) => value is int id && id < -1;
+
+		// a side may also be the observer seat, which needs a lobby that allows observers
+		private static bool IsInvalidSide(int? value) => value != ClientFeatures.ObserverSide && IsInvalidGameID(value);
 	}
 }
