@@ -29,13 +29,15 @@ namespace GenOnlineService.Identity
 		public static UpstreamSignInResult Refused(string error) => new(null, error);
 	}
 
-	// GitLab OmniAuth behaviour: a known identity signs in, a trusted link claim or verified email links, otherwise sign-up
+	// GitLab OmniAuth behaviour: a known identity signs in, a player id or (opt-in) verified email finds the user, otherwise sign-up
 	public sealed class UpstreamAccounts
 	{
 		public const string ErrorNoSubject = "no_subject";
 		public const string ErrorSignUpDisabled = "sign_up_disabled";
 		public const string ErrorBlocked = "blocked";
 		public const string ErrorDeactivated = "deactivated";
+		public const string ErrorNoPlayerID = "no_player_id";
+		public const string ErrorPlayerIDMismatch = "player_id_mismatch";
 
 		private static readonly ILogger s_log = AppLog.For(typeof(UpstreamAccounts));
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
@@ -71,14 +73,47 @@ namespace GenOnlineService.Identity
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 			DateTime now = DateTime.UtcNow;
 
+			// with player ids the upstream claim is the user id: no sign-in without one, and an identity never moves to another id
+			Int64? playerID = null;
+			if (provider.PlayerIDs)
+			{
+				if (!Int64.TryParse(external.GetClaim(provider.PlayerIDClaim), NumberStyles.None, CultureInfo.InvariantCulture, out Int64 claimed) || claimed <= 0)
+				{
+					s_log.LogWarning("{Provider} sign-in of {Subject} carries no numeric {Claim}", provider.Name, subject, provider.PlayerIDClaim);
+					return UpstreamSignInResult.Refused(ErrorNoPlayerID);
+				}
+
+				playerID = claimed;
+			}
+
 			UserIdentity? identity = await db.Identities.AsTracking().FirstOrDefaultAsync(i => i.Provider == provider.Name && i.ExternUid == subject);
+			if (identity != null && playerID != null && identity.UserID != playerID)
+			{
+				s_log.LogWarning("{Provider} identity {Subject} belongs to user {UserId} but asserts {Claim} {PlayerId}", provider.Name, subject, identity.UserID, provider.PlayerIDClaim, playerID);
+				return UpstreamSignInResult.Refused(ErrorPlayerIDMismatch);
+			}
+
 			User? user = identity == null ? null : await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == identity.UserID);
 
 			if (user == null)
 			{
 				// a new user and its identity commit together, so a failed link never leaves an orphan account
 				await using var tx = await db.Database.BeginTransactionAsync();
-				user = await FindLinkTarget(db, provider, external);
+
+				if (playerID != null)
+				{
+					// an imported or earlier user with this id is the same person, unless another identity of this provider already holds it
+					user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == playerID);
+					if (user != null && await db.Identities.AnyAsync(i => i.UserID == playerID && i.Provider == provider.Name))
+					{
+						s_log.LogWarning("{Provider} identity {Subject} asserts {Claim} {PlayerId}, which another identity of the provider holds", provider.Name, subject, provider.PlayerIDClaim, playerID);
+						return UpstreamSignInResult.Refused(ErrorPlayerIDMismatch);
+					}
+				}
+				else
+				{
+					user = await FindByVerifiedEmail(db, provider, external);
+				}
 
 				if (user == null)
 				{
@@ -87,6 +122,7 @@ namespace GenOnlineService.Identity
 						return UpstreamSignInResult.Refused(ErrorSignUpDisabled);
 					}
 
+					// with player ids the id is set explicitly, so the database never picks one Keycloak gives out later
 					user = new User
 					{
 						Username = await UniqueUsername(db, externName),
@@ -94,6 +130,10 @@ namespace GenOnlineService.Identity
 						CreatedAt = now,
 						UpdatedAt = now
 					};
+					if (playerID != null)
+					{
+						user.ID = playerID.Value;
+					}
 					user.UsernameNormalized = NameNormalizer.Normalize(user.Username);
 					db.Users.Add(user);
 					await db.SaveChangesAsync();
@@ -129,21 +169,9 @@ namespace GenOnlineService.Identity
 			return new UpstreamSignInResult(user, null);
 		}
 
-		// Link targets: only a trusted provider may name an existing account, a verified email only where the operator allows it
-		private static async Task<User?> FindLinkTarget(AppDbContext db, UpstreamProviderSettings provider, ClaimsPrincipal external)
+		// Without player ids an unknown identity links by a verified email only where the operator allows it
+		private static async Task<User?> FindByVerifiedEmail(AppDbContext db, UpstreamProviderSettings provider, ClaimsPrincipal external)
 		{
-			if (provider.Trusted
-				&& Int64.TryParse(external.GetClaim(provider.LinkClaim), NumberStyles.None, CultureInfo.InvariantCulture, out Int64 linkedID)
-				&& !await db.Identities.AnyAsync(i => i.UserID == linkedID && i.Provider == provider.Name))
-			{
-				User? linked = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == linkedID);
-				if (linked != null)
-				{
-					s_log.LogInformation("Linking {Provider} identity to existing user {UserId} through {Claim}", provider.Name, linkedID, provider.LinkClaim);
-					return linked;
-				}
-			}
-
 			string? email = external.GetClaim(OpenIddictConstants.Claims.Email);
 			if (provider.AutoLinkVerifiedEmail && !String.IsNullOrEmpty(email)
 				&& String.Equals(external.GetClaim(OpenIddictConstants.Claims.EmailVerified), "true", StringComparison.OrdinalIgnoreCase))
