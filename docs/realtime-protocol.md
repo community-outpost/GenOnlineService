@@ -335,7 +335,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 **Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline friend is stored and delivered on their next connect through `DirectMessages` and `GetHistory`.
 
-Messages are not end-to-end encrypted. The service stores them in its database and does no message encryption itself; operators encrypt data at rest at the storage layer (volume encryption, or database table encryption where the provider has it) and encrypt backups.
+Messages are stored in the service database as they are; the protocol and the service add no encryption beyond TLS on the connection.
 
 ### 6.3 Lobbies
 
