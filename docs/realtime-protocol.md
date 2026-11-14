@@ -11,7 +11,7 @@ Status: draft for review. Every message is specified; examples for each live in 
 1. Sign in with the GenOnline login (OAuth authorization code with PKCE, see the identity design) and keep the access token.
 2. Register the game session with `POST /api/v1/auth/session`; it returns the realtime URL.
 3. Open `wss://<host>/-/realtime` with `Authorization: Bearer <access token>` and send the SignalR handshake.
-4. Wait for `Ready`, then the snapshot events (`Friends`, and `RoomMembers` or `LobbyState` when rejoining).
+4. Wait for `Ready`, then the snapshot events (`Friends`, `DirectMessages`, and `ChannelMembers` with `ChannelHistory` or `LobbyState` when rejoining).
 5. Call hub methods for actions; each returns a `Result`.
 6. Handle server events by name; ignore events and fields you do not know.
 
@@ -57,9 +57,9 @@ Handshake, sent once after the upgrade:
 The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E` on the wire.
 
 ```json
-{"type":1,"invocationId":"5","target":"SendMessage","arguments":[{"channel_id":"room:3","type":"chat","content":"hi"}]}
+{"type":1,"invocationId":"5","target":"SendMessage","arguments":[{"channel_id":"channel:3","type":"chat","content":"hi"}]}
 {"type":3,"invocationId":"5","result":{"ok":true,"data":{"message_id":"8812"}}}
-{"type":1,"target":"MessageCreate","arguments":[{"id":"8812","channel_id":"room:3","type":"chat","author":{"id":42,"name":"Bob","badges":[]},"content":"hi"}]}
+{"type":1,"target":"MessageCreate","arguments":[{"id":"8812","channel_id":"channel:3","type":"chat","author":{"id":42,"name":"Bob","badges":[]},"content":"hi","created_at":"2026-11-14T20:00:00Z"}]}
 {"type":6}
 {"type":7,"error":"session.superseded","allowReconnect":false}
 ```
@@ -78,9 +78,9 @@ The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E
 | Arguments | Every hub method and event takes exactly **one** argument: an object. Never positional parameters |
 | Field names | `snake_case` (server uses `JsonNamingPolicy.SnakeCaseLower`) |
 | Method and event names | `PascalCase` (`SendMessage`, `MessageCreate`) |
-| Ids | User, lobby and room ids are JSON numbers (all fit in 53 bits). Message ids are strings |
-| Channel ids | Typed strings: `room:<room_id>`, `lobby:<lobby_id>`, `dm:<user_id>` |
-| Time | ISO 8601 UTC strings (`2026-11-13T20:00:00Z`); durations in milliseconds with an `_ms` suffix |
+| Ids | User, lobby and channel ids are JSON numbers (all fit in 53 bits). Message ids are strings |
+| Channel ids | Typed strings: `channel:<channel_id>`, `lobby:<lobby_id>`, `dm:<user_id>` |
+| Durations and times | A duration a person sees or chooses is whole seconds with `_s`; a delay the service computes for a client to wait is milliseconds with `_ms`; a point in time is ISO 8601 UTC with `_at` (`2026-11-13T20:00:00Z`). The measured `latency_ms` stays in milliseconds |
 | Binary data | Base64 strings (signalling, anticheat payloads) |
 | Text | The service sends codes and parameters, never display text. The only free text is user content (chat, reasons typed by staff) |
 | Optional and nullable | `field?` may be omitted. A field written as `field: T or null` (for example `password`, `screenshot_url`, `team`) is always sent and is `null` when it has no value |
@@ -96,9 +96,9 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
                               connection lost ─────────┘──> reconnect (backoff) ──> Ready ──> snapshots
 ```
 
-1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401; a game client without a registered session gets HTTP 409 `{"code":"session.not_registered"}`; a user with an active play ban gets HTTP 403 `{"code":"moderation.banned","params":{"reason":"...","until":"..."}}`. A ban never blocks signing in to the website, so appeals keep working.
+1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401; a game client without a registered session gets HTTP 409 `{"code":"session.not_registered"}`; a user with an active play ban gets HTTP 403 `{"code":"moderation.banned","params":{"reason":"...","expires_at":"..."}}`. A ban never blocks signing in to the website, so appeals keep working.
 2. **Ready** is always the first event. It carries the user, permissions, badge definitions and limits (section 6.1).
-3. **Snapshots** follow immediately: `Friends` always; `RoomMembers` if the session was in a room; `LobbyState` if the user is in a lobby. After a reconnect these restore everything, so the client never re-fetches state over REST.
+3. **Snapshots** follow immediately: `Friends` always, then `DirectMessages`; `ChannelMembers` and `ChannelHistory` if the session was in a channel; `LobbyState` if the user is in a lobby. After a reconnect these restore everything, so the client never re-fetches state over REST.
 4. **Reconnect** on any lost connection: wait 0.5 to 3 s random, then 2 s doubling to a 30 s cap, forever while logged in. During a match the client keeps reconnecting without a time window.
 5. **Close** (`type 7`) carries a code in `error` and `allowReconnect`:
 
@@ -111,7 +111,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
 | `server.restarting` | true | Planned restart | Reconnect with backoff |
 | `protocol.error` | false | Malformed traffic | Log and return to login (client bug) |
 
-Missed events while disconnected are not replayed in v1: state is restored by the snapshots, chat sent during the gap is lost. Stateful reconnect can be added later without a breaking change (section 13).
+Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat and direct messages sent during the gap come back through `ChannelHistory`, `DirectMessages` and `GetHistory` (section 6.2); lobby chat sent during the gap is lost. Stateful reconnect can be added later without a breaking change (section 13).
 
 ## 4. Shared objects
 
@@ -122,7 +122,7 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 {"ok":false,"code":"chat.rate_limited","params":{"retry_after_ms":4200}}
 ```
 
-**Member** (a user as other users see them; used in chat, rooms, lobbies, friends)
+**Member** (a user as other users see them; used in chat, channels, lobbies, friends)
 
 ```json
 {"id":7,"name":"Ann","badges":["moderator"],"client":"game"}
@@ -134,10 +134,18 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 **Message**
 
 ```json
-{"id":"8812","channel_id":"room:3","type":"chat","author":{"id":7,"name":"Ann","badges":["moderator"]},"content":"hello"}
+{"id":"8812","channel_id":"channel:3","type":"chat","author":{"id":7,"name":"Ann","badges":["moderator"]},"content":"hello","created_at":"2026-11-14T20:00:00Z"}
 ```
 
-`type`: `chat`, `action` (an emote, rendered as "Ann waves"), `announcement` (lobby host only, rendered prominently).
+`type`: `chat`, `action` (an emote, rendered as "Ann waves"), `announcement` (lobby host only, rendered prominently). `created_at` is when the service stored the message.
+
+A message deleted by staff appears in history as a tombstone with no author and no content:
+
+```json
+{"id":"8811","channel_id":"channel:3","created_at":"2026-11-14T19:59:00Z","deleted":true}
+```
+
+OPEN: whether a tombstone shows its author.
 
 **Notice**
 
@@ -192,7 +200,7 @@ Never sent to clients: the lobby password, the matchmaker's paired user ids, mes
 **Playlist**
 
 ```json
-{"id":0,"name":"1v1 (Random Armies)","min_players":2,"desired_players":2,"min_selected_maps":1,"allow_teams":false,"team_size":null,"allow_army_selection":false,"grace_period_ms":0,"maps":[{"index":0,"name":"Tournament Desert","path":"maps/tournament desert/tournament desert","custom":false,"max_players":2}]}
+{"id":0,"name":"1v1 (Random Armies)","min_players":2,"desired_players":2,"min_selected_maps":1,"allow_teams":false,"team_size":null,"allow_army_selection":false,"grace_period_s":0,"maps":[{"index":0,"name":"Tournament Desert","path":"maps/tournament desert/tournament desert","custom":false,"max_players":2}]}
 ```
 
 **Build identity.** The executable and INI CRCs and the anticheat id are sent once, with `POST /api/v1/auth/session`. The service uses them for every lobby and queue call of that session, so no hub method carries them.
@@ -201,13 +209,17 @@ Never sent to clients: the lobby password, the matchmaker's paired user ids, mes
 
 "Result" means the method expects an answer (`invocationId` set). "Fire" means the client sends it without `invocationId` and gets no answer.
 
-### 5.1 Rooms and chat
+### 5.1 Channels and chat
+
+A session is in at most one channel at a time, like Battle.net classic: joining another channel leaves the current one. A user is listed only in the channel they are in, and friends see that channel in presence.
 
 | Method | Argument | Answer | Notes |
 |---|---|---|---|
-| `JoinRoom` | `{room_id}` | Result | Then `RoomMembers` event. Leaving a room happens by joining another or `LeaveRoom` |
-| `LeaveRoom` | `{}` | Result | |
-| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship. Content 1 to 512 characters |
+| `JoinChannel` | `{channel_id}` | Result | Then `ChannelMembers`, then `ChannelHistory`. A parent channel resolves to its default child; `ChannelMembers.channel_id` is the channel actually joined. Leaving a channel happens by joining another or `LeaveChannel` |
+| `LeaveChannel` | `{}` | Result | |
+| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship; a message to an offline friend is stored and answers ok. Content 1 to 512 characters |
+| `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; messages older than `before`, or the newest when it is absent; `limit` 1 to 100 |
+| `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
 | `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
 
 ### 5.2 Lobbies
@@ -256,15 +268,21 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 
 ### 5.5 Moderation
 
-Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick` and `moderation.mute`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute, unmute or ban an admin or another moderator. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log`. Reasons are up to 512 characters.
+Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick`, `moderation.mute` and `chat.delete_any`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute, unmute or ban an admin or another moderator. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log` with the actor, the target and the reason; the reason is stored only there.
+
+- Reasons are optional, except on `Ban`, where the reason is required and not blank (`invalid_argument {field: reason}`). Reasons are up to 512 characters.
+- `duration_s` is whole seconds, at least 60 and a multiple of 60, at most 10 years (315360000); otherwise `invalid_argument {field: duration_s}`. Clients offer presets (10 minutes, 1 hour, 1 day, 7 days, 30 days, permanent for bans).
+- OPEN: permanent mutes. `duration_s` stays required on `Mute`.
+- OPEN: message reports.
 
 | Method | Argument | Answer | Permission |
 |---|---|---|---|
-| `Kick` | `{user_id, reason}` | Result | `moderation.kick` |
-| `Mute` | `{user_id, duration_ms, reason}` | Result | `moderation.mute` |
-| `Unmute` | `{user_id, reason}` | Result | `moderation.mute` |
-| `Ban` | `{user_id, duration_ms?, reason}` | Result (no `duration_ms` means permanent) | `moderation.ban` |
-| `Unban` | `{user_id, reason}` | Result | `moderation.ban` |
+| `Kick` | `{user_id, reason?}` | Result | `moderation.kick` |
+| `Mute` | `{user_id, duration_s, reason?}` | Result | `moderation.mute` |
+| `Unmute` | `{user_id, reason?}` | Result | `moderation.mute` |
+| `Ban` | `{user_id, duration_s?, reason}` | Result (no `duration_s` means permanent) | `moderation.ban` |
+| `Unban` | `{user_id, reason?}` | Result | `moderation.ban` |
+| `DeleteMessage` | `{message_id, reason?}` | Result | `chat.delete_any`; any channel, lobby or direct message. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 
 ### 5.6 Peer networking (game sessions only)
 
@@ -284,20 +302,40 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}`; a room whose `parent_id` is null is top level; `chat_rate` applies to room chat only |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
-| `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason, until?}`; a close record follows for kick and ban |
+| `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason?, expires_at?}`; `reason` is absent when staff gave none; a close record follows for kick and ban |
 
-### 6.2 Rooms and chat
+### 6.2 Channels and chat
 
 | Event | Data |
 |---|---|
-| `RoomMembers` | `{room_id, members: [Member]}` (full list, on join and after reconnect) |
+| `ChannelMembers` | `{channel_id, members: [Member]}` (full list, on join and after reconnect) |
+| `ChannelHistory` | `{channel_id, messages: [Message], has_more}` (after `ChannelMembers`: the last messages of the channel, oldest first; split into several events when it would exceed 64 KB) |
 | `MemberAdd` | `{channel_id, member: Member}` |
 | `MemberRemove` | `{channel_id, user_id}` |
 | `MemberUpdate` | `{member: Member}` (rename, badge change; sent to everyone who can see the user) |
 | `MessageCreate` | `Message` |
+| `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
+| `DirectMessages` | `{conversations: [{user_id, unread, last: Message}]}` (snapshot after `Friends`) |
+| `ReadMarker` | `{channel_id, message_id}` (the user's read position changed on another connection) |
+
+**History and storage.** The service stores chat and replays it, so a reconnect or a channel switch never loses messages.
+
+| | Stored | Replayed |
+|---|---|---|
+| Channel | id, channel id, author id, type, content, `created_at`, `deleted_at` | the last N on join (N from configuration, default 50) |
+| Lobby | the same plus lobby id and match id | never (lobbies are short) |
+| Direct | the same with sender and recipient | unread and recent on connect, synced across the user's clients |
+
+- History respects blocks: messages from a user the viewer blocked, or who blocked the viewer, are left out.
+- No chat text in application logs or telemetry, only ids and counts. Account deletion removes or anonymises the user's messages. The privacy policy must say chat is stored, why, and for how long.
+- OPEN: retention periods.
+
+**Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline friend is stored and delivered on their next connect through `DirectMessages` and `GetHistory`.
+
+OPEN: encryption at rest versus end to end.
 
 ### 6.3 Lobbies
 
@@ -307,7 +345,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `LobbyListRemove` | `{lobby_id}` |
 | `LobbyState` | `{lobby: LobbyState}` (full state after every change, to members of that lobby) |
 | `LobbyLeft` | `{lobby_id, reason}` (`left`, `kicked`, `closed`) |
-| `CountdownStarted` | `{lobby_id, duration_ms}` |
+| `CountdownStarted` | `{lobby_id, duration_s}` |
 | `CountdownCancelled` | `{lobby_id, reason, missing: [user_id]?}`; `reason` is `player_not_ready`, `mesh_incomplete`, `player_left` or `settings_changed` |
 | `GameStart` | `{lobby_id, match_id, rng_seed, screenshot_url: string or null}` |
 
@@ -317,7 +355,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 |---|---|
 | `MatchmakingStatus` | `{code, params}` (codes below) |
 | `MatchFound` | `{lobby_id, map: {name, path, official}, players}`; join with `JoinLobby` within 45 s |
-| `MatchSetupProgress` | `{timeout_ms, countdown_ms}` (mesh check: `countdown_ms` 0; start countdown: both set) |
+| `MatchSetupProgress` | `{timeout_s, countdown_s}` (mesh check: `countdown_s` 0; start countdown: both set) |
 | `MatchStart` | `{lobby_id}` |
 | `MatchRequeue` | `{reason}`: `player_left`, `lobby_gone`, `mesh_incomplete`, `join_timeout`, `setup_failed` |
 
@@ -337,13 +375,13 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Friends` | `{friends: [Member + online + activity], incoming: [Member], outgoing: [Member], blocked: [Member]}` (snapshot after `Ready`) |
+| `Friends` | `{friends: [Member + online + activity + channel_id], incoming: [Member], outgoing: [Member], blocked: [Member]}` (snapshot after `Ready`) |
 | `FriendRequestReceived` | `{from: Member}` |
 | `FriendRequestAccepted` | `{by: Member}` |
 | `FriendRemoved` | `{user_id}` |
-| `FriendPresence` | `{user_id, online, clients: [string], activity}` (keyed by user id, never by name) |
+| `FriendPresence` | `{user_id, online, clients: [string], activity, channel_id: int or null}` (keyed by user id, never by name) |
 
-`activity` is `offline`, `menu`, `room`, `lobby`, `matchmaking` or `in_game`; the client renders and localizes it (for example "Online - In game"). It describes the user in this environment only.
+`channel_id` is the channel the user is in, `null` when in none. `activity` is `offline`, `menu`, `channel`, `lobby`, `matchmaking` or `in_game`; the client renders and localizes it (for example "Online - In game"). It describes the user in this environment only.
 
 ### 6.6 Peer networking (game sessions only)
 
@@ -367,21 +405,20 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 |---|---|---|
 | `forbidden` | `{permission}` | Any method the caller has no permission for |
 | `session.not_registered` | | Connecting without `POST /api/v1/auth/session` first (HTTP 409) |
-| `moderation.banned` | `{reason, until?}` | Connecting while play banned (HTTP 403), and the close code when a ban starts |
+| `moderation.banned` | `{reason, expires_at?}` | Connecting while play banned (HTTP 403), and the close code when a ban starts |
 | `invalid_argument` | `{field}` | Malformed or missing fields |
-| `not_found` | `{what}` | Unknown user, lobby, room or channel |
+| `not_found` | `{what}` | Unknown user, lobby, channel or message |
 | `rate_limited` | `{retry_after_ms}` | Any method over its rate limit |
-| `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `room:` channel only (3 messages per 9 s today); lobby chat during game setup is not limited, the host can kick instead |
+| `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `channel:` channel only (3 messages per 9 s today); `lobby:` and `dm:` are not limited, in a lobby the host can kick instead |
 | `chat.too_long` | `{max}` | `SendMessage` |
-| `chat.muted` | `{until?}` | `SendMessage` |
+| `chat.muted` | `{expires_at?}` | `SendMessage` |
 | `chat.not_friends` | | `SendMessage` to `dm:` |
-| `chat.recipient_offline` | | `SendMessage` to `dm:` |
 | `name.length` | `{min, max}` | `SetDisplayName` |
 | `name.invalid_characters` | | `SetDisplayName` |
 | `name.whitespace` | | `SetDisplayName` |
 | `name.reserved` | `{word}` | `SetDisplayName` (staff words and badge texts) |
 | `name.taken` | | `SetDisplayName` |
-| `room.unavailable` | | `JoinRoom` |
+| `channel.unavailable` | | `JoinChannel` |
 | `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
 | `lobby.slot_occupied` | `{index}` | `SetSlotState` on a player slot |
@@ -395,7 +432,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `social.blocked` | | Social methods involving a block |
 | `moderation.target_offline` | | `Kick` |
 | `moderation.target_outranks` | | Moderation methods: staff only act on users of lower rank (admin above moderator above everyone else), never on themselves |
-| `moderation.reason_too_long` | `{max}` | Moderation methods |
+| `moderation.reason_too_long` | `{max}` | Moderation methods, `DeleteMessage` |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
 
 New codes are added freely; clients show a generic message for codes they do not know.
@@ -404,9 +441,9 @@ New codes are added freely; clients show a generic message for codes they do not
 
 | Group | Members | Used for |
 |---|---|---|
-| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends` |
+| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, `DirectMessages`, `ReadMarker` |
 | `user:<id>:game` | That user's game connection | Peer networking, `LobbyState`, matchmaking |
-| `room:<id>` | Connections in that room | `RoomMembers`, `MemberAdd`/`Remove`, room chat |
+| `channel:<id>` | Connections in that channel | `ChannelMembers`, `MemberAdd`/`Remove`, channel chat, `MessageDelete` |
 | `lobby:<id>` | Game connections of lobby members | `LobbyState`, lobby chat, countdown events |
 | `lobby-list` | Connections that called `WatchLobbyList` | `LobbyListUpsert`, `LobbyListRemove` |
 
@@ -415,15 +452,15 @@ Rules:
 - One connection per user and session type. A new connection of the same type closes the old one with `session.superseded`.
 - Group membership is per connection and rebuilt from the user's state on every connect, so reconnects never leave stale groups.
 - Events about a user (`MemberUpdate`, `FriendPresence`) go to every group that can see them, deduplicated per connection.
-- Blocks are enforced by the service: a `MessageCreate` is never delivered to a user who blocked its author, or by a user to someone who blocked them, in rooms, lobbies and direct messages. Clients do not need to filter.
-- A successful `JoinRoom` is always followed by `RoomMembers` for that room.
+- Blocks are enforced by the service: a `MessageCreate` is never delivered to a user who blocked its author, or by a user to someone who blocked them, in channels, lobbies and direct messages. History follows the same rule. Clients do not need to filter.
+- A successful `JoinChannel` is always followed by `ChannelMembers`, then `ChannelHistory`, for that channel.
 - Delivery to one connection is in order. There is no ordering between different connections.
 
 ## 9. Session types
 
 | | Game | Launcher | Chat |
 |---|---|---|---|
-| Rooms and chat | yes | yes | yes |
+| Channels and chat | yes | yes | yes |
 | Direct messages, social | yes | yes | yes |
 | Lobby list (watch) | yes | yes | no |
 | Join or create lobbies, matchmaking | yes | no | no |
@@ -449,7 +486,7 @@ For porting client code only: where the behaviour of each legacy `/ws` message l
 | Legacy | v1 |
 |---|---|
 | 1 / 2 room chat, 10 / 11 lobby chat, 30 / 31 friend chat | `SendMessage` and `MessageCreate` |
-| 3 change room, 4 member list | `JoinRoom` / `LeaveRoom`, `RoomMembers`, `MemberAdd` / `Remove` / `Update` |
+| 3 change room, 4 member list | `JoinChannel` / `LeaveChannel`, `ChannelMembers`, `MemberAdd` / `Remove` / `Update` |
 | 5 mark ready | `SetReady` |
 | 6 current lobby dirty | `LobbyState` with content |
 | 7 lobby list dirty | `LobbyListUpsert` / `LobbyListRemove` |
