@@ -256,7 +256,7 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 
 ### 5.5 Moderation
 
-Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick` and `moderation.mute`; admins also hold `moderation.ban`. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log`. Reasons are up to 512 characters.
+Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick` and `moderation.mute`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute, unmute or ban an admin or another moderator. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log`. Reasons are up to 512 characters.
 
 | Method | Argument | Answer | Permission |
 |---|---|---|---|
@@ -284,7 +284,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}`; a room whose `parent_id` is null is top level |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}`; a room whose `parent_id` is null is top level; `chat_rate` applies to room chat only |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason, until?}`; a close record follows for kick and ban |
@@ -331,6 +331,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `matchmaking.creating` | `{players, map}` |
 | `matchmaking.preparing` | `{}` |
 | `matchmaking.starting` | `{seconds}` |
+| `matchmaking.left` | `{reason}`: the service took the player out of the queue and did not requeue them; `join_timeout`, `setup_failed`, `stats_unavailable`, `invalid_playlist`, more may follow (show a generic line for unknown reasons) |
 
 ### 6.5 Social
 
@@ -370,7 +371,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `invalid_argument` | `{field}` | Malformed or missing fields |
 | `not_found` | `{what}` | Unknown user, lobby, room or channel |
 | `rate_limited` | `{retry_after_ms}` | Any method over its rate limit |
-| `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` (3 messages per 9 s today) |
+| `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `room:` channel only (3 messages per 9 s today); lobby chat during game setup is not limited, the host can kick instead |
 | `chat.too_long` | `{max}` | `SendMessage` |
 | `chat.muted` | `{until?}` | `SendMessage` |
 | `chat.not_friends` | | `SendMessage` to `dm:` |
@@ -393,6 +394,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `social.friend_list_full` | `{max}` | `SendFriendRequest`, `AcceptFriendRequest` |
 | `social.blocked` | | Social methods involving a block |
 | `moderation.target_offline` | | `Kick` |
+| `moderation.target_outranks` | | Moderation methods: staff only act on users of lower rank (admin above moderator above everyone else), never on themselves |
 | `moderation.reason_too_long` | `{max}` | Moderation methods |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
 
