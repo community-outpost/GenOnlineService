@@ -23,12 +23,11 @@ using System.Text.Json;
 
 namespace GenOnlineService.Rest
 {
-	// The game's network tuning, the anti-cheat level (0 normal, 1 force GOAC, 2 force EAC) and the message of the day
+	// The game's network tuning and the message of the day
 	[ApiFixture("get-config.response")]
 	public sealed record ConfigResponse
 	{
 		public JsonElement ServiceConfig { get; init; }
-		public int AnticheatLevel { get; init; }
 		public string? Motd { get; init; }
 	}
 
@@ -38,7 +37,6 @@ namespace GenOnlineService.Rest
 		private static readonly ILogger s_log = AppLog.For(typeof(ConfigSources));
 
 		private static readonly string s_serviceConfigPath = Path.Combine("data", "serviceconfig.json");
-		private static readonly string s_anticheatPath = Path.Combine("data", "anticheatconfig.dat");
 		private static readonly string s_motdPath = Path.Combine("data", "motd.txt");
 
 		// Null when the file is missing or is not a JSON object
@@ -64,23 +62,6 @@ namespace GenOnlineService.Rest
 			{
 				return null;
 			}
-		}
-
-		// Null when the file is missing or holds no number
-		public static async Task<int?> ReadAnticheatLevelAsync()
-		{
-			string? text = await ReadFileAsync(s_anticheatPath);
-			int? level = text == null ? null : ParseAnticheatLevel(text);
-			if (text != null && level == null)
-			{
-				s_log.LogError("data/anticheatconfig.dat does not hold a number");
-			}
-			return level;
-		}
-
-		public static int? ParseAnticheatLevel(string text)
-		{
-			return int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int level) ? level : null;
 		}
 
 		// The motd setting wins over data/motd.txt; {0} is the number of players online

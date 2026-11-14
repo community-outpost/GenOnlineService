@@ -16,7 +16,8 @@ The deploy is greenfield: no client of the old routes is served. The game client
 | `POST ProvideMWToken` | `PUT /api/v1/me/linked_accounts/eos` (body `{id_token}`) |
 | `POST VersionCheck`, `POST /cloud/env:prod/VersionCheck` | `GET /api/v1/compatibility?client=&version=` |
 | `GET VersionManifest` | Removed. The launcher reads executable CRCs from the CDN release manifest |
-| `GET ServiceConfig`, `GET AnticheatConfig`, `GET MOTD` | `GET /api/v1/config` |
+| `GET ServiceConfig`, `GET MOTD` | `GET /api/v1/config` |
+| `GET AnticheatConfig` | removed: the service no longer forces an anti-cheat |
 | `GET GlobalStats`, `GET Monitoring/BasicStats` | `GET /api/v1/stats/global` |
 | `GET Users/Active`, `GET Monitoring/ActiveUsers` | `GET /api/v1/players?online=true` |
 | `GET PlayerStats/{id}`, `POST PlayerStats/Batch` | `GET /api/v1/players/:id/stats`, `GET /api/v1/players/stats?ids=` |

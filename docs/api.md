@@ -27,7 +27,7 @@ Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention d
 | Route | Auth | Answer and errors |
 |---|---|---|
 | `GET /api/v1/compatibility?client=&version=` | anonymous | `{compatible, min_version, service_version, update: {patcher_name, patcher_path, patcher_size}\|null}`; `client` is a registry client id, `version` is `YYYY.MM.PATCH`. The executable check is part of `POST /api/v1/auth/session`; executable CRCs for the launcher are in the CDN release manifest |
-| `GET /api/v1/config` | session | `{service_config, anticheat_level, motd}`; the MOTD is the `motd` application setting, else `data/motd.txt`, with `{0}` replaced by the players online; `service.unavailable {what: config}` when a data file is missing |
+| `GET /api/v1/config` | session | `{service_config, motd}`; the MOTD is the `motd` application setting, else `data/motd.txt`, with `{0}` replaced by the players online; `service.unavailable {what: config}` when `data/serviceconfig.json` is missing or invalid |
 | `GET /api/v1/stats/global` | anonymous | `{players, lobbies, factions: [{side, matches, wins}]}` |
 | `GET /api/v1/leaderboards/:id` | anonymous | `elo` only: `{id, entries: [{rank, user_id, name, tag, rating, matches}]}`, offset paged |
 
