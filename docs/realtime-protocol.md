@@ -145,7 +145,7 @@ A message deleted by staff appears in history as a tombstone with no author and 
 {"id":"8811","channel_id":"channel:3","created_at":"2026-11-14T19:59:00Z","deleted":true}
 ```
 
-OPEN: whether a tombstone shows its author.
+A tombstone never shows its author or content.
 
 **Notice**
 
@@ -221,6 +221,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
 | `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
+| `ReportMessage` | `{message_id, reason?}` | Result | any user who received the message; one report per user per message (`report.duplicate`); the service snapshots the message and up to 10 messages before it in the same conversation, kept until the case is closed; reasons up to 512 characters |
 
 ### 5.2 Lobbies
 
@@ -272,8 +273,8 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 - Reasons are optional, except on `Ban`, where the reason is required and not blank (`invalid_argument {field: reason}`). Reasons are up to 512 characters.
 - `duration_s` is whole seconds, at least 60 and a multiple of 60, at most 10 years (315360000); otherwise `invalid_argument {field: duration_s}`. Clients offer presets (10 minutes, 1 hour, 1 day, 7 days, 30 days, permanent for bans).
-- OPEN: permanent mutes. `duration_s` stays required on `Mute`.
-- OPEN: message reports.
+- Mutes are never permanent: `duration_s` is required on `Mute`.
+- Players report messages with `ReportMessage` (section 5.1); staff work the resulting cases outside the hub.
 
 | Method | Argument | Answer | Permission |
 |---|---|---|---|
@@ -331,7 +332,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 - History respects blocks: messages from a user the viewer blocked, or who blocked the viewer, are left out.
 - No chat text in application logs or telemetry, only ids and counts. Account deletion removes or anonymises the user's messages. The privacy policy must say chat is stored, why, and for how long.
-- OPEN: retention periods.
+- Every stored message (channel, lobby and direct) is kept 30 days, then purged. A report keeps its snapshot until its case is closed.
 
 **Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline friend is stored and delivered on their next connect through `DirectMessages` and `GetHistory`.
 
@@ -412,6 +413,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `channel:` channel only (3 messages per 9 s today); `lobby:` and `dm:` are not limited, in a lobby the host can kick instead |
 | `chat.too_long` | `{max}` | `SendMessage` |
 | `chat.muted` | `{expires_at?}` | `SendMessage` |
+| `report.duplicate` | | `ReportMessage` when the caller already reported that message |
 | `chat.not_friends` | | `SendMessage` to `dm:` |
 | `name.length` | `{min, max}` | `SetDisplayName` |
 | `name.invalid_characters` | | `SetDisplayName` |
