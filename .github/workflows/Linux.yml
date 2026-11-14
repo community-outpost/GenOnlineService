@@ -26,7 +26,8 @@ jobs:
       run: dotnet build GenOnlineService/GenOnlineService.csproj --configuration ${{ matrix.conf }} --os ${{ matrix.os }} --arch ${{ matrix.arch }}
       
     - name: Test
-      run: dotnet test GenOnlineService/GenOnlineService.csproj --no-build --verbosity normal --configuration ${{ matrix.conf }} --os ${{ matrix.os }} --arch ${{ matrix.arch }}
+      if: matrix.arch == 'x64'
+      run: dotnet test GenOnlineService.Tests/GenOnlineService.Tests.csproj --verbosity normal --configuration ${{ matrix.conf }} -p:Platform=x64
 
     - name: Publish
       run: dotnet publish GenOnlineService/GenOnlineService.csproj --configuration ${{ matrix.conf }} --os ${{ matrix.os }} --arch ${{ matrix.arch }}
