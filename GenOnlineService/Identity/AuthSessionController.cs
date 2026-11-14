@@ -54,7 +54,8 @@ namespace GenOnlineService.Identity
 			m_tokens = tokens;
 		}
 
-		private static object Problem(string error, string message) => new { message, error };
+		// Every REST failure is {"error": "<code>", "params": {...}}
+		private static object Problem(string error, object? parameters = null) => new { error, @params = parameters ?? new { } };
 
 		[HttpPost("~/api/v1/auth/session")]
 		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
@@ -67,7 +68,7 @@ namespace GenOnlineService.Identity
 
 			if (userID <= 0 || sessionType == EUserSessionType.None || client == null || client.SessionType != sessionType || authorizationID.Length == 0)
 			{
-				return StatusCode(StatusCodes.Status403Forbidden, Problem("session.forbidden", "This token cannot register a game session."));
+				return StatusCode(StatusCodes.Status403Forbidden, Problem("session.forbidden"));
 			}
 
 			// a signed-out or revoked sign-in cannot register again while its access token is still unexpired
@@ -75,25 +76,30 @@ namespace GenOnlineService.Identity
 			if (authorization == null || !await m_authorizations.HasStatusAsync(authorization, OpenIddictConstants.Statuses.Valid)
 				|| await m_authorizations.GetSubjectAsync(authorization) != userID.ToString())
 			{
-				return StatusCode(StatusCodes.Status401Unauthorized, new { message = "401 Unauthorized", error = "unauthorized" });
+				return StatusCode(StatusCodes.Status401Unauthorized, UniformAuthResponses.UnauthorizedBody);
 			}
 
 			body ??= new AuthSessionRequest();
-			if (new[] { body.MachineGuid, body.MacAddress, body.VolumeSerial }.Any(v => v != null && v.Length > MaximumDeviceValueLength))
+			string? tooLong = new[] { ("machine_guid", body.MachineGuid), ("mac_addr", body.MacAddress), ("vol_serial", body.VolumeSerial) }
+				.FirstOrDefault(v => v.Item2 != null && v.Item2.Length > MaximumDeviceValueLength).Item1;
+			if (tooLong != null)
 			{
-				return BadRequest(Problem("invalid_argument", "A device value is too long."));
+				return BadRequest(Problem("invalid_argument", new { field = tooLong }));
 			}
 
-			if (sessionType == EUserSessionType.GameClient && (body.ExeCrc == null || body.IniCrc == null || body.AnticheatID == null))
+			// a game session needs its build identity: exe_crc, ini_crc and anticheat_id
+			string? missing = sessionType != EUserSessionType.GameClient ? null
+				: body.ExeCrc == null ? "exe_crc" : body.IniCrc == null ? "ini_crc" : body.AnticheatID == null ? "anticheat_id" : null;
+			if (missing != null)
 			{
-				return BadRequest(Problem("invalid_argument", "A game session needs exe_crc, ini_crc and anticheat_id."));
+				return BadRequest(Problem("invalid_argument", new { field = missing }));
 			}
 
 			// a client that lists its builds only plays with one of them; an unlisted build is left to anti-cheat
 			if (sessionType == EUserSessionType.GameClient && !client.AcceptsBuild(body.ExeCrc!.Value, body.IniCrc!.Value))
 			{
 				AppMetrics.RecordAuthentication("session", client.ClientID, "build_not_accepted");
-				return StatusCode(StatusCodes.Status403Forbidden, Problem("session.build_not_accepted", "This build of the game is not accepted. Please update."));
+				return StatusCode(StatusCodes.Status403Forbidden, Problem("session.build_not_accepted"));
 			}
 
 			string ipAddress = IPHelpers.NormalizeIP(HttpContext.Connection.RemoteIpAddress?.ToString());
@@ -167,7 +173,7 @@ namespace GenOnlineService.Identity
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 			if (!await db.Users.AnyAsync(u => u.ID == id))
 			{
-				return NotFound(Problem("user.not_found", "404 User Not Found"));
+				return NotFound(Problem("not_found", new { what = "user" }));
 			}
 
 			int revoked = await SessionRevocation.RevokeUser(id, false, "revoke_sessions");

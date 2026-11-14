@@ -163,7 +163,7 @@ Retention: a `jobs` task deletes token rows 90 days after `revoked_at` or `expir
 `ApiTokenHandler` runs when the bearer value starts with `gopat-`; any other bearer value goes to the JwtBearer path (HS256 pinned).
 
 1. Hash the token and look it up in the in-memory active token set.
-2. Fail with **401** when the token is missing, revoked or expired, the owner is disabled, banned or deleted, or the client address is outside `allowed_ips`. Every failure gets the same 401 body; the real reason goes to the log with `token_id`.
+2. Fail with **401** when the token is missing, revoked or expired, the owner is disabled, banned or deleted, or the client address is outside `allowed_ips`. Every failure gets the same 401 body, `{"error":"unauthorized","params":{}}`, also used for session tokens; the real reason goes to the log with `token_id`.
 3. Build the principal: `auth_kind=token`, `token_id`, `owner_kind`, `owner_id`, one `permission` claim per effective permission.
 4. Record `last_used_at` / `last_used_ip` in an in-memory buffer; the reconcile tick flushes it.
 

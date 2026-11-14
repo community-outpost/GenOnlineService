@@ -465,16 +465,15 @@ namespace GenOnlineService.Identity
 			if (Context.Items.TryGetValue(BanItemKey, out object? value) && value is PlayBan ban && !Response.HasStarted)
 			{
 				Response.StatusCode = StatusCodes.Status403Forbidden;
-				string? until = ban.Until?.ToString("O");
 
-				if (Context.WebSockets.IsWebSocketRequest)
+				// one body for the upgrade and REST; a permanent ban has no expires_at
+				var parameters = new Dictionary<string, string> { ["reason"] = ban.Reason };
+				if (ban.Until != null)
 				{
-					await Response.WriteAsJsonAsync(new { code = "moderation.banned", @params = new { reason = ban.Reason, until } });
+					parameters["expires_at"] = DateTime.SpecifyKind(ban.Until.Value, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
 				}
-				else
-				{
-					await Response.WriteAsJsonAsync(new { message = "403 Forbidden - banned", error = "moderation.banned", reason = ban.Reason, until });
-				}
+
+				await Response.WriteAsJsonAsync(new { error = "moderation.banned", @params = parameters });
 
 				return;
 			}
