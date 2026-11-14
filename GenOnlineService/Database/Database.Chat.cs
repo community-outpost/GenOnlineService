@@ -1,0 +1,586 @@
+/*
+**    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
+**    Copyright (C) 2025  GeneralsOnline Development Team
+**
+**    This program is free software: you can redistribute it and/or modify
+**    it under the terms of the GNU Affero General Public License as
+**    published by the Free Software Foundation, either version 3 of the
+**    License, or (at your option) any later version.
+**
+**    This program is distributed in the hope that it will be useful,
+**    but WITHOUT ANY WARRANTY; without even the implied warranty of
+**    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**    GNU Affero General Public License for more details.
+**
+**    You should have received a copy of the GNU Affero General Public License
+**    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+public static class ChatMessageKinds
+{
+	public const string Channel = "channel";
+	public const string Lobby = "lobby";
+	public const string Direct = "direct";
+}
+
+public static class ChatMessageTypes
+{
+	public const string Chat = "chat";
+	public const string Action = "action";
+	public const string Announcement = "announcement";
+}
+
+public static class ChatReportStatuses
+{
+	public const string Open = "open";
+	public const string Closed = "closed";
+}
+
+// Stored as sent without encryption, who deleted a message and why live in audit_log
+public class ChatMessage
+{
+	public Int64 ID { get; set; }
+	public string Kind { get; set; } = String.Empty;
+
+	// Catalog channel id, set for channel messages only
+	public Int64? ChannelID { get; set; }
+
+	// Set for lobby messages only, the match id stays null until the game starts
+	public Int64? LobbyID { get; set; }
+	public Int64? MatchID { get; set; }
+
+	public Int64 SenderID { get; set; }
+
+	// Set for direct messages only
+	public Int64? RecipientID { get; set; }
+
+	public string Type { get; set; } = String.Empty;
+	public string Content { get; set; } = String.Empty;
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+
+	// Set when staff delete the message, history then shows a tombstone
+	public DateTime? DeletedAt { get; set; }
+}
+
+// The last message a user has read in one conversation, keyed by the wire channel id (dm:<user_id>, channel:<id>)
+public class ChatReadMarker
+{
+	public Int64 UserID { get; set; }
+	public string Conversation { get; set; } = String.Empty;
+	public Int64 LastReadMessageID { get; set; }
+	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
+}
+
+// A player report of one message, the snapshot outlives the purged messages until the case is closed
+public class ChatReport
+{
+	public Int64 ID { get; set; }
+	public Int64 MessageID { get; set; }
+	public Int64 ReporterID { get; set; }
+	public string? Reason { get; set; }
+
+	// A JSON object with the reported message and up to 10 messages before it in the same conversation
+	public string Snapshot { get; set; } = "{}";
+
+	// Whatever closes a report sets closed_at too, the purge counts from it
+	public string Status { get; set; } = ChatReportStatuses.Open;
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+	public DateTime? ClosedAt { get; set; }
+}
+
+public class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
+{
+	public void Configure(EntityTypeBuilder<ChatMessage> builder)
+	{
+		builder.ToTable("chat_messages");
+
+		builder.HasKey(e => e.ID);
+
+		// Channel history paging
+		builder.HasIndex(e => new { e.Kind, e.ChannelID, e.ID }).HasDatabaseName("ix_chat_messages_channel");
+
+		// Lobby context for report snapshots
+		builder.HasIndex(e => new { e.LobbyID, e.ID }).HasDatabaseName("ix_chat_messages_lobby");
+
+		// Direct conversation paging in both directions, conversation lists and unread counts
+		builder.HasIndex(e => new { e.SenderID, e.RecipientID, e.ID }).HasDatabaseName("ix_chat_messages_sender_recipient");
+		builder.HasIndex(e => new { e.RecipientID, e.SenderID, e.ID }).HasDatabaseName("ix_chat_messages_recipient_sender");
+
+		// Retention purge
+		builder.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_chat_messages_created_at");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16);
+		builder.Property(e => e.ChannelID).HasColumnName("channel_id");
+		builder.Property(e => e.LobbyID).HasColumnName("lobby_id");
+		builder.Property(e => e.MatchID).HasColumnName("match_id");
+		builder.Property(e => e.SenderID).HasColumnName("sender_id");
+		builder.Property(e => e.RecipientID).HasColumnName("recipient_id");
+		builder.Property(e => e.Type).HasColumnName("type").HasMaxLength(16);
+		builder.Property(e => e.Content).HasColumnName("content").HasMaxLength(Database.Chat.MaximumContentLength);
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+	}
+}
+
+public class ChatReadMarkerConfiguration : IEntityTypeConfiguration<ChatReadMarker>
+{
+	public void Configure(EntityTypeBuilder<ChatReadMarker> builder)
+	{
+		builder.ToTable("chat_read_markers");
+
+		builder.HasKey(e => new { e.UserID, e.Conversation });
+		builder.HasIndex(e => e.UpdatedAt).HasDatabaseName("ix_chat_read_markers_updated_at");
+
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.Conversation).HasColumnName("conversation").HasMaxLength(Database.Chat.MaximumConversationLength);
+		builder.Property(e => e.LastReadMessageID).HasColumnName("last_read_message_id");
+		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+	}
+}
+
+public class ChatReportConfiguration : IEntityTypeConfiguration<ChatReport>
+{
+	public void Configure(EntityTypeBuilder<ChatReport> builder)
+	{
+		builder.ToTable("chat_reports");
+
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => new { e.MessageID, e.ReporterID }).IsUnique().HasDatabaseName("ux_chat_reports_message_reporter");
+		builder.HasIndex(e => e.ReporterID).HasDatabaseName("ix_chat_reports_reporter_id");
+		builder.HasIndex(e => new { e.Status, e.ClosedAt }).HasDatabaseName("ix_chat_reports_status_closed_at");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.MessageID).HasColumnName("message_id");
+		builder.Property(e => e.ReporterID).HasColumnName("reporter_id");
+		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(Database.Chat.MaximumReasonLength);
+		builder.Property(e => e.Snapshot).HasColumnName("snapshot");
+		builder.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.ClosedAt).HasColumnName("closed_at");
+	}
+}
+
+namespace Database
+{
+	// One page of a conversation oldest first, HasMore is true when older messages exist
+	public sealed record ChatPage(List<ChatMessage> Messages, bool HasMore);
+
+	// One direct conversation of a user, for the DirectMessages snapshot
+	public sealed record DirectConversation(long OtherUserID, int Unread, ChatMessage Last);
+
+	// The message is null when no message has that id, AlreadyDeleted is true when it was a tombstone before the call
+	public sealed record ChatTombstone(ChatMessage? Message, bool AlreadyDeleted);
+
+	public enum ChatReportResult
+	{
+		Created,
+		Duplicate
+	}
+
+	public sealed record ChatPurgeCounts(int Messages, int ReadMarkers, int Reports);
+
+	// Chat storage, block filtering stays with the caller and the queries only take ids to leave out
+	public static class Chat
+	{
+		public const int MaximumContentLength = 512;
+		public const int MaximumReasonLength = 512;
+		public const int MaximumConversationLength = 64;
+		public const int SnapshotContextMessages = 10;
+		public const int MaximumPageSize = 100;
+
+		// Every stored message and tombstone is kept 30 days, closed reports 30 days after closing
+		public static readonly TimeSpan MessageRetention = TimeSpan.FromDays(30);
+		public static readonly TimeSpan ClosedReportRetention = TimeSpan.FromDays(30);
+
+		public const string DirectConversationPrefix = "dm:";
+		public const string ChannelConversationPrefix = "channel:";
+
+		public static string DirectConversationKey(long otherUserId) => DirectConversationPrefix + otherUserId;
+		public static string ChannelConversationKey(long channelId) => ChannelConversationPrefix + channelId;
+
+		public static Task<ChatMessage> InsertChannelMessage(AppDbContext db, long channelId, long senderId, string type, string content, CancellationToken cancellationToken = default)
+		{
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Channel, ChannelID = channelId, SenderID = senderId, Type = type, Content = content }, cancellationToken);
+		}
+
+		public static Task<ChatMessage> InsertLobbyMessage(AppDbContext db, long lobbyId, long? matchId, long senderId, string type, string content, CancellationToken cancellationToken = default)
+		{
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Lobby, LobbyID = lobbyId, MatchID = matchId, SenderID = senderId, Type = type, Content = content }, cancellationToken);
+		}
+
+		public static Task<ChatMessage> InsertDirectMessage(AppDbContext db, long senderId, long recipientId, string type, string content, CancellationToken cancellationToken = default)
+		{
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Direct, SenderID = senderId, RecipientID = recipientId, Type = type, Content = content }, cancellationToken);
+		}
+
+		// Returns the stored row with its id and created_at, failures throw so the caller can answer the sender
+		private static async Task<ChatMessage> Insert(AppDbContext db, ChatMessage message, CancellationToken cancellationToken)
+		{
+			if (message.Content.Length == 0 || message.Content.Length > MaximumContentLength)
+			{
+				throw new ArgumentOutOfRangeException(nameof(message), "Chat content must be 1 to 512 characters.");
+			}
+
+			message.CreatedAt = TruncateToMicroseconds(DateTime.UtcNow);
+			db.ChatMessages.Add(message);
+
+			try
+			{
+				await db.SaveChangesAsync(cancellationToken);
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+
+			return message;
+		}
+
+		// The limit messages just older than beforeId or the newest, returned oldest first with tombstones included
+		public static async Task<ChatPage> GetChannelHistory(AppDbContext db, long channelId, long? beforeId, int limit, IReadOnlyCollection<long>? excludeSenderIds = null, CancellationToken cancellationToken = default)
+		{
+			limit = Math.Clamp(limit, 1, MaximumPageSize);
+
+			IQueryable<ChatMessage> query = db.ChatMessages.AsNoTracking()
+				.Where(m => m.Kind == ChatMessageKinds.Channel && m.ChannelID == channelId);
+
+			if (beforeId is long before)
+			{
+				query = query.Where(m => m.ID < before);
+			}
+
+			if (excludeSenderIds is { Count: > 0 })
+			{
+				long[] excluded = excludeSenderIds.ToArray();
+				query = query.Where(m => !excluded.Contains(m.SenderID));
+			}
+
+			List<ChatMessage> rows = await query.OrderByDescending(m => m.ID).Take(limit + 1).ToListAsync(cancellationToken);
+			return ToPage(rows, limit);
+		}
+
+		// Both directions between two users, same shape as channel history
+		public static async Task<ChatPage> GetDirectHistory(AppDbContext db, long userId, long otherUserId, long? beforeId, int limit, CancellationToken cancellationToken = default)
+		{
+			limit = Math.Clamp(limit, 1, MaximumPageSize);
+			long before = beforeId ?? long.MaxValue;
+
+			// One range scan per direction keeps both on their index and the merge happens here
+			List<ChatMessage> sent = await db.ChatMessages.AsNoTracking()
+				.Where(m => m.SenderID == userId && m.RecipientID == otherUserId && m.ID < before)
+				.OrderByDescending(m => m.ID).Take(limit + 1).ToListAsync(cancellationToken);
+
+			List<ChatMessage> received = await db.ChatMessages.AsNoTracking()
+				.Where(m => m.SenderID == otherUserId && m.RecipientID == userId && m.ID < before)
+				.OrderByDescending(m => m.ID).Take(limit + 1).ToListAsync(cancellationToken);
+
+			List<ChatMessage> rows = sent.Concat(received).OrderByDescending(m => m.ID).Take(limit + 1).ToList();
+			return ToPage(rows, limit);
+		}
+
+		// Conversations of a user, newest first, with the last message and the unread count past the read marker
+		public static async Task<List<DirectConversation>> GetDirectConversations(AppDbContext db, long userId, int maxConversations = 50, IReadOnlyCollection<long>? excludeUserIds = null, CancellationToken cancellationToken = default)
+		{
+			var outgoing = await db.ChatMessages.AsNoTracking()
+				.Where(m => m.SenderID == userId && m.RecipientID != null)
+				.GroupBy(m => m.RecipientID!.Value)
+				.Select(g => new { Other = g.Key, Last = g.Max(m => m.ID) })
+				.ToListAsync(cancellationToken);
+
+			var incoming = await db.ChatMessages.AsNoTracking()
+				.Where(m => m.RecipientID == userId)
+				.GroupBy(m => m.SenderID)
+				.Select(g => new { Other = g.Key, Last = g.Max(m => m.ID) })
+				.ToListAsync(cancellationToken);
+
+			Dictionary<long, long> lastIncoming = incoming.ToDictionary(x => x.Other, x => x.Last);
+			Dictionary<long, long> lastAny = new(lastIncoming);
+			foreach (var row in outgoing)
+			{
+				lastAny[row.Other] = lastAny.TryGetValue(row.Other, out long existing) ? Math.Max(existing, row.Last) : row.Last;
+			}
+
+			List<KeyValuePair<long, long>> selected = lastAny
+				.Where(kv => excludeUserIds == null || !excludeUserIds.Contains(kv.Key))
+				.OrderByDescending(kv => kv.Value)
+				.Take(maxConversations)
+				.ToList();
+
+			if (selected.Count == 0)
+			{
+				return new List<DirectConversation>();
+			}
+
+			long[] lastIds = selected.Select(kv => kv.Value).ToArray();
+			Dictionary<long, ChatMessage> lastMessages = await db.ChatMessages.AsNoTracking()
+				.Where(m => lastIds.Contains(m.ID))
+				.ToDictionaryAsync(m => m.ID, cancellationToken);
+
+			// One grouped query counts every sender past the marker of that conversation
+			long[] senders = selected.Where(kv => lastIncoming.ContainsKey(kv.Key)).Select(kv => kv.Key).ToArray();
+			Dictionary<long, int> unreadBySender = new();
+
+			if (senders.Length > 0)
+			{
+				var unreadRows = await (
+					from m in db.ChatMessages.AsNoTracking()
+					where m.RecipientID == userId && m.DeletedAt == null && senders.Contains(m.SenderID)
+					join r in db.ChatReadMarkers.AsNoTracking().Where(r => r.UserID == userId)
+						on DirectConversationPrefix + m.SenderID.ToString() equals r.Conversation into joined
+					from r in joined.DefaultIfEmpty()
+					where r == null || m.ID > r.LastReadMessageID
+					group m by m.SenderID into g
+					select new { Sender = g.Key, Count = g.Count() })
+					.ToListAsync(cancellationToken);
+
+				unreadBySender = unreadRows.ToDictionary(x => x.Sender, x => x.Count);
+			}
+
+			List<DirectConversation> result = new(selected.Count);
+			foreach (var (other, lastId) in selected)
+			{
+				if (lastMessages.TryGetValue(lastId, out ChatMessage? last))
+				{
+					result.Add(new DirectConversation(other, unreadBySender.GetValueOrDefault(other), last));
+				}
+			}
+
+			return result;
+		}
+
+		// Read positions of a user keyed by conversation, optionally only those starting with a prefix
+		public static async Task<Dictionary<string, long>> GetReadMarkers(AppDbContext db, long userId, string? conversationPrefix = null, CancellationToken cancellationToken = default)
+		{
+			IQueryable<ChatReadMarker> query = db.ChatReadMarkers.AsNoTracking().Where(r => r.UserID == userId);
+
+			if (!String.IsNullOrEmpty(conversationPrefix))
+			{
+				query = query.Where(r => r.Conversation.StartsWith(conversationPrefix));
+			}
+
+			return await query.ToDictionaryAsync(r => r.Conversation, r => r.LastReadMessageID, cancellationToken);
+		}
+
+		// Moves the read position forward only and returns true when it moved
+		public static async Task<bool> SetReadMarker(AppDbContext db, long userId, string conversation, long messageId, CancellationToken cancellationToken = default)
+		{
+			if (conversation.Length == 0 || conversation.Length > MaximumConversationLength)
+			{
+				throw new ArgumentOutOfRangeException(nameof(conversation));
+			}
+
+			if (!await MessageBelongsTo(db, userId, conversation, messageId, cancellationToken))
+			{
+				return false;
+			}
+
+			DateTime now = TruncateToMicroseconds(DateTime.UtcNow);
+
+			for (int attempt = 0; attempt < 2; attempt++)
+			{
+				int updated = await db.ChatReadMarkers
+					.Where(r => r.UserID == userId && r.Conversation == conversation && r.LastReadMessageID < messageId)
+					.ExecuteUpdateAsync(s => s.SetProperty(r => r.LastReadMessageID, messageId).SetProperty(r => r.UpdatedAt, now), cancellationToken);
+
+				if (updated > 0)
+				{
+					return true;
+				}
+
+				bool exists = await db.ChatReadMarkers.AnyAsync(r => r.UserID == userId && r.Conversation == conversation, cancellationToken);
+				if (exists)
+				{
+					return false;
+				}
+
+				db.ChatReadMarkers.Add(new ChatReadMarker { UserID = userId, Conversation = conversation, LastReadMessageID = messageId, UpdatedAt = now });
+
+				try
+				{
+					await db.SaveChangesAsync(cancellationToken);
+					return true;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+				{
+					// Another connection created the row first, the update path runs again
+				}
+				finally
+				{
+					db.ChangeTracker.Clear();
+				}
+			}
+
+			return false;
+		}
+
+		// True when the message exists and is part of that conversation as the user sees it
+		private static async Task<bool> MessageBelongsTo(AppDbContext db, long userId, string conversation, long messageId, CancellationToken cancellationToken)
+		{
+			if (conversation.StartsWith(DirectConversationPrefix, StringComparison.Ordinal) && long.TryParse(conversation.AsSpan(DirectConversationPrefix.Length), out long other))
+			{
+				return await db.ChatMessages.AnyAsync(m => m.ID == messageId && ((m.SenderID == userId && m.RecipientID == other) || (m.SenderID == other && m.RecipientID == userId)), cancellationToken);
+			}
+
+			if (conversation.StartsWith(ChannelConversationPrefix, StringComparison.Ordinal) && long.TryParse(conversation.AsSpan(ChannelConversationPrefix.Length), out long channelId))
+			{
+				return await db.ChatMessages.AnyAsync(m => m.ID == messageId && m.Kind == ChatMessageKinds.Channel && m.ChannelID == channelId, cancellationToken);
+			}
+
+			return false;
+		}
+
+		public static async Task<ChatMessage?> GetMessage(AppDbContext db, long messageId, CancellationToken cancellationToken = default)
+		{
+			return await db.ChatMessages.AsNoTracking().FirstOrDefaultAsync(m => m.ID == messageId, cancellationToken);
+		}
+
+		// Sets deleted_at once and returns the row so the caller can address MessageDelete
+		public static async Task<ChatTombstone> TombstoneMessage(AppDbContext db, long messageId, CancellationToken cancellationToken = default)
+		{
+			DateTime now = TruncateToMicroseconds(DateTime.UtcNow);
+
+			int updated = await db.ChatMessages
+				.Where(m => m.ID == messageId && m.DeletedAt == null)
+				.ExecuteUpdateAsync(s => s.SetProperty(m => m.DeletedAt, now), cancellationToken);
+
+			ChatMessage? message = await GetMessage(db, messageId, cancellationToken);
+			return new ChatTombstone(message, message != null && updated == 0);
+		}
+
+		// Stores the report with a snapshot of the message and the messages before it in the same conversation
+		public static async Task<ChatReportResult> CreateReport(AppDbContext db, ChatMessage message, long reporterId, string? reason, CancellationToken cancellationToken = default)
+		{
+			if (reason != null && reason.Length > MaximumReasonLength)
+			{
+				throw new ArgumentOutOfRangeException(nameof(reason));
+			}
+
+			if (await db.ChatReports.AnyAsync(r => r.MessageID == message.ID && r.ReporterID == reporterId, cancellationToken))
+			{
+				return ChatReportResult.Duplicate;
+			}
+
+			IQueryable<ChatMessage> conversation = db.ChatMessages.AsNoTracking().Where(m => m.ID < message.ID);
+			conversation = message.Kind switch
+			{
+				ChatMessageKinds.Channel => conversation.Where(m => m.Kind == ChatMessageKinds.Channel && m.ChannelID == message.ChannelID),
+				ChatMessageKinds.Lobby => conversation.Where(m => m.LobbyID == message.LobbyID),
+				_ => conversation.Where(m => (m.SenderID == message.SenderID && m.RecipientID == message.RecipientID) || (m.SenderID == message.RecipientID && m.RecipientID == message.SenderID))
+			};
+
+			List<ChatMessage> context = await conversation.OrderByDescending(m => m.ID).Take(SnapshotContextMessages).ToListAsync(cancellationToken);
+			context.Reverse();
+
+			ChatReportSnapshot snapshot = new(ToSnapshot(message), context.Select(ToSnapshot).ToList());
+
+			db.ChatReports.Add(new ChatReport
+			{
+				MessageID = message.ID,
+				ReporterID = reporterId,
+				Reason = reason,
+				Snapshot = JsonSerializer.Serialize(snapshot, s_snapshotJson),
+				Status = ChatReportStatuses.Open,
+				CreatedAt = TruncateToMicroseconds(DateTime.UtcNow)
+			});
+
+			try
+			{
+				await db.SaveChangesAsync(cancellationToken);
+				return ChatReportResult.Created;
+			}
+			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+			{
+				return ChatReportResult.Duplicate;
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+		}
+
+		// Runs hourly with the other retention purges, open reports are never purged
+		public static async Task<ChatPurgeCounts> PurgeExpired(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
+		{
+			DateTime messageCutoff = utcNow - MessageRetention;
+			DateTime reportCutoff = utcNow - ClosedReportRetention;
+
+			int messages = await db.ChatMessages.Where(m => m.CreatedAt < messageCutoff).ExecuteDeleteAsync(cancellationToken);
+
+			// A marker untouched for the retention period only points at purged messages
+			int markers = await db.ChatReadMarkers.Where(r => r.UpdatedAt < messageCutoff).ExecuteDeleteAsync(cancellationToken);
+
+			int reports = await db.ChatReports
+				.Where(r => r.Status == ChatReportStatuses.Closed && r.ClosedAt != null && r.ClosedAt < reportCutoff)
+				.ExecuteDeleteAsync(cancellationToken);
+
+			return new ChatPurgeCounts(messages, markers, reports);
+		}
+
+		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers and closed reports
+		// Open reports keep their snapshot until the case is closed, then the normal purge removes them
+		public static async Task<int> DeleteUserData(AppDbContext db, long userId, CancellationToken cancellationToken = default)
+		{
+			string conversationWithUser = DirectConversationKey(userId);
+
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+			int removed = await db.ChatMessages.Where(m => m.SenderID == userId).ExecuteDeleteAsync(cancellationToken);
+			removed += await db.ChatReadMarkers.Where(r => r.UserID == userId || r.Conversation == conversationWithUser).ExecuteDeleteAsync(cancellationToken);
+			removed += await db.ChatReports.Where(r => r.ReporterID == userId && r.Status == ChatReportStatuses.Closed).ExecuteDeleteAsync(cancellationToken);
+
+			await transaction.CommitAsync(cancellationToken);
+			return removed;
+		}
+
+		private static ChatPage ToPage(List<ChatMessage> newestFirst, int limit)
+		{
+			bool hasMore = newestFirst.Count > limit;
+			if (hasMore)
+			{
+				newestFirst.RemoveRange(limit, newestFirst.Count - limit);
+			}
+
+			newestFirst.Reverse();
+			return new ChatPage(newestFirst, hasMore);
+		}
+
+		// Both providers store microseconds, so the returned row matches what a later read returns
+		private static DateTime TruncateToMicroseconds(DateTime value)
+		{
+			return new DateTime(value.Ticks - (value.Ticks % 10), DateTimeKind.Utc);
+		}
+
+		private static readonly JsonSerializerOptions s_snapshotJson = new()
+		{
+			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+		};
+
+		private static ChatSnapshotMessage ToSnapshot(ChatMessage m)
+		{
+			return new ChatSnapshotMessage(m.ID, m.Kind, m.ChannelID, m.LobbyID, m.MatchID, m.SenderID, m.RecipientID, m.Type, m.Content, m.CreatedAt, m.DeletedAt);
+		}
+
+		private sealed record ChatReportSnapshot(
+			[property: JsonPropertyName("message")] ChatSnapshotMessage Message,
+			[property: JsonPropertyName("before")] List<ChatSnapshotMessage> Before);
+
+		private sealed record ChatSnapshotMessage(
+			[property: JsonPropertyName("id")] long ID,
+			[property: JsonPropertyName("kind")] string Kind,
+			[property: JsonPropertyName("channel_id")] long? ChannelID,
+			[property: JsonPropertyName("lobby_id")] long? LobbyID,
+			[property: JsonPropertyName("match_id")] long? MatchID,
+			[property: JsonPropertyName("sender_id")] long SenderID,
+			[property: JsonPropertyName("recipient_id")] long? RecipientID,
+			[property: JsonPropertyName("type")] string Type,
+			[property: JsonPropertyName("content")] string Content,
+			[property: JsonPropertyName("created_at")] DateTime CreatedAt,
+			[property: JsonPropertyName("deleted_at")] DateTime? DeletedAt);
+	}
+}

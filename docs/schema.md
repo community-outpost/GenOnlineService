@@ -98,6 +98,27 @@ friend_requests           from_user_id, to_user_id, created_at    pk (from_user_
 blocks                    user_id, blocked_user_id, created_at    pk (user_id, blocked_user_id)
 ```
 
+### Chat
+
+```
+chat_messages             id, kind varchar(16) ('channel' | 'lobby' | 'direct'), channel_id bigint null,
+                          lobby_id bigint null, match_id bigint null, sender_id, recipient_id null,
+                          type varchar(16) ('chat' | 'action' | 'announcement'), content varchar(512),
+                          created_at, deleted_at null
+                          index (kind, channel_id, id), (lobby_id, id), (sender_id, recipient_id, id),
+                          (recipient_id, sender_id, id), (created_at)
+                          -- retention: 30 days after created_at, tombstones included
+chat_read_markers         user_id, conversation varchar(64) ('dm:<user_id>' | 'channel:<id>'),
+                          last_read_message_id, updated_at   pk (user_id, conversation)
+                          -- retention: purged with the messages, 30 days after updated_at
+chat_reports              id, message_id, reporter_id, reason varchar(512) null, snapshot json,
+                          status varchar(16) ('open' | 'closed'), created_at, closed_at null
+                          unique (message_id, reporter_id)
+                          -- retention: kept while open, purged 30 days after closed_at
+```
+
+Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages. A report's `snapshot` holds the reported message and up to 10 messages before it in the same conversation, so its `message_id` may point at a purged message and moderation reads the snapshot instead. Closing a report sets `closed_at`. Account deletion deletes the messages the user sent, their read markers and their closed reports; their open reports stay until closed.
+
 ### Players and devices
 
 ```

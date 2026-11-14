@@ -1540,7 +1540,7 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// Devices and session events past their retention are purged hourly
+			// Devices, session events, chat messages and closed reports past their retention are purged hourly
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(TimeSpan.FromHours(1).TotalMilliseconds);
 				timerTick.AutoReset = false;
@@ -1553,10 +1553,31 @@ namespace GenOnlineService
 							using var scope = app.Services.CreateScope();
 							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 							await using var db = await factory.CreateDbContextAsync();
-							var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
-							if (devices > 0 || sessionEvents > 0)
+							try
 							{
-								app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
+								var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
+								if (devices > 0 || sessionEvents > 0)
+								{
+									app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
+								}
+							}
+							catch (Exception ex)
+							{
+								app.Logger.LogError(ex, "Device and session event retention purge failed");
+							}
+
+							// Runs on its own so a device purge failure never skips it
+							try
+							{
+								var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
+								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0)
+								{
+									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers and {ChatReportCount} closed reports", chat.Messages, chat.ReadMarkers, chat.Reports);
+								}
+							}
+							catch (Exception ex)
+							{
+								app.Logger.LogError(ex, "Chat retention purge failed");
 							}
 						});
 					}

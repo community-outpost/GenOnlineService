@@ -370,6 +370,164 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("bans", (string)null);
                 });
 
+            modelBuilder.Entity("ChatMessage", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<long?>("ChannelID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<long?>("LobbyID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lobby_id");
+
+                    b.Property<long?>("MatchID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<long?>("RecipientID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipient_id");
+
+                    b.Property<long>("SenderID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sender_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("type");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_chat_messages_created_at");
+
+                    b.HasIndex("LobbyID", "ID")
+                        .HasDatabaseName("ix_chat_messages_lobby");
+
+                    b.HasIndex("Kind", "ChannelID", "ID")
+                        .HasDatabaseName("ix_chat_messages_channel");
+
+                    b.HasIndex("RecipientID", "SenderID", "ID")
+                        .HasDatabaseName("ix_chat_messages_recipient_sender");
+
+                    b.HasIndex("SenderID", "RecipientID", "ID")
+                        .HasDatabaseName("ix_chat_messages_sender_recipient");
+
+                    b.ToTable("chat_messages", (string)null);
+                });
+
+            modelBuilder.Entity("ChatReadMarker", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Conversation")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("conversation");
+
+                    b.Property<long>("LastReadMessageID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_read_message_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserID", "Conversation");
+
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("ix_chat_read_markers_updated_at");
+
+                    b.ToTable("chat_read_markers", (string)null);
+                });
+
+            modelBuilder.Entity("ChatReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("MessageID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<string>("Snapshot")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("snapshot");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ReporterID")
+                        .HasDatabaseName("ix_chat_reports_reporter_id");
+
+                    b.HasIndex("MessageID", "ReporterID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_chat_reports_message_reporter");
+
+                    b.HasIndex("Status", "ClosedAt")
+                        .HasDatabaseName("ix_chat_reports_status_closed_at");
+
+                    b.ToTable("chat_reports", (string)null);
+                });
+
             modelBuilder.Entity("Device", b =>
                 {
                     b.Property<long>("ID")
