@@ -39,6 +39,26 @@ namespace GenOnlineService.Identity
 		public string ClientSecret { get; init; } = String.Empty;
 	}
 
+	// The GenOnline Keycloak plugin's change log (identity design 5b): pushes in, pulls and a resync out
+	public sealed class ChangeLogSettings
+	{
+		public const int MinPushSecretLength = 32;
+
+		public bool Enabled { get; init; }
+		public int IntervalSeconds { get; init; } = 60;
+
+		// Keycloak base URL and realm; both default from the provider's issuer
+		public string BaseUrl { get; init; } = String.Empty;
+		public string Realm { get; init; } = String.Empty;
+
+		// a confidential client whose service account holds the realm role genonline-sync
+		public string ClientID { get; init; } = String.Empty;
+		public string ClientSecret { get; init; } = String.Empty;
+
+		// this environment's HMAC secret, the same value the plugin lists for it
+		public string PushSecret { get; init; } = String.Empty;
+	}
+
 	// One upstream OpenID Connect provider (Keycloak in the official deployment)
 	public sealed class UpstreamProviderSettings
 	{
@@ -61,6 +81,7 @@ namespace GenOnlineService.Identity
 		public Dictionary<string, string> RoleGroups { get; init; } = new(StringComparer.Ordinal);
 		public string? BanGroup { get; init; }
 		public GroupSyncSettings GroupSync { get; init; } = new();
+		public ChangeLogSettings ChangeLog { get; init; } = new();
 
 		public string Source => AuthoritySources.UpstreamPrefix + Name;
 		public string CallbackPath => $"users/auth/{Name}/callback";
@@ -135,8 +156,38 @@ namespace GenOnlineService.Identity
 					AdminBaseUrl = p.GetValue<string>("group_sync:admin_base_url") ?? String.Empty,
 					ClientID = p.GetValue<string>("group_sync:client_id") ?? String.Empty,
 					ClientSecret = p.GetValue<string>("group_sync:client_secret") ?? String.Empty
+				},
+				ChangeLog = new ChangeLogSettings
+				{
+					Enabled = p.GetValue<bool>("change_log:enabled"),
+					IntervalSeconds = Math.Max(5, p.GetValue<int?>("change_log:interval_seconds") ?? 60),
+					BaseUrl = p.GetValue<string>("change_log:base_url") ?? String.Empty,
+					Realm = p.GetValue<string>("change_log:realm") ?? String.Empty,
+					ClientID = p.GetValue<string>("change_log:client_id") ?? String.Empty,
+					ClientSecret = p.GetValue<string>("change_log:client_secret") ?? String.Empty,
+					PushSecret = p.GetValue<string>("change_log:push_secret") ?? String.Empty
 				}
 			}).ToList();
+
+			// the change log copies names into this environment, so only a trusted provider may feed it, and only one
+			List<UpstreamProviderSettings> changeLogs = providers.Where(p => p.Enabled && p.ChangeLog.Enabled).ToList();
+			foreach (UpstreamProviderSettings provider in changeLogs)
+			{
+				if (!provider.Trusted || changeLogs.Count > 1)
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: change_log needs a trusted provider, and only one provider may have it.");
+				}
+
+				if (String.IsNullOrEmpty(provider.ChangeLog.ClientID) || String.IsNullOrEmpty(provider.ChangeLog.ClientSecret))
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: change_log needs client_id and client_secret (a client holding the realm role genonline-sync).");
+				}
+
+				if (provider.ChangeLog.PushSecret.Length < ChangeLogSettings.MinPushSecretLength)
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: change_log:push_secret needs at least {ChangeLogSettings.MinPushSecretLength} characters.");
+				}
+			}
 
 			// player ids come from one upstream counter, so no other sign-in method may let the database pick a user id
 			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Enabled && p.PlayerIDs))

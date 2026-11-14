@@ -189,6 +189,41 @@ Model: Xbox modern gamertag. The display name is not unique; every account also 
 - **Self-hosters without Keycloak:** the environment owns name and tag with the same rules. Sign-up takes the provider's name and a free tag, `PATCH /api/v1/me` keeps the tag for a change of case and picks a free one otherwise, and staff with `moderation.rename` use the realtime `ForceRename`.
 - **Showing names:** `Name#1234` on profiles (`/users/me` returns `display_name` and `name_tag`), friend lists and requests, and moderation and staff tools (Discord `/whois` accepts and prints `Name#tag`). Lobbies and chat show the name only, with the tag on every member whose name another member there shares; the service computes each lobby slot's `name` that way (both get the tag when the second joins, and lose it when one leaves), and the realtime `Member` carries `tag` for chat. Leaderboards serve user ids only; clients that show a name there show `Name#tag`.
 
+## 5b. The plugin's change log (environment side)
+
+The GenOnline Keycloak plugin appends every rename to a change log of full-state entries. Each environment follows that log: a rename made anywhere reaches every environment without a sign-in, and a missed push is caught up. The wire contract is `keycloak-changes-contract.md` (agreed v1, 2026-11-14).
+
+- **Push:** `POST /-/keycloak/changes` takes one entry, signed with `X-GenOnline-Timestamp` and `X-GenOnline-Signature: sha256=<hex HMAC-SHA256(push_secret, timestamp + "." + body)>`, within 300 s.
+  - It answers 204 when the entry is applied, is a duplicate, or starts a gap pull.
+  - A bad signature or timestamp gets a 401 with the uniform body; a malformed entry gets 400 `invalid_argument {field}`.
+  - It is an operator path: the edge proxy must never route `/-/keycloak`. Only the plugin inside the cluster calls it.
+- **Order:** `last_seq` lives in `application_settings` (`keycloak.<provider>.change_log.last_seq`).
+  - An entry with `seq = last_seq + 1` is applied; `seq <= last_seq` is ignored.
+  - A gap pulls `changes?after=last_seq`.
+  - Every apply holds a row lock on `last_seq`, so the copies of an environment apply in order and never twice.
+  - An unknown `kind` or an unknown player id still advances `last_seq`.
+- **Interval check:** at startup and every `interval_seconds` (60), the service compares `last_seq` with `changes/latest` and pulls when behind. This catches a lost last push and any downtime.
+- **Resync:** when the log has been pruned past `last_seq` (410 `changes.expired`, or `oldest_seq` beyond it), the service reads every player's name and tag from `players?names` page by page. It then sets `last_seq` to the first page's `as_of_seq` and pulls the changes after it.
+- **Applying:** a rename copies Keycloak's name and tag the same way a sign-in copy does: the user row, a `user_username_history` row whose `changed_by` is `upstream:<provider>`, and the stale-holder move. After commit, online players get `MemberUpdate` and the `name.changed` notice. While the change log is on, the group sync's event-based name poll stands down.
+
+Configuration, under the trusted provider (`Accounts:providers:keycloak:change_log`):
+
+| Key | Meaning |
+|---|---|
+| `enabled` | follow the change log (one trusted provider at most) |
+| `client_id`, `client_secret` | a confidential client, service account only, holding the realm role `genonline-sync`; every environment has its own |
+| `push_secret` | this environment's HMAC secret (at least 32 characters), the same value the plugin lists for it |
+| `base_url`, `realm` | Keycloak's base URL and realm; both default from the provider's issuer |
+| `interval_seconds` | the catch-up check (default 60, minimum 5) |
+
+Tags never travel through the log. The tag assigned at first sign-in, and the import's `assign-tags`, write no entry; environments take the tag from the `name_tag` claim at sign-in, as in section 5a.
+
+Upgrading the plugin from `d08727a` changes its name key. Right after that upgrade, call `POST /realms/<realm>/genonline/players/assign-tags` once with a client holding `genonline-rename`, before players rename again.
+
+A pull answered with anything other than 200 or 410 (for example 400 `request.invalid`) is logged with the plugin's error code. Nothing is applied, and the next check retries.
+
+Only prod's client also holds `genonline-rename`, the role for the plugin's rename endpoint: a compromised test or dev environment then cannot rename prod players. Calling that endpoint from `PATCH /api/v1/me` and the staff rename is the hub session's part.
+
 ## 6. Tokens
 
 | Token | Issuer | Format | Lifetime | Notes |

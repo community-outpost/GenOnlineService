@@ -76,7 +76,11 @@ namespace GenOnlineService.Identity
 
 			try
 			{
-				await RunNames(db, provider);
+				// with the plugin's change log on, names arrive through it and the event poll stands down
+				if (!provider.ChangeLog.Enabled)
+				{
+					await RunNames(db, provider);
+				}
 			}
 			catch (Exception ex)
 			{
