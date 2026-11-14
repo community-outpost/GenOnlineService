@@ -77,7 +77,7 @@ public abstract class AppDbContext : DbContext
 
 	// Moderation and audit
 	public DbSet<UserRole> UserRoles => Set<UserRole>();
-	public DbSet<Ban> Bans => Set<Ban>();
+	public DbSet<Sanction> Sanctions => Set<Sanction>();
 	public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
 	// Social
@@ -88,7 +88,12 @@ public abstract class AppDbContext : DbContext
 	// Chat
 	public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 	public DbSet<ChatReadMarker> ChatReadMarkers => Set<ChatReadMarker>();
-	public DbSet<ChatReport> ChatReports => Set<ChatReport>();
+	public DbSet<PlayerReport> PlayerReports => Set<PlayerReport>();
+	public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
+	public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
+
+	// Lobbies
+	public DbSet<ConnectionReport> ConnectionReports => Set<ConnectionReport>();
 
 	// Players and devices
 	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
@@ -139,7 +144,7 @@ public abstract class AppDbContext : DbContext
 		configure(modelBuilder.Entity<MatchPlayer>().Property(e => e.Details));
 		configure(modelBuilder.Entity<AuditLogEntry>().Property(e => e.Details));
 		configure(modelBuilder.Entity<ApplicationSetting>().Property(e => e.Value));
-		configure(modelBuilder.Entity<ChatReport>().Property(e => e.Snapshot));
+		configure(modelBuilder.Entity<PlayerReport>().Property(e => e.Evidence));
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -153,14 +158,17 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ClientConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientBuildConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
-		modelBuilder.ApplyConfiguration(new BanConfiguration());
+		modelBuilder.ApplyConfiguration(new SanctionConfiguration());
 		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendshipConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
 		modelBuilder.ApplyConfiguration(new UserBlockConfiguration());
 		modelBuilder.ApplyConfiguration(new ChatMessageConfiguration());
 		modelBuilder.ApplyConfiguration(new ChatReadMarkerConfiguration());
-		modelBuilder.ApplyConfiguration(new ChatReportConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerReportConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatGroupConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
+		modelBuilder.ApplyConfiguration(new ConnectionReportConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());

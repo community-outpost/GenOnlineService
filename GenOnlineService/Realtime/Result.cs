@@ -65,6 +65,10 @@ namespace GenOnlineService.Realtime
 		public const string ChatMuted = "chat.muted";
 		public const string ChatNotFriends = "chat.not_friends";
 		public const string ReportDuplicate = "report.duplicate";
+		public const string MatchResultClosed = "match.result_closed";
+		public const string GroupFull = "group.full";
+		public const string GroupNotOwner = "group.not_owner";
+		public const string GroupNotMember = "group.not_member";
 		public const string NameLength = "name.length";
 		public const string NameInvalidCharacters = "name.invalid_characters";
 		public const string NameWhitespace = "name.whitespace";
@@ -108,6 +112,7 @@ namespace GenOnlineService.Realtime
 		public const string ModerationKicked = "moderation.kicked";
 		public const string ModerationBanned = "moderation.banned";
 		public const string ServerRestarting = "server.restarting";
+		public const string ServerSwitching = "server.switching";
 		public const string ProtocolError = "protocol.error";
 	}
 }

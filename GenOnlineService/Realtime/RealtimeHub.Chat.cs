@@ -16,27 +16,14 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Microsoft.EntityFrameworkCore;
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace GenOnlineService.Realtime
 {
-	// Channels, chat and display names (section 5.1 and 6.2)
+	// Channels and chat (section 5.1 and 6.2)
 	public sealed partial class RealtimeHub
 	{
-		private const int StoredNameMaxLength = 32;
-
-		// Words only staff may use in a display name, badge ids and badge texts are added at check time
-		private static readonly string[] s_reservedNameWords =
-		{
-			"admin", "staff", "mass^", "mas^", "m4ss^", "m4s^", "moderator",
-			"hitler", "h1tler", "h1tl3r", "hittler", "h1ttler", "h1ttl3r",
-			"olda", "oldanalytics", "ibra", "x64", "ronin"
-		};
-
-		// Lobbies add (N) to tell duplicate names apart, so a name never ends with one
-		private static readonly Regex s_dedupeSuffix = new(@"\((1[0-9]|20|[0-9])\)$", RegexOptions.Compiled);
-
 		public async Task<Result<Empty>> JoinChannel(JoinChannelRequest request)
 		{
 			if (request.ChannelId < 0 || request.ChannelId > Int16.MaxValue)
@@ -98,7 +85,7 @@ namespace GenOnlineService.Realtime
 			string storedType = StoredType(request.Type);
 			Func<AppDbContext, Task<ChatMessage>> store;
 			Func<Message, Task> deliver;
-			bool recipientOffline = false;
+			Int64? staffRecipient = null;
 			switch (kind)
 			{
 				case "channel":
@@ -155,22 +142,25 @@ namespace GenOnlineService.Realtime
 					};
 					break;
 				}
-				default:
+				case "dm":
 				{
 					if (targetID <= 0 || targetID == author)
 					{
 						return Result.Invalid("channel_id");
 					}
-					if (!SocialState.HasFriend(author, targetID) || SocialState.HasBlocked(author, targetID))
+
+					DirectAccess access = await DirectAccessAsync(author, targetID);
+					if (access == DirectAccess.UnknownUser)
+					{
+						return Result.NotFound("user");
+					}
+					if (access == DirectAccess.Denied)
 					{
 						return Result.Fail(ErrorCodes.ChatNotFriends);
 					}
-
-					// an offline friend has no cached social state, so the block check below reads the database
-					recipientOffline = WebSocketManager.GetSharedDataForUser(targetID) == null;
-					if (!recipientOffline && (SocialState.HasBlocked(targetID, author) || !SocialState.HasFriend(targetID, author)))
+					if (access == DirectAccess.Staff)
 					{
-						return Result.Fail(ErrorCodes.ChatNotFriends);
+						staffRecipient = targetID;
 					}
 
 					Int64 recipient = targetID;
@@ -184,23 +174,40 @@ namespace GenOnlineService.Realtime
 					};
 					break;
 				}
+				default:
+				{
+					// group:<id>, members who block each other stay in the group and never receive each other's messages
+					Int64 groupID = targetID;
+					Int64[] recipients;
+					await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+					{
+						Database.GroupInfo? group = await Database.Chat.GetGroup(db, groupID);
+						if (group == null || !group.MemberIDs.Contains(author))
+						{
+							return Result.Fail(ErrorCodes.GroupNotMember);
+						}
+
+						HashSet<long> blocked = await BlockedEitherWayAsync(db, author);
+						recipients = group.MemberIDs.Where(id => id == author || !blocked.Contains(id)).ToArray();
+					}
+
+					store = db => Database.Chat.InsertGroupMessage(db, groupID, author, storedType, content);
+					deliver = message => RealtimeOut.Users(recipients).MessageCreate(message);
+					break;
+				}
 			}
 
-			Ban? mute;
+			Sanction? mute;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				if (recipientOffline && await Database.Social.IsBlocked(db, targetID, author))
-				{
-					return Result.Fail(ErrorCodes.ChatNotFriends);
-				}
-				mute = await Database.Moderation.GetActiveChatMute(db, author);
+				mute = await Database.Moderation.GetActiveMute(db, author);
 			}
 			if (mute != null)
 			{
 				return mute.ExpiresAt == null ? Result.Fail(ErrorCodes.ChatMuted) : Result.Fail(ErrorCodes.ChatMuted, new { ExpiresAt = mute.ExpiresAt.Value });
 			}
 
-			// only the public channel chat is rate limited, lobby hosts can kick and direct messages go to friends
+			// only the public channel chat is rate limited, lobby hosts can kick and direct and group messages go to friends
 			if (kind == "channel" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
 			{
 				return Result.Fail(ErrorCodes.ChatRateLimited, new { RetryAfterMs = retryAfterMs });
@@ -211,6 +218,12 @@ namespace GenOnlineService.Realtime
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				stored = await store(db);
+
+				// ids only, the audit row never holds the chat text
+				if (staffRecipient is Int64 staffTarget)
+				{
+					await Database.Moderation.LogAction(db, Actor(), ModerationActions.StaffMessage, AuditTargetKinds.User, staffTarget, null, new { message_id = stored.ID });
+				}
 			}
 
 			string messageID = stored.ID.ToString(CultureInfo.InvariantCulture);
@@ -231,66 +244,6 @@ namespace GenOnlineService.Realtime
 			}
 
 			return Result.Success(new SendMessageData { MessageId = messageID });
-		}
-
-		public async Task<Result<Empty>> SetDisplayName(SetDisplayNameRequest request)
-		{
-			string name = request.Name ?? String.Empty;
-			if (name.Any(Char.IsControl) || !String.Equals(TextSanitizer.Clean(name, StoredNameMaxLength), name, StringComparison.Ordinal))
-			{
-				return Result.Fail(ErrorCodes.NameInvalidCharacters);
-			}
-			if (name.Length < NameMinLength || name.Length > NameMaxLength)
-			{
-				return Result.Fail(ErrorCodes.NameLength, new { Min = NameMinLength, Max = NameMaxLength });
-			}
-			if (Char.IsWhiteSpace(name[0]) || Char.IsWhiteSpace(name[^1]))
-			{
-				return Result.Fail(ErrorCodes.NameWhitespace);
-			}
-			if (s_dedupeSuffix.IsMatch(name))
-			{
-				return Result.Fail(ErrorCodes.NameInvalidCharacters);
-			}
-
-			Int64 userID = UserID;
-			if (!StaffRoles.HasPermission(userID, Permissions.NamesProtected))
-			{
-				string? word = ReservedWordIn(name);
-				if (word != null)
-				{
-					return Result.Fail(ErrorCodes.NameReserved, new { Word = word });
-				}
-			}
-
-			SharedUserData? userData = WebSocketManager.GetSharedDataForUser(userID);
-			if (userData == null)
-			{
-				return Result.NotFound("user");
-			}
-
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
-			{
-				if (!await Database.Users.SetDisplayName(db, userID, name))
-				{
-					return Result.Fail(ErrorCodes.NameTaken);
-				}
-			}
-
-			string oldName = userData.m_strDisplayName;
-			if (String.Equals(oldName, name, StringComparison.Ordinal))
-			{
-				return Result.Success();
-			}
-			userData.m_strDisplayName = name;
-
-			IRealtimeClient audience = RealtimeOut.Groups(NameAudience(userID));
-			foreach (UserSession userSession in WebSocketManager.GetAllDataFromUser(userID))
-			{
-				await audience.MemberUpdate(new MemberUpdateEvent { Member = RealtimeMembers.Of(userSession) });
-			}
-			await audience.Notice(new NoticeEvent { Code = ErrorCodes.NameChanged, Params = new { UserId = userID, OldName = oldName, NewName = name } });
-			return Result.Success();
 		}
 
 		private partial async Task RestoreChannelAsync(UserSession session)
@@ -381,6 +334,36 @@ namespace GenOnlineService.Realtime
 			return new ChannelMembersEvent { ChannelId = channelID, Members = members };
 		}
 
+		private enum DirectAccess { Denied, UnknownUser, Friend, Staff, Reply }
+
+		// Mutual friends without a block, staff holding chat.message_anyone to anyone, and a user answering staff who wrote to them
+		private async Task<DirectAccess> DirectAccessAsync(Int64 author, Int64 recipient)
+		{
+			Int64 low = Math.Min(author, recipient);
+			Int64 high = Math.Max(author, recipient);
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+
+			bool friends = await db.Friendships.AnyAsync(f => f.UserIdLow == low && f.UserIdHigh == high);
+			bool blocked = await db.Blocks.AnyAsync(b => (b.UserId == author && b.BlockedUserId == recipient) || (b.UserId == recipient && b.BlockedUserId == author));
+			if (friends && !blocked)
+			{
+				return DirectAccess.Friend;
+			}
+
+			// staff reach any user, friend or not, and a block does not stop them
+			if (await RequirePermissionAsync(Permissions.ChatMessageAnyone) == null)
+			{
+				return await Database.Users.Exists(db, recipient) ? DirectAccess.Staff : DirectAccess.UnknownUser;
+			}
+
+			// the user answers staff for as long as the conversation holds a stored message from them
+			if (!blocked && StaffRoles.HasPermission(recipient, Permissions.ChatMessageAnyone) && await Database.Chat.HasDirectMessage(db, recipient, author))
+			{
+				return DirectAccess.Reply;
+			}
+			return DirectAccess.Denied;
+		}
+
 		// Connections of the given sessions whose user blocked the author or was blocked by them
 		private static List<string> BlockedConnections(Int64 author, IEnumerable<UserSession> sessions)
 		{
@@ -401,45 +384,6 @@ namespace GenOnlineService.Realtime
 			return excluded;
 		}
 
-		// Everyone who can see the user: their own connections, their channels, their lobby and their friends, as disjoint groups so nobody hears it twice
-		private static IReadOnlyList<string> NameAudience(Int64 userID)
-		{
-			List<UserSession> own = WebSocketManager.GetAllDataFromUser(userID);
-			HashSet<Int16> channels = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
-			HashSet<Int64> lobbies = own.Where(s => s.currentLobbyID != -1).Select(s => s.currentLobbyID).ToHashSet();
-
-			// the user and their friends hear it on every connection and every copy
-			HashSet<Int64> wholeUsers = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
-			wholeUsers.Add(userID);
-			HashSet<string> groups = new(wholeUsers.Select(RealtimeGroups.User), StringComparer.Ordinal);
-
-			// channel and lobby members are known from this copy's sessions only, each through its own session group
-			foreach (UserSession session in RealtimeAudience.AllSessions())
-			{
-				bool sees = channels.Contains(session.networkRoomID)
-					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID));
-				if (sees && !wholeUsers.Contains(session.m_UserID) && RealtimeAudience.ConnectionOf(session) != null)
-				{
-					groups.Add(RealtimeGroups.UserSession(session.m_UserID, session.GetSessionType()));
-				}
-			}
-			return groups.ToArray();
-		}
-
-		private static string? ReservedWordIn(string name)
-		{
-			string lower = name.ToLowerInvariant();
-			IEnumerable<string> badgeWords = RealtimeBadges.Definitions.SelectMany(b => new[] { b.Key, b.Value.Text });
-			foreach (string word in s_reservedNameWords.Concat(badgeWords))
-			{
-				if (!String.IsNullOrWhiteSpace(word) && lower.Contains(word.ToLowerInvariant(), StringComparison.Ordinal))
-				{
-					return word;
-				}
-			}
-			return null;
-		}
-
 		private static bool TryParseChannel(string? channelID, out string kind, out Int64 id)
 		{
 			kind = String.Empty;
@@ -451,7 +395,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			kind = channelID.Substring(0, separator);
-			return (kind == "channel" || kind == "lobby" || kind == "dm")
+			return (kind == "channel" || kind == "lobby" || kind == "dm" || kind == "group")
 				&& Int64.TryParse(channelID.Substring(separator + 1), NumberStyles.None, CultureInfo.InvariantCulture, out id);
 		}
 	}

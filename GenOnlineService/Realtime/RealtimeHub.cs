@@ -36,8 +36,19 @@ namespace GenOnlineService.Realtime
 		public const long ChatRateWindowMs = 9000;
 		public const int NameMinLength = 3;
 		public const int NameMaxLength = 16;
+		public const int DefaultGroupMaxMembers = 10;
 
 		private const string ConnectionItem = "realtime.connection";
+
+		// Realtime:group_max_members, the most members of one group chat with the owner included
+		public static int GroupMaxMembers
+		{
+			get
+			{
+				int configured = Program.g_Config?.GetSection("Realtime").GetValue("group_max_members", DefaultGroupMaxMembers) ?? DefaultGroupMaxMembers;
+				return Math.Clamp(configured, 2, 50);
+			}
+		}
 
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 		private readonly LobbyManager m_lobbyManager;
@@ -107,7 +118,7 @@ namespace GenOnlineService.Realtime
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.User(userID));
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
-			await SendDirectMessagesSnapshotAsync(session);
+			await SendConversationsSnapshotAsync(session);
 			await RestoreChannelAsync(session);
 			await RestoreLobbyAsync(session);
 			await OnConnectionOpenedAsync(session);
@@ -169,7 +180,8 @@ namespace GenOnlineService.Realtime
 					ChatMaxLength = ChatMaxLength,
 					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
 					NameMinLength = NameMinLength,
-					NameMaxLength = NameMaxLength
+					NameMaxLength = NameMaxLength,
+					GroupMaxMembers = GroupMaxMembers
 				}
 			};
 		}
@@ -231,6 +243,8 @@ namespace GenOnlineService.Realtime
 			AuthorizationResult result = await m_authorization.AuthorizeAsync(Context.User!, PermissionPolicies.For(permission));
 			return result.Succeeded ? null : Result.Forbidden(permission);
 		}
+
+		private Database.ModerationActor Actor() => SanctionActions.ActorOf(UserID);
 
 		// Implemented by the area files
 

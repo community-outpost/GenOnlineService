@@ -971,6 +971,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("connections", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunConnections(args);
+				return;
+			}
+
 			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);
@@ -1199,6 +1205,9 @@ namespace GenOnlineService
 						|| context.User.IsInRole("GameLauncher")
 						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
+
+			// REST controllers answer a failed role check with the forbidden body of section 7
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Api.ApiAuthorizationResultHandler>();
 
 			// OpenIddict stores cache entries without a size, so the cache has no size limit
 			builder.Services.AddMemoryCache();
@@ -1585,7 +1594,7 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// Devices, session events, chat messages and closed reports past their retention are purged hourly
+			// Devices, session events, chat messages and resolved reports past their retention are purged hourly
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(TimeSpan.FromHours(1).TotalMilliseconds);
 				timerTick.AutoReset = false;
@@ -1615,9 +1624,9 @@ namespace GenOnlineService
 							try
 							{
 								var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
-								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0)
+								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0 || chat.ConnectionReports > 0)
 								{
-									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers and {ChatReportCount} closed reports", chat.Messages, chat.ReadMarkers, chat.Reports);
+									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers, {ChatReportCount} resolved reports and {ConnectionReportCount} connection reports", chat.Messages, chat.ReadMarkers, chat.Reports, chat.ConnectionReports);
 								}
 							}
 							catch (Exception ex)

@@ -849,6 +849,7 @@ static class MatchmakingManager
 			s_log.LogInformation("Starting QuickMatch game for lobby {LobbyId}", lobby.LobbyID);
 			AppMetrics.RecordMatchmakingMatch(PlaylistID.ToString(CultureInfo.InvariantCulture), "started");
 
+			// MatchStart must precede any LobbyState with start, clients treat a quick match start as MatchStart too
 			LobbyIdEvent matchStart = new LobbyIdEvent { LobbyId = lobby.LobbyID };
 			foreach (MatchmakingBucketMember member in m_lstMembers)
 			{

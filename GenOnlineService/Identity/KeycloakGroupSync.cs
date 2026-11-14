@@ -130,8 +130,8 @@ namespace GenOnlineService.Identity
 				{
 					// a user deleted in Keycloak loses its upstream roles, but an upstream ban outlives the Keycloak account
 					groups = new HashSet<string>(StringComparer.Ordinal);
-					bool bBanned = provider.BanGroup != null && await db.Bans.AnyAsync(b => b.UserID == userID.Value && b.Source == provider.Source
-						&& b.Restriction == BanRestrictions.Play && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > DateTime.UtcNow));
+					bool bBanned = provider.BanGroup != null && await db.Sanctions.AnyAsync(s => s.UserID == userID.Value && s.Source == provider.Source
+						&& s.Type == SanctionTypes.Ban && s.LiftedAt == null && (s.ExpiresAt == null || s.ExpiresAt > DateTime.UtcNow));
 					if (bBanned)
 					{
 						groups.Add(provider.BanGroup!);

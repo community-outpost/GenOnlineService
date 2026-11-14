@@ -62,16 +62,6 @@ namespace GenOnlineService
 		IPV6
 	}
 
-	public enum EConnectionStateClient
-	{
-		NOT_CONNECTED,
-		CONNECTING_DIRECT,
-		FINDING_ROUTE,
-		CONNECTED_DIRECT,
-		CONNECTION_FAILED,
-		CONNECTION_DISCONNECTED
-	};
-
 	public enum EConnectionState
 	{
 		NOT_CONNECTED,

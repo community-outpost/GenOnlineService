@@ -52,7 +52,7 @@ GitLab shape on top of ASP.NET Core Identity. Full table definitions in `schema-
 - `users`: account, display name (unique), email (optional), password hash (null without local passwords), `state` (active | blocked | deactivated), 2FA fields, sign-in timestamps.
 - `identities`: linked sign-in methods `(provider, extern_uid)`; `provider` is `keycloak`, `discord`, `steam`, `google`, `gamereplays` or a configured OIDC name.
 - `user_roles`: staff roles with a `source` (`local` or `upstream:<provider>`).
-- `bans`: play and chat restrictions with expiry and revocation.
+- `sanctions`: kicks, mutes and bans with expiry and lifting.
 - OpenIddict tables, `api_tokens`, `service_accounts`, `audit_log`, `application_settings`.
 
 ### 3.1 Bans versus blocks
@@ -61,8 +61,8 @@ A ban removes someone from the game, not from their account, so a banned player 
 
 | | Sign-in (website, account pages) | Game API and realtime | Authorizations revoked |
 |---|---|---|---|
-| **Ban** (`bans`, restriction `play`) | allowed | refused: 403 `moderation.banned`, realtime closed | game clients' only |
-| **Mute** (`bans`, restriction `chat`) | allowed | allowed, chat refused | none |
+| **Ban** (`sanctions`, type `ban`) | allowed | refused: 403 `moderation.banned`, realtime closed | game clients' only |
+| **Mute** (`sanctions`, type `mute`) | allowed | allowed, chat refused | none |
 | **Blocked** (`users.state = blocked`) | refused | refused | all |
 
 `blocked` is only for abuse of the account itself (compromise, spam sign-ups, fraud). Several active bans may exist; the longest lasting decides what the player sees.

@@ -300,13 +300,13 @@ namespace Database
 		{
 			try
 			{
-				Ban? ban = await Database.Moderation.GetActivePlayBan(db, userId);
+				Sanction? ban = await Database.Moderation.GetActivePlayBan(db, userId);
 				if (ban == null)
 				{
 					return new UserBanStatus { IsBanned = false };
 				}
 
-				string reason = ban.ExpiresAt == null ? ban.Reason : $"{ban.Reason} (until {ban.ExpiresAt.Value:yyyy-MM-dd HH:mm} UTC)";
+				string reason = ban.ExpiresAt == null ? ban.Reason ?? String.Empty : $"{ban.Reason} (until {ban.ExpiresAt.Value:yyyy-MM-dd HH:mm} UTC)";
 				return new UserBanStatus { IsBanned = true, BanReason = reason };
 			}
 			catch (Exception ex)

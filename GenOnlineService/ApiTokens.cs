@@ -284,9 +284,9 @@ namespace GenOnlineService
 				.Where(u => userOwnerIDs.Contains(u.ID) && u.State == UserStates.Active)
 				.Select(u => u.ID)
 				.ToListAsync()).ToHashSet();
-			List<Int64> banned = await db.Bans.AsNoTracking()
-				.Where(b => userOwnerIDs.Contains(b.UserID) && b.Restriction == BanRestrictions.Play && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
-				.Select(b => b.UserID)
+			List<Int64> banned = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, now)
+				.Where(s => userOwnerIDs.Contains(s.UserID))
+				.Select(s => s.UserID)
 				.ToListAsync();
 			activeUsers.ExceptWith(banned);
 

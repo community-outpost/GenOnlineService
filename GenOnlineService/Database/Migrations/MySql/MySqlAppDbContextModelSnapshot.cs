@@ -305,7 +305,7 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("audit_log", (string)null);
                 });
 
-            modelBuilder.Entity("Ban", b =>
+            modelBuilder.Entity("ChatGroup", b =>
                 {
                     b.Property<long>("ID")
                         .ValueGeneratedOnAdd()
@@ -318,46 +318,36 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("datetime(6)")
                         .HasColumnName("created_at");
 
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime?>("ExpiresAt")
-                        .HasColumnType("datetime(6)")
-                        .HasColumnName("expires_at");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("varchar(512)")
-                        .HasColumnName("reason");
-
-                    b.Property<string>("Restriction")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)")
-                        .HasColumnName("restriction");
-
-                    b.Property<string>("RevokeReason")
-                        .HasMaxLength(512)
-                        .HasColumnType("varchar(512)")
-                        .HasColumnName("revoke_reason");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("datetime(6)")
-                        .HasColumnName("revoked_at");
-
-                    b.Property<string>("RevokedBy")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("revoked_by");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
+                    b.Property<string>("Name")
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)")
-                        .HasColumnName("source");
+                        .HasColumnName("name");
+
+                    b.Property<long>("OwnerID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_id");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("chat_groups", (string)null);
+                });
+
+            modelBuilder.Entity("ChatGroupMember", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<long>("GroupID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("group_id");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("joined_at");
 
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")
@@ -366,9 +356,13 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("ID");
 
                     b.HasIndex("UserID")
-                        .HasDatabaseName("ix_bans_user_id");
+                        .HasDatabaseName("ix_chat_group_members_user_id");
 
-                    b.ToTable("bans", (string)null);
+                    b.HasIndex("GroupID", "UserID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_chat_group_members_group_user");
+
+                    b.ToTable("chat_group_members", (string)null);
                 });
 
             modelBuilder.Entity("ChatMessage", b =>
@@ -397,6 +391,10 @@ namespace GenOnlineService.Migrations.MySql
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("deleted_at");
+
+                    b.Property<long?>("GroupID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("group_id");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -430,6 +428,9 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.HasIndex("CreatedAt")
                         .HasDatabaseName("ix_chat_messages_created_at");
+
+                    b.HasIndex("GroupID", "ID")
+                        .HasDatabaseName("ix_chat_messages_group");
 
                     b.HasIndex("LobbyID", "ID")
                         .HasDatabaseName("ix_chat_messages_lobby");
@@ -471,62 +472,6 @@ namespace GenOnlineService.Migrations.MySql
                         .HasDatabaseName("ix_chat_read_markers_updated_at");
 
                     b.ToTable("chat_read_markers", (string)null);
-                });
-
-            modelBuilder.Entity("ChatReport", b =>
-                {
-                    b.Property<long>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
-
-                    b.Property<DateTime?>("ClosedAt")
-                        .HasColumnType("datetime(6)")
-                        .HasColumnName("closed_at");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)")
-                        .HasColumnName("created_at");
-
-                    b.Property<long>("MessageID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("message_id");
-
-                    b.Property<string>("Reason")
-                        .HasMaxLength(512)
-                        .HasColumnType("varchar(512)")
-                        .HasColumnName("reason");
-
-                    b.Property<long>("ReporterID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("reporter_id");
-
-                    b.Property<string>("Snapshot")
-                        .IsRequired()
-                        .HasColumnType("json")
-                        .HasColumnName("snapshot");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)")
-                        .HasColumnName("status");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("ReporterID")
-                        .HasDatabaseName("ix_chat_reports_reporter_id");
-
-                    b.HasIndex("MessageID", "ReporterID")
-                        .IsUnique()
-                        .HasDatabaseName("ux_chat_reports_message_reporter");
-
-                    b.HasIndex("Status", "ClosedAt")
-                        .HasDatabaseName("ix_chat_reports_status_closed_at");
-
-                    b.ToTable("chat_reports", (string)null);
                 });
 
             modelBuilder.Entity("Client", b =>
@@ -603,6 +548,78 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("ClientDbID", "ExeCrc", "IniCrc");
 
                     b.ToTable("client_builds", (string)null);
+                });
+
+            modelBuilder.Entity("ConnectionReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("int")
+                        .HasColumnName("attempt");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Events")
+                        .IsRequired()
+                        .HasColumnType("longtext")
+                        .HasColumnName("events");
+
+                    b.Property<int>("IpVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("ip_version");
+
+                    b.Property<long>("LobbyID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lobby_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<long>("TargetUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_user_id");
+
+                    b.Property<string>("Transport")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("varchar(8)")
+                        .HasColumnName("transport");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("LobbyID")
+                        .HasDatabaseName("ix_connection_reports_lobby_id");
+
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("ix_connection_reports_updated_at");
+
+                    b.HasIndex("TargetUserID", "UpdatedAt")
+                        .HasDatabaseName("ix_connection_reports_target_updated_at");
+
+                    b.HasIndex("ReporterID", "LobbyID", "TargetUserID", "Attempt")
+                        .IsUnique()
+                        .HasDatabaseName("ux_connection_reports_reporter_lobby_target_attempt");
+
+                    b.ToTable("connection_reports", (string)null);
                 });
 
             modelBuilder.Entity("Device", b =>
@@ -1265,6 +1282,80 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("player_ratings", (string)null);
                 });
 
+            modelBuilder.Entity("PlayerReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("evidence");
+
+                    b.Property<long?>("MessageID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ReportedUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reported_user_id");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<long?>("ResolvedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resolved_by_id");
+
+                    b.Property<string>("ResolvedByKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("resolved_by_kind");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ReportedUserID", "CreatedAt")
+                        .HasDatabaseName("ix_player_reports_reported_user_created_at");
+
+                    b.HasIndex("ReporterID", "MessageID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_player_reports_reporter_message");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_player_reports_status_created_at");
+
+                    b.ToTable("player_reports", (string)null);
+                });
+
             modelBuilder.Entity("PlayerStat", b =>
                 {
                     b.Property<long>("UserId")
@@ -1283,6 +1374,84 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("UserId");
 
                     b.ToTable("player_stats", (string)null);
+                });
+
+            modelBuilder.Entity("Sanction", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("CreatedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("CreatedByKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("created_by_kind");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("LiftReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("lift_reason");
+
+                    b.Property<DateTime?>("LiftedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("lifted_at");
+
+                    b.Property<long?>("LiftedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lifted_by_id");
+
+                    b.Property<string>("LiftedByKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("lifted_by_kind");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("ReportID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("report_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("type");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID", "Type", "LiftedAt", "ExpiresAt")
+                        .HasDatabaseName("ix_sanctions_user_type_lifted_expires");
+
+                    b.ToTable("sanctions", (string)null);
                 });
 
             modelBuilder.Entity("ServiceAccount", b =>

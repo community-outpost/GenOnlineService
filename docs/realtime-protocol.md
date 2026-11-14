@@ -12,7 +12,7 @@ Status: draft for review. Every message is specified; examples for each live in 
 2. Register the game session with `POST /api/v1/auth/session`; it returns the realtime URL.
 3. Open `wss://<host>/realtime` with `Authorization: Bearer <access token>` and send the SignalR handshake.
 4. Wait for `Ready`, then the snapshot events (`Friends`, `Conversations`, and `ChannelMembers` with `ChannelHistory` or `LobbyState` when rejoining).
-5. Call hub methods for actions; each returns a `Result`.
+5. Call hub methods for live actions (lobbies, matchmaking, chat, signalling) and REST for the rest (section 10); both report failures with the same codes.
 6. Handle server events by name; ignore events and fields you do not know.
 
 ## Contents
@@ -26,7 +26,7 @@ Status: draft for review. Every message is specified; examples for each live in 
 7. [Error codes](#7-error-codes)
 8. [Groups and delivery](#8-groups-and-delivery)
 9. [Session types](#9-session-types)
-10. [What stays on REST](#10-what-stays-on-rest)
+10. [REST endpoints](#10-rest-endpoints)
 11. [Contract fixtures and versioning](#11-contract-fixtures-and-versioning)
 12. [Legacy reference](#12-legacy-reference)
 13. [Open questions](#13-open-questions)
@@ -96,7 +96,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
                               connection lost ─────────┘──> reconnect (backoff) ──> Ready ──> snapshots
 ```
 
-1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401; a game client without a registered session gets HTTP 409 `{"code":"session.not_registered"}`; a user with an active play ban gets HTTP 403 `{"code":"moderation.banned","params":{"reason":"...","expires_at":"..."}}`. A ban never blocks signing in to the website, so appeals keep working.
+1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401 `{"error":"unauthorized","params":{}}`; a game client without a registered session gets HTTP 409 `{"error":"session.not_registered","params":{}}`; a user with an active play ban gets HTTP 403 `{"error":"moderation.banned","params":{"reason":"...","expires_at":"..."}}` (REST calls the ban refuses answer with the same body). A ban never blocks signing in to the website, so appeals keep working.
 2. **Ready** is always the first event. It carries the user, permissions, badge definitions and limits (section 6.1).
 3. **Snapshots** follow immediately: `Friends` always, then `Conversations`; `ChannelMembers` and `ChannelHistory` if the session was in a channel; `LobbyState`, then `ChannelHistory` for `lobby:<id>`, if the user is in a lobby. After a reconnect these restore everything, so the client never re-fetches state over REST.
 4. **Reconnect** on any lost connection: wait 0.5 to 3 s random, then 2 s doubling to a 30 s cap, forever while logged in. During a match the client keeps reconnecting without a time window. After a `server.switching` close the client reconnects after the `retry_after_ms` of the `ServerSwitching` event that came before, without backoff, and shows no reconnect screen for up to 3 s.
@@ -112,7 +112,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
 | `server.switching` | true | Planned handover to another service copy (`docs/realtime-failover.md`); `ServerSwitching` came before | Reconnect after its `retry_after_ms`, without backoff or a reconnect screen |
 | `protocol.error` | false | Malformed traffic | Log and return to login (client bug) |
 
-Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat, direct messages and group chat sent during the gap come back through `ChannelHistory`, `Conversations` and `GetHistory` (section 6.2); lobby chat comes back through `ChannelHistory` for `lobby:<id>` after `LobbyState`. A reconnect during lobby setup is safe: the service sends `StartSignalling` again for every pair of members that has not reported connected, and a client treats a repeated `StartSignalling` for a peer as a restart of that pair. `LobbyState.start` carries the start data, so a client that missed `GameStart` still starts. Events are not replayed by sequence number in v1; that can be added later without a breaking change (section 13).
+Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat, direct messages and group chat sent during the gap come back through `ChannelHistory`, `Conversations` and `GetHistory` (section 6.2); lobby chat comes back through `ChannelHistory` for `lobby:<id>` after `LobbyState`. A reconnect during lobby setup is safe: the service sends `StartSignalling` again for every pair of members that has not reported connected (a pair counts as connected once both list each other as `connected` in a `MeshCheckResponse`; before any mesh check that is every pair of the reconnecting member; nothing is resent once the game runs), and a client treats a repeated `StartSignalling` for a peer as a restart of that pair. `LobbyState.start` carries the start data, so a client that missed `GameStart` still starts. Events are not replayed by sequence number in v1; that can be added later without a breaking change (section 13).
 
 ## 4. Shared objects
 
@@ -202,7 +202,7 @@ A tombstone never shows its author or content.
 | `visibility` | `public` or `friends` |
 | `anticheat` | `none`, `go_integrated`, `easy_anticheat` |
 | `match_id` | `null` until the game starts |
-| `start` | `null` until the game starts, then `{match_id, rng_seed, screenshot_url}` as in `GameStart`, so a client that reconnects after the start still starts |
+| `start` | `null` until the game starts, then `{match_id, rng_seed, screenshot_url}` as in `GameStart`, so a client that reconnects after the start still starts. In a `quick_match` lobby a non-null `start` also stands for `MatchStart`: the service sends `MatchStart` before any `LobbyState` that carries `start` |
 | `slots` | always 8 entries (the example shows one) |
 
 Never sent to clients: the lobby password, the matchmaker's paired user ids, mesh check bookkeeping. The lobby name is the host's text only; the region and anticheat badges the legacy service baked into the name are separate fields.
@@ -229,19 +229,9 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `LeaveChannel` | `{}` | Result | |
 | `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:`, `dm:`, `group:` and `lobby:` (current members of that lobby) only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
-| `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
-| `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
-| `ReportMessage` | `{message_id, reason?}` | Result | never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient, a group message by any other current member; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters |
+| `MarkRead` | `{channel_id}` | Result | Marks the whole conversation read, up to the newest message the service holds at that moment; `Conversations` then shows `unread` 0 for it. The user's other connections get `ReadMarker`. `dm:` and `group:` conversations the caller is part of, otherwise `not_found {what: channel}` or `group.not_member` |
 
-Group chats are small private conversations, like group direct messages in Discord. A group has one owner and at most `limits.group_max_members` members (10 today), the owner included. Every group method on a group the caller is not in, or that does not exist, returns `group.not_member`.
-
-| Method | Argument | Answer | Notes |
-|---|---|---|---|
-| `CreateGroup` | `{user_ids: [user_id], name?}` | Result `{group_id}` | The caller becomes the owner. `user_ids` are mutual friends of the caller with no block either way (`chat.not_friends`, `social.blocked`); more members than the limit is `group.full`. `name` up to 32 characters. Every member gets `GroupCreate` |
-| `AddGroupMembers` | `{group_id, user_ids: [user_id]}` | Result | Owner only (`group.not_owner`); the same friendship, block and size rules as `CreateGroup`. New members get `GroupCreate` and see the stored history of the group, the others get `GroupUpdate` |
-| `RemoveGroupMember` | `{group_id, user_id}` | Result | Owner only, never the owner themselves. The removed user gets `GroupRemoved` with reason `removed` and loses the history; the others get `GroupUpdate` |
-| `RenameGroup` | `{group_id, name: string or null}` | Result | Owner only; `null` clears the name. Members get `GroupUpdate` |
-| `LeaveGroup` | `{group_id}` | Result | Any member. The leaver gets `GroupRemoved` with reason `left`, the others `GroupUpdate`. When the owner leaves, the member who joined earliest becomes owner. When the last member leaves, the group is deleted; its stored messages follow the normal 30-day retention |
+Group chats are small private conversations, like group direct messages in Discord. Groups are created and managed over REST (section 10.1); their messages use `SendMessage` to `group:<id>`.
 
 ### 5.2 Lobbies
 
@@ -252,7 +242,7 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 | `WatchLobbyList` | `{}` | Result `{lobbies: [LobbySummary]}` | any game session; subscribes to `LobbyListUpsert` and `LobbyListRemove` |
 | `UnwatchLobbyList` | `{}` | Result | |
 | `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password: string or null, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128 |
-| `JoinLobby` | `{lobby_id, password: string or null, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players |
+| `JoinLobby` | `{lobby_id, password: string or null, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players. Before the Result the joiner gets `LobbyState`, then `ChannelHistory` for `lobby:<id>` |
 | `LeaveLobby` | `{}` | Result | member |
 | `UpdateLobby` | `{map?: {name, path, official, max_players}, settings?: {starting_cash?, limit_superweapons?, max_camera_height?}, visibility?}` | Result | host; only the fields present change. A new `max_players` opens or closes slots |
 | `SetLobbyPassword` | `{password}` | Result | host; `null` removes it. The password is never sent back to anyone |
@@ -264,46 +254,22 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 | `KickFromLobby` | `{user_id}` | Result | host |
 | `ForceReady` | `{}` | Result | host; marks everyone ready |
 | `StartGame` | `{}` | Result | host; the service runs the ready check, the mesh check and the countdown, and answers `lobby.not_ready`, `lobby.mesh_incomplete` and similar codes when it cannot start |
-| `ReportMatchOutcome` | `{match_id, won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | Result `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets |
 
 ### 5.3 Matchmaking
 
 | Method | Argument | Answer | Notes |
 |---|---|---|---|
-| `GetPlaylists` | `{}` | Result `{playlists: [Playlist]}` | |
 | `JoinQueue` | `{playlist_id, map_indexes: [int]}` | Result | `map_indexes` index into the playlist's `maps`; at least `min_selected_maps`. Status then arrives as `MatchmakingStatus` |
 | `LeaveQueue` | `{}` | Result | |
 | `WidenSearch` | `{}` | Result | selects every map of the playlist |
 
 ### 5.4 Social
 
-| Method | Argument | Answer |
-|---|---|---|
-| `SendFriendRequest` | `{user_id}` | Result |
-| `AcceptFriendRequest` | `{user_id}` | Result |
-| `DeclineFriendRequest` | `{user_id}` | Result |
-| `CancelFriendRequest` | `{user_id}` | Result |
-| `RemoveFriend` | `{user_id}` | Result |
-| `BlockUser` | `{user_id}` | Result |
-| `UnblockUser` | `{user_id}` | Result |
+Friend requests, friends, blocks and groups are changed over REST (section 10.1). The hub delivers the results as events (section 6.5 and `GroupCreate`, `GroupUpdate`, `GroupRemoved` in section 6.2).
 
 ### 5.5 Moderation
 
-Each method is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick`, `moderation.mute`, `chat.delete_any` and `chat.message_anyone`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute, unmute or ban an admin or another moderator. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log` with the actor, the target and the reason; the reason is stored only there.
-
-- Reasons are optional, except on `Ban`, where the reason is required and not blank (`invalid_argument {field: reason}`). Reasons are up to 512 characters.
-- `duration_s` is whole seconds, at least 60 and a multiple of 60, at most 10 years (315360000); otherwise `invalid_argument {field: duration_s}`. Clients offer presets (10 minutes, 1 hour, 1 day, 7 days, 30 days, permanent for bans).
-- Mutes are never permanent: `duration_s` is required on `Mute`.
-- Players report messages with `ReportMessage` (section 5.1); staff work the resulting cases outside the hub.
-
-| Method | Argument | Answer | Permission |
-|---|---|---|---|
-| `Kick` | `{user_id, reason?}` | Result | `moderation.kick` |
-| `Mute` | `{user_id, duration_s, reason?}` | Result | `moderation.mute` |
-| `Unmute` | `{user_id, reason?}` | Result | `moderation.mute` |
-| `Ban` | `{user_id, duration_s?, reason}` | Result (no `duration_s` means permanent) | `moderation.ban` |
-| `Unban` | `{user_id, reason?}` | Result | `moderation.ban` |
-| `DeleteMessage` | `{message_id, reason?}` | Result | `chat.delete_any`; any channel, lobby, direct or group message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
+Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions, lifting them, and deleting messages. The hub delivers their effects: `ModerationNotice` and the close record to the target, `MessageDelete` to everyone who received a deleted message. Players report messages and players over REST as well.
 
 ### 5.6 Peer networking (game sessions only)
 
@@ -323,11 +289,14 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
+| `FeaturesUpdate` | `{features: [string]}` (the user's full new feature list, sent to every connection of the user whenever it changes, for example after a role change) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason?, expires_at?}`; `reason` is absent when staff gave none; a close record follows for kick and ban |
 | `ServerSwitching` | `{retry_after_ms}` (a planned handover to another service copy; a `server.switching` close follows; the service spreads the values so clients do not all reconnect at once) |
+
+**Features.** `permissions` say what the service lets the user do. `features` say which client capabilities are switched on for this player: lowercase snake_case names with no prefix, for example `stats_exporter` (the game's local stats and casting tools: camera control, follow, replay control, observing, lobby control) and `observer` (observing other players' matches). The client only checks whether a name is in the list and never sees roles. The service computes the list per connection from a per-environment map of roles to features (the `streamer` role exists for players who get these tools without being staff); later rules such as an environment switch, a beta group or a rollout share can add to it without touching permissions. When the list changes the client switches features on or off at once; switching one off mid-match only closes client tools. Anything that reveals more than a player should see stays enforced by the service on the request itself, for example joining a match as an observer. EOS peer-to-peer is not gated by features.
 
 ### 6.2 Channels and chat
 
@@ -341,7 +310,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
 | `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: every direct message conversation and group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
-| `ReadMarker` | `{channel_id, message_id}` (the user's read position changed on another connection) |
+| `ReadMarker` | `{channel_id}` (the user read that whole conversation on another connection; clear its unread count) |
 | `GroupCreate` | `{group: Group}` (the user was put in a group, by creating it or being added) |
 | `GroupUpdate` | `{group: Group}` (members, name or owner changed; sent to every member) |
 | `GroupRemoved` | `{group_id, reason: "left"|"removed"}` (the user is no longer in the group) |
@@ -351,7 +320,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | | Stored | Replayed |
 |---|---|---|
 | Channel | id, channel id, author id, type, content, `created_at`, `deleted_at` | the last N on join (N from configuration, default 50) |
-| Lobby | the same plus lobby id and match id | on rejoin after a reconnect, as `ChannelHistory` for `lobby:<id>` after `LobbyState`: the messages since the lobby was created, at most 50 |
+| Lobby | the same plus lobby id and match id | on `JoinLobby` and on rejoin after a reconnect, as `ChannelHistory` for `lobby:<id>` after `LobbyState`: the newest 50 messages since the lobby was created, block filtered |
 | Direct | the same with sender and recipient | unread and recent on connect, synced across the user's clients |
 | Group | the same with group id instead of recipient | the same as direct messages |
 
@@ -362,9 +331,9 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 **Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline recipient is stored and delivered on their next connect through `Conversations` and `GetHistory`.
 
-**Staff messaging.** Staff holding `chat.message_anyone` (moderators and admins) can send a direct message to any user, friend or not, and a block by that user does not stop it. The user can reply to that staff member for as long as the conversation holds a stored message from them (30 days). Every staff message to a user who is not a mutual friend is written to `audit_log` with the actor, the target and the message id, never the text. Clients recognise staff by the author's badges.
+**Staff messaging.** Staff holding `chat.message_anyone` (moderators and admins) can send a direct message to any user, friend or not, and a block by that user does not stop it. The user can reply to that staff member, without being friends, for as long as the conversation holds a stored message from that staff member (30 days) and neither has blocked the other. Every staff message that uses this bypass (the two are not mutual friends, or a block exists) is written to `audit_log` with the actor, the target and the message id, never the text. When either side holds `chat.message_anyone`, a block does not hide that conversation in `Conversations` or `GetHistory`, and its messages stay reportable, so a player who blocked a staff member can still read and report what staff sent. Clients recognise staff by the author's badges.
 
-**Group chats.** Group messages are stored, replayed and purged like direct messages and reach every connection of every member. Friendship with the owner is checked only when a member is added; a later unfriend changes nothing. Two members who block each other stay in the group, and the service hides each one's messages from the other in delivery and history.
+**Group chats.** Group messages are stored, replayed and purged like direct messages and reach every connection of every member. Friendship with the owner is checked only when a member is added; a later unfriend changes nothing. Two members who block each other stay in the group, and the service hides each one's messages from the other in delivery and history. A new member sees the whole stored history as unread. Leaving or being removed deletes that member's read position for the group. `MessageDelete` for a group message goes to the current members, and any other current member may report a group message.
 
 Messages are stored in the service database as they are; the protocol and the service add no encryption beyond TLS on the connection. Protecting the stored data (disk or volume encryption, encrypted backups) is the operator's job. Staff read a direct message only through a report or an audited lookup, and every lookup is written to `audit_log`.
 
@@ -434,7 +403,9 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 
 | Code | Params | Raised by |
 |---|---|---|
+| `unauthorized` | | Any REST call or the realtime upgrade without a valid token, session token or API token alike (HTTP 401). The body is the same for every reason, so a caller cannot tell an unknown token from a revoked or expired one |
 | `forbidden` | `{permission}` | Any method the caller has no permission for |
+| `session.build_not_accepted` | | `POST /api/v1/auth/session` when the client's build is not accepted for its app in the client registry (HTTP 403) |
 | `session.not_registered` | | Connecting without `POST /api/v1/auth/session` first (HTTP 409) |
 | `moderation.banned` | `{reason, expires_at?}` | Connecting while play banned (HTTP 403), and the close code when a ban starts |
 | `invalid_argument` | `{field}` | Malformed or missing fields |
@@ -443,18 +414,19 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `channel:` channel only (3 messages per 9 s today); `lobby:`, `dm:` and `group:` are not limited, in a lobby the host can kick instead |
 | `chat.too_long` | `{max}` | `SendMessage` |
 | `chat.muted` | `{expires_at?}` | `SendMessage` |
-| `report.duplicate` | | `ReportMessage` when the caller already reported that message |
-| `chat.not_friends` | | `SendMessage` to `dm:`, `CreateGroup`, `AddGroupMembers` |
-| `group.full` | `{max}` | `CreateGroup`, `AddGroupMembers` |
-| `group.not_owner` | | `AddGroupMembers`, `RemoveGroupMember`, `RenameGroup` |
-| `group.not_member` | | Group methods, and `SendMessage` or `GetHistory` to a `group:` channel the caller is not in (also for unknown group ids) |
-| `name.length` | `{min, max}` | `SetDisplayName` |
-| `name.invalid_characters` | | `SetDisplayName` |
-| `name.whitespace` | | `SetDisplayName` |
-| `name.reserved` | `{word}` | `SetDisplayName` (staff words and badge texts) |
-| `name.taken` | | `SetDisplayName` |
+| `report.duplicate` | | `POST /api/v1/reports` when the caller already reported that message, or has an open report on that player |
+| `match.result_closed` | | `PUT /api/v1/matches/:id/results/me` more than 24 hours after the match finished (after it started when it has no end) |
+| `chat.not_friends` | | `SendMessage` to `dm:`, `POST /api/v1/groups`, `POST /api/v1/groups/:id/members` |
+| `group.full` | `{max}` | `POST /api/v1/groups`, `POST /api/v1/groups/:id/members` |
+| `group.not_owner` | | Adding, removing another member, renaming |
+| `group.not_member` | | Group endpoints, and `SendMessage` or `GetHistory` to a `group:` channel the caller is not in (also for unknown group ids) |
+| `name.length` | `{min, max}` | `PATCH /api/v1/me` |
+| `name.invalid_characters` | | `PATCH /api/v1/me` |
+| `name.whitespace` | | `PATCH /api/v1/me` |
+| `name.reserved` | `{word}` | `PATCH /api/v1/me` (staff words and badge texts) |
+| `name.taken` | | `PATCH /api/v1/me` |
 | `channel.unavailable` | | `JoinChannel` |
-| `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods |
+| `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods; `lobby.not_member` also for `GetHistory` on a `lobby:` the caller is not in |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
 | `lobby.slot_occupied` | `{index}` | `SetSlotState` on a player slot |
 | `lobby.not_ready` | `{missing: [user_id]}` | `StartGame` |
@@ -463,12 +435,14 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `matchmaking.invalid_playlist` | `{playlist_id}` | `JoinQueue` |
 | `matchmaking.too_few_maps` | `{min}` | `JoinQueue` |
 | `matchmaking.stats_unavailable` | | `JoinQueue` (rating could not be loaded) |
-| `social.friend_list_full` | `{max}` | `SendFriendRequest`, `AcceptFriendRequest` |
-| `social.blocked` | | Social and group methods involving a block |
-| `moderation.target_offline` | | `Kick` |
-| `moderation.target_outranks` | | Moderation methods: staff only act on users of lower rank (admin above moderator above everyone else), never on themselves |
-| `moderation.reason_too_long` | `{max}` | Moderation methods, `DeleteMessage` |
+| `social.friend_list_full` | `{max}` | Sending or accepting a friend request |
+| `social.blocked` | | Social and group endpoints involving a block |
+| `moderation.target_offline` | | A kick of a user with no connection |
+| `moderation.target_outranks` | | Sanctions and message deletes: staff only act on users of lower rank (admin above moderator above everyone else). Staff acting on themselves get `invalid_argument {field: id}` instead |
+| `moderation.reason_too_long` | `{max}` | Sanctions, lifting them, message deletes, reports |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
+
+REST endpoints return the same codes as `{"error": "<code>", "params": {...}}` with an HTTP status: 400 for `invalid_argument`, 401 `unauthorized` for a missing, unknown, expired or revoked token, 403 for `forbidden` and `moderation.target_outranks`, 404 for `not_found`, 409 for `report.duplicate`, 422 for every other rule failure, 429 for `rate_limited`.
 
 New codes are added freely; clients show a generic message for codes they do not know.
 
@@ -476,10 +450,10 @@ New codes are added freely; clients show a generic message for codes they do not
 
 | Group | Members | Used for |
 |---|---|---|
-| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved` |
+| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved`, `FeaturesUpdate` |
 | `user:<id>:game` | That user's game connection | Peer networking, `LobbyState`, matchmaking |
 | `channel:<id>` | Connections in that channel | `ChannelMembers`, `MemberAdd`/`Remove`, channel chat, `MessageDelete` |
-| `lobby:<id>` | Game connections of lobby members | `LobbyState`, lobby chat, countdown events |
+| `lobby:<id>` | Game connections of lobby members | `LobbyState` until the game starts, lobby chat, countdown events. From the start `LobbyState` goes to each member through `user:<id>:game`, because `start.screenshot_url` is per member |
 | `lobby-list` | Connections that called `WatchLobbyList` | `LobbyListUpsert`, `LobbyListRemove` |
 
 Rules:
@@ -500,13 +474,64 @@ Rules:
 | Lobby list (watch) | yes | yes | no |
 | Join or create lobbies, matchmaking | yes | no | no |
 | Peer networking, anticheat, probes | yes | no | no |
-| Moderation methods (with permission) | yes | yes | yes |
 
-Methods outside a session type's column return `forbidden`.
+Methods outside a session type's column return `forbidden`. REST endpoints (section 10) do not depend on a session type: they need the access token and, for staff actions, the permission.
 
-## 10. What stays on REST
+## 10. REST endpoints
 
-Anything that does not need a live session stays on REST: login and token refresh, logout, the EOS token, MOTD and service config, version check, player stats, global stats, leaderboards and match history. Everything that acts on or notifies live sessions moves to the hub.
+The split: the hub carries what acts on or notifies live sessions and needs to be fast (lobbies, matchmaking, chat, signalling, presence). REST carries everything durable, everything callers without a hub session also need (the website, the Discord bot, partners, the CLI), and everything a client must be able to retry safely. When a REST call changes something live players see, the service pushes the change through the hub.
+
+Conventions: base `/api/v1` on the same origin as `/realtime`, `Authorization: Bearer <access token>`, JSON bodies with the same field names as the hub, success `200` with the answer object or `204` without one, failures as in section 7. A request body on `DELETE` is optional and only carries a reason. Example bodies live in `docs/api-fixtures/`. The full REST route map (sign-in, profiles, stats, leaderboards, match history, config, tokens, admin) is in the API design; this section lists the endpoints that replace earlier hub methods.
+
+### 10.1 Social and groups
+
+| Method and path | Body | Answer | Notes |
+|---|---|---|---|
+| `GET /api/v1/me/friends` | | `{friends, incoming, outgoing}` as in `Friends` | read only |
+| `GET /api/v1/me/blocks` | | `{blocked: [Member]}` | read only |
+| `POST /api/v1/me/friend_requests` | `{user_id}` | 204 | the other user gets `FriendRequestReceived` |
+| `POST /api/v1/me/friend_requests/:user_id/accept` | | 204 | both get the friendship events of section 6.5 |
+| `DELETE /api/v1/me/friend_requests/:user_id` | | 204 | declines an incoming or cancels an outgoing request |
+| `DELETE /api/v1/me/friends/:user_id` | | 204 | both get `FriendRemoved` |
+| `PUT /api/v1/me/blocks/:user_id` | | 204 | blocks; a friendship between the two ends |
+| `DELETE /api/v1/me/blocks/:user_id` | | 204 | unblocks |
+| `POST /api/v1/groups` | `{user_ids: [user_id], name?}` | `{group_id}` | The caller becomes the owner. `user_ids` are mutual friends of the caller with no block either way (`chat.not_friends`, `social.blocked`); more members than the limit is `group.full`. `name` up to 32 characters. Every member gets `GroupCreate` |
+| `POST /api/v1/groups/:id/members` | `{user_ids: [user_id]}` | 204 | Owner only (`group.not_owner`); the same friendship, block and size rules as `POST /api/v1/groups`. New members get `GroupCreate` and see the stored history of the group, the others get `GroupUpdate` |
+| `DELETE /api/v1/groups/:id/members/:user_id` | | 204 | With another member's id: owner only, never the owner themselves. The removed user gets `GroupRemoved` with reason `removed` and loses the history; the others get `GroupUpdate`. With the caller's own id (leaving): any member. The leaver gets `GroupRemoved` with reason `left`, the others `GroupUpdate`. When the owner leaves, the member who joined earliest becomes owner. When the last member leaves, the group is deleted; its stored messages follow the normal 30-day retention |
+| `PATCH /api/v1/groups/:id` | `{name: string or null}` | 204 | Owner only; `null` clears the name. Members get `GroupUpdate` |
+
+A group has one owner and at most `limits.group_max_members` members, the owner included; the limit is configured per environment (2 to 50, default 10) and `Ready` reports the live value. Names are `null` or 1 to 32 characters without control characters. Creating or adding checks blocks first, then the size limit, then friendship; adding someone who is already a member succeeds without change; an empty `user_ids` is `invalid_argument {field: user_ids}`. Removing a user who is not a member is `not_found {what: user}`. Every group endpoint on a group the caller is not in, or that does not exist, returns `group.not_member`.
+
+### 10.2 Moderation and reports
+
+Each endpoint is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick`, `moderation.mute`, `chat.delete_any` and `chat.message_anyone`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute or ban an admin or another moderator, or lift their sanctions. Kick, mute and ban are sanctions of one record type: a mute is a sanction of type `mute`, so the user keeps playing but cannot send messages. Every action is written to `audit_log` with the actor, the target and the reason; the reason is stored only there.
+
+- Reasons are optional, except on a ban, where the reason is required and not blank (`invalid_argument {field: reason}`). Reasons are up to 512 characters.
+- `duration_s` is whole seconds, at least 60 and a multiple of 60, at most 10 years (315360000); otherwise `invalid_argument {field: duration_s}`. Clients offer presets (10 minutes, 1 hour, 1 day, 7 days, 30 days, permanent for bans).
+- Mutes are never permanent: `duration_s` is required for a mute. A ban without `duration_s` is permanent. A kick has no duration.
+
+| Method and path | Body | Answer | Notes |
+|---|---|---|---|
+| `POST /api/v1/players/:id/sanctions` | `{type: "kick"|"mute"|"ban", duration_s?, reason?}` | `{sanction_id}` | permission by type: `moderation.kick`, `moderation.mute`, `moderation.ban`. A kick needs a connected target (`moderation.target_offline`). The target gets `ModerationNotice`; a kick or ban then closes their connections (section 3) |
+| `GET /api/v1/players/:id/sanctions?active=` | | `{sanctions: [{id, type, reason, created_at, expires_at, lifted_at, created_by: Member}]}` | `moderation.kick` or higher |
+| `DELETE /api/v1/sanctions/:id` | `{reason?}` | 204 | lifts a mute or ban; `moderation.mute` or `moderation.ban` by type |
+| `DELETE /api/v1/messages/:id` | `{reason?}` | 204 | `chat.delete_any`; any channel, lobby, direct or group message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
+| `POST /api/v1/reports` | `{message_id?, user_id?, reason?}` | `{report_id}` | exactly one of `message_id` and `user_id`. A message: never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient, a group message by any other current member; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters. A player: any other user, one open report per reporter and player |
+| `GET /api/v1/reports?status=` | | `{reports: [{id, reporter: Member, reported: Member, message_id, reason, status, created_at, resolved_at, resolution_note}]}` | the staff queue for message and player reports, `moderation.kick` or higher; `message_id` is `null` for a report of a player; `status` is `open`, `actioned` or `dismissed` |
+| `PATCH /api/v1/reports/:id` | `{status: "actioned"|"dismissed", resolution_note?}` | 204 | closes a report, `moderation.kick` or higher |
+
+### 10.3 Profile, matches and playlists
+
+| Method and path | Body | Answer | Notes |
+|---|---|---|---|
+| `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
+| `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection, until 24 hours after the match finished (`match.result_closed` after that) |
+| `GET /api/v1/matchmaking/playlists` | | `{playlists: [Playlist]}` | cacheable with `ETag` |
+| `POST /api/v1/lobbies/:id/connection_reports` | `{target_user_id, outcome, transport, ip_version, attempt?, events?: [{state, t_ms}]}` | 204 | the final result of one connection attempt to one peer (replaces `ConnectionOutcome`), sent once when the attempt ends. `outcome` is `connected_direct`, `connected_relay`, `failed` or `disconnected`; `transport` is `gns` or `eos`; `ip_version` is 4 or 6. `attempt` (1 or more, default 1) numbers the attempts of this pair in this lobby; a connection that drops during the match is sent again with the same `attempt` and its events ending in `disconnected`, a reconnect after that is a new attempt. `events` lists every state change of the attempt, oldest first, at most 32: `state` is `connecting`, `finding_route`, `connected_direct`, `connected_relay`, `failed` or `disconnected`, `t_ms` the milliseconds since the attempt started, never decreasing, at most 600000; anything else is `invalid_argument`. The caller must be a member of that lobby (`lobby.not_member`), checked before the body is validated; `target_user_id` must be another player who is or was a member of that lobby, otherwise `invalid_argument {field: target_user_id}`. Stored per player for 30 days, keyed by reporter, lobby, target and attempt, so a repeated report replaces the earlier one; staff use it to troubleshoot a player's connections and to line up both sides of a pair. Never stores IP addresses. Account deletion removes them, and the privacy policy must name them with their purpose and retention. Metrics are counted by outcome, transport and IP version |
+
+### 10.4 Other REST
+
+Sign-in, token refresh and logout, `POST /api/v1/auth/session`, the EOS token, config and MOTD, the compatibility check, player profiles and stats, global stats, leaderboards and match history.
 
 ## 11. Contract fixtures and versioning
 
@@ -526,7 +551,7 @@ For porting client code only: where the behaviour of each legacy `/ws` message l
 | 6 current lobby dirty | `LobbyState` with content |
 | 7 lobby list dirty | `LobbyListUpsert` / `LobbyListRemove` |
 | 8 anticheat | `AnticheatMessage` both ways |
-| 9 name change, name-change chat text | `SetDisplayName`, `name.*` codes, `MemberUpdate`, `Notice name.changed` |
+| 9 name change, name-change chat text | `PATCH /api/v1/me`, `name.*` codes, `MemberUpdate`, `Notice name.changed` |
 | 12 signal, 19 request signalling, 17 start signalling, 18 disconnect | `Signal`, `RequestSignalling`, `StartSignalling`, `DisconnectPeer` |
 | 13 start game, 23 countdown started, 49 start rejected, 50 lobby event, 51 | `StartGame` result codes, `CountdownStarted` / `Cancelled`, `GameStart` |
 | 14 / 15 ping, pong, 42 / 43 keepalive | SignalR ping; 42 / 43 were a module scan: `ModuleScanRequest` / `ModuleScanResponse` |
@@ -537,8 +562,9 @@ For porting client code only: where the behaviour of each legacy `/ws` message l
 | 29, 32, 35, 36, 37, 38 social | `FriendRequestReceived`, `FriendPresence`, `Friends`, `FriendRequestAccepted`, `social.friend_list_full` |
 | 33 / 34 social subscribe | Removed: social events always go to the user |
 | 40 / 41 anticheat register | `AnticheatRegister` / `AnticheatDeregister` |
-| 46 moderation notice, 47 / 48 moderation command | `ModerationNotice`, `Kick` / `Mute` / `Ban` with `Result` |
-| REST lobby, social and matchmaking mutations | Hub methods in section 5 |
+| 46 moderation notice, 47 / 48 moderation command | `ModerationNotice`, `POST /api/v1/players/:id/sanctions` |
+| REST lobby and matchmaking mutations | Hub methods in section 5 |
+| REST social mutations | REST in section 10.1, results as hub events |
 
 ## 13. Open questions
 
