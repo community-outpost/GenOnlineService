@@ -273,12 +273,6 @@ Friend requests, friends, blocks and groups are changed over REST (section 10.1)
 
 Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions, lifting them, and deleting messages. The hub delivers their effects: `ModerationNotice` and the close record to the target, `MessageDelete` to everyone who received a deleted message. Players report messages and players over REST as well.
 
-One staff action is still a hub method:
-
-| Method | Argument | Answer | Permission |
-|---|---|---|---|
-| `ForceRename` | `{user_id, reason?, name?}` | Result (no `name` means `Player`) | `moderation.rename`; replaces an offensive name, the user gets a free tag for the new name and everyone who can see them gets `MemberUpdate`. The old `name#tag` goes into `audit_log`. Where Keycloak owns names the answer is `name.managed`: staff edit `display_name` in Keycloak and the group sync applies it |
-
 ### 5.6 Peer networking (game sessions only)
 
 | Method | Argument | Answer | Notes |

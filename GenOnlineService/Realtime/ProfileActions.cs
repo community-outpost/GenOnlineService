@@ -22,7 +22,7 @@ using System.Text.RegularExpressions;
 
 namespace GenOnlineService.Realtime
 {
-	// Display name changes (PATCH /api/v1/me), everyone who can see the user gets MemberUpdate and the name.changed notice
+	// The rules of a chosen display name, PlayerNames performs the rename
 	public static class ProfileActions
 	{
 		private const int StoredNameMaxLength = 32;
@@ -58,56 +58,16 @@ namespace GenOnlineService.Realtime
 			{
 				return Result.Fail(ErrorCodes.NameInvalidCharacters);
 			}
+			// a name whose normalized form outgrows the stored column is too long for the service to hold
+			if (!Database.DisplayNames.IsStorable(name))
+			{
+				return Result.Fail(ErrorCodes.NameLength, new { Min = RealtimeHub.NameMinLength, Max = RealtimeHub.NameMaxLength });
+			}
 			return null;
 		}
 
-		public static async Task<Result<Empty>> SetDisplayNameAsync(IDbContextFactory<AppDbContext> dbFactory, AccountsSettings accounts, Int64 userID, string? requested)
-		{
-			// Where Keycloak owns names, players rename there (kc_action=UPDATE_PROFILE) and the change arrives by copy
-			if (accounts.NamesFromUpstream)
-			{
-				return Result.Fail(ErrorCodes.NameManaged);
-			}
-
-			string name = requested ?? String.Empty;
-			Failure? invalid = CheckNameRules(name);
-			if (invalid != null)
-			{
-				return invalid.Value;
-			}
-
-			if (!StaffRoles.HasPermission(userID, Permissions.NamesProtected))
-			{
-				string? word = ReservedWordIn(name);
-				if (word != null)
-				{
-					return Result.Fail(ErrorCodes.NameReserved, new { Word = word });
-				}
-			}
-
-			NameChange? change;
-			await using (AppDbContext db = await dbFactory.CreateDbContextAsync())
-			{
-				if (!await Database.Users.Exists(db, userID))
-				{
-					return Result.NotFound("user");
-				}
-				change = await Database.Users.SetDisplayName(db, userID, name);
-			}
-			if (change == null)
-			{
-				// every tag of the name is in use
-				return Result.Fail(ErrorCodes.NameTaken);
-			}
-
-			if (change.OldName != change.NewName || change.OldTag != change.NewTag)
-			{
-				await RealtimeNames.PublishOne(change);
-			}
-			return Result.Success();
-		}
-
-		private static string? ReservedWordIn(string name)
+		// The first reserved word in the name, compared case-insensitively
+		public static string? ReservedWordIn(string name)
 		{
 			string lower = name.ToLowerInvariant();
 			IEnumerable<string> badgeWords = RealtimeBadges.Definitions.SelectMany(b => new[] { b.Key, b.Value.Text });

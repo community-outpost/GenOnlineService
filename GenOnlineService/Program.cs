@@ -1180,6 +1180,11 @@ namespace GenOnlineService
 			AccountsSettings accountsSettings = AccountsSettings.Read(builder.Configuration);
 			builder.Services.AddSingleton(accountsSettings);
 
+			// renames: the Keycloak plugin in prod, local rules for self-hosters (identity section 5b)
+			builder.Services.AddHttpClient(GenOnlineService.Names.KeycloakRenameClient.HttpClientName);
+			builder.Services.AddSingleton<GenOnlineService.Names.KeycloakRenameClient>(sp => new GenOnlineService.Names.KeycloakRenameClient(sp.GetRequiredService<IHttpClientFactory>(), accountsSettings));
+			builder.Services.AddSingleton<GenOnlineService.Names.PlayerNames>();
+
 			builder.Services.AddAuthentication(options =>
 			{
 				options.DefaultScheme = BearerSchemeSelector;

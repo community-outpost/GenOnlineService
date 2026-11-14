@@ -185,6 +185,14 @@ namespace GenOnlineService.Api
 		public string? ResolutionNote { get; init; }
 	}
 
+	[ApiFixture("patch-players.request")]
+	public sealed record RenamePlayerRequest
+	{
+		public string? Name { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Reason { get; init; }
+	}
+
 	// 10.3 Profile, matches and playlists
 
 	[ApiFixture("patch-me.request")]

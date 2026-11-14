@@ -36,6 +36,7 @@ namespace GenOnlineService.Api
 			ErrorCodes.NotFound => StatusCodes.Status404NotFound,
 			ErrorCodes.ReportDuplicate => StatusCodes.Status409Conflict,
 			ErrorCodes.RateLimited => StatusCodes.Status429TooManyRequests,
+			ErrorCodes.NameUnavailable => StatusCodes.Status503ServiceUnavailable,
 			_ => StatusCodes.Status422UnprocessableEntity
 		};
 

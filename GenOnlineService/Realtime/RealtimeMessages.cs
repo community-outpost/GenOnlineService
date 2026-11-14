@@ -397,15 +397,6 @@ namespace GenOnlineService.Realtime
 		public IReadOnlyList<int> MapIndexes { get; init; } = [];
 	}
 
-	public sealed record ForceRenameRequest
-	{
-		public long UserId { get; init; }
-		public string Reason { get; init; } = "";
-
-		// The new name; empty gives "Player"
-		public string? Name { get; init; }
-	}
-
 	public sealed record RequestSignallingRequest
 	{
 		public long TargetUserId { get; init; }
