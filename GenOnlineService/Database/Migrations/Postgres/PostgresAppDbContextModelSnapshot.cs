@@ -473,6 +473,82 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("chat_read_markers", (string)null);
                 });
 
+            modelBuilder.Entity("Client", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("ClientID")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<bool>("FirstParty")
+                        .HasColumnType("boolean")
+                        .HasColumnName("first_party");
+
+                    b.Property<string>("Game")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("game");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("MinVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("min_version");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ClientID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_clients_client_id");
+
+                    b.ToTable("clients", (string)null);
+                });
+
+            modelBuilder.Entity("ClientBuild", b =>
+                {
+                    b.Property<long>("ClientDbID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("client_id");
+
+                    b.Property<long>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<long>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.HasKey("ClientDbID", "ExeCrc", "IniCrc");
+
+                    b.ToTable("client_builds", (string)null);
+                });
+
             modelBuilder.Entity("Device", b =>
                 {
                     b.Property<long>("ID")
@@ -1689,6 +1765,15 @@ namespace GenOnlineService.Migrations.Postgres
                         .WithMany()
                         .HasForeignKey("OwnerUserID")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ClientBuild", b =>
+                {
+                    b.HasOne("Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientDbID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MatchPlayer", b =>

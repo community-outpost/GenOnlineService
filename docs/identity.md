@@ -73,7 +73,7 @@ A ban removes someone from the game, not from their account, so a banned player 
 
 ```
 game client           system browser                 accounts (this environment)      application
-   | open /oauth/authorize?client_id=generalsmd&response_type=code
+   | open /oauth/authorize?client_id=genonline_zerohour&response_type=code
    |   &code_challenge=...&code_challenge_method=S256
    |   &redirect_uri=http://127.0.0.1:<port>/callback&scope=openid game
    |------------------------>|-------------------------------->|
@@ -109,6 +109,36 @@ Confidential client of the prod environment, authorization code + PKCE, cookie s
 ### 4.4 Third-party apps ("Sign in with GenOnline")
 
 OAuth applications per environment (normally only prod), consent screen, "authorized applications" page, delegated read scopes (`profile.read`, `matches.read`, `stats.read`), never staff or machine permissions.
+
+Built so far: third-party clients (`first_party = false`) get a consent page on every sign-in (no remembered consent yet), `prompt=none` answers `consent_required`, and the page carries an antiforgery token bound to the signed-in user and refuses framing. The "authorized applications" page and the delegated read scopes are still to come.
+
+### 4.5 Client registry
+
+Every OAuth client is a row in `clients`, paired with OpenIddict's `oauth_applications` row of the same `client_id`. No code branches on a client id; behaviour follows the row:
+
+| Field | Where | Meaning |
+|---|---|---|
+| `client_id` | both | `^[a-z0-9_]{3,32}$`, the same in every environment |
+| display name, redirect URIs, type, secret, scopes | `oauth_applications` | type is `public` or `confidential`; OpenIddict stores only the secret's hash and checks redirects (loopback on any port) and scopes |
+| `kind` | `clients` | `game`, `launcher`, `chat` or `app`; sets the session type (GameClient, GameLauncher, ChatClient, none). An app may not hold the `game` scope; the others need it |
+| `game` | `clients` | `zerohour` or `generals` for a game client, `none` otherwise; the version check and the session registration (`GameSessionRegistration.Game`, which realtime build isolation keys on) use it |
+| `first_party` | `clients` | first-party clients skip the consent page |
+| `enabled` | `clients` | a disabled client loses its OpenIddict endpoint permissions, its tokens are refused at once, and its authorizations are revoked within one reload tick (or at the next start) |
+| `min_version` | `clients` | lowest accepted `client_version` (`yyyy.mm.patch`) in the version check |
+| accepted builds | `client_builds` | optional exe/INI CRC pairs; when listed, `POST /api/v1/auth/session` refuses other builds with `403 session.build_not_accepted` and the version check accepts only those executables (otherwise `crcfiles/<game>` decides) |
+
+Security model: a public client's id is a label anyone can copy, so public clients hold player scopes only (`openid`, `profile`, `offline_access`, `game`); only confidential clients may hold more. Fair play stays with build identity plus anti-cheat, never with the client id.
+
+`Accounts:clients` only seeds the first-party clients (always public) on first start, inserting a missing `client_id` and never updating one. Afterwards the CLI owns them; every change commits with its `audit_log` row (`target_kind = client`, `target_id = clients.id`):
+
+```
+GenOnlineService clients list
+GenOnlineService clients add <client_id> --kind game|launcher|chat|app --name <name> --redirect-uris <uri,uri> --third-party true|false [--game zerohour|generals|none] [--type public|confidential] [--scopes <s1,s2>] [--min-version <v>] [--builds <exe:ini,...>]
+GenOnlineService clients update <client_id> [--name] [--redirect-uris] [--scopes] [--min-version <v>|none] [--builds <exe:ini,...>|none] [--third-party true|false] [--enabled true|false] [--rotate-secret true] [--reason <text>]
+GenOnlineService clients disable <client_id> [--reason <text>]
+```
+
+`kind`, `game` and `type` are fixed once added. A confidential client's secret is printed once by `add` and by `--rotate-secret`. The version check takes an optional `client_id`; without it, any enabled game client of the `game` may accept the version and executable.
 
 ### 4.5 Machines
 

@@ -86,7 +86,11 @@ namespace GenOnlineService.Identity
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(AccountsSetup));
 
-		public static void AddGenOnlineIdentity(this IServiceCollection services, AccountsSettings settings)
+		// Every scope the server issues; ClientRegistry.PlayerScopes is the part a public client may hold
+		public static readonly IReadOnlyList<string> RegisteredScopes = new[] { Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, AccountsSettings.GameScope };
+
+		// The OpenIddict stores and managers alone; the clients CLI uses them without the server
+		public static OpenIddictBuilder AddOpenIddictCore(this IServiceCollection services)
 		{
 			// OpenIddict stores modify the entities they read, so their context tracks changes
 			services.AddScoped<AppDbContext>(sp =>
@@ -96,7 +100,7 @@ namespace GenOnlineService.Identity
 				return db;
 			});
 
-			OpenIddictBuilder openIddict = services.AddOpenIddict()
+			return services.AddOpenIddict()
 				.AddCore(options =>
 				{
 					options.UseEntityFrameworkCore().UseDbContext<AppDbContext>();
@@ -104,6 +108,11 @@ namespace GenOnlineService.Identity
 					options.ReplaceAuthorizationManager<OpenIddictEntityFrameworkCoreAuthorization, SignInAuthorizationManager>();
 					options.ReplaceTokenManager<OpenIddictEntityFrameworkCoreToken, SignInTokenManager>();
 				});
+		}
+
+		public static void AddGenOnlineIdentity(this IServiceCollection services, AccountsSettings settings)
+		{
+			OpenIddictBuilder openIddict = services.AddOpenIddictCore();
 
 			if (settings.Enabled)
 			{
@@ -158,6 +167,14 @@ namespace GenOnlineService.Identity
 
 			services.AddScoped<UpstreamAccounts>();
 
+			// the consent page posts back to /oauth/authorize with an antiforgery token
+			services.AddAntiforgery(options =>
+			{
+				options.Cookie.Name = "go_antiforgery";
+				options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+				options.FormFieldName = "__go_consent_token";
+			});
+
 			openIddict.AddServer(options =>
 			{
 				options.SetAuthorizationEndpointUris("oauth/authorize")
@@ -176,7 +193,7 @@ namespace GenOnlineService.Identity
 					.AllowRefreshTokenFlow()
 					.RequireProofKeyForCodeExchange();
 
-				options.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, AccountsSettings.GameScope);
+				options.RegisterScopes(RegisteredScopes.ToArray());
 				options.RegisterAudiences(settings.Audience);
 
 				options.SetAccessTokenLifetime(TimeSpan.FromMinutes(settings.AccessTokenMinutes))
@@ -266,51 +283,59 @@ namespace GenOnlineService.Identity
 			}
 		}
 
-		// First-party clients come from configuration: public, authorization code with PKCE, refresh tokens
+		// Seeds the first-party public clients from configuration when their client_id is missing; never updates, the CLI owns them afterwards
 		public static async Task SeedClients(IServiceProvider services, AccountsSettings settings)
 		{
 			using IServiceScope scope = services.CreateScope();
 			var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+			AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
 			foreach (OAuthClientSettings client in settings.Clients)
 			{
-				var descriptor = new OpenIddictApplicationDescriptor
+				if (await db.Clients.AnyAsync(c => c.ClientID == client.ClientID) || await manager.FindByClientIdAsync(client.ClientID) != null)
 				{
-					ClientId = client.ClientID,
-					DisplayName = client.DisplayName,
-					ClientType = ClientTypes.Public,
-					ConsentType = ConsentTypes.Implicit,
-					Permissions =
-					{
-						OidcPermissions.Endpoints.Authorization,
-						OidcPermissions.Endpoints.Token,
-						OidcPermissions.Endpoints.Revocation,
-						OidcPermissions.GrantTypes.AuthorizationCode,
-						OidcPermissions.GrantTypes.RefreshToken,
-						OidcPermissions.ResponseTypes.Code,
-						OidcPermissions.Scopes.Profile,
-						OidcPermissions.Prefixes.Scope + Scopes.OfflineAccess,
-						OidcPermissions.Prefixes.Scope + AccountsSettings.GameScope
-					},
-					Requirements = { Requirements.Features.ProofKeyForCodeExchange }
-				};
-
-				foreach (string uri in client.RedirectUris)
-				{
-					descriptor.RedirectUris.Add(new Uri(uri, UriKind.Absolute));
+					continue;
 				}
 
-				object? existing = await manager.FindByClientIdAsync(client.ClientID);
-				if (existing == null)
+				List<string> scopes = DefaultScopes(client.Kind);
+				string? error = ClientRegistry.Validate(client.ClientID, client.Kind, client.Game, false, scopes, client.RedirectUris)
+					?? ClientRegistry.ValidateDetails(client.DisplayName, client.MinVersion);
+				if (error != null)
 				{
-					await manager.CreateAsync(descriptor);
-					s_log.LogInformation("Registered OAuth client {ClientId}", client.ClientID);
+					throw new InvalidOperationException($"Accounts:clients entry {client.ClientID}: {error}");
 				}
-				else
+
+				await using var transaction = await db.Database.BeginTransactionAsync();
+				await manager.CreateAsync(ClientRegistry.Descriptor(client.ClientID, client.DisplayName, false, client.Kind, true, true, client.RedirectUris, scopes));
+
+				DateTime now = DateTime.UtcNow;
+				var row = new Client { ClientID = client.ClientID, Kind = client.Kind, Game = client.Game, FirstParty = true, Enabled = true, MinVersion = client.MinVersion, CreatedAt = now, UpdatedAt = now };
+				db.Clients.Add(row);
+				await db.SaveChangesAsync();
+
+				db.AuditLog.Add(new AuditLogEntry
 				{
-					await manager.UpdateAsync(existing, descriptor);
-				}
+					CreatedAt = now,
+					ActorKind = AuditActorKinds.Cli,
+					Actor = "startup",
+					Action = "client_add",
+					TargetKind = AuditTargetKinds.Client,
+					TargetID = row.ID,
+					Source = "config_seed",
+					Details = System.Text.Json.JsonSerializer.Serialize(new { client_id = client.ClientID, kind = client.Kind, game = client.Game, first_party = true, type = ClientTypes.Public, scopes })
+				});
+				await db.SaveChangesAsync();
+				await transaction.CommitAsync();
+
+				s_log.LogInformation("Seeded first-party client {ClientId}", client.ClientID);
 			}
+
+			await ClientRegistry.Reload(db);
 		}
+
+		// A game, launcher or chat client opens a session with the game scope; an app gets the user's profile only
+		public static List<string> DefaultScopes(string kind) => kind == ClientKinds.App
+			? new List<string> { Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess }
+			: new List<string> { Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, AccountsSettings.GameScope };
 	}
 }

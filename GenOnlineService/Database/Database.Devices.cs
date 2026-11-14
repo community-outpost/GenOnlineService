@@ -274,14 +274,14 @@ namespace Database
 
 	public static class SessionEvents
 	{
-		public static async Task Record(AppDbContext db, long userId, string kind, string result, KnownClients.EKnownClients client, string ipAddr, string? country)
+		public static async Task Record(AppDbContext db, long userId, string kind, string result, string client, string ipAddr, string? country)
 		{
 			db.SessionEvents.Add(new SessionEvent
 			{
 				UserID = userId,
 				Kind = kind,
 				Result = result,
-				Client = TextSanitizer.Clean(client.ToString(), 32),
+				Client = TextSanitizer.Clean(client, 32),
 				ClientVersion = String.Empty,
 				Ip = TextSanitizer.Clean(ipAddr, 45),
 				Country = country is { Length: 2 } ? country.ToUpperInvariant() : null,

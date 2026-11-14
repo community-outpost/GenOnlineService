@@ -18,10 +18,14 @@
 
 namespace GenOnlineService.Identity
 {
+	// A first-party public client inserted on first start when its client_id is missing; the CLI owns it afterwards
 	public sealed class OAuthClientSettings
 	{
 		public string ClientID { get; init; } = String.Empty;
 		public string DisplayName { get; init; } = String.Empty;
+		public string Kind { get; init; } = String.Empty;
+		public string Game { get; init; } = ClientGames.None;
+		public string? MinVersion { get; init; }
 		public List<string> RedirectUris { get; init; } = new();
 	}
 
@@ -94,6 +98,9 @@ namespace GenOnlineService.Identity
 			{
 				ClientID = c.GetValue<string>("client_id") ?? String.Empty,
 				DisplayName = c.GetValue<string>("display_name") ?? c.GetValue<string>("client_id") ?? String.Empty,
+				Kind = c.GetValue<string>("kind") ?? String.Empty,
+				Game = c.GetValue<string>("game") ?? ClientGames.None,
+				MinVersion = c.GetValue<string>("min_version"),
 				RedirectUris = c.GetSection("redirect_uris").Get<List<string>>() ?? new()
 			}).Where(c => c.ClientID.Length > 0).ToList();
 

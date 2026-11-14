@@ -25,7 +25,7 @@ namespace GenOnlineService;
 public partial class LobbyManager
 {
 	internal async Task<RealtimeConnection?> OpenSessionAsync(AppDbContext db, EUserSessionType sessionType, bool reconnect,
-		long userID, KnownClients.EKnownClients clientID, string ipAddress, string continent, string country,
+		long userID, string clientID, string ipAddress, string continent, string country,
 		double latitude, double longitude, HubConnectionContext transport, string? authorizationID)
 	{
 		using var membership = await AcquireMembershipGateAsync(userID);
