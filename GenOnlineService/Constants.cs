@@ -301,30 +301,6 @@ namespace GenOnlineService
 		GameLauncher = 2
 	}
 
-	public static class KnownClients
-	{
-		public enum EKnownClients
-		{
-			unknown = -1,
-			generalsmd = 0,
-			generals = 1,
-			launcher = 2,
-			chat = 3,
-			genhub = 4,
-			custom_third_party_client = 5
-		}
-
-		public static ConcurrentDictionary<EKnownClients, EUserSessionType> KnownClientSessionTypes = new()
-		{
-			[EKnownClients.generalsmd] = EUserSessionType.GameClient,
-			[EKnownClients.generals] = EUserSessionType.GameClient,
-			[EKnownClients.launcher] = EUserSessionType.GameLauncher,
-			[EKnownClients.chat] = EUserSessionType.ChatClient,
-			[EKnownClients.genhub] = EUserSessionType.GameLauncher,
-			[EKnownClients.custom_third_party_client] = EUserSessionType.GameClient
-		};
-	}
-
 
 
 	// TODO
@@ -342,12 +318,12 @@ namespace GenOnlineService
 			}
 		}
 
-		public static Task<RealtimeConnection?> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
+		public static Task<RealtimeConnection?> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
 			return ServiceLocator.Services.GetRequiredService<LobbyManager>().OpenSessionAsync(_db, sessionType, bIsReconnect, ownerID, client_id, ipAddr, strContinent, strCountry, dLatitude, dLongitude, transport, authorizationID);
 		}
 
-		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
+		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
 			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
 			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
@@ -958,7 +934,7 @@ namespace GenOnlineService
 
 		private Int64 m_timeAbandoned = -1;
 
-		public KnownClients.EKnownClients m_client_id = KnownClients.EKnownClients.unknown;
+		public string m_client_id = String.Empty;
 		DateTime m_CreateTime = DateTime.Now;
 		public DateTime GetCreationTime()
 		{
@@ -1031,7 +1007,7 @@ namespace GenOnlineService
 			return DateTime.Now - m_CreateTime;
 		}
 
-		public UserSession(Int64 ownerID, EUserSessionType sessionType, KnownClients.EKnownClients client_id, string strContinent, string strCountry, double dLatitude, double dLongitude)
+		public UserSession(Int64 ownerID, EUserSessionType sessionType, string client_id, string strContinent, string strCountry, double dLatitude, double dLongitude)
 		{
 			m_sessionType = sessionType;
 			m_client_id = client_id;
@@ -1222,7 +1198,7 @@ namespace GenOnlineService
 			return false;
 		}
 
-		public async static Task SetUsedLoggedIn(Int64 userID, KnownClients.EKnownClients clientID, EUserSessionType sessionType)
+		public async static Task SetUsedLoggedIn(Int64 userID, string clientID, EUserSessionType sessionType)
 		{
 			// TODO_EFCORE: website uses this index as 1 (60hz) to 0 (30hz), update it to use new enum + support new clients, also need to update DB to match
 			// TODO_EFCORE: Move away from db for this and just have website login call endpoint on service

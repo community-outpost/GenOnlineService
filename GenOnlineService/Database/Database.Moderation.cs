@@ -52,6 +52,7 @@ public static class AuditTargetKinds
 	public const string Token = "token";
 	public const string Message = "message";
 	public const string Report = "report";
+	public const string Client = "client";
 }
 
 public static class ModerationActions
