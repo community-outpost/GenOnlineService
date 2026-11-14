@@ -229,7 +229,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `LeaveChannel` | `{}` | Result | |
 | `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:`, `dm:`, `group:` and `lobby:` (current members of that lobby) only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
-| `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
+| `MarkRead` | `{channel_id}` | Result | Marks the whole conversation read, up to the newest message the service holds at that moment; `Conversations` then shows `unread` 0 for it. The user's other connections get `ReadMarker`. `dm:` and `group:` conversations the caller is part of, otherwise `not_found {what: channel}` or `group.not_member` |
 
 Group chats are small private conversations, like group direct messages in Discord. Groups are created and managed over REST (section 10.1); their messages use `SendMessage` to `group:<id>`.
 
@@ -307,7 +307,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
 | `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: every direct message conversation and group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
-| `ReadMarker` | `{channel_id, message_id}` (the user's read position changed on another connection) |
+| `ReadMarker` | `{channel_id}` (the user read that whole conversation on another connection; clear its unread count) |
 | `GroupCreate` | `{group: Group}` (the user was put in a group, by creating it or being added) |
 | `GroupUpdate` | `{group: Group}` (members, name or owner changed; sent to every member) |
 | `GroupRemoved` | `{group_id, reason: "left"|"removed"}` (the user is no longer in the group) |
