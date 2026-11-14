@@ -24,7 +24,8 @@ namespace Database
 {
 	public sealed record KeycloakImportIdentity(string Provider, string UserID, string? UserName);
 
-	public sealed record KeycloakImportUser(long PlayerID, IReadOnlyList<KeycloakImportIdentity> Identities);
+	// DisplayName becomes the display_name attribute; the GenOnline Keycloak plugin gives it a tag when it first sees the account
+	public sealed record KeycloakImportUser(long PlayerID, IReadOnlyList<KeycloakImportIdentity> Identities, string? DisplayName = null);
 
 	// The official deployment's Keycloak users (identity section 10): player_id is the old user id, and the plugin's counter starts above them
 	public static class KeycloakImportFile
@@ -32,7 +33,7 @@ namespace Database
 		// Providers brokered inside Keycloak; their aliases in the realm must match these names
 		public static readonly IReadOnlySet<string> BrokeredProviders = new HashSet<string>(StringComparer.Ordinal)
 		{
-			global::IdentityProviders.Steam, global::IdentityProviders.Discord, global::IdentityProviders.Google
+			global::IdentityProviders.Steam, global::IdentityProviders.Discord, global::IdentityProviders.Google, global::IdentityProviders.GameReplays
 		};
 
 		// A Keycloak partial import; an existing Keycloak user is skipped, never overwritten
@@ -49,7 +50,13 @@ namespace Database
 				};
 
 				// no email: player ids never match by email, and Keycloak's partial import fails outright on an address an existing account holds
-				entry["attributes"] = new JsonObject { ["player_id"] = new JsonArray(user.PlayerID.ToString(CultureInfo.InvariantCulture)) };
+				var attributes = new JsonObject { ["player_id"] = new JsonArray(user.PlayerID.ToString(CultureInfo.InvariantCulture)) };
+				if (!String.IsNullOrEmpty(user.DisplayName))
+				{
+					// without it the plugin's required display_name would make every imported player choose a new name
+					attributes["display_name"] = new JsonArray(user.DisplayName);
+				}
+				entry["attributes"] = attributes;
 
 				var identities = new JsonArray();
 				foreach (KeycloakImportIdentity identity in user.Identities.Where(i => BrokeredProviders.Contains(i.Provider)))
@@ -69,11 +76,13 @@ namespace Database
 			return new JsonObject { ["ifResourceExists"] = "SKIP", ["users"] = list };
 		}
 
-		// The start value for the GenOnline Keycloak plugin's player_id counter
+		// The realm attribute that starts the GenOnline Keycloak plugin's player_id counter; the value goes in unchanged
+		public const string CounterStartAttribute = "genonlinePlayerIdStart";
+
 		public static JsonObject BuildCounter(IEnumerable<KeycloakImportUser> users)
 		{
 			long highest = users.Select(u => u.PlayerID).DefaultIfEmpty(0).Max();
-			return new JsonObject { ["player_id_next"] = highest + 1, ["highest_imported_id"] = highest };
+			return new JsonObject { [CounterStartAttribute] = highest + 1, ["highest_imported_id"] = highest };
 		}
 
 		// Writes <path> and <path>.counter.json; returns both paths

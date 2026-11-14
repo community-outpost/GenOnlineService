@@ -224,12 +224,12 @@ namespace Database
 
 			// written only after the commit, so Keycloak never holds player ids the database does not
 			List<KeycloakImportUser> keycloakUsers = KeycloakUsers(plan);
-			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)["player_id_next"]!.GetValue<long>();
+			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)[KeycloakImportFile.CounterStartAttribute]!.GetValue<long>();
 			if (settings.KeycloakFile != null && !options.DryRun)
 			{
 				(string usersPath, string counterPath) = KeycloakImportFile.Write(settings.KeycloakFile, keycloakUsers);
 				report.Line($"Keycloak file: {keycloakUsers.Count} users with player_id written to {Path.GetFullPath(usersPath)}");
-				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart} ({Path.GetFullPath(counterPath)})");
+				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart}: set the realm attribute {KeycloakImportFile.CounterStartAttribute} to it before anyone signs up ({Path.GetFullPath(counterPath)})");
 			}
 			else if (settings.KeycloakFile != null)
 			{
@@ -245,7 +245,8 @@ namespace Database
 		{
 			return plan.Kept.OrderBy(k => k.Key)
 				.Select(k => new KeycloakImportUser(k.Key,
-					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList()))
+					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList(),
+					k.Value.Username))
 				.ToList();
 		}
 
