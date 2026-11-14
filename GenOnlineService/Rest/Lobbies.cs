@@ -60,7 +60,7 @@ namespace GenOnlineService.Rest
 				}
 				else if (IsPublicListed(lobby))
 				{
-					lobbies.Add(SummaryWithoutViewer(lobby));
+					lobbies.Add(RealtimeLobbies.SummaryOf(lobby, null));
 				}
 			}
 			return RestResults.Ok(new LobbyListResponse { Lobbies = lobbies.OrderBy(lobby => lobby.Id).ToArray() });
@@ -79,35 +79,6 @@ namespace GenOnlineService.Rest
 				&& (lobby.State == ELobbyState.GAME_SETUP || lobby.State == ELobbyState.COUNTDOWN)
 				&& lobby.GetNumberOfHumans() > 0
 				&& lobby.LobbyJoinability != ELobbyJoinability.FriendsOnly;
-		}
-
-		// RealtimeLobbies.SummaryOf needs a viewer session for latency_ms; without one the estimate is 0
-		private static LobbySummary SummaryWithoutViewer(Lobby lobby)
-		{
-			return new LobbySummary
-			{
-				Id = lobby.LobbyID,
-				Name = lobby.Name,
-				Host = RealtimeMembers.Of(lobby.Owner),
-				State = RealtimeLobbies.StageOf(lobby.State),
-				Map = new LobbySummaryMap { Name = lobby.MapName, Official = lobby.IsMapOfficial },
-				Players = lobby.NumCurrentPlayers,
-				MaxPlayers = lobby.MaxPlayers,
-				HasPassword = lobby.IsPassworded,
-				Region = lobby.Region,
-				LatencyMs = 0,
-				Anticheat = RealtimeLobbies.AnticheatOf(lobby.AnticheatID),
-				Settings = new LobbySummarySettings
-				{
-					StartingCash = (int)lobby.StartingCash,
-					LimitSuperweapons = lobby.IsLimitSuperweapons,
-					VanillaTeams = lobby.IsVanillaTeamsOnly,
-					TrackStats = lobby.IsTrackingStats,
-					AllowObservers = lobby.AllowObservers
-				},
-				Build = new BuildIdentity { ExeCrc = lobby.ExeCRC, IniCrc = lobby.IniCRC },
-				CreatedAt = lobby.TimeCreated
-			};
 		}
 	}
 }
