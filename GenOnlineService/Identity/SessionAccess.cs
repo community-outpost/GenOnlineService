@@ -83,8 +83,7 @@ namespace GenOnlineService.Identity
 			foreach (Int64 userID in inactive.Keys.Where(id => !previousInactive.ContainsKey(id)))
 			{
 				s_log.LogInformation("User {UserId} became {State}: revoking every authorization", userID, inactive[userID]);
-				await db.Users.Where(u => u.ID == userID).ExecuteUpdateAsync(s => s.SetProperty(u => u.SecurityStamp, Guid.NewGuid().ToString("N")));
-				await SessionRevocation.RevokeUser(userID, false, "account " + inactive[userID]);
+				await RevokeInactiveUser(db, userID, inactive[userID]);
 			}
 
 			foreach ((Int64 userID, PlayBan ban) in banned.Where(b => !previousBanned.ContainsKey(b.Key)))
@@ -92,6 +91,72 @@ namespace GenOnlineService.Identity
 				s_log.LogInformation("User {UserId} was banned: revoking game client authorizations", userID);
 				await SessionRevocation.RevokeUser(userID, true, "banned", ban);
 			}
+		}
+
+		// The block path and the startup sweep share this, so the two never diverge
+		public static async Task<int> RevokeInactiveUser(AppDbContext db, Int64 userID, string state)
+		{
+			await db.Users.Where(u => u.ID == userID).ExecuteUpdateAsync(s => s.SetProperty(u => u.SecurityStamp, Guid.NewGuid().ToString("N")));
+			return await SessionRevocation.RevokeUser(userID, false, "account " + state);
+		}
+
+		// A user blocked while the service was down kept their authorizations; startup finds them in one query and revokes them in the background
+		public static async Task SweepBlockedUsers(IDbContextFactory<AppDbContext> dbFactory)
+		{
+			await using AppDbContext db = await dbFactory.CreateDbContextAsync();
+			string valid = OpenIddictConstants.Statuses.Valid;
+
+			List<string> subjects = await db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization>().AsNoTracking()
+				.Where(a => a.Status == valid && db.Users.Any(u => u.State == UserStates.Blocked && u.ID.ToString() == a.Subject))
+				.Select(a => a.Subject!)
+				.Distinct()
+				.ToListAsync();
+
+			if (subjects.Count == 0)
+			{
+				return;
+			}
+
+			_ = Task.Run(async () =>
+			{
+				try
+				{
+					await using AppDbContext revokeDb = await dbFactory.CreateDbContextAsync();
+					foreach (string subject in subjects)
+					{
+						if (!Int64.TryParse(subject, out Int64 userID))
+						{
+							continue;
+						}
+
+						int revoked = await RevokeInactiveUser(revokeDb, userID, UserStates.Blocked);
+						if (revoked == 0)
+						{
+							continue;
+						}
+
+						revokeDb.AuditLog.Add(new AuditLogEntry
+						{
+							CreatedAt = DateTime.UtcNow,
+							ActorKind = AuditActorKinds.Cli,
+							Actor = "startup",
+							Action = "revoke_sessions",
+							TargetKind = AuditTargetKinds.User,
+							TargetID = userID,
+							Reason = "account blocked while the service was stopped",
+							Source = "startup_sweep",
+							Details = JsonSerializer.Serialize(new { authorizations = revoked })
+						});
+						await revokeDb.SaveChangesAsync();
+					}
+
+					s_log.LogInformation("Startup sweep revoked the sign-ins of {Count} blocked user(s)", subjects.Count);
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "Startup sweep of blocked users failed");
+				}
+			});
 		}
 	}
 
