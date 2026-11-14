@@ -42,7 +42,7 @@ public enum LobbyMembershipStatus
 }
 
 public sealed record JoinLobbyCommand(long LobbyID, long UserID, EUserSessionType SessionType,
-	ushort PreferredPort, bool HasMap, EKnownAnticheatID AnticheatID, string? Password, uint ExeCRC, uint IniCRC);
+	ushort PreferredPort, bool HasMap, string? Password, GameBuild Build);
 public sealed record LeaveLobbyCommand(long LobbyID, long UserID, EUserSessionType SessionType);
 public sealed record KickLobbyMemberCommand(long LobbyID, long ActorUserID, long? TargetUserID);
 public sealed record JoinLobbyResult(LobbyMembershipStatus Status, string TurnUsername = "", string TurnToken = "");

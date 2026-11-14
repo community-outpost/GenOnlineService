@@ -54,7 +54,7 @@ namespace GenOnlineService.Realtime
 				List<LobbySummary> lobbies = new();
 				foreach (Lobby lobby in lobbyManager.GetLobbies())
 				{
-					if (RealtimeLobbies.IsListedFor(lobby, viewer.m_UserID))
+					if (RealtimeLobbies.IsListedFor(lobby, viewer))
 					{
 						lobbies.Add(RealtimeLobbies.SummaryOf(lobby, viewer));
 						watcher.Visible.Add(lobby.LobbyID);
@@ -107,7 +107,7 @@ namespace GenOnlineService.Realtime
 					foreach (Int64 lobbyID in dirty)
 					{
 						Lobby? lobby = lobbyManager.GetLobby(lobbyID);
-						if (lobby != null && RealtimeLobbies.IsListedFor(lobby, watcher.Session.m_UserID))
+						if (lobby != null && RealtimeLobbies.IsListedFor(lobby, watcher.Session))
 						{
 							watcher.Visible.Add(lobbyID);
 							RealtimeOut.Fire(client.LobbyListUpsert(new LobbyListUpsertEvent { Lobby = RealtimeLobbies.SummaryOf(lobby, watcher.Session) }));

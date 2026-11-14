@@ -948,10 +948,8 @@ namespace GenOnlineService
 		internal bool IsRegisteredForMatchmaking { get; set; } = false;
 		internal SemaphoreSlim MatchmakingStateLock { get; } = new(1, 1);
 
-		// NOTE: These are not set on login, only when in quickmatch!
-		public UInt32 ExeCRC = 0;
-		public UInt32 IniCRC = 0;
-		public EKnownAnticheatID AnticheatID = EKnownAnticheatID.NONE;
+		// The build of the queue registration, set when the player joins the matchmaking queue
+		public GameBuild MatchmakingBuild = new GameBuild(String.Empty, 0, 0, EKnownAnticheatID.NONE);
 
 		private ConcurrentList<UInt64> m_lstHistoricMatchIDs = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToSlotIndexMap = new();

@@ -855,6 +855,13 @@ namespace GenOnlineService
 		public UInt32 ExeCRC { get; private set; } = 0;
 		public UInt32 IniCRC { get; private set; } = 0;
 
+		// The OAuth client id of the host game, part of the build that joiners must match
+		[JsonIgnore]
+		public string Game { get; private set; } = String.Empty;
+
+		[JsonIgnore]
+		public GameBuild Build => new GameBuild(Game, ExeCRC, IniCRC, AnticheatID);
+
 		public Int16 NetworkRoomID { get; private set; } = -1;
 
 		public int RNGSeed { get; private set; } = -1;
@@ -951,8 +958,8 @@ namespace GenOnlineService
 		private double m_dHostLongitude = 0;
 
 		public Lobby(Int64 lobby_id, UserSession owner, string name, ELobbyState state, string map_name, string map_path, bool vanilla_teams, UInt32 starting_cash, bool limit_superweapons,
-			bool track_stats, bool passworded, string password, bool map_official, int rng_seed, Int16 network_room, bool allow_observers, UInt16 max_cam_height, UInt32 exe_crc, UInt32 ini_crc,
-			int max_players, ELobbyType lobbyType, EKnownAnticheatID inAnticheatID)
+			bool track_stats, bool passworded, string password, bool map_official, int rng_seed, Int16 network_room, bool allow_observers, UInt16 max_cam_height, GameBuild build,
+			int max_players, ELobbyType lobbyType)
 		{
 			LobbyID = lobby_id;
 			Owner = owner.m_UserID;
@@ -974,14 +981,15 @@ namespace GenOnlineService
 			IsPassworded = passworded;
 			Password = password;
 			AllowObservers = allow_observers;
-			ExeCRC = exe_crc;
-			IniCRC = ini_crc;
+			Game = build.Game;
+			ExeCRC = build.ExeCRC;
+			IniCRC = build.IniCRC;
 			NetworkRoomID = network_room;
 			RNGSeed = rng_seed;
 			MaximumCameraHeight = max_cam_height;
 			LobbyType = lobbyType;
 			Members = new LobbyMember[MaxLobbySize];
-			AnticheatID = inAnticheatID;
+			AnticheatID = build.AnticheatID;
 
 			// create default slots
 			for (UInt16 i = 0; i < MaxLobbySize; ++i)
@@ -1502,9 +1510,9 @@ public async Task FinalizeACChecks()
 				return LobbyMembershipStatus.NotMatched;
 			if (IsPassworded && command.Password != Password)
 				return LobbyMembershipStatus.PasswordMismatch;
-			if (command.AnticheatID != AnticheatID)
+			if (command.Build.AnticheatID != AnticheatID)
 				return LobbyMembershipStatus.AnticheatMismatch;
-			return command.ExeCRC == ExeCRC && command.IniCRC == IniCRC ? LobbyMembershipStatus.Success : LobbyMembershipStatus.BuildMismatch;
+			return command.Build == Build ? LobbyMembershipStatus.Success : LobbyMembershipStatus.BuildMismatch;
 		}
 
 		public int GetNumberOfHumans()
@@ -2103,7 +2111,7 @@ public async Task FinalizeACChecks()
 
 		public async Task<Int64> CreateLobby(AppDbContext _db, UserSession owningSession, string strOwnerDisplayName, string strName, string strMapName, string strMapPath, bool bMapOfficial, int maxPlayers,
 			UInt16 hostPreferredPort, bool bVanillaTeams, bool bTrackStats, UInt32 starting_cash, bool bLimitSuperweapons, bool bPassworded, String strPassword, Int16 parentNetworkRoom, bool bAllowObservers,
-			UInt16 maxCamHeight, UInt32 exe_crc, UInt32 ini_crc, ELobbyType lobbyType, EKnownAnticheatID anticheatID, ELobbyJoinability joinability = ELobbyJoinability.Public)
+			UInt16 maxCamHeight, GameBuild build, ELobbyType lobbyType, ELobbyJoinability joinability = ELobbyJoinability.Public)
 		{
 			using var membership = await AcquireMembershipGateAsync(owningSession.m_UserID);
 			if (!IsCurrentSession(owningSession) || owningSession.IsRetired) return -1;
@@ -2119,7 +2127,7 @@ public async Task FinalizeACChecks()
 			Int64 newLobbyID = GenerateNextLobbyID();
 
 			// the host's settings come with the create call
-			Lobby newLobby = new Lobby(newLobbyID, owningSession, strName, ELobbyState.GAME_SETUP, strMapName, strMapPath, bVanillaTeams, starting_cash, bLimitSuperweapons, bTrackStats, bPassworded, strPassword, bMapOfficial, rng_seed, parentNetworkRoom, bAllowObservers, maxCamHeight, exe_crc, ini_crc, maxPlayers, lobbyType, anticheatID);
+			Lobby newLobby = new Lobby(newLobbyID, owningSession, strName, ELobbyState.GAME_SETUP, strMapName, strMapPath, bVanillaTeams, starting_cash, bLimitSuperweapons, bTrackStats, bPassworded, strPassword, bMapOfficial, rng_seed, parentNetworkRoom, bAllowObservers, maxCamHeight, build, maxPlayers, lobbyType);
 			newLobby.UpdateJoinability(joinability);
 			m_dictLobbies[newLobbyID] = newLobby;
 
