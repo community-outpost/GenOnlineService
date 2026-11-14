@@ -51,13 +51,15 @@ namespace GenOnlineService.Realtime
 		}
 
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly AccountsSettings m_accounts;
 		private readonly LobbyManager m_lobbyManager;
 		private readonly IAuthorizationService m_authorization;
 		private readonly IOpenIddictAuthorizationManager m_signIns;
 		private readonly ILogger<RealtimeHub> m_log;
 
-		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, IOpenIddictAuthorizationManager signIns, ILogger<RealtimeHub> log)
+		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, IOpenIddictAuthorizationManager signIns, AccountsSettings accounts, ILogger<RealtimeHub> log)
 		{
+			m_accounts = accounts;
 			m_dbFactory = dbFactory;
 			m_lobbyManager = lobbyManager;
 			m_authorization = authorization;

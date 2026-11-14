@@ -232,7 +232,7 @@ namespace GenOnlineService.Realtime
 				Id = messageID,
 				ChannelId = ConversationIDOf(stored, author),
 				Type = request.Type,
-				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName),
+				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName, null, authorData.m_NameTag),
 				Content = content,
 				CreatedAt = stored.CreatedAt
 			};

@@ -113,7 +113,7 @@ namespace GenOnlineService.Realtime
 				page = await Database.Chat.GetDirectHistory(db, me, targetID, before, request.Limit);
 			}
 
-			Dictionary<long, string> names = await NamesAsync(db, page.Messages.Select(m => m.SenderID));
+			Dictionary<long, (string Name, int Tag)> names = await NamesAsync(db, page.Messages.Select(m => m.SenderID));
 			return Result.Success(new HistoryData { Messages = page.Messages.Select(m => ToWire(m, me, names)).ToArray(), HasMore = page.HasMore });
 		}
 
@@ -156,7 +156,7 @@ namespace GenOnlineService.Realtime
 		{
 			Int64 me = UserID;
 			Database.ChatPage page;
-			Dictionary<long, string> names;
+			Dictionary<long, (string Name, int Tag)> names;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
@@ -172,7 +172,7 @@ namespace GenOnlineService.Realtime
 		{
 			Int64 me = UserID;
 			Database.ChatPage page;
-			Dictionary<long, string> names;
+			Dictionary<long, (string Name, int Tag)> names;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
@@ -184,7 +184,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// One replay as ChannelHistory events to the caller, split to keep each event under 64 KB
-		private async Task SendHistoryEventsAsync(string channel, Database.ChatPage page, IReadOnlyDictionary<long, string> names)
+		private async Task SendHistoryEventsAsync(string channel, Database.ChatPage page, IReadOnlyDictionary<long, (string Name, int Tag)> names)
 		{
 			Int64 me = UserID;
 			List<Message> chunk = new();
@@ -215,7 +215,7 @@ namespace GenOnlineService.Realtime
 			List<Database.DirectConversation> direct;
 			List<Database.GroupInfo> groups;
 			List<Database.GroupConversation> groupConversations;
-			Dictionary<long, string> names;
+			Dictionary<long, (string Name, int Tag)> names;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
@@ -253,14 +253,14 @@ namespace GenOnlineService.Realtime
 			return StaffRoles.HasPermission(userA, Permissions.ChatMessageAnyone) || StaffRoles.HasPermission(userB, Permissions.ChatMessageAnyone);
 		}
 
-		internal static Group ToWireGroup(Database.GroupInfo group, IReadOnlyDictionary<long, string> names)
+		internal static Group ToWireGroup(Database.GroupInfo group, IReadOnlyDictionary<long, (string Name, int Tag)> names)
 		{
 			return new Group
 			{
 				Id = group.Group.ID,
 				Name = group.Group.Name,
 				OwnerId = group.Group.OwnerID,
-				Members = group.MemberIDs.Select(id => RealtimeMembers.Of(id, names.TryGetValue(id, out string? name) ? name : null)).ToArray(),
+				Members = group.MemberIDs.Select(id => RealtimeMembers.Of(id, names)).ToArray(),
 				CreatedAt = group.Group.CreatedAt
 			};
 		}
@@ -276,16 +276,16 @@ namespace GenOnlineService.Realtime
 		}
 
 		// Live names of online users, stored names of the others
-		internal static async Task<Dictionary<long, string>> NamesAsync(AppDbContext db, IEnumerable<long> userIDs)
+		internal static async Task<Dictionary<long, (string Name, int Tag)>> NamesAsync(AppDbContext db, IEnumerable<long> userIDs)
 		{
-			Dictionary<long, string> names = new();
+			Dictionary<long, (string Name, int Tag)> names = new();
 			List<long> offline = new();
 			foreach (long userID in userIDs.Distinct())
 			{
-				string? live = WebSocketManager.GetSharedDataForUser(userID)?.m_strDisplayName;
+				SharedUserData? live = WebSocketManager.GetSharedDataForUser(userID);
 				if (live != null)
 				{
-					names[userID] = live;
+					names[userID] = (live.m_strDisplayName, live.m_NameTag);
 				}
 				else
 				{
@@ -295,7 +295,7 @@ namespace GenOnlineService.Realtime
 
 			if (offline.Count > 0)
 			{
-				foreach ((long userID, string name) in await Database.Users.GetDisplayNameBulk(db, offline))
+				foreach ((long userID, (string Name, int Tag) name) in await Database.DisplayNames.GetBulk(db, offline))
 				{
 					names[userID] = name;
 				}
@@ -304,7 +304,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// A stored row as the viewer sees it, a deleted row becomes a tombstone without author and content
-		private static Message ToWire(ChatMessage row, Int64 viewer, IReadOnlyDictionary<long, string> names)
+		private static Message ToWire(ChatMessage row, Int64 viewer, IReadOnlyDictionary<long, (string Name, int Tag)> names)
 		{
 			string id = row.ID.ToString(CultureInfo.InvariantCulture);
 			string channelID = ConversationIDOf(row, viewer);
@@ -318,7 +318,7 @@ namespace GenOnlineService.Realtime
 				Id = id,
 				ChannelId = channelID,
 				Type = WireType(row.Type),
-				Author = RealtimeMembers.Of(row.SenderID, names.TryGetValue(row.SenderID, out string? name) ? name : null),
+				Author = RealtimeMembers.Of(row.SenderID, names),
 				Content = row.Content,
 				CreatedAt = row.CreatedAt
 			};

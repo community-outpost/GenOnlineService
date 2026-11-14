@@ -46,17 +46,17 @@ namespace GenOnlineService.Realtime
 			long[] blocked = await BlockedOf(db, me);
 			HashSet<long> outgoing = await Database.Social.GetOutgoingFriendRequests(db, me);
 			List<long> everyone = friends.Concat(incoming).Concat(blocked).Concat(outgoing).Distinct().ToList();
-			Dictionary<long, string> names = await Database.Users.GetDisplayNameBulk(db, everyone);
+			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, everyone);
 
 			// online users show their live name, users without a row no longer exist and are left out
 			Member? MemberOf(long userID)
 			{
-				string? name = WebSocketManager.GetSharedDataForUser(userID)?.m_strDisplayName;
-				if (name == null && !names.TryGetValue(userID, out name))
+				SharedUserData? online = WebSocketManager.GetSharedDataForUser(userID);
+				if (online != null)
 				{
-					return null;
+					return RealtimeMembers.Of(userID, online.m_strDisplayName, null, online.m_NameTag);
 				}
-				return RealtimeMembers.Of(userID, name);
+				return names.TryGetValue(userID, out (string Name, int Tag) stored) ? RealtimeMembers.Of(userID, stored.Name, null, stored.Tag) : null;
 			}
 
 			List<FriendMember> friendList = new();

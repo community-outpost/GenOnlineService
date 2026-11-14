@@ -315,7 +315,8 @@ namespace GenOnlineService
 
 		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
-			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
+			(string Name, int Tag) name = await Database.DisplayNames.Get(_db, ownerID) ?? (String.Empty, 0);
+			string strDisplayName = name.Name;
 			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
@@ -348,7 +349,7 @@ namespace GenOnlineService
 						// get stats
 						PlayerStats GameStats = await Database.UserStats.GetPlayerStats(_db, ownerID);
 
-						m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, GameStats);
+						m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 					}
 
 					// clear abandoned flag
@@ -388,7 +389,7 @@ namespace GenOnlineService
 				}
 				else
 				{
-					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, GameStats);
+					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 				}
 			}
 
@@ -568,17 +569,33 @@ namespace GenOnlineService
 			return m_dictUserSessions;
 		}
 
+		// An online user by "Name#0042", or by bare name when exactly one online user has it
 		public static SharedUserData? GetSharedDataForUser(string strDisplayName)
 		{
+			int hash = strDisplayName.LastIndexOf('#');
+			int tag = -1;
+			if (hash > 0 && Int32.TryParse(strDisplayName.AsSpan(hash + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int parsed))
+			{
+				tag = parsed;
+				strDisplayName = strDisplayName.Substring(0, hash);
+			}
+
+			string normalized = NameNormalizer.Normalize(strDisplayName);
+			SharedUserData? found = null;
 			foreach (var kvPair in m_dictSharedUserData)
 			{
-				if (String.Equals(kvPair.Value.m_strDisplayName, strDisplayName, StringComparison.OrdinalIgnoreCase))
+				SharedUserData data = kvPair.Value;
+				if ((tag < 0 || data.m_NameTag == tag) && NameNormalizer.Normalize(data.m_strDisplayName) == normalized)
 				{
-					return kvPair.Value;
+					if (found != null)
+					{
+						return null;
+					}
+					found = data;
 				}
 			}
 
-			return null;
+			return found;
 		}
 
 
@@ -811,6 +828,9 @@ namespace GenOnlineService
 		public Int64 m_UserID = -1;
 		public string m_strDisplayName = String.Empty;
 
+		// The tag of the display name; Name#tag is unique
+		public int m_NameTag;
+
 		// contains ELO too
 		public PlayerStats? GameStats { get; private set; } = null;
 
@@ -862,9 +882,10 @@ namespace GenOnlineService
 			}
 		}
 
-		public SharedUserData(Int64 ownerID, UserSocialContainer socialContainer, string strDisplayName, PlayerStats userStats)
+		public SharedUserData(Int64 ownerID, UserSocialContainer socialContainer, string strDisplayName, int nameTag, PlayerStats userStats)
 		{
 			m_strDisplayName = strDisplayName;
+			m_NameTag = nameTag;
 
 			m_UserID = ownerID;
 

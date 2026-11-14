@@ -39,6 +39,10 @@ namespace GenOnlineService.Identity
 		public const string ErrorNoPlayerID = "no_player_id";
 		public const string ErrorPlayerIDMismatch = "player_id_mismatch";
 
+		// The display name and its tag, copied from a trusted provider at every sign-in (identity section 5a)
+		public const string NameClaim = "name";
+		public const string NameTagClaim = "name_tag";
+
 		private static readonly ILogger s_log = AppLog.For(typeof(UpstreamAccounts));
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 
@@ -134,7 +138,7 @@ namespace GenOnlineService.Identity
 					// with player ids the id is set explicitly, so the database never picks one Keycloak gives out later
 					user = new User
 					{
-						Username = await UniqueUsername(db, externName),
+						Username = InitialName(provider.Trusted ? external.GetClaim(NameClaim) ?? externName : externName),
 						State = UserStates.Active,
 						CreatedAt = now,
 						UpdatedAt = now
@@ -143,7 +147,11 @@ namespace GenOnlineService.Identity
 					{
 						user.ID = playerID.Value;
 					}
-					user.UsernameNormalized = NameNormalizer.Normalize(user.Username);
+					// a trusted provider's name and tag are taken as they are, so no throwaway tag reaches the name history
+					if (!provider.Trusted || !await Database.DisplayNames.TryAssignUpstream(db, user, external.GetClaim(NameClaim), external.GetClaim(NameTagClaim)))
+					{
+						await Database.DisplayNames.AssignNewUser(db, user);
+					}
 					db.Users.Add(user);
 					await db.SaveChangesAsync();
 					s_log.LogInformation("Created user {UserId} from {Provider} sign-up", user.ID, provider.Name);
@@ -172,10 +180,32 @@ namespace GenOnlineService.Identity
 
 			if (provider.Trusted)
 			{
+				foreach (NameChange change in await ApplyUpstreamName(db, provider, user.ID, external.GetClaim(NameClaim), external.GetClaim(NameTagClaim)))
+				{
+					if (change.UserID == user.ID)
+					{
+						user.Username = change.NewName;
+						user.UsernameNormalized = NameNormalizer.Normalize(change.NewName);
+						user.NameTag = change.NewTag;
+					}
+				}
 				await ApplyTrustedClaims(db, provider, user.ID, GroupsOf(provider, external));
 			}
 
 			return new UpstreamSignInResult(user, null);
+		}
+
+		// Copies a trusted provider's name and tag (the provider owns them) and tells live sessions about any change
+		public static async Task<IReadOnlyList<NameChange>> ApplyUpstreamName(AppDbContext db, UpstreamProviderSettings provider, Int64 userID, string? name, string? tag)
+		{
+			if (name == null && tag == null)
+			{
+				return Array.Empty<NameChange>();
+			}
+
+			IReadOnlyList<NameChange> changes = await Database.DisplayNames.ApplyUpstream(db, userID, name, tag, provider.Source);
+			Realtime.RealtimeNames.Publish(changes);
+			return changes;
 		}
 
 		// Without player ids an unknown identity links by a verified email only where the operator allows it
@@ -221,38 +251,26 @@ namespace GenOnlineService.Identity
 			return changes;
 		}
 
-		// Display name rules: printable, trimmed, at most 32 characters, unique after normalization
-		private static async Task<string> UniqueUsername(AppDbContext db, string? requested)
+		// A first name for a new account: printable, trimmed, at most 32 characters; the tag makes it unique
+		private static string InitialName(string? requested)
 		{
 			var builder = new StringBuilder();
 			foreach (char c in (requested ?? String.Empty).Normalize(NormalizationForm.FormKC))
 			{
-				if (!Char.IsControl(c) && !Char.IsSurrogate(c) && c != '�')
+				if (!Char.IsControl(c) && !Char.IsSurrogate(c) && c != '�' && c != '#')
 				{
 					builder.Append(Char.IsWhiteSpace(c) ? ' ' : c);
 				}
 			}
 
-			string baseName = String.Join(' ', builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
-			if (baseName.Length == 0)
+			string name = String.Join(' ', builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+			name = Truncate(name, User.UsernameMaxLength)!;
+			while (name.Length > 0 && NameNormalizer.Normalize(name).Length > User.UsernameMaxLength)
 			{
-				baseName = "player";
+				name = name.Substring(0, name.Length - 1).TrimEnd();
 			}
 
-			baseName = Truncate(baseName, User.UsernameMaxLength)!;
-
-			for (int attempt = 1; attempt < 10000; attempt++)
-			{
-				string suffix = attempt == 1 ? String.Empty : "_" + attempt;
-				string candidate = Truncate(baseName, User.UsernameMaxLength - suffix.Length) + suffix;
-				string normalized = NameNormalizer.Normalize(candidate);
-				if (normalized.Length <= User.UsernameMaxLength && !await db.Users.AnyAsync(u => u.UsernameNormalized == normalized))
-				{
-					return candidate;
-				}
-			}
-
-			return "player_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+			return name.Length == 0 ? "player" : name;
 		}
 
 		private static string? Truncate(string? value, int length) => value == null || value.Length <= length ? value : value.Substring(0, length);

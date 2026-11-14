@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -31,11 +32,13 @@ namespace GenOnlineService.Api
 	public sealed class ProfileController : ApiControllerBase
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly AccountsSettings m_accounts;
 		private readonly LobbyManager m_lobbyManager;
 
-		public ProfileController(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization) : base(authorization)
+		public ProfileController(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, AccountsSettings accounts) : base(authorization)
 		{
 			m_dbFactory = dbFactory;
+			m_accounts = accounts;
 			m_lobbyManager = lobbyManager;
 		}
 
@@ -47,7 +50,7 @@ namespace GenOnlineService.Api
 			{
 				return ApiResults.Fail(malformed.Value);
 			}
-			return ApiResults.NoContent(await ProfileActions.SetDisplayNameAsync(m_dbFactory, Me, body?.Name));
+			return ApiResults.NoContent(await ProfileActions.SetDisplayNameAsync(m_dbFactory, m_accounts, Me, body?.Name));
 		}
 
 		// Idempotent: the same body again gets the same answer

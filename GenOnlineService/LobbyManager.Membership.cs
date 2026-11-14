@@ -80,11 +80,11 @@ public partial class LobbyManager
 		if (session == null || session.IsRetired) return new(LobbyMembershipStatus.SessionUnavailable);
 
 		await using var db = await membershipDbFactory.CreateDbContextAsync();
-		var displayName = await Users.GetDisplayName(db, command.UserID);
+		var name = await DisplayNames.Get(db, command.UserID) ?? (String.Empty, 0);
 		var preferences = await Users.GetUserLobbyPreferences(db, command.UserID);
 		if (preferences == null) return new(LobbyMembershipStatus.PreferencesUnavailable);
 		var sources = m_dictLobbies.Values.Where(source => source.GetMemberFromUserID(command.UserID) != null).ToArray();
-		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, displayName, preferences);
+		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, name.Name, name.Tag, preferences);
 		if (status != LobbyMembershipStatus.Success) return new(status);
 		RealtimeHub.PublishPresence(command.UserID);
 

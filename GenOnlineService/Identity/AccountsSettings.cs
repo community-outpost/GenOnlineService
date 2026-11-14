@@ -92,6 +92,9 @@ namespace GenOnlineService.Identity
 
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
+		// Keycloak with player ids owns display names and tags; the environment only copies them (identity section 5a)
+		public bool NamesFromUpstream => EnabledProviders.Any(p => p.PlayerIDs && p.Trusted);
+
 		public static AccountsSettings Read(IConfiguration config)
 		{
 			IConfigurationSection section = config.GetSection("Accounts");
