@@ -28,6 +28,8 @@ Not goals:
 
 Production: the active copy prefers `k8swk01`, the standby runs on `k8swk02` (one k3s cluster). Both share Postgres (CloudNativePG, synchronous replica on `k8swk02`) and Redis or Valkey (replica on `k8swk02`).
 
+Two copies need Postgres as the shared database. With MySQL or MariaDB the service refuses to start when `Realtime:failover:enabled` is on. A single copy still runs on MySQL or MariaDB.
+
 ## Lease
 
 - One row per environment in the service database, table `realtime_lease`: `holder` (copy id), `epoch` (increases on every takeover), `expires_at`. Expiry is compared with the database clock, never a copy's clock.
@@ -103,7 +105,7 @@ During the overlap, version N and N+1 run together:
 - Two pods with required anti-affinity across `k8swk01` and `k8swk02`. A rollout replaces the standby first, then the active, which hands over to the new in-sync standby. `terminationGracePeriodSeconds` covers the handover limit (150 s).
 - Envoy, on the GenOnline route: active health check on `/-/readiness` every second, request timeout 0 and stream idle timeout 1 h for the websocket.
 - Redis or Valkey with a replica on `k8swk02`.
-- Self-hosters: two processes, one shared database and Redis, a proxy that health-checks `/-/readiness`.
+- Self-hosters: two processes, one shared Postgres database and Redis, a proxy that health-checks `/-/readiness`.
 
 ## Build order
 
