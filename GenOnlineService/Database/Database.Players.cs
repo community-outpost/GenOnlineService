@@ -72,6 +72,11 @@ public class PlayerRatingConfiguration : IEntityTypeConfiguration<PlayerRating>
 		builder.Property(e => e.Rating).HasColumnName("rating");
 		builder.Property(e => e.MatchesPlayed).HasColumnName("matches_played");
 		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+		// Leaderboard order: highest rating first, ties by user id
+		builder.HasIndex(e => new { e.Kind, e.Rating, e.UserID })
+			.IsDescending(false, true, false)
+			.HasDatabaseName("ix_player_ratings_leaderboard");
 	}
 }
 

@@ -1207,6 +1207,10 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.HasKey("UserID", "Kind");
 
+                    b.HasIndex("Kind", "Rating", "UserID")
+                        .IsDescending(false, true, false)
+                        .HasDatabaseName("ix_player_ratings_leaderboard");
+
                     b.ToTable("player_ratings", (string)null);
                 });
 
