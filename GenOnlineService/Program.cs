@@ -1197,7 +1197,15 @@ namespace GenOnlineService
 			.AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, null)
 			.AddScheme<AuthenticationSchemeOptions, SessionTokenHandler>(SessionTokenHandler.SchemeName, null);
 
-			builder.Services.AddGenOnlineIdentity(accountsSettings);
+			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
+			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
+
+			// the Keycloak plugin's change log (identity design 5b): at most one trusted provider feeds it
+			UpstreamProviderSettings? changeLogProvider = accountsSettings.EnabledProviders.FirstOrDefault(p => p.ChangeLog.Enabled);
+			if (changeLogProvider != null)
+			{
+				builder.Services.AddSingleton(sp => new KeycloakChangeLog(changeLogProvider, sp.GetRequiredService<IDbContextFactory<AppDbContext>>()));
+			}
 
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -1735,6 +1743,27 @@ namespace GenOnlineService
 					}
 				};
 				timerGroupSync.Start();
+			}
+
+			// the change log: once at startup, then every interval, so a lost push or downtime is caught up
+			KeycloakChangeLog? changeLog = app.Services.GetService<KeycloakChangeLog>();
+			if (changeLog != null)
+			{
+				System.Timers.Timer timerChangeLog = new System.Timers.Timer(1000);
+				timerChangeLog.AutoReset = false;
+				timerChangeLog.Elapsed += async (sender, e) =>
+				{
+					try
+					{
+						await RunObservedBackgroundJobAsync("keycloak_change_log", app.Logger, () => changeLog.Sync());
+					}
+					finally
+					{
+						timerChangeLog.Interval = changeLogProvider!.ChangeLog.IntervalSeconds * 1000;
+						timerChangeLog.Start();
+					}
+				};
+				timerChangeLog.Start();
 			}
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) =>

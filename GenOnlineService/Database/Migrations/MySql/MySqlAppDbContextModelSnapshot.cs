@@ -720,6 +720,34 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("friendships", (string)null);
                 });
 
+            modelBuilder.Entity("GenOnlineService.Identity.DataProtectionKeyRow", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("friendly_name");
+
+                    b.Property<string>("Xml")
+                        .IsRequired()
+                        .HasColumnType("longtext")
+                        .HasColumnName("xml");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("data_protection_keys", (string)null);
+                });
+
             modelBuilder.Entity("LeaderboardEntry", b =>
                 {
                     b.Property<string>("Period")

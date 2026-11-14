@@ -230,6 +230,7 @@ namespace Database
 				(string usersPath, string counterPath) = KeycloakImportFile.Write(settings.KeycloakFile, keycloakUsers);
 				report.Line($"Keycloak file: {keycloakUsers.Count} users with player_id written to {Path.GetFullPath(usersPath)}");
 				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart}: set the realm attribute {KeycloakImportFile.CounterStartAttribute} to it before anyone signs up ({Path.GetFullPath(counterPath)})");
+				report.Line("Keycloak name tags: after the partial import, call POST /realms/<realm>/genonline/players/assign-tags once with a client holding genonline-rename; it gives every imported account its static tag and lists name conflicts");
 			}
 			else if (settings.KeycloakFile != null)
 			{

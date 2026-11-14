@@ -189,6 +189,41 @@ Model: Xbox modern gamertag. The display name is not unique; every account also 
 - **Self-hosters without Keycloak:** the environment owns name and tag with the same rules. Sign-up takes the provider's name and a free tag; a rename keeps the tag and answers `name.taken` when another player holds a name with the same key and tag, the key being the plugin's (lower case, NFKC, UTS #39 confusable skeleton from the plugin's ICU table, lower case). Both endpoints work the same way as in prod.
 - **Showing names:** `Name#1234` on profiles (`/users/me` returns `display_name` and `name_tag`), friend lists and requests, and moderation and staff tools (Discord `/whois` accepts and prints `Name#tag`). Lobbies and chat show the name only, with the tag on every member whose name another member there shares; the service computes each lobby slot's `name` that way (both get the tag when the second joins, and lose it when one leaves), and the realtime `Member` carries `tag` for chat. Leaderboards serve user ids only; clients that show a name there show `Name#tag`.
 
+## 5b. The plugin's change log (environment side)
+
+The GenOnline Keycloak plugin appends every rename to a change log of full-state entries. Each environment follows that log: a rename made anywhere reaches every environment without a sign-in, and a missed push is caught up. The wire contract is `keycloak-changes-contract.md` (agreed v1, 2026-11-14).
+
+- **Push:** `POST /-/keycloak/changes` takes one entry, signed with `X-GenOnline-Timestamp` and `X-GenOnline-Signature: sha256=<hex HMAC-SHA256(push_secret, timestamp + "." + body)>`, within 300 s.
+  - It answers 204 when the entry is applied, is a duplicate, or starts a gap pull.
+  - A bad signature or timestamp gets a 401 with the uniform body; a malformed entry gets 400 `invalid_argument {field}`.
+  - It is an operator path: the edge proxy must never route `/-/keycloak`. Only the plugin inside the cluster calls it.
+- **Order:** `last_seq` lives in `application_settings` (`keycloak.<provider>.change_log.last_seq`).
+  - An entry with `seq = last_seq + 1` is applied; `seq <= last_seq` is ignored.
+  - A gap pulls `changes?after=last_seq`.
+  - Every apply holds a row lock on `last_seq`, so the copies of an environment apply in order and never twice.
+  - An unknown `kind` or an unknown player id still advances `last_seq`.
+- **Interval check:** at startup and every `interval_seconds` (60), the service compares `last_seq` with `changes/latest` and pulls when behind. This catches a lost last push and any downtime.
+- **Resync:** when the log has been pruned past `last_seq` (410 `changes.expired`, or `oldest_seq` beyond it), the service reads every player's name and tag from `players?names` page by page. It then sets `last_seq` to the first page's `as_of_seq` and pulls the changes after it.
+- **Applying:** a rename copies Keycloak's name and tag the same way a sign-in copy does: the user row, a `user_username_history` row whose `changed_by` is `upstream:<provider>`, and the stale-holder move. After commit, online players get `MemberUpdate` and the `name.changed` notice. While the change log is on, the group sync's event-based name poll stands down.
+
+Configuration, under the trusted provider (`Accounts:providers:keycloak:change_log`):
+
+| Key | Meaning |
+|---|---|
+| `enabled` | follow the change log (one trusted provider at most) |
+| `client_id`, `client_secret` | a confidential client, service account only, holding the realm role `genonline-sync`; every environment has its own |
+| `push_secret` | this environment's HMAC secret (at least 32 characters), the same value the plugin lists for it |
+| `base_url`, `realm` | Keycloak's base URL and realm; both default from the provider's issuer |
+| `interval_seconds` | the catch-up check (default 60, minimum 5) |
+
+Tags never travel through the log. The tag assigned at first sign-in, and the import's `assign-tags`, write no entry; environments take the tag from the `name_tag` claim at sign-in, as in section 5a.
+
+Upgrading the plugin from `d08727a` changes its name key. Right after that upgrade, call `POST /realms/<realm>/genonline/players/assign-tags` once with a client holding `genonline-rename`, before players rename again.
+
+A pull answered with anything other than 200 or 410 (for example 400 `request.invalid`) is logged with the plugin's error code. Nothing is applied, and the next check retries.
+
+Only prod's client also holds `genonline-rename`, the role for the plugin's rename endpoint: a compromised test or dev environment then cannot rename prod players. Calling that endpoint from `PATCH /api/v1/me` and the staff rename is the hub session's part.
+
 ## 6. Tokens
 
 | Token | Issuer | Format | Lifetime | Notes |
@@ -203,7 +238,50 @@ Model: Xbox modern gamertag. The display name is not unique; every account also 
 - `application` keeps user state, bans and roles in in-memory caches reloaded on the reconcile tick, so a block or ban cuts access within a tick even with a valid access token.
 - Realtime connections authenticate once at connect and are closed on a change (`auth.revoked`, `moderation.banned`); no re-authentication on the open socket.
 - The service-issued HS256 session tokens and `TokenRevocationManager` generations are retired.
-- Keys: signing and encryption certificates from files or the OS store, two active for rotation, published in the JWKS.
+- Keys: signing and encryption certificates from configuration, current plus next for rotation, published in the JWKS (section 6.1).
+
+### 6.1 Keys shared by every copy
+
+Every copy of one environment (the active copy and the standby in `realtime-failover.md`) must use the same keys. Otherwise a restart, a deploy or a handover signs everyone out and invalidates every token. Nothing is generated per start outside Development.
+
+| Key | Protects | Kept in | Configuration |
+|---|---|---|---|
+| OpenIddict signing | access and ID tokens | certificates | `Accounts:signing_certificates` |
+| OpenIddict encryption | authorization codes, stored refresh tokens, upstream sign-in state | certificates | `Accounts:encryption_certificates` |
+| ASP.NET Core data protection | the `go_session` cookie, the consent page's antiforgery token | table `data_protection_keys` | `DataProtection:application_name`, `DataProtection:certificates` |
+
+Configuration:
+
+- `Accounts:signing_certificates`, `Accounts:encryption_certificates`: ordered lists. Each entry is one of:
+  - a `.pfx` or `.p12` file path (password in `Accounts:certificate_password`);
+  - a PEM file path holding the certificate and its unencrypted private key (for example `tls.crt` and `tls.key` concatenated);
+  - the PEM text itself (for example from an environment variable).
+
+  The first entry signs or encrypts. Every entry is published (signing keys in the JWKS) and accepted.
+- `Accounts:issuer`: set it to the public URL. Every copy then issues and accepts the same `iss`; without it each copy uses the host of the request.
+- `Accounts:ephemeral_keys`: in-memory keys, Development only.
+- `DataProtection:application_name`: the same value on every copy of one environment and a different one per environment, for example `genonline-prod`. It is required outside Development.
+- `DataProtection:certificates` (optional) and `DataProtection:certificate_password`: the first certificate encrypts new ring keys at rest, and every listed certificate decrypts. The official deployment sets it: without it the ring rows are plain XML, and anyone who can read the database can forge sign-in cookies.
+- Data protection keys rotate on their own: ASP.NET Core adds a ring key every 90 days to the same table, and every copy picks it up.
+
+Startup refuses to run outside Development:
+
+- when `Accounts:ephemeral_keys` is set;
+- when the accounts profile has no signing or encryption certificate;
+- when `DataProtection:application_name` is missing;
+- when a certificate cannot be loaded or has no private key.
+
+The error names the setting and entry index and never echoes the entry.
+
+Rotation runbook (signing certificate). Every step is a Secret change followed by a rolling restart of every copy:
+
+1. **Add.** Create the next certificate, for example `openssl req -x509 -newkey rsa:3072 -nodes -days 400 -subj "/CN=genonline-<env>-signing-<n>" -addext keyUsage=digitalSignature -keyout next.key -out next.crt`. List it second. The current certificate still signs, and both are published. Wait until every copy runs with it and any remote validator (an `application` profile with `Accounts:enabled` false) has reloaded the JWKS: restart it, or give it a day.
+2. **Promote.** Swap the order so the next certificate is first. New tokens are signed with it, and tokens from the old certificate stay valid. A copy that is not yet restarted keeps signing with the old one, which every copy accepts.
+3. **Retire.** After `refresh_token_days`, remove the old entry. The wait matters because OpenIddict signs refresh tokens too: the stored refresh token keeps its signature. A refresh token issued before the promotion and unused since is refused once its certificate is gone, which signs out that idle session. Active sessions are unaffected, since every refresh issues a new token signed with the new certificate.
+
+The encryption certificate rotates the same way (use `keyUsage=keyEncipherment`). It also needs the `refresh_token_days` wait: stored refresh tokens and codes encrypted with it become unreadable once it is removed.
+
+To rotate the data protection certificate, list the new certificate first and keep the old one second. Remove the old one after 90 days, once every ring key it protected has expired.
 
 ## 7. Account security
 

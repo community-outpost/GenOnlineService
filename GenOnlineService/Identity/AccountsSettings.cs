@@ -62,6 +62,26 @@ namespace GenOnlineService.Identity
 		Managed
 	}
 
+	// The GenOnline Keycloak plugin's change log (identity design 5b): pushes in, pulls and a resync out
+	public sealed class ChangeLogSettings
+	{
+		public const int MinPushSecretLength = 32;
+
+		public bool Enabled { get; init; }
+		public int IntervalSeconds { get; init; } = 60;
+
+		// Keycloak base URL and realm; both default from the provider's issuer
+		public string BaseUrl { get; init; } = String.Empty;
+		public string Realm { get; init; } = String.Empty;
+
+		// a confidential client whose service account holds the realm role genonline-sync
+		public string ClientID { get; init; } = String.Empty;
+		public string ClientSecret { get; init; } = String.Empty;
+
+		// this environment's HMAC secret, the same value the plugin lists for it
+		public string PushSecret { get; init; } = String.Empty;
+	}
+
 	// One upstream OpenID Connect provider (Keycloak in the official deployment)
 	public sealed class UpstreamProviderSettings
 	{
@@ -85,6 +105,7 @@ namespace GenOnlineService.Identity
 		public string? BanGroup { get; init; }
 		public GroupSyncSettings GroupSync { get; init; } = new();
 		public RenameSettings Rename { get; init; } = new();
+		public ChangeLogSettings ChangeLog { get; init; } = new();
 
 		public string Source => AuthoritySources.UpstreamPrefix + Name;
 		public string CallbackPath => $"users/auth/{Name}/callback";
@@ -104,8 +125,9 @@ namespace GenOnlineService.Identity
 		public int AccessTokenMinutes { get; init; } = 15;
 		public int RefreshTokenDays { get; init; } = 30;
 		public int RefreshReuseLeewaySeconds { get; init; } = 30;
-		public List<string> SigningCertificatePaths { get; init; } = new();
-		public List<string> EncryptionCertificatePaths { get; init; } = new();
+		// Each entry is a .pfx/.p12 path, a PEM file with the private key, or PEM text; the first signs or encrypts, every entry is accepted
+		public List<string> SigningCertificates { get; init; } = new();
+		public List<string> EncryptionCertificates { get; init; } = new();
 		public string? CertificatePassword { get; init; }
 
 		// Development only: keys live in memory and every restart invalidates every token
@@ -174,6 +196,16 @@ namespace GenOnlineService.Identity
 					ClientID = p.GetValue<string>("rename:client_id") ?? String.Empty,
 					ClientSecret = p.GetValue<string>("rename:client_secret") ?? String.Empty,
 					TimeoutSeconds = Math.Clamp(p.GetValue<int?>("rename:timeout_seconds") ?? 5, 1, 30)
+				},
+				ChangeLog = new ChangeLogSettings
+				{
+					Enabled = p.GetValue<bool>("change_log:enabled"),
+					IntervalSeconds = Math.Max(5, p.GetValue<int?>("change_log:interval_seconds") ?? 60),
+					BaseUrl = p.GetValue<string>("change_log:base_url") ?? String.Empty,
+					Realm = p.GetValue<string>("change_log:realm") ?? String.Empty,
+					ClientID = p.GetValue<string>("change_log:client_id") ?? String.Empty,
+					ClientSecret = p.GetValue<string>("change_log:client_secret") ?? String.Empty,
+					PushSecret = p.GetValue<string>("change_log:push_secret") ?? String.Empty
 				}
 			}).ToList();
 
@@ -183,6 +215,27 @@ namespace GenOnlineService.Identity
 				if (!Uri.TryCreate(provider.Rename.BaseUrl, UriKind.Absolute, out Uri? url) || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
 				{
 					throw new InvalidOperationException($"Accounts:providers:{provider.Name}:rename:base_url must be an absolute http or https URL.");
+				}
+			}
+
+
+			// the change log copies names into this environment, so only a trusted provider may feed it, and only one
+			List<UpstreamProviderSettings> changeLogs = providers.Where(p => p.Enabled && p.ChangeLog.Enabled).ToList();
+			foreach (UpstreamProviderSettings provider in changeLogs)
+			{
+				if (!provider.Trusted || changeLogs.Count > 1)
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: change_log needs a trusted provider, and only one provider may have it.");
+				}
+
+				if (String.IsNullOrEmpty(provider.ChangeLog.ClientID) || String.IsNullOrEmpty(provider.ChangeLog.ClientSecret))
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: change_log needs client_id and client_secret (a client holding the realm role genonline-sync).");
+				}
+
+				if (provider.ChangeLog.PushSecret.Length < ChangeLogSettings.MinPushSecretLength)
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: change_log:push_secret needs at least {ChangeLogSettings.MinPushSecretLength} characters.");
 				}
 			}
 
@@ -203,8 +256,8 @@ namespace GenOnlineService.Identity
 				AccessTokenMinutes = section.GetValue<int?>("access_token_minutes") ?? 15,
 				RefreshTokenDays = section.GetValue<int?>("refresh_token_days") ?? 30,
 				RefreshReuseLeewaySeconds = section.GetValue<int?>("refresh_reuse_leeway_seconds") ?? 30,
-				SigningCertificatePaths = section.GetSection("signing_certificate_paths").Get<List<string>>() ?? new(),
-				EncryptionCertificatePaths = section.GetSection("encryption_certificate_paths").Get<List<string>>() ?? new(),
+				SigningCertificates = section.GetSection("signing_certificates").Get<List<string>>() ?? new(),
+				EncryptionCertificates = section.GetSection("encryption_certificates").Get<List<string>>() ?? new(),
 				CertificatePassword = section.GetValue<string>("certificate_password"),
 				EphemeralKeys = section.GetValue<bool>("ephemeral_keys"),
 				RequireHttps = config.GetSection("Core").GetValue<bool?>("enforce_https") ?? true,

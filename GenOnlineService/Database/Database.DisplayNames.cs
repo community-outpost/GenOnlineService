@@ -147,8 +147,27 @@ namespace Database
 
 		private static async Task<IReadOnlyList<NameChange>> ApplyUpstreamOnce(AppDbContext db, Int64 userID, string name, int tag, string changedBy)
 		{
-			List<NameChange> changes = new();
 			await using IDbContextTransaction tx = await db.Database.BeginTransactionAsync();
+			IReadOnlyList<NameChange> changes = await ApplyUpstreamCore(db, userID, name, tag, changedBy);
+			await tx.CommitAsync();
+			return changes;
+		}
+
+		// ApplyUpstream inside the caller's transaction (the Keycloak change log); a unique violation is the caller's to retry
+		public static async Task<IReadOnlyList<NameChange>> ApplyUpstreamInTransaction(AppDbContext db, Int64 userID, string? name, string? tagText, string changedBy)
+		{
+			if (!IsStorable(name) || !Int32.TryParse(tagText, NumberStyles.None, CultureInfo.InvariantCulture, out int tag) || tag < MinTag || tag > MaxTag)
+			{
+				s_log.LogWarning("Ignoring an upstream name for user {UserId}: not a storable name and a tag from {Min} to {Max}", userID, MinTag, MaxTag);
+				return Array.Empty<NameChange>();
+			}
+
+			return await ApplyUpstreamCore(db, userID, name!, tag, changedBy);
+		}
+
+		private static async Task<IReadOnlyList<NameChange>> ApplyUpstreamCore(AppDbContext db, Int64 userID, string name, int tag, string changedBy)
+		{
+			List<NameChange> changes = new();
 
 			User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID);
 			if (user == null || (String.Equals(user.Username, name, StringComparison.Ordinal) && user.NameTag == tag))
@@ -170,7 +189,6 @@ namespace Database
 
 			changes.Add(Record(db, user, name, tag, changedBy));
 			await db.SaveChangesAsync();
-			await tx.CommitAsync();
 			return changes;
 		}
 
