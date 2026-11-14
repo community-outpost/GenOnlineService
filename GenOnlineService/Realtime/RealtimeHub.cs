@@ -169,6 +169,7 @@ namespace GenOnlineService.Realtime
 				SessionType = RealtimeMembers.ClientOf(session.GetSessionType()),
 				User = RealtimeMembers.Of(userID),
 				Permissions = StaffRoles.PermissionsOf(userID).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
+				Features = ClientFeatures.Of(userID),
 				Badges = RealtimeBadges.Definitions,
 				Channels = RoomCatalog.Rooms.Select(channel => new ChannelInfo
 				{

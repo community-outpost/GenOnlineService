@@ -19,6 +19,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- The Keycloak plugin's UTS #39 confusables table, so local names share its uniqueness key -->
+		<EmbeddedResource Include="Resources\confusables.txt" LogicalName="GenOnlineService.Resources.confusables.txt" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- Lets the tests drive a lobby through its internal membership calls -->
 		<InternalsVisibleTo Include="GenOnlineService.Tests" />
 	</ItemGroup>

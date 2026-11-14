@@ -81,7 +81,7 @@ The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E
 | Ids | User, lobby and channel ids are JSON numbers (all fit in 53 bits). Message ids are strings |
 | Channel ids | Typed strings: `channel:<channel_id>`, `lobby:<lobby_id>`, `dm:<user_id>`, `group:<group_id>` |
 | Durations and times | A duration a person sees or chooses is whole seconds with `_s`; a delay the service computes for a client to wait is milliseconds with `_ms`; a point in time is ISO 8601 UTC with `_at` (`2026-11-13T20:00:00Z`). The measured `latency_ms` stays in milliseconds |
-| Binary data | Base64 strings (signalling, anticheat payloads) |
+| Binary data | Base64 strings (signalling payloads) |
 | Text | The service sends codes and parameters, never display text. The only free text is user content (chat, reasons typed by staff) |
 | Optional and nullable | `field?` may be omitted. A field written as `field: T or null` (for example `password`, `screenshot_url`, `team`) is always sent and is `null` when it has no value |
 | Patch methods | In `UpdateLobby`, `UpdateMySlot` and `UpdateSlots` an omitted field stays unchanged and `null` clears a nullable field (`"team": null` means no team) |
@@ -178,7 +178,7 @@ A tombstone never shows its author or content.
 | `member` | `Member` for `player` slots, absent otherwise |
 | `name` | for `player` slots, the name this lobby shows: the member's name, or `Name#tag` for every member whose name another member of the lobby shares (case-insensitive). It changes for both when such a member joins and goes back when one leaves; clients show it as is. Absent otherwise |
 | `ready`, `has_map` | booleans; AI slots are always ready |
-| `side`, `color`, `start_position` | game ids, `-1` means random |
+| `side`, `color`, `start_position` | game ids, `-1` means random. `side` `-2` is the observer seat, as in the game (`PLAYERTEMPLATE_OBSERVER`): allowed when the lobby's `allow_observers` is true, otherwise `invalid_argument {field: side}` from `UpdateMySlot` and `{field: slots.side}` from `UpdateSlots`; never for an AI. A remembered observer side becomes random at join when the lobby does not allow observers |
 | `team` | team number or `null` for no team |
 
 `LobbySummary` (lobby list entry, as one viewer sees it)
@@ -273,21 +273,15 @@ Friend requests, friends, blocks and groups are changed over REST (section 10.1)
 
 Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions, lifting them, and deleting messages. The hub delivers their effects: `ModerationNotice` and the close record to the target, `MessageDelete` to everyone who received a deleted message. Players report messages and players over REST as well.
 
-One staff action is still a hub method:
-
-| Method | Argument | Answer | Permission |
-|---|---|---|---|
-| `ForceRename` | `{user_id, reason?, name?}` | Result (no `name` means `Player`) | `moderation.rename`; replaces an offensive name, the user gets a free tag for the new name and everyone who can see them gets `MemberUpdate`. The old `name#tag` goes into `audit_log`. Where Keycloak owns names the answer is `name.managed`: staff edit `display_name` in Keycloak and the group sync applies it |
-
 ### 5.6 Peer networking (game sessions only)
 
 | Method | Argument | Answer | Notes |
 |---|---|---|---|
-| `RequestSignalling` | `{target_user_id}` | Fire | The service sends `StartSignalling` to both peers |
+| `SetPeerTransports` | `{transports: [string]}` | Fire | The plugin transports this client can use for peers, today only `eos`; sent after every `Ready` and again whenever the list changes, an empty list included (section 6.6) |
+| `RequestSignalling` | `{target_user_id, failed_attempt?}` | Fire | The service sends `StartSignalling` to both peers. With `failed_attempt` it reports that attempt as failed and the pair moves to the next step of its connection order (section 6.6) |
 | `Signal` | `{to, payload}` | Fire | Relayed as `Signal` to a peer in the same lobby |
 | `BeginMeshCheck` | `{}` | Result | Host only, not in quick match lobbies |
 | `MeshCheckResponse` | `{mesh_check_id, attempt, connected: [user_id], connecting: [user_id]}` | Fire | |
-| `AnticheatMessage` | `{to, payload}` | Fire | Relayed as `AnticheatMessage` |
 | `ProbeResponse` | `{probe_id}` | Fire | Answer to `ProbeRequest` |
 | `ModuleScanResponse` | `{scan_id, modules: [{path, size}]}` | Fire | Answer to `ModuleScanRequest` |
 
@@ -304,7 +298,7 @@ One staff action is still a hub method:
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason?, expires_at?}`; `reason` is absent when staff gave none; a close record follows for kick and ban |
 | `ServerSwitching` | `{retry_after_ms}` (a planned handover to another service copy; a `server.switching` close follows; the service spreads the values so clients do not all reconnect at once) |
 
-**Features.** `permissions` say what the service lets the user do. `features` say which client capabilities are switched on for this player: lowercase snake_case names with no prefix, for example `stats_exporter` (the game's local stats and casting tools: camera control, follow, replay control, observing, lobby control) and `observer` (observing other players' matches). The client only checks whether a name is in the list and never sees roles. The service computes the list per connection from a per-environment map of roles to features (the `streamer` role exists for players who get these tools without being staff); later rules such as an environment switch, a beta group or a rollout share can add to it without touching permissions. When the list changes the client switches features on or off at once; switching one off mid-match only closes client tools. Anything that reveals more than a player should see stays enforced by the service on the request itself, for example joining a match as an observer. EOS peer-to-peer is not gated by features.
+**Features.** `permissions` say what the service lets the user do. `features` say which client capabilities are switched on for this player: lowercase snake_case names with no prefix, for example `stats_exporter` (the game's local stats and casting tools: camera control, follow, replay control, observing, lobby control) and `observer` (observing other players' matches). The client only checks whether a name is in the list and never sees roles. The list is sorted by name. `FeaturesUpdate` reaches every connection of the user once, within about 5 seconds of a role change. The service computes the list per connection from a per-environment map of roles to features (the `streamer` role exists for players who get these tools without being staff); later rules such as an environment switch, a beta group or a rollout share can add to it without touching permissions. When the list changes the client switches features on or off at once; switching one off mid-match only closes client tools. No feature gates anything yet: `streamer` and the two feature names are placeholders, and observing follows the lobby's `allow_observers` setting as in the original game. EOS peer-to-peer is not gated by features.
 
 ### 6.2 Channels and chat
 
@@ -395,15 +389,26 @@ Messages are stored in the service database as they are; the protocol and the se
 
 | Event | Data |
 |---|---|
-| `StartSignalling` | `{lobby_id, user_id, preferred_port, middleware_id}` |
+| `StartSignalling` | `{lobby_id, user_id, preferred_port, middleware_id, attempt?, transport?, relay?, timeout_s?}` |
 | `DisconnectPeer` | `{lobby_id, user_id}` |
 | `Signal` | `{from, payload}` |
 | `MeshCheckRequest` | `{mesh_check_id, attempt}` |
 | `MeshCheckResult` | `{mesh_check_id, attempt, complete, reason, missing: [{source_user_id, target_user_id}]}` |
 | `AnticheatRegister` / `AnticheatDeregister` | `{user_id, middleware_id}` |
-| `AnticheatMessage` | `{from, payload}` |
 | `ProbeRequest` | `{probe_id, url}` |
 | `ModuleScanRequest` | `{scan_id}` |
+
+Anti-cheat messages travel between the two clients of a pair over their peer connection, never through the service. `AnticheatRegister` and `AnticheatDeregister` only tell a client which peers to register with its anticheat, and a client holds a peer's messages until the pair connects.
+
+**Connection order.** The service connects each pair of members in steps, and every `StartSignalling` names the step. Both peers of a pair get the same `attempt`, `transport`, `relay` and `timeout_s`:
+
+1. `transport` `gns`, `relay` false: GameNetworkingSockets direct only, no TURN server.
+2. `transport` `eos`: the EOS peer-to-peer plugin transport. Only when both members listed `eos` in `SetPeerTransports`, otherwise the step is skipped.
+3. `transport` `gns`, `relay` true: GameNetworkingSockets with the Cloudflare TURN servers. Every later restart of the pair stays on this step.
+
+`attempt` numbers the `StartSignalling` of this pair in this lobby, starting at 1, and goes up by one with every restart, whatever the reason. `timeout_s` is how long the client tries the step before giving up: 6 for step 1, 10 for step 2, 0 (no limit beyond the client's own connection timeouts) for step 3. When an attempt fails or `timeout_s` passes without a connection, the client sends `RequestSignalling` with `failed_attempt` set to that attempt. The service moves the pair to the next step only when `failed_attempt` equals the pair's current attempt, so the second peer's report of the same failure changes nothing. A restart after a failed mesh check also moves the pair to the next step. A client ignores every connection event of an older attempt of the pair and reports `attempt` in `connection_reports`.
+
+The service uses the steps only when both members sent `SetPeerTransports` in their current session. Otherwise it sends `StartSignalling` without the four fields, and a client then connects as before this order existed: GameNetworkingSockets with TURN, or the plugin transport when the service configuration turns it on for everyone. A client that does not know the fields ignores them.
 
 ## 7. Error codes
 
@@ -432,8 +437,9 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.invalid_characters` | | `PATCH /api/v1/me` |
 | `name.whitespace` | | `PATCH /api/v1/me` |
 | `name.reserved` | `{word}` | `PATCH /api/v1/me` (staff words and badge texts) |
-| `name.taken` | | `PATCH /api/v1/me`, `ForceRename`: every tag of the name is in use |
-| `name.managed` | | `PATCH /api/v1/me`, `ForceRename`: Keycloak owns names in this environment |
+| `name.taken` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the new name together with the player's tag is already taken |
+| `name.managed` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` in an environment where Keycloak owns names and this environment may not rename (test and dev of the official deployment) |
+| `name.unavailable` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` when the service that owns names (the Keycloak plugin) cannot be reached or fails (HTTP 503). Nothing changed; the client may retry later |
 | `channel.unavailable` | | `JoinChannel` |
 | `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods; `lobby.not_member` also for `GetHistory` on a `lobby:` the caller is not in |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
@@ -524,6 +530,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | `POST /api/v1/players/:id/sanctions` | `{type: "kick"|"mute"|"ban", duration_s?, reason?}` | `{sanction_id}` | permission by type: `moderation.kick`, `moderation.mute`, `moderation.ban`. A kick needs a connected target (`moderation.target_offline`). The target gets `ModerationNotice`; a kick or ban then closes their connections (section 3) |
 | `GET /api/v1/players/:id/sanctions?active=` | | `{sanctions: [{id, type, reason, created_at, expires_at, lifted_at, created_by: Member}]}` | `moderation.kick` or higher |
 | `DELETE /api/v1/sanctions/:id` | `{reason?}` | 204 | lifts a mute or ban; `moderation.mute` or `moderation.ban` by type |
+| `PATCH /api/v1/players/:id` | `{name, reason?}` | 204 | `moderation.rename`; replaces an offensive name, keeps the static tag, follows the staff rank rule and writes `audit_log`. The Discord bot uses the same endpoint. Same environment rules as `PATCH /api/v1/me` |
 | `DELETE /api/v1/messages/:id` | `{reason?}` | 204 | `chat.delete_any`; any channel, lobby, direct or group message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 | `POST /api/v1/reports` | `{message_id?, user_id?, reason?}` | `{report_id}` | exactly one of `message_id` and `user_id`. A message: never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient, a group message by any other current member; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters. A player: any other user, one open report per reporter and player |
 | `GET /api/v1/reports?status=` | | `{reports: [{id, reporter: Member, reported: Member, message_id, reason, status, created_at, resolved_at, resolution_note}]}` | the staff queue for message and player reports, `moderation.kick` or higher; `message_id` is `null` for a report of a player; `status` is `open`, `actioned` or `dismissed` |
@@ -533,7 +540,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 
 | Method and path | Body | Answer | Notes |
 |---|---|---|---|
-| `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters, no `#`. The tag stays for a change of case and is picked anew for any other name. On success everyone who can see the user gets `MemberUpdate`. Where Keycloak owns names (official deployment) the answer is `name.managed`: players rename on Keycloak's profile page (`kc_action=UPDATE_PROFILE`) and the new name arrives at their next sign-in or through the group sync |
+| `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters, no `#`. The tag is static: it never changes, and a rename whose `name#tag` is taken answers `name.taken`. On success everyone who can see the user gets `MemberUpdate`. In the official deployment prod performs the rename through the Keycloak plugin and the change reaches every environment (identity section 5b); test and dev answer `name.managed` |
 | `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection, until 24 hours after the match finished (`match.result_closed` after that) |
 | `GET /api/v1/matchmaking/playlists` | | `{playlists: [Playlist]}` | cacheable with `ETag` |
 | `POST /api/v1/lobbies/:id/connection_reports` | `{target_user_id, outcome, transport, ip_version, attempt?, events?: [{state, t_ms}]}` | 204 | the final result of one connection attempt to one peer (replaces `ConnectionOutcome`), sent once when the attempt ends. `outcome` is `connected_direct`, `connected_relay`, `failed` or `disconnected`; `transport` is `gns` or `eos`; `ip_version` is 4 or 6. `attempt` (1 or more, default 1) numbers the attempts of this pair in this lobby; a connection that drops during the match is sent again with the same `attempt` and its events ending in `disconnected`, a reconnect after that is a new attempt. `events` lists every state change of the attempt, oldest first, at most 32: `state` is `connecting`, `finding_route`, `connected_direct`, `connected_relay`, `failed` or `disconnected`, `t_ms` the milliseconds since the attempt started, never decreasing, at most 600000; anything else is `invalid_argument`. The caller must be a member of that lobby (`lobby.not_member`), checked before the body is validated; `target_user_id` must be another player who is or was a member of that lobby, otherwise `invalid_argument {field: target_user_id}`. Stored per player for 30 days, keyed by reporter, lobby, target and attempt, so a repeated report replaces the earlier one; staff use it to troubleshoot a player's connections and to line up both sides of a pair. Never stores IP addresses. Account deletion removes them, and the privacy policy must name them with their purpose and retention. Metrics are counted by outcome, transport and IP version |
@@ -559,7 +566,7 @@ For porting client code only: where the behaviour of each legacy `/ws` message l
 | 5 mark ready | `SetReady` |
 | 6 current lobby dirty | `LobbyState` with content |
 | 7 lobby list dirty | `LobbyListUpsert` / `LobbyListRemove` |
-| 8 anticheat | `AnticheatMessage` both ways |
+| 8 anticheat | Dropped: anti-cheat messages travel over the peer connection |
 | 9 name change, name-change chat text | `PATCH /api/v1/me`, `name.*` codes, `MemberUpdate`, `Notice name.changed` |
 | 12 signal, 19 request signalling, 17 start signalling, 18 disconnect | `Signal`, `RequestSignalling`, `StartSignalling`, `DisconnectPeer` |
 | 13 start game, 23 countdown started, 49 start rejected, 50 lobby event, 51 | `StartGame` result codes, `CountdownStarted` / `Cancelled`, `GameStart` |

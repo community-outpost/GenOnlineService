@@ -39,6 +39,29 @@ namespace GenOnlineService.Identity
 		public string ClientSecret { get; init; } = String.Empty;
 	}
 
+	// The Keycloak plugin's rename endpoint, set only for prod's service (client with the realm role genonline-rename)
+	public sealed class RenameSettings
+	{
+		public string BaseUrl { get; init; } = String.Empty;
+		public string Realm { get; init; } = String.Empty;
+		public string ClientID { get; init; } = String.Empty;
+		public string ClientSecret { get; init; } = String.Empty;
+		public int TimeoutSeconds { get; init; } = 5;
+
+		public bool Configured => BaseUrl.Length > 0 && Realm.Length > 0 && ClientID.Length > 0 && ClientSecret.Length > 0;
+	}
+
+	// Who performs a rename: the environment itself, the Keycloak plugin, or nobody here (identity section 5b)
+	public enum NameOwner
+	{
+		// self-hosted without Keycloak names: local rules and tags
+		Local,
+		// prod of the official deployment: the plugin renames, the environment applies its answer
+		Plugin,
+		// test and dev of the official deployment: renames answer name.managed
+		Managed
+	}
+
 	// One upstream OpenID Connect provider (Keycloak in the official deployment)
 	public sealed class UpstreamProviderSettings
 	{
@@ -61,6 +84,7 @@ namespace GenOnlineService.Identity
 		public Dictionary<string, string> RoleGroups { get; init; } = new(StringComparer.Ordinal);
 		public string? BanGroup { get; init; }
 		public GroupSyncSettings GroupSync { get; init; } = new();
+		public RenameSettings Rename { get; init; } = new();
 
 		public string Source => AuthoritySources.UpstreamPrefix + Name;
 		public string CallbackPath => $"users/auth/{Name}/callback";
@@ -93,7 +117,15 @@ namespace GenOnlineService.Identity
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
 		// Keycloak with player ids owns display names and tags; the environment only copies them (identity section 5a)
-		public bool NamesFromUpstream => EnabledProviders.Any(p => p.PlayerIDs && p.Trusted);
+		public UpstreamProviderSettings? NameProvider => EnabledProviders.FirstOrDefault(p => p.PlayerIDs && p.Trusted);
+
+		// The one place that decides how this environment renames
+		public NameOwner NameOwner => NameProvider switch
+		{
+			null => NameOwner.Local,
+			{ Rename.Configured: true } => NameOwner.Plugin,
+			_ => NameOwner.Managed
+		};
 
 		public static AccountsSettings Read(IConfiguration config)
 		{
@@ -134,8 +166,25 @@ namespace GenOnlineService.Identity
 					AdminBaseUrl = p.GetValue<string>("group_sync:admin_base_url") ?? String.Empty,
 					ClientID = p.GetValue<string>("group_sync:client_id") ?? String.Empty,
 					ClientSecret = p.GetValue<string>("group_sync:client_secret") ?? String.Empty
+				},
+				Rename = new RenameSettings
+				{
+					BaseUrl = (p.GetValue<string>("rename:base_url") ?? String.Empty).TrimEnd('/'),
+					Realm = p.GetValue<string>("rename:realm") ?? String.Empty,
+					ClientID = p.GetValue<string>("rename:client_id") ?? String.Empty,
+					ClientSecret = p.GetValue<string>("rename:client_secret") ?? String.Empty,
+					TimeoutSeconds = Math.Clamp(p.GetValue<int?>("rename:timeout_seconds") ?? 5, 1, 30)
 				}
 			}).ToList();
+
+			// a rename base URL that cannot be called stops the start instead of failing every rename
+			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Rename.BaseUrl.Length > 0))
+			{
+				if (!Uri.TryCreate(provider.Rename.BaseUrl, UriKind.Absolute, out Uri? url) || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}:rename:base_url must be an absolute http or https URL.");
+				}
+			}
 
 			// player ids come from one upstream counter, so no other sign-in method may let the database pick a user id
 			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Enabled && p.PlayerIDs))

@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService;
+using GenOnlineService.Names;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using System.Globalization;
@@ -25,6 +26,15 @@ using System.Globalization;
 public sealed record NameChange(Int64 UserID, string OldName, int OldTag, string NewName, int NewTag)
 {
 	public bool NameChanged => !String.Equals(OldName, NewName, StringComparison.Ordinal);
+}
+
+// What a local rename with a static tag did
+public enum LocalRenameOutcome
+{
+	Renamed,
+	Unchanged,
+	NotFound,
+	Taken
 }
 
 // Every one of the 9,999 tags of a name is in use
@@ -36,7 +46,7 @@ public sealed class NameTagsExhaustedException : Exception
 namespace Database
 {
 	// Xbox-style names: the name is not unique, name#tag is. Keycloak owns both in the official deployment and the
-	// environment copies them (ApplyUpstream); elsewhere the environment picks the tag itself (Rename, NewUserTag).
+	// environment copies them (ApplyUpstream); elsewhere the environment assigns the tag itself (AssignNewUser, RenameKeepingTag).
 	public static class DisplayNames
 	{
 		public const int MinTag = 1;
@@ -195,6 +205,42 @@ namespace Database
 			NameChange change = Record(db, user, name, tag, changedBy);
 			await db.SaveChangesAsync();
 			return change;
+		}
+
+		// A rename where the environment owns names (self-hosted): the tag is static, and the new name with that tag must be
+		// free under the plugin's key (NameKey), so Bob#0042 and B0b#0042 never both exist
+		public static async Task<(LocalRenameOutcome Outcome, NameChange? Change)> RenameKeepingTag(AppDbContext db, Int64 userID, string name, string changedBy)
+		{
+			User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID);
+			if (user == null)
+			{
+				return (LocalRenameOutcome.NotFound, null);
+			}
+			if (String.Equals(user.Username, name, StringComparison.Ordinal))
+			{
+				return (LocalRenameOutcome.Unchanged, null);
+			}
+
+			string key = NameKey.Of(name);
+			int tag = user.NameTag;
+			List<string> sameTag = await db.Users.Where(u => u.ID != userID && u.NameTag == tag).Select(u => u.Username).ToListAsync();
+			if (sameTag.Any(other => NameKey.Of(other) == key))
+			{
+				return (LocalRenameOutcome.Taken, null);
+			}
+
+			NameChange change = Record(db, user, name, tag, changedBy);
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+			{
+				// another rename took the same name#tag at the same moment
+				db.ChangeTracker.Clear();
+				return (LocalRenameOutcome.Taken, null);
+			}
+			return (LocalRenameOutcome.Renamed, change);
 		}
 
 		// The one writer of a name change: history row of the previous name and tag, then the new values

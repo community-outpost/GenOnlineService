@@ -615,16 +615,59 @@ namespace GenOnlineService
 
 				s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} before mesh check retry", LobbyID, sourceMember.UserID, targetMember.UserID);
 
-				SendStartSignallingToMember(sourceMember, targetMember);
-				SendStartSignallingToMember(targetMember, sourceMember);
+				// a restart after a failed mesh check moves the pair to its next step
+				RestartPairLocked(sourceMember, targetMember, true);
 			}
 		}
 
-		private void SendStartSignallingToMember(LobbyMember recipient, LobbyMember peer)
+		private void SendStartSignallingToMember(LobbyMember recipient, LobbyMember peer, PeerStepValues? values)
 		{
 			ForgetConnection(recipient.UserID, peer.UserID);
-			RealtimeOut.Fire(RealtimeLobbies.GameOf(recipient).StartSignalling(StartSignallingFor(peer)));
+			RealtimeOut.Fire(RealtimeLobbies.GameOf(recipient).StartSignalling(StartSignallingFor(recipient, peer, values)));
 		}
+
+		// The connection order state of each pair of members, read and changed only under the lobby gate
+		private readonly PeerPairs m_PeerPairs = new();
+
+		// The transports a member sent in its current session on this copy, null when it has not sent them or its session is elsewhere
+		private static IReadOnlyList<string>? TransportsOf(LobbyMember member) =>
+			member.GetSession().TryGetTarget(out UserSession? session) ? session?.PeerTransports : null;
+
+		// Restarts the pair on both clients with one more attempt, advancing to the next step when asked
+		private void RestartPairLocked(LobbyMember a, LobbyMember b, bool advance)
+		{
+			IReadOnlyList<string>? transportsA = TransportsOf(a);
+			IReadOnlyList<string>? transportsB = TransportsOf(b);
+			m_PeerPairs.Restart(a.UserID, b.UserID, advance, ConnectionOrder.BothListEos(transportsA, transportsB));
+			PeerStepValues? values = PairValuesLocked(a, b, transportsA, transportsB);
+			SendStartSignallingToMember(a, b, values);
+			SendStartSignallingToMember(b, a, values);
+		}
+
+		// RequestSignalling under the lobby gate, a stale or unknown failed attempt changes nothing
+		internal Task RequestSignallingAsync(Int64 sourceUserID, Int64 targetUserID, int? failedAttempt, IRealtimeClient caller) => RunExclusiveAsync(() =>
+		{
+			LobbyMember? source = GetMemberFromUserID(sourceUserID);
+			LobbyMember? target = sourceUserID == targetUserID ? null : GetMemberFromUserID(targetUserID);
+			if (source == null || target == null)
+			{
+				return Task.CompletedTask;
+			}
+
+			IReadOnlyList<string>? transportsSource = TransportsOf(source);
+			IReadOnlyList<string>? transportsTarget = TransportsOf(target);
+			if (m_PeerPairs.Request(sourceUserID, targetUserID, failedAttempt, ConnectionOrder.BothListEos(transportsSource, transportsTarget)) == null)
+			{
+				return Task.CompletedTask;
+			}
+
+			// both peers restart the handshake towards each other with the same values
+			PeerStepValues? values = PairValuesLocked(source, target, transportsSource, transportsTarget);
+			ForgetConnection(sourceUserID, targetUserID);
+			RealtimeOut.Fire(caller.StartSignalling(StartSignallingFor(source, target, values)));
+			RealtimeOut.Fire(RealtimeOut.UserGame(targetUserID).StartSignalling(StartSignallingFor(target, source, values)));
+			return Task.CompletedTask;
+		});
 
 		// A pair counts as connected once both members reported each other in a mesh check response
 		private bool IsPairConnected(Int64 userA, Int64 userB) =>
@@ -637,6 +680,7 @@ namespace GenOnlineService
 			m_ReportedConnections.TryRemove((userB, userA), out _);
 		}
 
+		// A member joining or leaving starts its pairs over, including their connection order
 		private void ForgetConnectionsOf(Int64 userID)
 		{
 			foreach ((Int64 Reporter, Int64 Peer) pair in m_ReportedConnections.Keys)
@@ -646,6 +690,8 @@ namespace GenOnlineService
 					m_ReportedConnections.TryRemove(pair, out _);
 				}
 			}
+
+			m_PeerPairs.Forget(userID);
 		}
 
 		// The latest response of a member replaces its earlier reports towards the other members
@@ -686,20 +732,44 @@ namespace GenOnlineService
 				}
 
 				s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} after a reconnect", LobbyID, userID, peer.UserID);
-				SendStartSignallingToMember(member, peer);
-				SendStartSignallingToMember(peer, member);
+				RestartPairLocked(member, peer, false);
 			}
 			return Task.CompletedTask;
 		});
 
-		// tells a member how to reach the given peer
-		internal StartSignallingEvent StartSignallingFor(LobbyMember peer) => new StartSignallingEvent
+		// The step values of a pair from one snapshot of both transport lists, null for the old shape, under the lobby gate
+		private PeerStepValues? PairValuesLocked(LobbyMember a, LobbyMember b, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
 		{
-			LobbyId = LobbyID,
-			UserId = peer.UserID,
-			PreferredPort = peer.Port,
-			MiddlewareId = peer.MiddlewareUserID
-		};
+			if (transportsA == null || transportsB == null)
+			{
+				m_PeerPairs.Current(a.UserID, b.UserID);
+				return null;
+			}
+			bool bothEos = ConnectionOrder.BothListEos(transportsA, transportsB);
+			PeerPairState state = m_PeerPairs.Settle(a.UserID, b.UserID, bothEos);
+
+			// eos reaches a peer by its middleware id, so without both ids this send uses the next step and the stored step stays
+			bool idsKnown = !String.IsNullOrEmpty(a.MiddlewareUserID) && !String.IsNullOrEmpty(b.MiddlewareUserID);
+			return ConnectionOrder.ValuesOf(state, bothEos && idsKnown);
+		}
+
+		private PeerStepValues? PairValuesLocked(LobbyMember a, LobbyMember b) => PairValuesLocked(a, b, TransportsOf(a), TransportsOf(b));
+
+		// Tells a member how to reach the given peer with the values both peers of the pair get, the old shape leaves the four fields out
+		private StartSignallingEvent StartSignallingFor(LobbyMember recipient, LobbyMember peer, PeerStepValues? values)
+		{
+			return new StartSignallingEvent
+			{
+				LobbyId = LobbyID,
+				UserId = peer.UserID,
+				PreferredPort = peer.Port,
+				MiddlewareId = peer.MiddlewareUserID,
+				Attempt = values?.Attempt,
+				Transport = values?.Transport,
+				Relay = values?.Relay,
+				TimeoutS = values?.TimeoutS
+			};
+		}
 
 		internal static AnticheatPeerEvent AnticheatPeerFor(LobbyMember peer) => new AnticheatPeerEvent
 		{
@@ -726,7 +796,8 @@ namespace GenOnlineService
 				{
 					if (member.SlotState == EPlayerType.SLOT_PLAYER && member.UserID != userID)
 					{
-						SendStartSignallingToMember(member, resolvedMember);
+						// the peer already started this attempt with an empty middleware id, so the pair restarts with one more attempt
+						RestartPairLocked(member, resolvedMember, false);
 						RealtimeOut.Fire(RealtimeLobbies.GameOf(member).AnticheatRegister(AnticheatPeerFor(resolvedMember)));
 					}
 				}
@@ -988,6 +1059,11 @@ namespace GenOnlineService
 
 		[JsonIgnore]
 		public ConcurrentDictionary<Int64, DateTime> TimeMemberLeft { get; private set; } = new();
+
+		// every player who joined this lobby, kept for the lobby's lifetime so connection reports may name a former member
+		private readonly ConcurrentDictionary<Int64, byte> m_EverMemberUserIDs = new();
+
+		public bool WasEverMember(Int64 userID) => m_EverMemberUserIDs.ContainsKey(userID);
 
 		// Records the first time each player's in-game WebSocket connection dropped (i.e., when they first "quit"
 		// while the match was in progress). Only the first disconnect is stored � reconnects do not reset it.
@@ -1387,6 +1463,12 @@ public async Task FinalizeACChecks()
 					sideToUse = -1;
 				}
 
+				// a favorite observer seat needs a lobby that allows observers, otherwise the side is random
+				if (sideToUse == ClientFeatures.ObserverSide && !AllowObservers)
+				{
+					sideToUse = -1;
+				}
+
 				// if our preferred color is already in use, revert to random
 				int colorToUse = lobbyPrefs.favorite_color;
 				foreach (var memberEntry in Members)
@@ -1432,6 +1514,7 @@ public async Task FinalizeACChecks()
 			++m_MembershipVersion;
 			InvalidateMeshCheck("membership_changed");
 			TimeMemberLeft[playerSession.m_UserID] = DateTime.UnixEpoch;
+			m_EverMemberUserIDs[playerSession.m_UserID] = 0;
 			RefreshLobbyNamesLocked();
 
 			// Lobby members leave public-room presence.
@@ -1453,11 +1536,12 @@ public async Task FinalizeACChecks()
 					continue;
 				}
 
-				RealtimeOut.Fire(joining.StartSignalling(StartSignallingFor(memberEntry)));
+				PeerStepValues? values = PairValuesLocked(newMember, memberEntry);
+				RealtimeOut.Fire(joining.StartSignalling(StartSignallingFor(newMember, memberEntry, values)));
 				RealtimeOut.Fire(joining.AnticheatRegister(AnticheatPeerFor(memberEntry)));
 
 				IRealtimeClient existing = RealtimeOut.Session(remoteSession);
-				RealtimeOut.Fire(existing.StartSignalling(StartSignallingFor(newMember)));
+				RealtimeOut.Fire(existing.StartSignalling(StartSignallingFor(memberEntry, newMember, values)));
 				RealtimeOut.Fire(existing.AnticheatRegister(AnticheatPeerFor(newMember)));
 			}
 
@@ -2146,27 +2230,19 @@ public async Task FinalizeACChecks()
 	{
 		private ConcurrentDictionary<Int64, Lobby> m_dictLobbies = new();
 
-		private Int64 m_NextLobbyID = 0;
-
-		// Concurrent CreateLobby calls (e.g. a custom lobby and a QuickMatch allocation racing) must never be
-		// handed the same ID. Interlocked.Increment returns the post-increment value, so subtracting 1 keeps
-		// the original "starts at 0" sequence while making the read-and-bump atomic.
-		// Internal (not private) so it is unit-testable via InternalsVisibleTo without needing the rest of
-		// CreateLobby's database dependencies.
-		internal Int64 GenerateNextLobbyID()
-		{
-			return Interlocked.Increment(ref m_NextLobbyID) - 1;
-		}
+		// lobby ids come from database blocks, so no restart or other service copy reuses one
+		private readonly LobbyIdAllocator m_lobbyIds;
 
 		private readonly IServiceProvider _services;
 		private readonly ILogger<LobbyManager> _logger;
 
-		public LobbyManager(IServiceProvider services, IDbContextFactory<AppDbContext> membershipDbFactory, LobbyMembershipConnections membershipConnections, ILogger<LobbyManager> logger)
+		public LobbyManager(IServiceProvider services, IDbContextFactory<AppDbContext> membershipDbFactory, LobbyMembershipConnections membershipConnections, LobbyIdAllocator lobbyIds, ILogger<LobbyManager> logger)
 		{
 			_services = services;
 			_logger = logger;
 			this.membershipDbFactory = membershipDbFactory;
 			this.membershipConnections = membershipConnections;
+			m_lobbyIds = lobbyIds;
         }
 
         public async Task Cleanup()
@@ -2254,6 +2330,9 @@ public async Task FinalizeACChecks()
 			UInt16 hostPreferredPort, bool bVanillaTeams, bool bTrackStats, UInt32 starting_cash, bool bLimitSuperweapons, bool bPassworded, String strPassword, Int16 parentNetworkRoom, bool bAllowObservers,
 			UInt16 maxCamHeight, GameBuild build, ELobbyType lobbyType, ELobbyJoinability joinability = ELobbyJoinability.Public, int ownerNameTag = 0)
 		{
+			// the id is taken before the membership gate so a block refill never holds it, a database failure throws before anything changes
+			Int64 newLobbyID = await m_lobbyIds.NextAsync();
+
 			using var membership = await AcquireMembershipGateAsync(owningSession.m_UserID);
 			if (!IsCurrentSession(owningSession) || owningSession.IsRetired) return -1;
 			_logger.LogInformation("Creating lobby for user {UserId}", owningSession.m_UserID);
@@ -2265,7 +2344,6 @@ public async Task FinalizeACChecks()
 
 			int rng_seed = new Random().Next();
 
-			Int64 newLobbyID = GenerateNextLobbyID();
 
 			// the host's settings come with the create call
 			Lobby newLobby = new Lobby(newLobbyID, owningSession, strName, ELobbyState.GAME_SETUP, strMapName, strMapPath, bVanillaTeams, starting_cash, bLimitSuperweapons, bTrackStats, bPassworded, strPassword, bMapOfficial, rng_seed, parentNetworkRoom, bAllowObservers, maxCamHeight, build, maxPlayers, lobbyType);

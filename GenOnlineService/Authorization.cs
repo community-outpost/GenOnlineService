@@ -78,6 +78,9 @@ namespace GenOnlineService
 		public const string Moderator = "moderator";
 		public const string Admin = "admin";
 
+		// Streamer grants no permission and no rank, it only switches on client features through Features:roles
+		public const string Streamer = "streamer";
+
 		private static readonly string[] s_moderatorPermissions =
 		{
 			Permissions.ModerationKick,
@@ -102,7 +105,8 @@ namespace GenOnlineService
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)
 		{
 			[Moderator] = new HashSet<string>(s_moderatorPermissions, StringComparer.Ordinal),
-			[Admin] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal)
+			[Admin] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal),
+			[Streamer] = new HashSet<string>(StringComparer.Ordinal)
 		};
 
 		// Staff rank decides who may moderate whom, a role the code does not know ranks as a player
@@ -122,6 +126,9 @@ namespace GenOnlineService
 
 		public static bool IsKnown(string role) => s_rolePermissions.ContainsKey(role);
 
+		// A staff role carries a permission or a rank, so streamer is a known role but not staff
+		public static bool IsStaff(string role) => (s_rolePermissions.TryGetValue(role, out HashSet<string>? permissions) && permissions.Count > 0) || s_roleRanks.ContainsKey(role);
+
 		public static bool HasPermission(Int64 userID, string permission)
 		{
 			return s_permissionsByUser.TryGetValue(userID, out HashSet<string>? permissions) && permissions.Contains(permission);
@@ -132,10 +139,12 @@ namespace GenOnlineService
 			return s_permissionsByUser.TryGetValue(userID, out HashSet<string>? permissions) ? permissions : Array.Empty<string>();
 		}
 
-		public static int Rank(Int64 userID)
+		public static int Rank(Int64 userID) => RankOf(RolesOf(userID));
+
+		public static int RankOf(IEnumerable<string> roles)
 		{
 			int rank = 0;
-			foreach (string role in RolesOf(userID))
+			foreach (string role in roles)
 			{
 				if (s_roleRanks.TryGetValue(role, out int roleRank) && roleRank > rank)
 				{
@@ -203,12 +212,16 @@ namespace GenOnlineService
 			}
 
 			s_lastUnknownRoles = unknown;
+			Dictionary<Int64, HashSet<string>> previousRoles = s_rolesByUser;
 			// ranks go first, so a new permission holder is never moderatable as a player while the swap runs
 			s_rolesByUser = rows
 				.Where(r => IsKnown(r.Role))
 				.GroupBy(r => r.UserID)
 				.ToDictionary(g => g.Key, g => new HashSet<string>(g.Select(r => r.Role), StringComparer.Ordinal));
 			s_permissionsByUser = next;
+
+			// every role source writes user_roles, so this swap is the one place a feature list changes
+			ClientFeatures.PublishChanges(previousRoles, s_rolesByUser);
 		}
 	}
 

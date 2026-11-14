@@ -144,6 +144,14 @@ connection_reports        id, reporter_id, lobby_id, target_user_id, attempt int
 
 One row is the final result of one connection attempt from `reporter_id` to `target_user_id` in a lobby, sent by `POST /api/v1/lobbies/:id/connection_reports`. A repeated report of the same attempt replaces the row (outcome, transport, ip_version, events and `updated_at`; `created_at` stays from the first report). `events` is `[{state, t_ms}]`, oldest first, at most 32. The table never holds an IP address. Staff read it with `connections player` and `connections lobby`, and each read writes a `connection_lookup` row to `audit_log` (target the user or the lobby, with the reason). Account deletion deletes the reports the user sent and the reports that name the user as target.
 
+### Lobby ids
+
+```
+lobby_ids                 id int (always 1), next_id bigint
+```
+
+One row holds the next lobby id. A service copy reserves a block of ids with an `UPDATE` that adds the block size inside a transaction, then reads the new `next_id`; the block is the ids below it. The row lock of the update makes this atomic on MySQL/MariaDB and Postgres, so lobby ids are never reused across restarts or copies, start at 1 and stay below 2^53. The migration seeds `next_id` above the largest `lobby_id` in `chat_messages` and `connection_reports`.
+
 ### Players and devices
 
 ```

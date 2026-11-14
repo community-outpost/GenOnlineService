@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Names;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -24,14 +25,33 @@ namespace GenOnlineService.Api
 {
 	using GenOnlineService.Realtime;
 
-	// Sanctions, message deletes and reports (section 10.2), staff actions check their perm:<permission> policy and the rank rule
+	// Sanctions, renames, message deletes and reports (section 10.2), staff actions check their perm:<permission> policy and the rank rule
 	public sealed class ModerationController : ApiControllerBase
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly PlayerNames m_names;
 
-		public ModerationController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization) : base(authorization)
+		public ModerationController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization, PlayerNames names) : base(authorization)
 		{
 			m_dbFactory = dbFactory;
+			m_names = names;
+		}
+
+		// Replaces an offensive name, the tag stays
+		[HttpPatch("~/api/v1/players/{userID:long}")]
+		public async Task<IActionResult> RenamePlayer(long userID)
+		{
+			if (await RequirePermissionAsync(Permissions.ModerationRename) is Failure denied)
+			{
+				return ApiResults.Fail(denied);
+			}
+
+			(RenamePlayerRequest? body, Failure? malformed) = await ReadBodyAsync<RenamePlayerRequest>();
+			if (malformed != null)
+			{
+				return ApiResults.Fail(malformed.Value);
+			}
+			return ApiResults.NoContent(await m_names.RenameByStaffAsync(SanctionActions.ActorOf(Me), userID, body?.Name, body?.Reason));
 		}
 
 		[HttpPost("~/api/v1/players/{userID:long}/sanctions")]
