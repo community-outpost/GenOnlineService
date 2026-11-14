@@ -123,25 +123,30 @@ namespace GenOnlineService.Identity
 			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
 			string? authorizationID = User.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value;
 
-			// the sign-in is revoked before realtime closes, so a connection still opening sees the revocation when it checks again
-			GameSessions.Remove(userID, sessionType);
+			// only this sign-in ends, another install of the same session type keeps its session
+			if (String.IsNullOrEmpty(authorizationID))
+			{
+				GameSessions.Remove(userID, sessionType);
+				await SessionRevocation.CloseRealtime(userID, sessionType);
+				await WebSocketManager.ClearDataFromUser(userID, sessionType);
+				return NoContent();
+			}
+
+			// the registration goes first and the revocation before the close, so a connection still opening is refused when it checks again
+			GameSessions.RemoveSignIn(authorizationID);
 			try
 			{
-				if (!String.IsNullOrEmpty(authorizationID))
+				object? authorization = await m_authorizations.FindByIdAsync(authorizationID);
+				if (authorization != null && await m_authorizations.GetSubjectAsync(authorization) == userID.ToString())
 				{
-					object? authorization = await m_authorizations.FindByIdAsync(authorizationID);
-					if (authorization != null && await m_authorizations.GetSubjectAsync(authorization) == userID.ToString())
-					{
-						await m_authorizations.TryRevokeAsync(authorization);
-						await m_tokens.RevokeByAuthorizationIdAsync(authorizationID);
-					}
+					await m_authorizations.TryRevokeAsync(authorization);
+					await m_tokens.RevokeByAuthorizationIdAsync(authorizationID);
 				}
 			}
 			finally
 			{
-				// realtime still closes when the revocation fails, closing before clearing tells the client auth.revoked
-				await SessionRevocation.CloseRealtime(userID, sessionType);
-				await WebSocketManager.ClearDataFromUser(userID, sessionType);
+				// also closes the realtime of this sign-in when the revocation fails
+				await SignInRevocation.EndAsync(authorizationID);
 			}
 
 			return NoContent();

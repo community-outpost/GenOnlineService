@@ -342,12 +342,12 @@ namespace GenOnlineService
 			}
 		}
 
-		public static Task<RealtimeConnection?> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport)
+		public static Task<RealtimeConnection?> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
-			return ServiceLocator.Services.GetRequiredService<LobbyManager>().OpenSessionAsync(_db, sessionType, bIsReconnect, ownerID, client_id, ipAddr, strContinent, strCountry, dLatitude, dLongitude, transport);
+			return ServiceLocator.Services.GetRequiredService<LobbyManager>().OpenSessionAsync(_db, sessionType, bIsReconnect, ownerID, client_id, ipAddr, strContinent, strCountry, dLatitude, dLongitude, transport, authorizationID);
 		}
 
-		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport)
+		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
 			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
 			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
@@ -425,6 +425,9 @@ namespace GenOnlineService
 					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, GameStats);
 				}
 			}
+
+			// the sign-in is recorded before the connection is published, so a revocation can always find it
+			userCacheData.AuthorizationID = authorizationID;
 
 			// a connection of the same user and session type replaces the previous one, which is told why
 			if (m_dictWebsockets[sessionType].TryRemove(ownerID, out RealtimeConnection? supersededSess) && supersededSess != null)
@@ -776,6 +779,33 @@ namespace GenOnlineService
 			}
 		}
 
+		// Closes only the connections opened with that sign-in and destroys their sessions, the user's other sign-ins stay
+		public static async Task DisconnectSignIn(string authorizationID, string closeCode)
+		{
+			// sessions inside their reconnect grace have no connection but still belong to the sign-in
+			List<UserSession> matches = m_dictUserSessions.Values
+				.SelectMany(byUser => byUser.Values)
+				.Where(s => s.AuthorizationID == authorizationID)
+				.ToList();
+
+			foreach (UserSession session in matches)
+			{
+				try
+				{
+					RealtimeConnection? connection = GetWebSocketForSession(session);
+					if (connection != null)
+					{
+						await connection.CloseAsync(closeCode, allowReconnect: false);
+					}
+					await DeleteSession(session.m_UserID, session.GetSessionType(), connection, true, session);
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "DisconnectSignIn failed for user {UserId}, session {SessionType}", session.m_UserID, session.GetSessionType());
+				}
+			}
+		}
+
 		public static Task<bool> ClearDataFromUser(Int64 userID, EUserSessionType sessionType)
 		{
 			var session = GetSessionFromUser(userID, sessionType);
@@ -1029,6 +1059,9 @@ namespace GenOnlineService
 			RealtimeConnection? websocketForUser = WebSocketManager.GetWebSocketForSession(this);
 			return m_timeAbandoned != -1 && websocketForUser == null;
 		}
+
+		// The sign-in whose connection installed or last took over this session
+		public string? AuthorizationID { get; set; }
 
 		// Events for this session's current connection only, nothing while it is disconnected
 		public IRealtimeClient Client => RealtimeOut.Session(this);

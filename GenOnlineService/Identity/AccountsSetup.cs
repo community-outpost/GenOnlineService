@@ -101,6 +101,8 @@ namespace GenOnlineService.Identity
 				{
 					options.UseEntityFrameworkCore().UseDbContext<AppDbContext>();
 					options.ReplaceApplicationManager<OpenIddictEntityFrameworkCoreApplication, LoopbackApplicationManager>();
+					options.ReplaceAuthorizationManager<OpenIddictEntityFrameworkCoreAuthorization, SignInAuthorizationManager>();
+					options.ReplaceTokenManager<OpenIddictEntityFrameworkCoreToken, SignInTokenManager>();
 				});
 
 			if (settings.Enabled)

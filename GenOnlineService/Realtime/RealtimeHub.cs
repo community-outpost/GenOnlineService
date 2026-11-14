@@ -77,7 +77,7 @@ namespace GenOnlineService.Realtime
 			RealtimeConnection? connection;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				connection = await WebSocketManager.CreateSession(db, sessionType, takeOver, userID, clientID, ipAddress, geo.Continent, geo.Country, geo.Latitude, geo.Longitude, transport);
+				connection = await WebSocketManager.CreateSession(db, sessionType, takeOver, userID, clientID, ipAddress, geo.Continent, geo.Country, geo.Latitude, geo.Longitude, transport, RealtimeClaims.AuthorizationID(user));
 			}
 
 			if (connection == null)
@@ -140,7 +140,7 @@ namespace GenOnlineService.Realtime
 				}
 			}
 
-			if (String.IsNullOrEmpty(authorizationID))
+			if (String.IsNullOrEmpty(authorizationID) || SignInRevocation.HasEnded(authorizationID))
 			{
 				return false;
 			}
