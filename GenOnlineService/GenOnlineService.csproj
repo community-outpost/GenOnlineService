@@ -95,7 +95,7 @@
   </ItemGroup>
 
   <!--
-    The git tag is the only source of the version. _GoVersion is the full informational version, which /healthz reports:
+    The git tag is the only source of the version. _GoVersion is the full informational version, which /-/health reports:
       HEAD on tag v1.2.3               1.2.3+<8-char sha>
       HEAD 20 commits after v1.2.3     1.2.3+20.<8-char sha>
       no vX.Y.Z tag reachable          0.0.0+<8-char sha>

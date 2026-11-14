@@ -13,7 +13,7 @@ RUN dotnet restore GenOnlineService/GenOnlineService.csproj
 
 COPY GenOnlineService/ GenOnlineService/
 # The version (git tag based, see GoResolveVersion in the csproj) is computed by the build with git describe and
-# reported by /healthz, so .git is copied after restore. Without tags the build reports 0.0.0+<commit>.
+# reported by /-/health, so .git is copied after restore. Without tags the build reports 0.0.0+<commit>.
 COPY .git .git
 RUN --mount=type=bind,from=git,target=/git \
     git -C / config --global --add safe.directory '*' \

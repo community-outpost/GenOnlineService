@@ -719,6 +719,34 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("friendships", (string)null);
                 });
 
+            modelBuilder.Entity("GenOnlineService.Identity.DataProtectionKeyRow", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("friendly_name");
+
+                    b.Property<string>("Xml")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("xml");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("data_protection_keys", (string)null);
+                });
+
             modelBuilder.Entity("LeaderboardEntry", b =>
                 {
                     b.Property<string>("Period")
@@ -1292,6 +1320,10 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnName("updated_at");
 
                     b.HasKey("UserID", "Kind");
+
+                    b.HasIndex("Kind", "Rating", "UserID")
+                        .IsDescending(false, true, false)
+                        .HasDatabaseName("ix_player_ratings_leaderboard");
 
                     b.ToTable("player_ratings", (string)null);
                 });

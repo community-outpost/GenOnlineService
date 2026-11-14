@@ -47,8 +47,14 @@ namespace GenOnlineService.Api
 			return permission != null ? Realtime.Result.Forbidden(permission) : Realtime.Result.Fail(Realtime.ErrorCodes.Forbidden);
 		}
 
+		// Every /api and /-/ path, and every ApiControllerBase action wherever it is routed
 		private static bool IsApiEndpoint(HttpContext context)
 		{
+			if (Rest.RestResults.IsRestPath(context.Request.Path))
+			{
+				return true;
+			}
+
 			ControllerActionDescriptor? action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
 			return action != null && typeof(ApiControllerBase).IsAssignableFrom(action.ControllerTypeInfo);
 		}

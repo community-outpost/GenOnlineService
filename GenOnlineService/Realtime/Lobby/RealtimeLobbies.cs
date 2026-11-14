@@ -115,7 +115,8 @@ namespace GenOnlineService.Realtime
 			};
 		}
 
-		public static LobbySummary SummaryOf(Lobby lobby, UserSession viewer)
+		// Without a viewer session (a REST caller with no hub connection) the latency estimate is 0
+		public static LobbySummary SummaryOf(Lobby lobby, UserSession? viewer)
 		{
 			return new LobbySummary
 			{
@@ -128,7 +129,7 @@ namespace GenOnlineService.Realtime
 				MaxPlayers = lobby.MaxPlayers,
 				HasPassword = lobby.IsPassworded,
 				Region = lobby.Region,
-				LatencyMs = EstimateLatencyMs(lobby, viewer),
+				LatencyMs = viewer == null ? 0 : EstimateLatencyMs(lobby, viewer),
 				Anticheat = AnticheatOf(lobby.AnticheatID),
 				Settings = new LobbySummarySettings
 				{

@@ -38,6 +38,8 @@ namespace GenOnlineService
 		public const string ServerStats = "server.stats";
 		public const string AnnouncementsSend = "announcements.send";
 		public const string TokensManage = "tokens.manage";
+		public const string AuditRead = "audit.read";
+		public const string SettingsManage = "settings.manage";
 
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
@@ -47,7 +49,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -99,7 +101,9 @@ namespace GenOnlineService
 			Permissions.RolesManage,
 			Permissions.ServerStats,
 			Permissions.AnnouncementsSend,
-			Permissions.TokensManage
+			Permissions.TokensManage,
+			Permissions.AuditRead,
+			Permissions.SettingsManage
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)
@@ -222,6 +226,30 @@ namespace GenOnlineService
 
 			// every role source writes user_roles, so this swap is the one place a feature list changes
 			ClientFeatures.PublishChanges(previousRoles, s_rolesByUser);
+		}
+	}
+
+	// The audit actor of an HTTP caller: a session or a user's token acts as that user, a service account token as that account
+	public static class CallerActors
+	{
+		public static Database.ModerationActor Of(ClaimsPrincipal user)
+		{
+			ClaimsIdentity? tokenIdentity = user.Identities.FirstOrDefault(i => i.IsAuthenticated && i.AuthenticationType == TokenPrincipal.AuthenticationType);
+			if (tokenIdentity != null)
+			{
+				Int64? ownerID = Int64.TryParse(tokenIdentity.FindFirst(ApiTokenHandler.OwnerIDClaim)?.Value, out Int64 id) ? id : null;
+				bool bService = tokenIdentity.FindFirst(ApiTokenHandler.OwnerKindClaim)?.Value == ApiTokenOwnerKinds.ServiceAccount;
+				return new Database.ModerationActor
+				{
+					Kind = bService ? AuditActorKinds.ServiceAccount : AuditActorKinds.User,
+					UserID = ownerID,
+					Name = (bService ? "service_account:" : "user:") + ownerID,
+					Source = ModerationSources.Api
+				};
+			}
+
+			Int64? userID = Int64.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out Int64 subject) && subject > 0 ? subject : null;
+			return new Database.ModerationActor { Kind = AuditActorKinds.User, UserID = userID, Name = $"user:{userID}", Source = ModerationSources.Api };
 		}
 	}
 

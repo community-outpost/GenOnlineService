@@ -21,7 +21,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.Client;
+using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Core;
+using OpenIddict.Server;
 using OpenIddict.EntityFrameworkCore.Models;
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
@@ -110,13 +112,13 @@ namespace GenOnlineService.Identity
 				});
 		}
 
-		public static void AddGenOnlineIdentity(this IServiceCollection services, AccountsSettings settings)
+		public static void AddGenOnlineIdentity(this IServiceCollection services, AccountsSettings settings, bool development)
 		{
 			OpenIddictBuilder openIddict = services.AddOpenIddictCore();
 
 			if (settings.Enabled)
 			{
-				AddAccounts(services, openIddict, settings);
+				AddAccounts(services, openIddict, settings, development);
 			}
 
 			openIddict.AddValidation(options =>
@@ -141,8 +143,10 @@ namespace GenOnlineService.Identity
 			});
 		}
 
-		private static void AddAccounts(IServiceCollection services, OpenIddictBuilder openIddict, AccountsSettings settings)
+		private static void AddAccounts(IServiceCollection services, OpenIddictBuilder openIddict, AccountsSettings settings, bool development)
 		{
+			OAuthKeys? keys = LoadKeys(settings, development);
+
 			services.AddIdentityCore<User>(options =>
 				{
 					options.User.RequireUniqueEmail = false;
@@ -207,7 +211,7 @@ namespace GenOnlineService.Identity
 				// the API reads access tokens as signed JWTs (RS256, typ at+jwt)
 				options.DisableAccessTokenEncryption();
 
-				AddKeys(settings, options.AddEphemeralSigningKey, options.AddEphemeralEncryptionKey, c => options.AddSigningCertificate(c), c => options.AddEncryptionCertificate(c));
+				AddKeys(keys, options.AddEphemeralSigningKey, options.AddEphemeralEncryptionKey, c => options.AddSigningCertificate(c), c => options.AddEncryptionCertificate(c));
 
 				var aspNetCore = options.UseAspNetCore()
 					.EnableAuthorizationEndpointPassthrough()
@@ -227,7 +231,7 @@ namespace GenOnlineService.Identity
 				openIddict.AddClient(options =>
 				{
 					options.AllowAuthorizationCodeFlow();
-					AddKeys(settings, options.AddEphemeralSigningKey, options.AddEphemeralEncryptionKey, c => options.AddSigningCertificate(c), c => options.AddEncryptionCertificate(c));
+					AddKeys(keys, options.AddEphemeralSigningKey, options.AddEphemeralEncryptionKey, c => options.AddSigningCertificate(c), c => options.AddEncryptionCertificate(c));
 
 					options.SetRedirectionEndpointUris(providers.Select(p => p.CallbackPath).ToArray());
 
@@ -255,31 +259,95 @@ namespace GenOnlineService.Identity
 					}
 				});
 			}
+
+			if (keys != null)
+			{
+				// registered after AddServer and AddClient, so it runs after OpenIddict sorts the keys
+				var first = new CurrentCertificateFirst(keys.Signing[0].Thumbprint, keys.Encryption[0].Thumbprint);
+				services.AddSingleton<IPostConfigureOptions<OpenIddictServerOptions>>(first);
+				services.AddSingleton<IPostConfigureOptions<OpenIddictClientOptions>>(first);
+			}
 		}
 
-		private static void AddKeys(AccountsSettings settings, Func<object> ephemeralSigning, Func<object> ephemeralEncryption, Action<X509Certificate2> signing, Action<X509Certificate2> encryption)
+		private sealed record OAuthKeys(X509Certificate2[] Signing, X509Certificate2[] Encryption);
+
+		// Certificates from configuration or a mounted secret; ephemeral keys only in Development, where a restart may sign everyone out
+		private static OAuthKeys? LoadKeys(AccountsSettings settings, bool development)
 		{
-			if (settings.SigningCertificatePaths.Count == 0 || settings.EncryptionCertificatePaths.Count == 0)
+			if (settings.EphemeralKeys && !development)
+			{
+				throw new InvalidOperationException("Accounts:ephemeral_keys is for Development only: every restart would sign everyone out. Configure Accounts:signing_certificates and Accounts:encryption_certificates.");
+			}
+
+			if (settings.SigningCertificates.Count == 0 || settings.EncryptionCertificates.Count == 0)
 			{
 				if (!settings.EphemeralKeys)
 				{
-					throw new InvalidOperationException("Accounts needs signing_certificate_paths and encryption_certificate_paths (PFX files), or ephemeral_keys for development.");
+					throw new InvalidOperationException("Accounts needs signing_certificates and encryption_certificates (a .pfx/.p12 file, a PEM file with its private key, or PEM text), or ephemeral_keys in Development.");
 				}
 
+				return null;
+			}
+
+			return new OAuthKeys(
+				KeyStorage.LoadAll(settings.SigningCertificates, settings.CertificatePassword, "Accounts:signing_certificates"),
+				KeyStorage.LoadAll(settings.EncryptionCertificates, settings.CertificatePassword, "Accounts:encryption_certificates"));
+		}
+
+		private static void AddKeys(OAuthKeys? keys, Func<object> ephemeralSigning, Func<object> ephemeralEncryption, Action<X509Certificate2> signing, Action<X509Certificate2> encryption)
+		{
+			if (keys == null)
+			{
 				ephemeralSigning();
 				ephemeralEncryption();
 				return;
 			}
 
-			// every listed certificate is published, so the next key can be added before the current one is retired
-			foreach (string path in settings.SigningCertificatePaths)
+			// every listed certificate verifies or decrypts (signing keys are published), so the next key is known everywhere before it is used
+			foreach (X509Certificate2 certificate in keys.Signing)
 			{
-				signing(X509CertificateLoader.LoadPkcs12FromFile(path, settings.CertificatePassword, X509KeyStorageFlags.EphemeralKeySet));
+				signing(certificate);
 			}
 
-			foreach (string path in settings.EncryptionCertificatePaths)
+			foreach (X509Certificate2 certificate in keys.Encryption)
 			{
-				encryption(X509CertificateLoader.LoadPkcs12FromFile(path, settings.CertificatePassword, X509KeyStorageFlags.EphemeralKeySet));
+				encryption(certificate);
+			}
+		}
+
+		// OpenIddict signs with the certificate that expires last; here the first configured one signs and encrypts, so rotation is an explicit step
+		private sealed class CurrentCertificateFirst : IPostConfigureOptions<OpenIddictServerOptions>, IPostConfigureOptions<OpenIddictClientOptions>
+		{
+			private readonly string m_signing;
+			private readonly string m_encryption;
+
+			public CurrentCertificateFirst(string signing, string encryption)
+			{
+				m_signing = signing;
+				m_encryption = encryption;
+			}
+
+			public void PostConfigure(string? name, OpenIddictServerOptions options)
+			{
+				MoveFirst(options.SigningCredentials, c => c.Key, m_signing);
+				MoveFirst(options.EncryptionCredentials, c => c.Key, m_encryption);
+			}
+
+			public void PostConfigure(string? name, OpenIddictClientOptions options)
+			{
+				MoveFirst(options.SigningCredentials, c => c.Key, m_signing);
+				MoveFirst(options.EncryptionCredentials, c => c.Key, m_encryption);
+			}
+
+			private static void MoveFirst<T>(List<T> credentials, Func<T, SecurityKey> key, string thumbprint)
+			{
+				int index = credentials.FindIndex(c => key(c) is X509SecurityKey x509 && String.Equals(x509.Certificate.Thumbprint, thumbprint, StringComparison.OrdinalIgnoreCase));
+				if (index > 0)
+				{
+					T current = credentials[index];
+					credentials.RemoveAt(index);
+					credentials.Insert(0, current);
+				}
 			}
 		}
 

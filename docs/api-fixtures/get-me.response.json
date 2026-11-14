@@ -1,0 +1,14 @@
+{
+  "user_id": 1042,
+  "display_name": "Ann",
+  "tag": "0007",
+  "roles": [
+    "moderator"
+  ],
+  "permissions": [
+    "chat.delete_any",
+    "chat.message_anyone",
+    "moderation.kick",
+    "moderation.mute"
+  ]
+}

@@ -881,34 +881,6 @@ namespace GenOnlineService
 			return true;
 		}
 
-		public static string BuildWebSocketUrl(HttpRequest request, string environment, string contractVersion)
-		{
-			string webSocketScheme;
-			if (request.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
-			{
-				webSocketScheme = "wss";
-			}
-			else if (request.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase))
-			{
-				webSocketScheme = "ws";
-			}
-			else
-			{
-				throw new InvalidOperationException($"Cannot build a WebSocket URL from request scheme '{request.Scheme}'.");
-			}
-
-			if (!request.Host.HasValue)
-			{
-				throw new InvalidOperationException("Cannot build a WebSocket URL because the request Host is empty.");
-			}
-
-			return UriHelper.BuildAbsolute(
-				webSocketScheme,
-				request.Host,
-				request.PathBase,
-				new PathString($"/env/{Uri.EscapeDataString(environment)}/contract/{Uri.EscapeDataString(contractVersion)}/ws"));
-		}
-
 		private static async Task RunObservedBackgroundJobAsync(
 			string jobName,
 			ILogger logger,
@@ -1100,10 +1072,7 @@ namespace GenOnlineService
 			}
 
 			// Informational version stamped into the build from the git tag (GoResolveVersion in the csproj)
-			string buildVersion = typeof(Program).Assembly
-				.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-				.OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-				.FirstOrDefault()?.InformationalVersion ?? "unknown";
+			string buildVersion = GenOnlineService.Rest.Compatibility.ServiceVersion;
 
 			if ((bool)sentry_enabled)
 			{
@@ -1198,7 +1167,15 @@ namespace GenOnlineService
 			.AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, null)
 			.AddScheme<AuthenticationSchemeOptions, SessionTokenHandler>(SessionTokenHandler.SchemeName, null);
 
-			builder.Services.AddGenOnlineIdentity(accountsSettings);
+			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
+			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
+
+			// the Keycloak plugin's change log (identity design 5b): at most one trusted provider feeds it
+			UpstreamProviderSettings? changeLogProvider = accountsSettings.EnabledProviders.FirstOrDefault(p => p.ChangeLog.Enabled);
+			if (changeLogProvider != null)
+			{
+				builder.Services.AddSingleton(sp => new KeycloakChangeLog(changeLogProvider, sp.GetRequiredService<IDbContextFactory<AppDbContext>>()));
+			}
 
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -1243,6 +1220,10 @@ namespace GenOnlineService
 			{
 				options.JsonSerializerOptions
 				.PropertyNamingPolicy = null;
+			});
+			builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+			{
+				options.InvalidModelStateResponseFactory = GenOnlineService.Rest.RestSetup.InvalidModelState;
 			});
 			// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 			//builder.Services.AddOpenApi();
@@ -1478,6 +1459,7 @@ namespace GenOnlineService
 			}
 
 			app.UseCors();
+			app.Use(GenOnlineService.Rest.RestSetup.StatusBodies);
 			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
 			app.UseRealtimeRegistrationGate();
@@ -1497,13 +1479,6 @@ namespace GenOnlineService
 				options.ApplicationMaxBufferSize = 64 * 1024;
 			});
 
-			// Unauthenticated liveness probe used by deployment tooling. Exposes only status and build version.
-			// Load balancers probe with HEAD as well as GET (Kestrel drops the body of a HEAD response).
-			app.MapMethods("/healthz", new[] { "GET", "HEAD" }, () => Results.Json(new
-			{
-				status = "ok",
-				version = buildVersion
-			})).AllowAnonymous();
 
 
 			// cleanup
@@ -1736,6 +1711,27 @@ namespace GenOnlineService
 					}
 				};
 				timerGroupSync.Start();
+			}
+
+			// the change log: once at startup, then every interval, so a lost push or downtime is caught up
+			KeycloakChangeLog? changeLog = app.Services.GetService<KeycloakChangeLog>();
+			if (changeLog != null)
+			{
+				System.Timers.Timer timerChangeLog = new System.Timers.Timer(1000);
+				timerChangeLog.AutoReset = false;
+				timerChangeLog.Elapsed += async (sender, e) =>
+				{
+					try
+					{
+						await RunObservedBackgroundJobAsync("keycloak_change_log", app.Logger, () => changeLog.Sync());
+					}
+					finally
+					{
+						timerChangeLog.Interval = changeLogProvider!.ChangeLog.IntervalSeconds * 1000;
+						timerChangeLog.Start();
+					}
+				};
+				timerChangeLog.Start();
 			}
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) =>

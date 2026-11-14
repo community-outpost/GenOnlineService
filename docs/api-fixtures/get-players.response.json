@@ -1,0 +1,18 @@
+{
+  "players": [
+    {
+      "id": 7,
+      "name": "Ann",
+      "tag": "0007",
+      "badges": ["moderator"],
+      "client": "game"
+    },
+    {
+      "id": 42,
+      "name": "Bob",
+      "tag": "0042",
+      "badges": [],
+      "client": "launcher"
+    }
+  ]
+}
