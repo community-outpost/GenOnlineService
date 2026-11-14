@@ -126,9 +126,10 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 **Member** (a user as other users see them; used in chat, channels, lobbies, friends)
 
 ```json
-{"id":7,"name":"Ann","badges":["moderator"],"client":"game"}
+{"id":7,"name":"Ann","tag":"0042","badges":["moderator"],"client":"game"}
 ```
 
+- `name` and `tag`: the display name is not unique; `name#tag` is (identity section 5a). Show `Ann#0042` on profiles, friend lists and friend requests, and in staff tools. In channels, lobbies and chat show the name alone, and add `#tag` only when two members there share the name (names compare case-insensitively). `tag` is always four digits and absent only for a user whose tag is not known. In lobbies the service applies this rule itself: each player slot carries `name`, the name the lobby shows.
 - `badges`: badge ids, highest priority first; definitions (text and color) arrive in `Ready` and `BadgesUpdate`. Clients render a user's name in the color of their first badge and never hard-code badge ids, because operators define badges at runtime.
 - `client`: `game`, `launcher` or `chat`. Present in member lists, omitted in chat messages.
 
@@ -167,7 +168,7 @@ A tombstone never shows its author or content.
 `Slot`
 
 ```json
-{"index":1,"state":"player","member":{"id":7,"name":"Ann","badges":[]},"ready":true,"has_map":true,"side":2,"color":4,"team":null,"start_position":3}
+{"index":1,"state":"player","member":{"id":7,"name":"Ann","badges":[]},"name":"Ann","ready":true,"has_map":true,"side":2,"color":4,"team":null,"start_position":3}
 ```
 
 | Field | Values |
@@ -175,6 +176,7 @@ A tombstone never shows its author or content.
 | `index` | 0 to 7; slot 0 is the host and is always ready |
 | `state` | `open`, `closed`, `player`, `ai_easy`, `ai_medium`, `ai_brutal` |
 | `member` | `Member` for `player` slots, absent otherwise |
+| `name` | for `player` slots, the name this lobby shows: the member's name, or `Name#tag` for every member whose name another member of the lobby shares (case-insensitive). It changes for both when such a member joins and goes back when one leaves; clients show it as is. Absent otherwise |
 | `ready`, `has_map` | booleans; AI slots are always ready |
 | `side`, `color`, `start_position` | game ids, `-1` means random |
 | `team` | team number or `null` for no team |
@@ -306,7 +308,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `ChannelHistory` | `{channel_id, messages: [Message], has_more}` (after `ChannelMembers`: the last messages of the channel, oldest first; split into several events when it would exceed 64 KB) |
 | `MemberAdd` | `{channel_id, member: Member}` |
 | `MemberRemove` | `{channel_id, user_id}` |
-| `MemberUpdate` | `{member: Member}` (rename, badge change; sent to everyone who can see the user) |
+| `MemberUpdate` | `{member: Member}` (rename, new tag, badge change; sent to everyone who can see the user) |
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
 | `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: every direct message conversation and group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
@@ -424,7 +426,8 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.invalid_characters` | | `PATCH /api/v1/me` |
 | `name.whitespace` | | `PATCH /api/v1/me` |
 | `name.reserved` | `{word}` | `PATCH /api/v1/me` (staff words and badge texts) |
-| `name.taken` | | `PATCH /api/v1/me` |
+| `name.taken` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the new name together with the player's tag is already taken |
+| `name.managed` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` in an environment where Keycloak owns names and this environment may not rename (test and dev of the official deployment) |
 | `channel.unavailable` | | `JoinChannel` |
 | `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods; `lobby.not_member` also for `GetHistory` on a `lobby:` the caller is not in |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
@@ -515,6 +518,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | `POST /api/v1/players/:id/sanctions` | `{type: "kick"|"mute"|"ban", duration_s?, reason?}` | `{sanction_id}` | permission by type: `moderation.kick`, `moderation.mute`, `moderation.ban`. A kick needs a connected target (`moderation.target_offline`). The target gets `ModerationNotice`; a kick or ban then closes their connections (section 3) |
 | `GET /api/v1/players/:id/sanctions?active=` | | `{sanctions: [{id, type, reason, created_at, expires_at, lifted_at, created_by: Member}]}` | `moderation.kick` or higher |
 | `DELETE /api/v1/sanctions/:id` | `{reason?}` | 204 | lifts a mute or ban; `moderation.mute` or `moderation.ban` by type |
+| `PATCH /api/v1/players/:id` | `{name, reason?}` | 204 | `moderation.rename`; replaces an offensive name, keeps the static tag, follows the staff rank rule and writes `audit_log`. The Discord bot uses the same endpoint. Same environment rules as `PATCH /api/v1/me` |
 | `DELETE /api/v1/messages/:id` | `{reason?}` | 204 | `chat.delete_any`; any channel, lobby, direct or group message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 | `POST /api/v1/reports` | `{message_id?, user_id?, reason?}` | `{report_id}` | exactly one of `message_id` and `user_id`. A message: never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient, a group message by any other current member; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters. A player: any other user, one open report per reporter and player |
 | `GET /api/v1/reports?status=` | | `{reports: [{id, reporter: Member, reported: Member, message_id, reason, status, created_at, resolved_at, resolution_note}]}` | the staff queue for message and player reports, `moderation.kick` or higher; `message_id` is `null` for a report of a player; `status` is `open`, `actioned` or `dismissed` |
@@ -524,7 +528,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 
 | Method and path | Body | Answer | Notes |
 |---|---|---|---|
-| `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
+| `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters, no `#`. The tag is static: it never changes, and a rename whose `name#tag` is taken answers `name.taken`. On success everyone who can see the user gets `MemberUpdate`. In the official deployment prod performs the rename through the Keycloak plugin and the change reaches every environment (identity section 5b); test and dev answer `name.managed` |
 | `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection, until 24 hours after the match finished (`match.result_closed` after that) |
 | `GET /api/v1/matchmaking/playlists` | | `{playlists: [Playlist]}` | cacheable with `ETag` |
 | `POST /api/v1/lobbies/:id/connection_reports` | `{target_user_id, outcome, transport, ip_version, attempt?, events?: [{state, t_ms}]}` | 204 | the final result of one connection attempt to one peer (replaces `ConnectionOutcome`), sent once when the attempt ends. `outcome` is `connected_direct`, `connected_relay`, `failed` or `disconnected`; `transport` is `gns` or `eos`; `ip_version` is 4 or 6. `attempt` (1 or more, default 1) numbers the attempts of this pair in this lobby; a connection that drops during the match is sent again with the same `attempt` and its events ending in `disconnected`, a reconnect after that is a new attempt. `events` lists every state change of the attempt, oldest first, at most 32: `state` is `connecting`, `finding_route`, `connected_direct`, `connected_relay`, `failed` or `disconnected`, `t_ms` the milliseconds since the attempt started, never decreasing, at most 600000; anything else is `invalid_argument`. The caller must be a member of that lobby (`lobby.not_member`), checked before the body is validated; `target_user_id` must be another player who is or was a member of that lobby, otherwise `invalid_argument {field: target_user_id}`. Stored per player for 30 days, keyed by reporter, lobby, target and attempt, so a repeated report replaces the earlier one; staff use it to troubleshoot a player's connections and to line up both sides of a pair. Never stores IP addresses. Account deletion removes them, and the privacy policy must name them with their purpose and retention. Metrics are counted by outcome, transport and IP version |
