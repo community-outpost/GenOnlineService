@@ -96,7 +96,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
                               connection lost ─────────┘──> reconnect (backoff) ──> Ready ──> snapshots
 ```
 
-1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401; a game client without a registered session gets HTTP 409 `{"code":"session.not_registered"}`; a user with an active play ban gets HTTP 403 `{"code":"moderation.banned","params":{"reason":"...","expires_at":"..."}}`. A ban never blocks signing in to the website, so appeals keep working.
+1. **Connect** with the access token after registering the session. An invalid or revoked token fails the upgrade with HTTP 401 `{"error":"unauthorized","params":{}}`; a game client without a registered session gets HTTP 409 `{"error":"session.not_registered","params":{}}`; a user with an active play ban gets HTTP 403 `{"error":"moderation.banned","params":{"reason":"...","expires_at":"..."}}` (REST calls the ban refuses answer with the same body). A ban never blocks signing in to the website, so appeals keep working.
 2. **Ready** is always the first event. It carries the user, permissions, badge definitions and limits (section 6.1).
 3. **Snapshots** follow immediately: `Friends` always, then `Conversations`; `ChannelMembers` and `ChannelHistory` if the session was in a channel; `LobbyState`, then `ChannelHistory` for `lobby:<id>`, if the user is in a lobby. After a reconnect these restore everything, so the client never re-fetches state over REST.
 4. **Reconnect** on any lost connection: wait 0.5 to 3 s random, then 2 s doubling to a 30 s cap, forever while logged in. During a match the client keeps reconnecting without a time window. After a `server.switching` close the client reconnects after the `retry_after_ms` of the `ServerSwitching` event that came before, without backoff, and shows no reconnect screen for up to 3 s.
@@ -202,7 +202,7 @@ A tombstone never shows its author or content.
 | `visibility` | `public` or `friends` |
 | `anticheat` | `none`, `go_integrated`, `easy_anticheat` |
 | `match_id` | `null` until the game starts |
-| `start` | `null` until the game starts, then `{match_id, rng_seed, screenshot_url}` as in `GameStart`, so a client that reconnects after the start still starts |
+| `start` | `null` until the game starts, then `{match_id, rng_seed, screenshot_url}` as in `GameStart`, so a client that reconnects after the start still starts. In a `quick_match` lobby a non-null `start` also stands for `MatchStart`: the service sends `MatchStart` before any `LobbyState` that carries `start` |
 | `slots` | always 8 entries (the example shows one) |
 
 Never sent to clients: the lobby password, the matchmaker's paired user ids, mesh check bookkeeping. The lobby name is the host's text only; the region and anticheat badges the legacy service baked into the name are separate fields.
@@ -400,7 +400,9 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 
 | Code | Params | Raised by |
 |---|---|---|
+| `unauthorized` | | Any REST call or the realtime upgrade without a valid token, session token or API token alike (HTTP 401). The body is the same for every reason, so a caller cannot tell an unknown token from a revoked or expired one |
 | `forbidden` | `{permission}` | Any method the caller has no permission for |
+| `session.build_not_accepted` | | `POST /api/v1/auth/session` when the client's build is not accepted for its app in the client registry (HTTP 403) |
 | `session.not_registered` | | Connecting without `POST /api/v1/auth/session` first (HTTP 409) |
 | `moderation.banned` | `{reason, expires_at?}` | Connecting while play banned (HTTP 403), and the close code when a ban starts |
 | `invalid_argument` | `{field}` | Malformed or missing fields |
@@ -436,7 +438,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `moderation.reason_too_long` | `{max}` | Sanctions, lifting them, message deletes, reports |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
 
-REST endpoints return the same codes as `{"error": "<code>", "params": {...}}` with an HTTP status: 400 for `invalid_argument`, 401 for a missing or revoked token, 403 for `forbidden` and `moderation.target_outranks`, 404 for `not_found`, 409 for `report.duplicate`, 422 for every other rule failure, 429 for `rate_limited`.
+REST endpoints return the same codes as `{"error": "<code>", "params": {...}}` with an HTTP status: 400 for `invalid_argument`, 401 `unauthorized` for a missing, unknown, expired or revoked token, 403 for `forbidden` and `moderation.target_outranks`, 404 for `not_found`, 409 for `report.duplicate`, 422 for every other rule failure, 429 for `rate_limited`.
 
 New codes are added freely; clients show a generic message for codes they do not know.
 
