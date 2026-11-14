@@ -20,6 +20,7 @@ using GenOnlineService.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.Abstractions;
 using System.Security.Claims;
 
 namespace GenOnlineService.Realtime
@@ -41,13 +42,15 @@ namespace GenOnlineService.Realtime
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 		private readonly LobbyManager m_lobbyManager;
 		private readonly IAuthorizationService m_authorization;
+		private readonly IOpenIddictAuthorizationManager m_signIns;
 		private readonly ILogger<RealtimeHub> m_log;
 
-		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, ILogger<RealtimeHub> log)
+		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, IOpenIddictAuthorizationManager signIns, ILogger<RealtimeHub> log)
 		{
 			m_dbFactory = dbFactory;
 			m_lobbyManager = lobbyManager;
 			m_authorization = authorization;
+			m_signIns = signIns;
 			m_log = log;
 		}
 
@@ -87,6 +90,18 @@ namespace GenOnlineService.Realtime
 			Context.Items[ConnectionItem] = connection;
 			UserSession session = connection.OwnerSession;
 
+			// a logout that ran while this connection was opening found no session to close, so the sign-in is checked again once installed
+			if (!await IsSignInStillValidAsync(user, userID, sessionType))
+			{
+				// only this connection closes, a newer sign-in that already took the session over keeps it
+				await connection.CloseAsync(CloseCodes.AuthRevoked, allowReconnect: false);
+				if (ReferenceEquals(WebSocketManager.GetWebSocketForSession(session), connection))
+				{
+					await WebSocketManager.DeleteSession(userID, sessionType, connection, true, session);
+				}
+				return;
+			}
+
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.User(userID));
 			if (sessionType == EUserSessionType.GameClient)
 			{
@@ -111,6 +126,27 @@ namespace GenOnlineService.Realtime
 			}
 
 			await base.OnDisconnectedAsync(exception);
+		}
+
+		private async Task<bool> IsSignInStillValidAsync(ClaimsPrincipal user, Int64 userID, EUserSessionType sessionType)
+		{
+			string? authorizationID = RealtimeClaims.AuthorizationID(user);
+			if (sessionType == EUserSessionType.GameClient)
+			{
+				GameSessionRegistration? registration = GameSessions.Get(userID, sessionType);
+				if (registration == null || registration.AuthorizationID != authorizationID)
+				{
+					return false;
+				}
+			}
+
+			if (String.IsNullOrEmpty(authorizationID))
+			{
+				return false;
+			}
+
+			object? authorization = await m_signIns.FindByIdAsync(authorizationID);
+			return authorization != null && await m_signIns.HasStatusAsync(authorization, OpenIddictConstants.Statuses.Valid);
 		}
 
 		private static ReadyEvent BuildReady(UserSession session)

@@ -123,19 +123,25 @@ namespace GenOnlineService.Identity
 			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
 			string? authorizationID = User.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value;
 
-			// closing first tells the client auth.revoked before the session is cleared
+			// the sign-in is revoked before realtime closes, so a connection still opening sees the revocation when it checks again
 			GameSessions.Remove(userID, sessionType);
-			await SessionRevocation.CloseRealtime(userID, sessionType);
-			await WebSocketManager.ClearDataFromUser(userID, sessionType);
-
-			if (!String.IsNullOrEmpty(authorizationID))
+			try
 			{
-				object? authorization = await m_authorizations.FindByIdAsync(authorizationID);
-				if (authorization != null && await m_authorizations.GetSubjectAsync(authorization) == userID.ToString())
+				if (!String.IsNullOrEmpty(authorizationID))
 				{
-					await m_authorizations.TryRevokeAsync(authorization);
-					await m_tokens.RevokeByAuthorizationIdAsync(authorizationID);
+					object? authorization = await m_authorizations.FindByIdAsync(authorizationID);
+					if (authorization != null && await m_authorizations.GetSubjectAsync(authorization) == userID.ToString())
+					{
+						await m_authorizations.TryRevokeAsync(authorization);
+						await m_tokens.RevokeByAuthorizationIdAsync(authorizationID);
+					}
 				}
+			}
+			finally
+			{
+				// realtime still closes when the revocation fails, closing before clearing tells the client auth.revoked
+				await SessionRevocation.CloseRealtime(userID, sessionType);
+				await WebSocketManager.ClearDataFromUser(userID, sessionType);
 			}
 
 			return NoContent();
