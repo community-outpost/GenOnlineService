@@ -98,7 +98,6 @@ namespace GenOnlineService.Realtime
 
 			// the audience is resolved before any limit is spent
 			Func<MessageCreateEvent, Task> deliver;
-			bool hostAnnouncement = false;
 			switch (kind)
 			{
 				case "room":
@@ -126,7 +125,6 @@ namespace GenOnlineService.Realtime
 						{
 							return Result.Fail(ErrorCodes.LobbyNotHost);
 						}
-						hostAnnouncement = true;
 					}
 
 					List<UserSession> memberSessions = new();
@@ -183,8 +181,8 @@ namespace GenOnlineService.Realtime
 				return mute.ExpiresAt == null ? Result.Fail(ErrorCodes.ChatMuted) : Result.Fail(ErrorCodes.ChatMuted, new { Until = mute.ExpiresAt.Value });
 			}
 
-			// host announcements were never rate limited
-			if (!hostAnnouncement && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
+			// lobby chat is never rate limited because the host can kick, room and direct chat are
+			if (kind != "lobby" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
 			{
 				return Result.Fail(ErrorCodes.ChatRateLimited, new { RetryAfterMs = retryAfterMs });
 			}
