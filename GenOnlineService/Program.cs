@@ -859,34 +859,6 @@ namespace GenOnlineService
 			return true;
 		}
 
-		public static string BuildWebSocketUrl(HttpRequest request, string environment, string contractVersion)
-		{
-			string webSocketScheme;
-			if (request.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
-			{
-				webSocketScheme = "wss";
-			}
-			else if (request.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase))
-			{
-				webSocketScheme = "ws";
-			}
-			else
-			{
-				throw new InvalidOperationException($"Cannot build a WebSocket URL from request scheme '{request.Scheme}'.");
-			}
-
-			if (!request.Host.HasValue)
-			{
-				throw new InvalidOperationException("Cannot build a WebSocket URL because the request Host is empty.");
-			}
-
-			return UriHelper.BuildAbsolute(
-				webSocketScheme,
-				request.Host,
-				request.PathBase,
-				new PathString($"/env/{Uri.EscapeDataString(environment)}/contract/{Uri.EscapeDataString(contractVersion)}/ws"));
-		}
-
 		private static async Task RunObservedBackgroundJobAsync(
 			string jobName,
 			ILogger logger,
@@ -1072,10 +1044,7 @@ namespace GenOnlineService
 			}
 
 			// Informational version stamped into the build from the git tag (GoResolveVersion in the csproj)
-			string buildVersion = typeof(Program).Assembly
-				.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-				.OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-				.FirstOrDefault()?.InformationalVersion ?? "unknown";
+			string buildVersion = GenOnlineService.Rest.Compatibility.ServiceVersion;
 
 			if ((bool)sentry_enabled)
 			{
@@ -1458,13 +1427,6 @@ namespace GenOnlineService
 				options.ApplicationMaxBufferSize = 64 * 1024;
 			});
 
-			// Unauthenticated liveness probe used by deployment tooling. Exposes only status and build version.
-			// Load balancers probe with HEAD as well as GET (Kestrel drops the body of a HEAD response).
-			app.MapMethods("/healthz", new[] { "GET", "HEAD" }, () => Results.Json(new
-			{
-				status = "ok",
-				version = buildVersion
-			})).AllowAnonymous();
 
 
 			// cleanup

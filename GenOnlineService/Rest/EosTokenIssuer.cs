@@ -16,15 +16,12 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 
-namespace GenOnlineService.Controllers
+namespace GenOnlineService.Rest
 {
 	// Signs the short lived ID tokens that EOS Connect verifies through the published JWKS.
 	public static class EosTokenIssuer
@@ -166,64 +163,6 @@ namespace GenOnlineService.Controllers
 				expiresUtc,
 				now);
 			return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
-		}
-	}
-
-	public class POST_EosToken_Result : APIResult
-	{
-		public override Type GetReturnType()
-		{
-			return typeof(POST_EosToken_Result);
-		}
-
-		public string eos_token { get; set; } = String.Empty;
-		public int expires_in { get; set; } = 0;
-	}
-
-	[ApiController]
-	[Authorize(Roles = "Player")]
-	[Route("env/{environment}/contract/{contract_version}/[controller]")]
-	public class EosToken : ControllerBase
-	{
-		[HttpPost]
-		public IActionResult Post()
-		{
-			Int64 userID = TokenHelper.GetUserID(this);
-			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
-			if (userID == -1 || !SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
-			{
-				return StatusCode((int)HttpStatusCode.Forbidden, new { error = "gameplay_session_required" });
-			}
-
-			EosTokenIssuer.Settings? settings = EosTokenIssuer.GetSettings();
-			if (settings == null)
-			{
-				return StatusCode((int)HttpStatusCode.ServiceUnavailable, new { error = "eos_token_not_configured" });
-			}
-
-			string token = EosTokenIssuer.Issue(settings, userID, TokenHelper.GetDisplayName(this), out _);
-			return Ok(new POST_EosToken_Result { eos_token = token, expires_in = (int)settings.Lifetime.TotalSeconds });
-		}
-	}
-
-	[ApiController]
-	[AllowAnonymous]
-	public class EosJwks : ControllerBase
-	{
-		[HttpGet("/.well-known/jwks.json")]
-		public IActionResult Get()
-		{
-			EosTokenIssuer.Settings? settings = EosTokenIssuer.GetSettings();
-			if (settings == null)
-			{
-				return NotFound();
-			}
-
-			Response.Headers.CacheControl = "public, max-age=300";
-			return new JsonResult(new
-			{
-				keys = settings.PublishedKeys.Select(k => new { kty = k.Kty, use = k.Use, alg = k.Alg, kid = k.Kid, n = k.N, e = k.E })
-			});
 		}
 	}
 }
