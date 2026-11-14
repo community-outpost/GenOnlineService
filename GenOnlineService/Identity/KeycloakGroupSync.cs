@@ -23,7 +23,7 @@ using System.Text.Json;
 
 namespace GenOnlineService.Identity
 {
-	// Applies Keycloak group membership changes between sign-ins by polling the realm's admin events
+	// Applies Keycloak group membership and display name changes between sign-ins by polling the realm's events
 	public static class KeycloakGroupSync
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(KeycloakGroupSync));
@@ -34,6 +34,9 @@ namespace GenOnlineService.Identity
 		private const long LookbackMs = 60_000;
 
 		private static string CursorKey(UpstreamProviderSettings provider) => $"group_sync.{provider.Name}.cursor";
+
+		// names have their own cursor, so a failure in one feed never holds the other back
+		private static string NameCursorKey(UpstreamProviderSettings provider) => $"group_sync.{provider.Name}.names_cursor";
 
 		// Keycloak base URL: configured, or the issuer without its /realms/<realm> part
 		private static string BaseUrl(UpstreamProviderSettings provider)
@@ -58,8 +61,145 @@ namespace GenOnlineService.Identity
 			return index < 0 ? String.Empty : provider.Issuer.Substring(index + "/realms/".Length).Trim('/');
 		}
 
-		// Unreachable Keycloak throws: the caller logs it, nothing changes and the cursor stays for the next attempt
+		// Unreachable Keycloak throws: the caller logs it, nothing changes and the cursors stay for the next attempt
 		public static async Task Run(AppDbContext db, UpstreamProviderSettings provider)
+		{
+			Exception? failure = null;
+			try
+			{
+				await RunGroups(db, provider);
+			}
+			catch (Exception ex)
+			{
+				failure = ex;
+			}
+
+			try
+			{
+				await RunNames(db, provider);
+			}
+			catch (Exception ex)
+			{
+				if (failure != null)
+				{
+					// the caller logs the first failure only
+					s_log.LogWarning(ex, "Name sync for {Provider} failed as well", provider.Name);
+				}
+				failure ??= ex;
+			}
+
+			if (failure != null)
+			{
+				System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+			}
+		}
+
+		// Renames: a player's own (user event UPDATE_PROFILE) and an admin's (admin event UPDATE on the user). The plugin
+		// re-tags after an admin change commits, so the lookback reads the user again and picks up the final tag.
+		private static async Task RunNames(AppDbContext db, UpstreamProviderSettings provider)
+		{
+			string baseUrl = BaseUrl(provider);
+			string realm = Uri.EscapeDataString(Realm(provider));
+			long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+			string? stored = await Database.Upstream.GetSetting(db, NameCursorKey(provider));
+			if (stored == null || !long.TryParse(stored, NumberStyles.None, CultureInfo.InvariantCulture, out long cursor))
+			{
+				// names before the first run are copied at each user's next sign-in
+				await Database.Upstream.SetSetting(db, NameCursorKey(provider), nowMs.ToString(CultureInfo.InvariantCulture), "group_sync");
+				s_log.LogInformation("Name sync for {Provider} starts at {Cursor}", provider.Name, nowMs);
+				return;
+			}
+
+			string accessToken = await GetAccessToken(baseUrl, realm, provider);
+			string dateFrom = DateTimeOffset.FromUnixTimeMilliseconds(cursor).UtcDateTime.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+			var affected = new HashSet<string>(StringComparer.Ordinal);
+			long newest = cursor;
+
+			void Take(long time, string? keycloakUserID)
+			{
+				if (time >= cursor - LookbackMs && !String.IsNullOrEmpty(keycloakUserID))
+				{
+					affected.Add(keycloakUserID);
+					newest = Math.Max(newest, time);
+				}
+			}
+
+			await ReadPages($"{baseUrl}/admin/realms/{realm}/events?type=UPDATE_PROFILE&dateFrom={dateFrom}", accessToken, userEvent =>
+				Take(userEvent.TryGetProperty("time", out JsonElement t) ? t.GetInt64() : 0,
+					userEvent.TryGetProperty("userId", out JsonElement u) ? u.GetString() : null));
+
+			await ReadPages($"{baseUrl}/admin/realms/{realm}/admin-events?resourceTypes=USER&operationTypes=UPDATE&dateFrom={dateFrom}", accessToken, adminEvent =>
+			{
+				string path = adminEvent.TryGetProperty("resourcePath", out JsonElement p) ? p.GetString() ?? String.Empty : String.Empty;
+				string[] parts = path.Split('/');
+				Take(adminEvent.TryGetProperty("time", out JsonElement t) ? t.GetInt64() : 0, parts.Length == 2 && parts[0] == "users" ? parts[1] : null);
+			});
+
+			foreach (string keycloakUserID in affected)
+			{
+				Int64? userID = await db.Identities.AsNoTracking()
+					.Where(i => i.Provider == provider.Name && i.ExternUid == keycloakUserID)
+					.Select(i => (Int64?)i.UserID)
+					.FirstOrDefaultAsync();
+				if (userID == null)
+				{
+					continue;
+				}
+
+				(string? Name, string? Tag)? profile = await GetName(baseUrl, realm, keycloakUserID, accessToken);
+				if (profile != null)
+				{
+					await UpstreamAccounts.ApplyUpstreamName(db, provider, userID.Value, profile.Value.Name, profile.Value.Tag);
+				}
+			}
+
+			if (newest != cursor)
+			{
+				await Database.Upstream.SetSetting(db, NameCursorKey(provider), newest.ToString(CultureInfo.InvariantCulture), "group_sync");
+			}
+		}
+
+		private static async Task ReadPages(string url, string accessToken, Action<JsonElement> each)
+		{
+			for (int first = 0; ; first += PageSize)
+			{
+				using JsonDocument page = await GetJson($"{url}&first={first}&max={PageSize}", accessToken);
+				int count = 0;
+				foreach (JsonElement item in page.RootElement.EnumerateArray())
+				{
+					count++;
+					each(item);
+				}
+
+				if (count < PageSize)
+				{
+					return;
+				}
+			}
+		}
+
+		// The user's display_name and name_tag attributes; null when the Keycloak user no longer exists
+		private static async Task<(string? Name, string? Tag)?> GetName(string baseUrl, string realm, string keycloakUserID, string accessToken)
+		{
+			using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/admin/realms/{realm}/users/{Uri.EscapeDataString(keycloakUserID)}");
+			request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+			using HttpResponseMessage response = await s_http.SendAsync(request);
+			if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+			{
+				return null;
+			}
+
+			response.EnsureSuccessStatusCode();
+			using JsonDocument user = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+			string? First(string attribute) => user.RootElement.TryGetProperty("attributes", out JsonElement attributes)
+				&& attributes.TryGetProperty(attribute, out JsonElement values) && values.ValueKind == JsonValueKind.Array && values.GetArrayLength() > 0
+				? values[0].GetString()
+				: null;
+			return (First("display_name"), First("name_tag"));
+		}
+
+		private static async Task RunGroups(AppDbContext db, UpstreamProviderSettings provider)
 		{
 			string baseUrl = BaseUrl(provider);
 			string realm = Uri.EscapeDataString(Realm(provider));

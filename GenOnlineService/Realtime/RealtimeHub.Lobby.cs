@@ -114,13 +114,13 @@ namespace GenOnlineService.Realtime
 			Int64 lobbyID;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				string displayName = await global::Database.Users.GetDisplayName(db, UserID);
+				(string Name, int Tag) owner = await global::Database.DisplayNames.Get(db, UserID) ?? (String.Empty, 0);
 				LobbySettings settings = request.Settings;
-				lobbyID = await m_lobbyManager.CreateLobby(db, session, displayName, request.Name, request.Map.Name, request.Map.Path, request.Map.Official, request.MaxPlayers,
+				lobbyID = await m_lobbyManager.CreateLobby(db, session, owner.Name, request.Name, request.Map.Name, request.Map.Path, request.Map.Official, request.MaxPlayers,
 					(UInt16)request.PreferredPort, settings.VanillaTeams, settings.TrackStats, (UInt32)settings.StartingCash, settings.LimitSuperweapons,
 					request.Password != null, request.Password ?? String.Empty, session.networkRoomID, settings.AllowObservers, (UInt16)settings.MaxCameraHeight,
 					GameBuild.Of(build), ELobbyType.CustomGame,
-					request.Visibility == LobbyVisibility.Friends ? ELobbyJoinability.FriendsOnly : ELobbyJoinability.Public);
+					request.Visibility == LobbyVisibility.Friends ? ELobbyJoinability.FriendsOnly : ELobbyJoinability.Public, owner.Tag);
 			}
 
 			if (lobbyID < 0)

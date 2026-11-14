@@ -1646,6 +1646,10 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("lockout_end_at");
 
+                    b.Property<int>("NameTag")
+                        .HasColumnType("integer")
+                        .HasColumnName("name_tag");
+
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
@@ -1693,9 +1697,9 @@ namespace GenOnlineService.Migrations.Postgres
                         .IsUnique()
                         .HasDatabaseName("ux_users_email_normalized");
 
-                    b.HasIndex("UsernameNormalized")
+                    b.HasIndex("UsernameNormalized", "NameTag")
                         .IsUnique()
-                        .HasDatabaseName("ux_users_username_normalized");
+                        .HasDatabaseName("ux_users_username_normalized_name_tag");
 
                     b.ToTable("users", (string)null);
                 });
@@ -1759,12 +1763,13 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.HasKey("ID");
 
-                    b.HasIndex("UserID")
-                        .HasDatabaseName("ix_identities_user_id");
-
                     b.HasIndex("Provider", "ExternUid")
                         .IsUnique()
                         .HasDatabaseName("ux_identities_provider_extern_uid");
+
+                    b.HasIndex("UserID", "Provider")
+                        .IsUnique()
+                        .HasDatabaseName("ux_identities_user_id_provider");
 
                     b.ToTable("identities", (string)null);
                 });
@@ -1822,6 +1827,10 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("changed_by");
+
+                    b.Property<int?>("NameTag")
+                        .HasColumnType("integer")
+                        .HasColumnName("name_tag");
 
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")

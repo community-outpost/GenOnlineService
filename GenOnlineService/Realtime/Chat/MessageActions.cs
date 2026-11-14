@@ -223,8 +223,8 @@ namespace GenOnlineService.Realtime
 		{
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync();
 			List<PlayerReport> rows = await Database.Chat.GetReports(db, status, ReportListLimit);
-			Dictionary<long, string> names = await RealtimeHub.NamesAsync(db, rows.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID }));
-			Member MemberOf(long id) => RealtimeMembers.Of(id, names.TryGetValue(id, out string? name) ? name : null);
+			Dictionary<long, (string Name, int Tag)> names = await RealtimeHub.NamesAsync(db, rows.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID }));
+			Member MemberOf(long id) => RealtimeMembers.Of(id, names);
 
 			return new ReportsResponse
 			{

@@ -64,9 +64,10 @@ namespace GenOnlineService.Controllers
 			if (user_id != -1)
 			{
 				await using var db = await _dbFactory.CreateDbContextAsync();
-				string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
+				(string Name, int Tag)? name = await Database.DisplayNames.Get(db, user_id);
 
-				result.display_name = strDisplayName;
+				result.display_name = name?.Name ?? String.Empty;
+				result.name_tag = name == null ? String.Empty : Database.DisplayNames.FormatTag(name.Value.Tag);
 				result.user_id = user_id;
 			}
 
@@ -101,6 +102,7 @@ namespace GenOnlineService.Controllers
 					{
 						GET_ActiveUsers_UserEntry userEntry = new();
 						userEntry.name = userSharedData.m_strDisplayName;
+						userEntry.name_tag = Database.DisplayNames.FormatTag(userSharedData.m_NameTag);
 						userEntry.status = UserPresence.DetermineUserStatusFromAllSessions(sessionData.Key, out bool isOnline);
 						userEntry.client_id = sessionData.Value.m_client_id;
 						userEntry.duration = TimeSpanToHumanReadableString(sessionData.Value.GetDuration());

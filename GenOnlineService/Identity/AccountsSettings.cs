@@ -54,7 +54,9 @@ namespace GenOnlineService.Identity
 
 		// Only a trusted provider may assert roles, bans and an existing account link
 		public bool Trusted { get; init; }
-		public string LinkClaim { get; init; } = "go_user_id";
+		// The official deployment's Keycloak hands out player ids; with player_ids the claim is the user id itself
+		public string PlayerIDClaim { get; init; } = "player_id";
+		public bool PlayerIDs { get; init; }
 		public string GroupsClaim { get; init; } = "groups";
 		public Dictionary<string, string> RoleGroups { get; init; } = new(StringComparer.Ordinal);
 		public string? BanGroup { get; init; }
@@ -90,6 +92,9 @@ namespace GenOnlineService.Identity
 
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
+		// Keycloak with player ids owns display names and tags; the environment only copies them (identity section 5a)
+		public bool NamesFromUpstream => EnabledProviders.Any(p => p.PlayerIDs && p.Trusted);
+
 		public static AccountsSettings Read(IConfiguration config)
 		{
 			IConfigurationSection section = config.GetSection("Accounts");
@@ -116,7 +121,8 @@ namespace GenOnlineService.Identity
 				OnlyProvider = p.GetValue<bool>("only_provider"),
 				AutoLinkVerifiedEmail = p.GetValue<bool>("auto_link_verified_email"),
 				Trusted = p.GetValue<bool>("trusted"),
-				LinkClaim = p.GetValue<string>("link_claim") ?? "go_user_id",
+				PlayerIDClaim = p.GetValue<string>("player_id_claim") ?? "player_id",
+				PlayerIDs = p.GetValue<bool>("player_ids"),
 				GroupsClaim = p.GetValue<string>("groups_claim") ?? "groups",
 				RoleGroups = p.GetSection("role_groups").GetChildren().Where(g => !String.IsNullOrEmpty(g.Value)).ToDictionary(g => g.Key, g => g.Value!, StringComparer.Ordinal),
 				BanGroup = p.GetValue<string>("ban_group"),
@@ -130,6 +136,15 @@ namespace GenOnlineService.Identity
 					ClientSecret = p.GetValue<string>("group_sync:client_secret") ?? String.Empty
 				}
 			}).ToList();
+
+			// player ids come from one upstream counter, so no other sign-in method may let the database pick a user id
+			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Enabled && p.PlayerIDs))
+			{
+				if (!provider.Trusted || !provider.OnlyProvider || providers.Count(p => p.Enabled) > 1)
+				{
+					throw new InvalidOperationException($"Accounts:providers:{provider.Name}: player_ids needs trusted and only_provider, and no other enabled provider.");
+				}
+			}
 
 			return new AccountsSettings
 			{

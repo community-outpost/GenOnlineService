@@ -38,10 +38,11 @@ namespace GenOnlineService.Realtime
 		// Lobbies add (N) to tell duplicate names apart, so a name never ends with one
 		private static readonly Regex s_dedupeSuffix = new(@"\((1[0-9]|20|[0-9])\)$", RegexOptions.Compiled);
 
-		public static async Task<Result<Empty>> SetDisplayNameAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 userID, string? requested)
+		// The rules every chosen name follows (the Keycloak plugin applies the same ones); reserved words are checked apart
+		public static Failure? CheckNameRules(string name)
 		{
-			string name = requested ?? String.Empty;
-			if (name.Any(Char.IsControl) || !String.Equals(TextSanitizer.Clean(name, StoredNameMaxLength), name, StringComparison.Ordinal))
+			// '#' separates the name from its tag
+			if (name.Contains('#') || name.Any(Char.IsControl) || !String.Equals(TextSanitizer.Clean(name, StoredNameMaxLength), name, StringComparison.Ordinal))
 			{
 				return Result.Fail(ErrorCodes.NameInvalidCharacters);
 			}
@@ -57,6 +58,23 @@ namespace GenOnlineService.Realtime
 			{
 				return Result.Fail(ErrorCodes.NameInvalidCharacters);
 			}
+			return null;
+		}
+
+		public static async Task<Result<Empty>> SetDisplayNameAsync(IDbContextFactory<AppDbContext> dbFactory, AccountsSettings accounts, Int64 userID, string? requested)
+		{
+			// Where Keycloak owns names, players rename there (kc_action=UPDATE_PROFILE) and the change arrives by copy
+			if (accounts.NamesFromUpstream)
+			{
+				return Result.Fail(ErrorCodes.NameManaged);
+			}
+
+			string name = requested ?? String.Empty;
+			Failure? invalid = CheckNameRules(name);
+			if (invalid != null)
+			{
+				return invalid.Value;
+			}
 
 			if (!StaffRoles.HasPermission(userID, Permissions.NamesProtected))
 			{
@@ -67,64 +85,26 @@ namespace GenOnlineService.Realtime
 				}
 			}
 
-			string? storedName;
+			NameChange? change;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync())
 			{
 				if (!await Database.Users.Exists(db, userID))
 				{
 					return Result.NotFound("user");
 				}
-				storedName = await Database.Users.GetDisplayName(db, userID);
-				if (!await Database.Users.SetDisplayName(db, userID, name))
-				{
-					return Result.Fail(ErrorCodes.NameTaken);
-				}
+				change = await Database.Users.SetDisplayName(db, userID, name);
+			}
+			if (change == null)
+			{
+				// every tag of the name is in use
+				return Result.Fail(ErrorCodes.NameTaken);
 			}
 
-			// a user with no session on this copy only changes the stored name, sessions read it when they open
-			SharedUserData? userData = WebSocketManager.GetSharedDataForUser(userID);
-			string oldName = userData?.m_strDisplayName ?? storedName ?? String.Empty;
-			if (String.Equals(oldName, name, StringComparison.Ordinal))
+			if (change.OldName != change.NewName || change.OldTag != change.NewTag)
 			{
-				return Result.Success();
+				await RealtimeNames.PublishOne(change);
 			}
-			if (userData != null)
-			{
-				userData.m_strDisplayName = name;
-			}
-
-			IRealtimeClient audience = RealtimeOut.Groups(NameAudience(userID));
-			foreach (UserSession userSession in WebSocketManager.GetAllDataFromUser(userID))
-			{
-				await audience.MemberUpdate(new MemberUpdateEvent { Member = RealtimeMembers.Of(userSession) });
-			}
-			await audience.Notice(new NoticeEvent { Code = ErrorCodes.NameChanged, Params = new { UserId = userID, OldName = oldName, NewName = name } });
 			return Result.Success();
-		}
-
-		// Everyone who can see the user: their own connections, their channels, their lobby and their friends, as disjoint groups so nobody hears it twice
-		private static IReadOnlyList<string> NameAudience(Int64 userID)
-		{
-			List<UserSession> own = WebSocketManager.GetAllDataFromUser(userID);
-			HashSet<Int16> channels = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
-			HashSet<Int64> lobbies = own.Where(s => s.currentLobbyID != -1).Select(s => s.currentLobbyID).ToHashSet();
-
-			// the user and their friends hear it on every connection and every copy
-			HashSet<Int64> wholeUsers = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
-			wholeUsers.Add(userID);
-			HashSet<string> groups = new(wholeUsers.Select(RealtimeGroups.User), StringComparer.Ordinal);
-
-			// channel and lobby members are known from this copy's sessions only, each through its own session group
-			foreach (UserSession session in RealtimeAudience.AllSessions())
-			{
-				bool sees = channels.Contains(session.networkRoomID)
-					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID));
-				if (sees && !wholeUsers.Contains(session.m_UserID) && RealtimeAudience.ConnectionOf(session) != null)
-				{
-					groups.Add(RealtimeGroups.UserSession(session.m_UserID, session.GetSessionType()));
-				}
-			}
-			return groups.ToArray();
 		}
 
 		private static string? ReservedWordIn(string name)

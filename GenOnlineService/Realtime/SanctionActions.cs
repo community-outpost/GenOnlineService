@@ -151,7 +151,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			List<Sanction> rows = await Database.Moderation.GetSanctions(db, target, activeOnly);
-			Dictionary<long, string> names = await RealtimeHub.NamesAsync(db, rows.Where(r => r.CreatedByID != null).Select(r => r.CreatedByID!.Value));
+			Dictionary<long, (string Name, int Tag)> names = await RealtimeHub.NamesAsync(db, rows.Where(r => r.CreatedByID != null).Select(r => r.CreatedByID!.Value));
 
 			SanctionInfo[] sanctions = rows.Select(row => new SanctionInfo
 			{
@@ -161,7 +161,7 @@ namespace GenOnlineService.Realtime
 				CreatedAt = row.CreatedAt,
 				ExpiresAt = row.Type == SanctionTypes.Kick ? null : row.ExpiresAt,
 				LiftedAt = row.LiftedAt,
-				CreatedBy = row.CreatedByID is long creator ? RealtimeMembers.Of(creator, names.TryGetValue(creator, out string? name) ? name : null) : null
+				CreatedBy = row.CreatedByID is long creator ? RealtimeMembers.Of(creator, names) : null
 			}).ToArray();
 			return Result.Success(new SanctionsResponse { Sanctions = sanctions });
 		}

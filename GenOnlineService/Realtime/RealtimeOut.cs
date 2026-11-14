@@ -125,16 +125,26 @@ namespace GenOnlineService.Realtime
 
 		public static string NameOf(Int64 userID) => WebSocketManager.GetSharedDataForUser(userID)?.m_strDisplayName ?? String.Empty;
 
-		public static Member Of(Int64 userID, string? displayName = null, ClientType? client = null)
+		// The tag of an online user; 0 when offline or not known
+		public static int TagOf(Int64 userID) => WebSocketManager.GetSharedDataForUser(userID)?.m_NameTag ?? 0;
+
+		// displayName and nameTag come from the database for users who may be offline; otherwise the online data is used
+		public static Member Of(Int64 userID, string? displayName = null, ClientType? client = null, int? nameTag = null)
 		{
+			int tag = nameTag ?? (displayName == null ? TagOf(userID) : 0);
 			return new Member
 			{
 				Id = userID,
 				Name = displayName ?? NameOf(userID),
+				Tag = tag > 0 ? Database.DisplayNames.FormatTag(tag) : null,
 				Badges = RealtimeBadges.For(userID),
 				Client = client
 			};
 		}
+
+		// A name looked up with RealtimeHub.NamesAsync; users not in it fall back to the online data
+		public static Member Of(Int64 userID, IReadOnlyDictionary<long, (string Name, int Tag)> names) =>
+			names.TryGetValue(userID, out (string Name, int Tag) stored) ? Of(userID, stored.Name, null, stored.Tag) : Of(userID);
 
 		public static Member Of(UserSession session) => Of(session.m_UserID, null, ClientOf(session.GetSessionType()));
 	}
