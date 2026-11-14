@@ -331,6 +331,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `matchmaking.creating` | `{players, map}` |
 | `matchmaking.preparing` | `{}` |
 | `matchmaking.starting` | `{seconds}` |
+| `matchmaking.left` | `{reason}`: the service took the player out of the queue and did not requeue them; `join_timeout`, `setup_failed`, `stats_unavailable`, `invalid_playlist`, more may follow (show a generic line for unknown reasons) |
 
 ### 6.5 Social
 
