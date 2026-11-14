@@ -20,7 +20,6 @@ using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using OpenIddict.Abstractions;
 using OpenIddict.Client.AspNetCore;
 using OpenIddict.Server.AspNetCore;
@@ -91,7 +90,6 @@ namespace GenOnlineService.Identity
 		}
 
 		[HttpGet("~/users/auth/{provider}")]
-		[EnableRateLimiting(AuthRateLimitPolicies.SignIn)]
 		public IActionResult Challenge(string provider, [FromQuery] string? returnUrl)
 		{
 			UpstreamProviderSettings? settings = m_settings.EnabledProviders.FirstOrDefault(p => p.Name == provider);
@@ -163,7 +161,6 @@ namespace GenOnlineService.Identity
 
 		[AcceptVerbs("GET", "POST", Route = "~/oauth/authorize")]
 		[IgnoreAntiforgeryToken]
-		[EnableRateLimiting(AuthRateLimitPolicies.SignIn)]
 		public async Task<IActionResult> Authorize()
 		{
 			OpenIddictRequest request = HttpContext.GetOpenIddictServerRequest() ?? throw new InvalidOperationException("The OpenID Connect request cannot be retrieved.");
@@ -208,7 +205,6 @@ namespace GenOnlineService.Identity
 
 		[HttpPost("~/oauth/token")]
 		[IgnoreAntiforgeryToken]
-		[EnableRateLimiting(AuthRateLimitPolicies.Token)]
 		public async Task<IActionResult> Exchange()
 		{
 			OpenIddictRequest request = HttpContext.GetOpenIddictServerRequest() ?? throw new InvalidOperationException("The OpenID Connect request cannot be retrieved.");

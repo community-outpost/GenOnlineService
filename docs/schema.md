@@ -83,7 +83,7 @@ bans
   -- several active bans per user allowed; the longest lasting decides what the player sees
 
 audit_log                 -- append-only, no retention purge
-  id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account'),
+  id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account' | 'upstream'; upstream rows: actor = provider name),
   actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token'),
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
 ```

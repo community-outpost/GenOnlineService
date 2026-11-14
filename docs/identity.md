@@ -153,6 +153,7 @@ Effective permissions in `application` = all `user_roles` rows (local and upstre
 ## 7. Account security
 
 - Local passwords (operator toggle): policy, breached-password check, lockout, rate limits on sign-in, sign-up, reset and 2FA.
+- HTTP rate limiting belongs to the proxy, not the service: flood protection, per-path limits (`/oauth/token`, `/oauth/authorize`, the sign-in pages, the API) and per-IP blocking belong to the reverse proxy in front of it (Envoy with CrowdSec in the official deployment); a self-hoster without such a proxy should put one in front. Set `TrustedProxies` to the proxy addresses only, so forwarded headers are trusted from the proxy alone and logs and `allowed_ips` see the real client address. Per-account limits (failed sign-ins lead to lockout) come with local passwords and TOTP in phase 3; ASP.NET Identity lockout (failed attempts lock the account) must be enabled for local password sign-in then, since a self-hoster may run without a proxy.
 - Email verification and reset need SMTP; without SMTP an operator runs upstream-only sign-in.
 - TOTP 2FA with recovery codes, mandatory for staff when local passwords are on; with Keycloak, MFA is enforced in Keycloak.
 - Sign-up modes: open, invite only, upstream only.

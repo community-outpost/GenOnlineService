@@ -142,7 +142,7 @@ api_tokens
   -- name is a label, not unique: rotation keeps the name, tokens are told apart by id (GitLab model)
 ```
 
-Audit events go to `audit_log`, the generalized `moderation_log` from the moderation work (one append-only timeline for kicks, bans, role grants and token events). Columns: `actor_kind` (user, cli, discord, service_account), `actor_id` (nullable), `actor` (label), `action`, `target_kind` (user, service_account, token), `target_id` (nullable), `reason`, `source`, `scope`, `details`, `created_at`.
+Audit events go to `audit_log`, the generalized `moderation_log` from the moderation work (one append-only timeline for kicks, bans, role grants and token events). Columns: `actor_kind` (user, cli, discord, service_account, upstream; an upstream row has the provider name, such as `keycloak`, as `actor`), `actor_id` (nullable), `actor` (label), `action`, `target_kind` (user, service_account, token), `target_id` (nullable), `reason`, `source`, `scope`, `details`, `created_at`.
 
 Token events:
 
@@ -173,7 +173,7 @@ Authorization:
 - `PermissionHandler`: a token principal passes when it carries the permission claim; a session principal passes when `StaffRoles.HasPermission(sub, name)` is true.
 - Endpoints use `[Authorize(Policy = "perm:...")]` and never check how the caller authenticated.
 
-Rate limiting partitions token callers by `token:<id>`.
+HTTP rate limiting belongs to the proxy (Envoy with CrowdSec), which limits and blocks callers; the service does none.
 
 `allowed_ips` relies on the real client address. The service logs an error at startup when any active token has an allow-list while `TrustedProxies` is empty and forwarded headers are present on requests, because every caller would then appear as the proxy.
 
