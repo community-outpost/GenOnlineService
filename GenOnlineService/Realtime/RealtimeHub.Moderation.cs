@@ -23,6 +23,9 @@ namespace GenOnlineService.Realtime
 	// Kick, mute and ban (section 5.5), each checked with its perm:<permission> policy and written to audit_log
 	public sealed partial class RealtimeHub
 	{
+		private const long MinimumDurationS = 60;
+		private const long MaximumDurationS = 315360000;
+
 		public async Task<Result<Empty>> Kick(ModerationRequest request)
 		{
 			Failure? failure = await RequirePermissionAsync(Permissions.ModerationKick) ?? CheckModeration(request.UserId, request.Reason);
@@ -31,44 +34,47 @@ namespace GenOnlineService.Realtime
 				return failure.Value;
 			}
 
-			if (WebSocketManager.GetSharedDataForUser(request.UserId) == null)
+			// without a backplane only this copy can hold the target, with one another copy may
+			if (WebSocketManager.GetSharedDataForUser(request.UserId) == null && !RealtimeControl.IsShared)
 			{
-				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-				return await Database.Users.Exists(db, request.UserId) ? Result.Fail(ErrorCodes.ModerationTargetOffline) : Result.NotFound("user");
+				return await TargetOfflineAsync(request.UserId);
 			}
 
-			ModerationResult result = await ModerationManager.KickUser(request.UserId, request.Reason, Actor());
+			ModerationResult result = await ModerationManager.KickUser(request.UserId, request.Reason ?? String.Empty, Actor());
 			return result.Result switch
 			{
 				EModerationResult.Success => Result.Success(),
 				EModerationResult.ReasonTooLong => ReasonTooLong(),
-				_ => Result.Fail(ErrorCodes.ModerationTargetOffline)
+				_ => await TargetOfflineAsync(request.UserId)
 			};
+		}
+
+		private async Task<Result<Empty>> TargetOfflineAsync(Int64 target)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			return await Database.Users.Exists(db, target) ? Result.Fail(ErrorCodes.ModerationTargetOffline) : Result.NotFound("user");
 		}
 
 		public async Task<Result<Empty>> Mute(MuteRequest request)
 		{
-			Failure? failure = await RequirePermissionAsync(Permissions.ModerationMute) ?? CheckModeration(request.UserId, request.Reason);
+			Failure? failure = await RequirePermissionAsync(Permissions.ModerationMute) ?? CheckModeration(request.UserId, request.Reason) ?? CheckDuration(request.DurationS, required: true);
 			if (failure != null)
 			{
 				return failure.Value;
 			}
-			if (request.DurationMs <= 0)
-			{
-				return Result.Invalid("duration_ms");
-			}
 
-			DateTime until = DateTime.UtcNow.AddMilliseconds(request.DurationMs);
+			DateTime expiresAt = DateTime.UtcNow.AddSeconds(request.DurationS.Value);
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				if (!await Database.Users.Exists(db, request.UserId))
 				{
 					return Result.NotFound("user");
 				}
-				await Database.Moderation.AddBan(db, request.UserId, BanRestrictions.Chat, request.Reason, until, Actor());
+				await Database.Moderation.AddBan(db, request.UserId, BanRestrictions.Chat, request.Reason ?? String.Empty, expiresAt, Actor());
 			}
 
-			await RealtimeOut.User(request.UserId).ModerationNotice(new ModerationNoticeEvent { Action = ModerationAction.Mute, Reason = request.Reason, Until = until });
+			ModerationNoticeEvent notice = new ModerationNoticeEvent { Action = ModerationAction.Mute, Reason = String.IsNullOrEmpty(request.Reason) ? null : request.Reason, ExpiresAt = expiresAt };
+			await RealtimeOut.User(request.UserId).ModerationNotice(notice);
 			return Result.Success();
 		}
 
@@ -76,24 +82,20 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<Empty>> Ban(BanRequest request)
 		{
-			Failure? failure = await RequirePermissionAsync(Permissions.ModerationBan) ?? CheckModeration(request.UserId, request.Reason);
+			Failure? failure = await RequirePermissionAsync(Permissions.ModerationBan) ?? CheckModeration(request.UserId, request.Reason, reasonRequired: true) ?? CheckDuration(request.DurationS, required: false);
 			if (failure != null)
 			{
 				return failure.Value;
 			}
-			if (request.DurationMs is <= 0)
-			{
-				return Result.Invalid("duration_ms");
-			}
 
-			DateTime? until = request.DurationMs == null ? null : DateTime.UtcNow.AddMilliseconds(request.DurationMs.Value);
+			DateTime? expiresAt = request.DurationS == null ? null : DateTime.UtcNow.AddSeconds(request.DurationS.Value);
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				if (!await Database.Users.Exists(db, request.UserId))
 				{
 					return Result.NotFound("user");
 				}
-				await Database.Moderation.AddBan(db, request.UserId, BanRestrictions.Play, request.Reason, until, Actor());
+				await Database.Moderation.AddBan(db, request.UserId, BanRestrictions.Play, request.Reason!, expiresAt, Actor());
 
 				// the reload refuses new connections and revokes and closes the game sessions at once
 				await AccessControl.Reload(db);
@@ -117,10 +119,11 @@ namespace GenOnlineService.Realtime
 				return Result.NotFound("user");
 			}
 
-			// a revoke with nothing active still reaches the audit log
-			if (await Database.Moderation.RevokeActiveBans(db, request.UserId, restriction, request.Reason, Actor()) == 0)
+			// a revoke with nothing active still reaches the audit log, a missing reason is stored empty
+			string reason = request.Reason ?? String.Empty;
+			if (await Database.Moderation.RevokeActiveBans(db, request.UserId, restriction, reason, Actor()) == 0)
 			{
-				await Database.Moderation.LogUserAction(db, Actor(), action, request.UserId, request.Reason);
+				await Database.Moderation.LogUserAction(db, Actor(), action, request.UserId, reason);
 			}
 			if (restriction == BanRestrictions.Play)
 			{
@@ -130,23 +133,38 @@ namespace GenOnlineService.Realtime
 			return Result.Success();
 		}
 
-		private Failure? CheckModeration(Int64 target, string? reason)
+		// Reasons are optional except on Ban, where a blank one is refused
+		private Failure? CheckModeration(Int64 target, string? reason, bool reasonRequired = false)
 		{
 			if (target <= 0 || target == UserID)
 			{
 				return Result.Invalid("user_id");
 			}
-			if (reason == null)
+			if (reasonRequired && String.IsNullOrWhiteSpace(reason))
 			{
 				return Result.Invalid("reason");
 			}
-			if (reason.Length > ModerationManager.MaximumReasonLength)
+			if (reason != null && reason.Length > ModerationManager.MaximumReasonLength)
 			{
 				return ReasonTooLong();
 			}
 			if (!StaffRoles.CanModerate(UserID, target))
 			{
 				return Result.Fail(ErrorCodes.ModerationTargetOutranks);
+			}
+			return null;
+		}
+
+		// Whole minutes from one minute up to ten years
+		private static Failure? CheckDuration(long? durationS, bool required)
+		{
+			if (durationS == null)
+			{
+				return required ? Result.Invalid("duration_s") : null;
+			}
+			if (durationS.Value < MinimumDurationS || durationS.Value > MaximumDurationS || durationS.Value % 60 != 0)
+			{
+				return Result.Invalid("duration_s");
 			}
 			return null;
 		}

@@ -50,6 +50,8 @@ public static class AuditTargetKinds
 	public const string User = "user";
 	public const string ServiceAccount = "service_account";
 	public const string Token = "token";
+	public const string Message = "message";
+	public const string Report = "report";
 }
 
 public static class ModerationActions
@@ -61,6 +63,10 @@ public static class ModerationActions
 	public const string Unmute = "unmute";
 	public const string RoleGrant = "role_grant";
 	public const string RoleRevoke = "role_revoke";
+	public const string MessageDelete = "message_delete";
+	public const string MessageLookup = "message_lookup";
+	public const string ReportView = "report_view";
+	public const string ReportClose = "report_close";
 }
 
 public static class ModerationSources
@@ -205,6 +211,11 @@ namespace Database
 
 		private static AuditLogEntry UserEntry(ModerationActor actor, string action, Int64 target, string? reason, object? details, DateTime now)
 		{
+			return Entry(actor, action, AuditTargetKinds.User, target, reason, details, now);
+		}
+
+		private static AuditLogEntry Entry(ModerationActor actor, string action, string targetKind, Int64 target, string? reason, object? details, DateTime now)
+		{
 			return new AuditLogEntry
 			{
 				CreatedAt = now,
@@ -212,7 +223,7 @@ namespace Database
 				ActorID = actor.UserID,
 				Actor = actor.Name,
 				Action = action,
-				TargetKind = AuditTargetKinds.User,
+				TargetKind = targetKind,
 				TargetID = target,
 				Reason = String.IsNullOrEmpty(reason) ? null : reason,
 				Source = actor.Source,
@@ -362,6 +373,33 @@ namespace Database
 			db.AuditLog.Add(UserEntry(actor, action, userID, reason, new { restriction, revoked = active.Count }, now));
 			await db.SaveChangesAsync();
 			return active.Count;
+		}
+
+		// Writes one audit row for a non user target and throws on failure, for actions that must not happen unlogged
+		public static async Task AddAuditEntry(AppDbContext db, ModerationActor actor, string action, string targetKind, Int64 target, string? reason, object? details = null)
+		{
+			db.AuditLog.Add(Entry(actor, action, targetKind, target, reason, details, DateTime.UtcNow));
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+		}
+
+		// Same as AddAuditEntry for an action that already happened, a failed write is only reported
+		public static async Task LogAction(AppDbContext db, ModerationActor actor, string action, string targetKind, Int64 target, string? reason, object? details = null)
+		{
+			try
+			{
+				await AddAuditEntry(db, actor, action, targetKind, target, reason, details);
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Moderation.LogAction failed for {Action} on {TargetKind} {TargetId}", action, targetKind, target);
+			}
 		}
 
 		// A failed log write never undoes an action that already happened, it is only reported

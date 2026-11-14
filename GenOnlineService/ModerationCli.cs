@@ -23,6 +23,7 @@ using System.Globalization;
 namespace GenOnlineService
 {
 	// "roles" and "bans" change the database directly, a running service applies the change on its next reconcile tick
+	// "reports" and "messages" are how staff read chat: through a report or an audited lookup, each written to audit_log
 	public static class ModerationCli
 	{
 		private const string RolesUsage =
@@ -37,7 +38,19 @@ namespace GenOnlineService
 			+ "  GenOnlineService bans add <user_id> --reason <text> [--days <n>] [--by <user_id>]\n"
 			+ "  GenOnlineService bans revoke <user_id> [--reason <text>] [--by <user_id>]";
 
+		private const string ReportsUsage =
+			"Usage:\n"
+			+ "  GenOnlineService reports list\n"
+			+ "  GenOnlineService reports show <report_id> --by <user_id>\n"
+			+ "  GenOnlineService reports close <report_id> [--reason <text>] [--by <user_id>]";
+
+		private const string MessagesUsage =
+			"Usage:\n"
+			+ "  GenOnlineService messages show <message_id> --reason <text> --by <user_id>\n"
+			+ "  GenOnlineService messages purge";
+
 		private const int MaximumBanDays = 36500;
+		private const int ReportListLimit = 200;
 
 		private sealed class CliException : Exception
 		{
@@ -272,6 +285,155 @@ namespace GenOnlineService
 
 				return 0;
 			}
+		});
+
+		private static Int64 ParseID(string text, string what)
+		{
+			if (!Int64.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out Int64 id) || id <= 0)
+			{
+				throw new CliException($"Not a {what} id: {text}");
+			}
+
+			return id;
+		}
+
+		// Anything that prints chat text names the staff account that reads it, never the anonymous cli actor
+		private static ModerationActor ParseReader(Arguments parsed)
+		{
+			if (!parsed.Options.ContainsKey("--by"))
+			{
+				throw new CliException("Reading chat names the staff account that reads it (--by <user_id>).");
+			}
+
+			return ParseActor(parsed);
+		}
+
+		private static string Describe(ChatMessage m)
+		{
+			string where = m.Kind switch
+			{
+				ChatMessageKinds.Channel => $"channel {m.ChannelID}",
+				ChatMessageKinds.Lobby => $"lobby {m.LobbyID} match {m.MatchID?.ToString(CultureInfo.InvariantCulture) ?? "none"}",
+				_ => $"direct to user {m.RecipientID}"
+			};
+			string content = m.DeletedAt != null ? $"[deleted {m.DeletedAt:yyyy-MM-dd HH:mm} UTC] {m.Content}" : m.Content;
+			return $"#{m.ID}  {m.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC  user {m.SenderID}  {where}  {m.Type}: {content}";
+		}
+
+		public static Task<int> RunReports(string[] args) => Run(async () =>
+		{
+			Arguments parsed = Parse(args, ReportsUsage, "--reason", "--by");
+			string verb = parsed.Positional.FirstOrDefault()?.ToLowerInvariant() ?? String.Empty;
+
+			if (verb == "list" && parsed.Positional.Count == 1)
+			{
+				await using AppDbContext db = await OpenDatabase();
+				List<ChatReport> reports = await Database.Chat.GetReports(db, ChatReportStatuses.Open, ReportListLimit);
+				if (reports.Count == 0)
+				{
+					Console.WriteLine("No open reports.");
+				}
+
+				foreach (ChatReport r in reports)
+				{
+					Console.WriteLine($"report {r.ID}  message {r.MessageID}  by user {r.ReporterID}  {r.CreatedAt:yyyy-MM-dd HH:mm} UTC  {r.Reason}");
+				}
+
+				return 0;
+			}
+
+			if (verb == "show" && parsed.Positional.Count == 2)
+			{
+				Int64 reportID = ParseID(parsed.Positional[1], "report");
+				ModerationActor actor = ParseReader(parsed);
+
+				await using AppDbContext db = await OpenDatabase();
+				await RequireUser(db, actor.UserID!.Value);
+				ChatReport report = await Database.Chat.GetReport(db, reportID) ?? throw new CliException($"Report {reportID} does not exist.");
+
+				// reading a report shows chat, so every read is logged before anything is printed
+				await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.ReportView, AuditTargetKinds.Report, reportID, null, new { message_id = report.MessageID });
+
+				string closed = report.ClosedAt == null ? String.Empty : $" {report.ClosedAt:yyyy-MM-dd HH:mm} UTC";
+				Console.WriteLine($"report {report.ID}  {report.Status}{closed}  message {report.MessageID}  by user {report.ReporterID}  {report.CreatedAt:yyyy-MM-dd HH:mm} UTC  {report.Reason}");
+				Console.WriteLine("snapshot:");
+				Console.WriteLine(report.Snapshot);
+
+				if (Database.Chat.SnapshotAfterPending(report.Snapshot))
+				{
+					ChatMessage? reported = await Database.Chat.GetMessage(db, report.MessageID);
+					List<ChatMessage> after = reported == null ? new List<ChatMessage>() : await Database.Chat.GetMessagesAfter(db, reported);
+					Console.WriteLine("after (live, not yet frozen, the retention purge freezes it before the reported message expires):");
+					if (after.Count == 0)
+					{
+						Console.WriteLine("  none");
+					}
+
+					foreach (ChatMessage m in after)
+					{
+						Console.WriteLine("  " + Describe(m));
+					}
+				}
+
+				return 0;
+			}
+
+			if (verb == "close" && parsed.Positional.Count == 2)
+			{
+				Int64 reportID = ParseID(parsed.Positional[1], "report");
+				string reason = ParseReason(parsed, required: false);
+				ModerationActor actor = ParseActor(parsed);
+
+				await using AppDbContext db = await OpenDatabase();
+				if (await Database.Chat.GetReport(db, reportID) == null)
+				{
+					throw new CliException($"Report {reportID} does not exist.");
+				}
+
+				if (!await Database.Chat.CloseReport(db, reportID))
+				{
+					Console.WriteLine($"Report {reportID} is already closed, nothing changed.");
+					return 0;
+				}
+
+				await Database.Moderation.LogAction(db, actor, ModerationActions.ReportClose, AuditTargetKinds.Report, reportID, reason);
+				Console.WriteLine($"Closed report {reportID}.");
+				return 0;
+			}
+
+			throw new CliException(ReportsUsage);
+		});
+
+		public static Task<int> RunMessages(string[] args) => Run(async () =>
+		{
+			Arguments parsed = Parse(args, MessagesUsage, "--reason", "--by");
+			string verb = parsed.Positional.FirstOrDefault()?.ToLowerInvariant() ?? String.Empty;
+
+			if (verb == "show" && parsed.Positional.Count == 2)
+			{
+				Int64 messageID = ParseID(parsed.Positional[1], "message");
+				string reason = ParseReason(parsed, required: true);
+				ModerationActor actor = ParseReader(parsed);
+
+				await using AppDbContext db = await OpenDatabase();
+				await RequireUser(db, actor.UserID!.Value);
+				ChatMessage message = await Database.Chat.GetMessage(db, messageID) ?? throw new CliException($"Message {messageID} does not exist.");
+
+				// the audit row is written first and a failed write stops the lookup
+				await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.MessageLookup, AuditTargetKinds.Message, messageID, reason, new { kind = message.Kind });
+				Console.WriteLine(Describe(message));
+				return 0;
+			}
+
+			if (verb == "purge" && parsed.Positional.Count == 1)
+			{
+				await using AppDbContext db = await OpenDatabase();
+				ChatPurgeCounts counts = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
+				Console.WriteLine($"Purged {counts.Messages} message(s), {counts.ReadMarkers} read marker(s) and {counts.Reports} closed report(s).");
+				return 0;
+			}
+
+			throw new CliException(MessagesUsage);
 		});
 	}
 }

@@ -54,7 +54,7 @@ namespace GenOnlineService.Identity
 			try
 			{
 				GameSessions.RemoveSignIn(authorizationID);
-				await WebSocketManager.DisconnectSignIn(authorizationID, CloseCodes.AuthRevoked);
+				await Realtime.RealtimeControl.RequestClose(Realtime.CloseRequest.ForSignIn(authorizationID, CloseCodes.AuthRevoked));
 			}
 			catch (Exception ex)
 			{

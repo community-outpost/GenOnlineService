@@ -25,7 +25,7 @@ namespace GenOnlineService.Realtime
 
 	public enum ClientType { Game, Launcher, Chat }
 	public enum MessageType { Chat, Action, Announcement }
-	public enum PresenceActivity { Offline, Menu, Room, Lobby, Matchmaking, InGame }
+	public enum PresenceActivity { Offline, Menu, Channel, Lobby, Matchmaking, InGame }
 	public enum ModerationAction { Kick, Ban, Mute }
 	public enum SlotState { Open, Closed, Player, AiEasy, AiMedium, AiBrutal }
 	public enum LobbyType { Custom, QuickMatch }
@@ -52,6 +52,22 @@ namespace GenOnlineService.Realtime
 		public ClientType? Client { get; init; }
 	}
 
+	// A chat message as MessageCreate and history carry it, a tombstone has only id, channel_id, created_at and deleted
+	public sealed record Message
+	{
+		public string Id { get; init; } = "";
+		public string ChannelId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public MessageType? Type { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public Member? Author { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Content { get; init; }
+		public DateTime CreatedAt { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+		public bool Deleted { get; init; }
+	}
+
 	public sealed record FriendMember
 	{
 		public long Id { get; init; }
@@ -59,6 +75,7 @@ namespace GenOnlineService.Realtime
 		public IReadOnlyList<string> Badges { get; init; } = [];
 		public bool Online { get; init; }
 		public PresenceActivity Activity { get; init; }
+		public long? ChannelId { get; init; }
 	}
 
 	public sealed record BadgeDefinition
@@ -180,11 +197,11 @@ namespace GenOnlineService.Realtime
 		public bool AllowTeams { get; init; }
 		public int? TeamSize { get; init; }
 		public bool AllowArmySelection { get; init; }
-		public long GracePeriodMs { get; init; }
+		public long GracePeriodS { get; init; }
 		public IReadOnlyList<PlaylistMap> Maps { get; init; } = [];
 	}
 
-	public sealed record RoomInfo
+	public sealed record ChannelInfo
 	{
 		public long Id { get; init; }
 		public string Name { get; init; } = "";
@@ -195,7 +212,7 @@ namespace GenOnlineService.Realtime
 	public sealed record ChatRate
 	{
 		public int Messages { get; init; }
-		public long WindowMs { get; init; }
+		public long WindowS { get; init; }
 	}
 
 	public sealed record Limits
@@ -219,9 +236,9 @@ namespace GenOnlineService.Realtime
 		public long UserId { get; init; }
 	}
 
-	public sealed record JoinRoomRequest
+	public sealed record JoinChannelRequest
 	{
-		public long RoomId { get; init; }
+		public long ChannelId { get; init; }
 	}
 
 	public sealed record SendMessageRequest
@@ -229,6 +246,28 @@ namespace GenOnlineService.Realtime
 		public string ChannelId { get; init; } = "";
 		public MessageType Type { get; init; }
 		public string Content { get; init; } = "";
+	}
+
+	public sealed record GetHistoryRequest
+	{
+		public string ChannelId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Before { get; init; }
+		public int Limit { get; init; }
+	}
+
+	public sealed record MarkReadRequest
+	{
+		public string ChannelId { get; init; } = "";
+		public string MessageId { get; init; } = "";
+	}
+
+	// DeleteMessage and ReportMessage
+	public sealed record MessageActionRequest
+	{
+		public string MessageId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Reason { get; init; }
 	}
 
 	public sealed record SetDisplayNameRequest
@@ -364,22 +403,24 @@ namespace GenOnlineService.Realtime
 	public sealed record ModerationRequest
 	{
 		public long UserId { get; init; }
-		public string Reason { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Reason { get; init; }
 	}
 
 	public sealed record MuteRequest
 	{
 		public long UserId { get; init; }
-		public long DurationMs { get; init; }
-		public string Reason { get; init; } = "";
+		public long? DurationS { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Reason { get; init; }
 	}
 
 	public sealed record BanRequest
 	{
 		public long UserId { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public long? DurationMs { get; init; }
-		public string Reason { get; init; } = "";
+		public long? DurationS { get; init; }
+		public string? Reason { get; init; }
 	}
 
 	public sealed record RequestSignallingRequest
@@ -425,6 +466,12 @@ namespace GenOnlineService.Realtime
 		public string MessageId { get; init; } = "";
 	}
 
+	public sealed record HistoryData
+	{
+		public IReadOnlyList<Message> Messages { get; init; } = [];
+		public bool HasMore { get; init; }
+	}
+
 	public sealed record WatchLobbyListData
 	{
 		public IReadOnlyList<LobbySummary> Lobbies { get; init; } = [];
@@ -461,7 +508,7 @@ namespace GenOnlineService.Realtime
 		public Member User { get; init; } = new Member();
 		public IReadOnlyList<string> Permissions { get; init; } = [];
 		public IReadOnlyDictionary<string, BadgeDefinition> Badges { get; init; } = new Dictionary<string, BadgeDefinition>();
-		public IReadOnlyList<RoomInfo> Rooms { get; init; } = [];
+		public IReadOnlyList<ChannelInfo> Channels { get; init; } = [];
 		public Limits Limits { get; init; } = new Limits();
 	}
 
@@ -479,14 +526,15 @@ namespace GenOnlineService.Realtime
 	public sealed record ModerationNoticeEvent
 	{
 		public ModerationAction Action { get; init; }
-		public string Reason { get; init; } = "";
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public DateTime? Until { get; init; }
+		public string? Reason { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public DateTime? ExpiresAt { get; init; }
 	}
 
-	public sealed record RoomMembersEvent
+	public sealed record ChannelMembersEvent
 	{
-		public long RoomId { get; init; }
+		public long ChannelId { get; init; }
 		public IReadOnlyList<Member> Members { get; init; } = [];
 	}
 
@@ -507,13 +555,30 @@ namespace GenOnlineService.Realtime
 		public Member Member { get; init; } = new Member();
 	}
 
-	public sealed record MessageCreateEvent
+	public sealed record ChannelHistoryEvent
 	{
-		public string Id { get; init; } = "";
 		public string ChannelId { get; init; } = "";
-		public MessageType Type { get; init; }
-		public Member Author { get; init; } = new Member();
-		public string Content { get; init; } = "";
+		public IReadOnlyList<Message> Messages { get; init; } = [];
+		public bool HasMore { get; init; }
+	}
+
+	// MessageDelete and ReadMarker
+	public sealed record MessageRefEvent
+	{
+		public string ChannelId { get; init; } = "";
+		public string MessageId { get; init; } = "";
+	}
+
+	public sealed record DirectConversationInfo
+	{
+		public long UserId { get; init; }
+		public int Unread { get; init; }
+		public Message Last { get; init; } = new Message();
+	}
+
+	public sealed record DirectMessagesEvent
+	{
+		public IReadOnlyList<DirectConversationInfo> Conversations { get; init; } = [];
 	}
 
 	public sealed record LobbyListUpsertEvent
@@ -540,7 +605,7 @@ namespace GenOnlineService.Realtime
 	public sealed record CountdownStartedEvent
 	{
 		public long LobbyId { get; init; }
-		public long DurationMs { get; init; }
+		public long DurationS { get; init; }
 	}
 
 	public sealed record CountdownCancelledEvent
@@ -574,8 +639,8 @@ namespace GenOnlineService.Realtime
 
 	public sealed record MatchSetupProgressEvent
 	{
-		public long TimeoutMs { get; init; }
-		public long CountdownMs { get; init; }
+		public long TimeoutS { get; init; }
+		public long CountdownS { get; init; }
 	}
 
 	public sealed record MatchRequeueEvent
@@ -612,6 +677,7 @@ namespace GenOnlineService.Realtime
 		public bool Online { get; init; }
 		public IReadOnlyList<ClientType> Clients { get; init; } = [];
 		public PresenceActivity Activity { get; init; }
+		public long? ChannelId { get; init; }
 	}
 
 	public sealed record StartSignallingEvent

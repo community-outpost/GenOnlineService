@@ -16,6 +16,8 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Identity;
+
 namespace GenOnlineService
 {
 	public enum ELobbyJoinability
@@ -140,10 +142,16 @@ namespace GenOnlineService.Realtime
 			};
 		}
 
-		// Custom lobbies in setup or countdown that the viewer may join
-		public static bool IsListedFor(Lobby lobby, Int64 viewerID)
+		// Custom lobbies in setup or countdown of the viewer build that the viewer may join
+		public static bool IsListedFor(Lobby lobby, UserSession viewer)
 		{
+			Int64 viewerID = viewer.m_UserID;
 			if (lobby.LobbyType != ELobbyType.CustomGame || (lobby.State != ELobbyState.GAME_SETUP && lobby.State != ELobbyState.COUNTDOWN) || lobby.GetNumberOfHumans() == 0)
+			{
+				return false;
+			}
+
+			if (!IsBuildListedFor(lobby, viewer))
 			{
 				return false;
 			}
@@ -161,6 +169,18 @@ namespace GenOnlineService.Realtime
 			}
 
 			return lobby.LobbyJoinability != ELobbyJoinability.FriendsOnly || social.Friends.Contains(viewerID);
+		}
+
+		// A game client sees only lobbies of its registered build, a launcher or chat session has no build and cannot join, so it browses every build
+		private static bool IsBuildListedFor(Lobby lobby, UserSession viewer)
+		{
+			if (viewer.GetSessionType() != EUserSessionType.GameClient)
+			{
+				return true;
+			}
+
+			GameSessionRegistration? registration = GameSessions.Get(viewer.m_UserID, EUserSessionType.GameClient);
+			return registration != null && GameBuild.Of(registration) == lobby.Build;
 		}
 
 		// The slowest link to any other player bounds the viewer, so the lobby reports the largest estimate

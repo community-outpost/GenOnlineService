@@ -21,7 +21,7 @@ using System.Text.RegularExpressions;
 
 namespace GenOnlineService.Realtime
 {
-	// Rooms, chat and display names (section 5.1 and 6.2)
+	// Channels, chat and display names (section 5.1 and 6.2)
 	public sealed partial class RealtimeHub
 	{
 		private const int StoredNameMaxLength = 32;
@@ -37,32 +37,30 @@ namespace GenOnlineService.Realtime
 		// Lobbies add (N) to tell duplicate names apart, so a name never ends with one
 		private static readonly Regex s_dedupeSuffix = new(@"\((1[0-9]|20|[0-9])\)$", RegexOptions.Compiled);
 
-		private static long s_lastMessageID;
-
-		public async Task<Result<Empty>> JoinRoom(JoinRoomRequest request)
+		public async Task<Result<Empty>> JoinChannel(JoinChannelRequest request)
 		{
-			if (request.RoomId < 0 || request.RoomId > Int16.MaxValue)
+			if (request.ChannelId < 0 || request.ChannelId > Int16.MaxValue)
 			{
-				return Result.Fail(ErrorCodes.RoomUnavailable);
+				return Result.Fail(ErrorCodes.ChannelUnavailable);
 			}
 
 			UserSession session = Session;
-			Int16 oldRoom = session.networkRoomID;
-			if (!session.TryUpdateSessionNetworkRoom((Int16)request.RoomId))
+			Int16 oldChannel = session.networkRoomID;
+			if (!session.TryUpdateSessionNetworkRoom((Int16)request.ChannelId))
 			{
-				return Result.Fail(ErrorCodes.RoomUnavailable);
+				return Result.Fail(ErrorCodes.ChannelUnavailable);
 			}
 
-			await ChangeRoomAsync(session, oldRoom, session.networkRoomID);
+			await ChangeChannelAsync(session, oldChannel, session.networkRoomID);
 			return Result.Success();
 		}
 
-		public async Task<Result<Empty>> LeaveRoom(Empty request)
+		public async Task<Result<Empty>> LeaveChannel(Empty request)
 		{
 			UserSession session = Session;
-			Int16 oldRoom = session.networkRoomID;
+			Int16 oldChannel = session.networkRoomID;
 			session.ClearSessionNetworkRoom();
-			await ChangeRoomAsync(session, oldRoom, -1);
+			await ChangeChannelAsync(session, oldChannel, -1);
 			return Result.Success();
 		}
 
@@ -97,19 +95,23 @@ namespace GenOnlineService.Realtime
 			}
 
 			// the audience is resolved before any limit is spent
-			Func<MessageCreateEvent, Task> deliver;
+			string storedType = StoredType(request.Type);
+			Func<AppDbContext, Task<ChatMessage>> store;
+			Func<Message, Task> deliver;
+			bool recipientOffline = false;
 			switch (kind)
 			{
-				case "room":
+				case "channel":
 				{
-					Int16 roomID = session.networkRoomID;
-					if (roomID < 0 || targetID != roomID)
+					Int16 channelID = session.networkRoomID;
+					if (channelID < 0 || targetID != channelID)
 					{
 						return Result.NotFound("channel");
 					}
 
-					List<string> excluded = BlockedConnections(author, RealtimeAudience.AllSessions().Where(s => s.networkRoomID == roomID));
-					deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Room(roomID), excluded).MessageCreate(message);
+					List<string> excluded = BlockedConnections(author, RealtimeAudience.AllSessions().Where(s => s.networkRoomID == channelID));
+					store = db => Database.Chat.InsertChannelMessage(db, channelID, author, storedType, content);
+					deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Channel(channelID), excluded).MessageCreate(message);
 					break;
 				}
 				case "lobby":
@@ -128,8 +130,13 @@ namespace GenOnlineService.Realtime
 					}
 
 					List<UserSession> memberSessions = new();
+					List<Int64> memberIDs = new();
 					foreach (LobbyMember? member in lobby.Members.ToArray())
 					{
+						if (member != null && member.IsHuman())
+						{
+							memberIDs.Add(member.UserID);
+						}
 						UserSession? memberSession = member != null && member.IsHuman() ? WebSocketManager.GetSessionFromUser(member.UserID, EUserSessionType.GameClient) : null;
 						if (memberSession != null)
 						{
@@ -138,34 +145,42 @@ namespace GenOnlineService.Realtime
 					}
 
 					List<string> excluded = BlockedConnections(author, memberSessions);
-					deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Lobby(targetID), excluded).MessageCreate(message);
+					Int64? matchID = lobby.MatchID == 0 ? null : (Int64)lobby.MatchID;
+					store = db => Database.Chat.InsertLobbyMessage(db, targetID, matchID, author, storedType, content);
+					deliver = message =>
+					{
+						// lets members who leave later still report what they received
+						LobbyChatAudience.Record(targetID, memberIDs);
+						return RealtimeOut.GroupExcept(RealtimeGroups.Lobby(targetID), excluded).MessageCreate(message);
+					};
 					break;
 				}
 				default:
 				{
-					if (targetID == author)
+					if (targetID <= 0 || targetID == author)
 					{
 						return Result.Invalid("channel_id");
 					}
-					if (!SocialState.HasFriend(author, targetID) || RealtimeAudience.BlockedEitherWay(author, targetID))
+					if (!SocialState.HasFriend(author, targetID) || SocialState.HasBlocked(author, targetID))
 					{
 						return Result.Fail(ErrorCodes.ChatNotFriends);
 					}
-					if (WebSocketManager.GetSharedDataForUser(targetID) == null)
-					{
-						return Result.Fail(ErrorCodes.ChatRecipientOffline);
-					}
-					if (!SocialState.HasFriend(targetID, author))
+
+					// an offline friend has no cached social state, so the block check below reads the database
+					recipientOffline = WebSocketManager.GetSharedDataForUser(targetID) == null;
+					if (!recipientOffline && (SocialState.HasBlocked(targetID, author) || !SocialState.HasFriend(targetID, author)))
 					{
 						return Result.Fail(ErrorCodes.ChatNotFriends);
 					}
 
 					Int64 recipient = targetID;
-					deliver = message =>
+					store = db => Database.Chat.InsertDirectMessage(db, author, recipient, storedType, content);
+
+					// each side sees the conversation as dm:<the other user>
+					deliver = async message =>
 					{
-						List<string> connections = RealtimeAudience.ConnectionsOf(author);
-						connections.AddRange(RealtimeAudience.ConnectionsOf(recipient));
-						return RealtimeOut.Connections(connections.Distinct().ToArray()).MessageCreate(message);
+						await RealtimeOut.User(author).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(recipient) });
+						await RealtimeOut.User(recipient).MessageCreate(message with { ChannelId = Database.Chat.DirectConversationKey(author) });
 					};
 					break;
 				}
@@ -174,31 +189,43 @@ namespace GenOnlineService.Realtime
 			Ban? mute;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
+				if (recipientOffline && await Database.Social.IsBlocked(db, targetID, author))
+				{
+					return Result.Fail(ErrorCodes.ChatNotFriends);
+				}
 				mute = await Database.Moderation.GetActiveChatMute(db, author);
 			}
 			if (mute != null)
 			{
-				return mute.ExpiresAt == null ? Result.Fail(ErrorCodes.ChatMuted) : Result.Fail(ErrorCodes.ChatMuted, new { Until = mute.ExpiresAt.Value });
+				return mute.ExpiresAt == null ? Result.Fail(ErrorCodes.ChatMuted) : Result.Fail(ErrorCodes.ChatMuted, new { ExpiresAt = mute.ExpiresAt.Value });
 			}
 
-			// only the public room chat is rate limited, lobby hosts can kick and direct messages go to friends
-			if (kind == "room" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
+			// only the public channel chat is rate limited, lobby hosts can kick and direct messages go to friends
+			if (kind == "channel" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
 			{
 				return Result.Fail(ErrorCodes.ChatRateLimited, new { RetryAfterMs = retryAfterMs });
 			}
 
-			string messageID = Interlocked.Increment(ref s_lastMessageID).ToString(CultureInfo.InvariantCulture);
-			MessageCreateEvent message = new MessageCreateEvent
+			// stored before delivery, so the wire id and created_at are the stored ones and history never misses a delivered message
+			ChatMessage stored;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				stored = await store(db);
+			}
+
+			string messageID = stored.ID.ToString(CultureInfo.InvariantCulture);
+			Message message = new Message
 			{
 				Id = messageID,
-				ChannelId = request.ChannelId,
+				ChannelId = ConversationIDOf(stored, author),
 				Type = request.Type,
 				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName),
-				Content = content
+				Content = content,
+				CreatedAt = stored.CreatedAt
 			};
 			await deliver(message);
 
-			if (kind == "room" && Program.g_Discord != null)
+			if (kind == "channel" && Program.g_Discord != null)
 			{
 				RealtimeOut.Fire(Program.g_Discord.SendNetworkRoomChat((int)targetID, author, authorData.m_strDisplayName, content));
 			}
@@ -257,7 +284,7 @@ namespace GenOnlineService.Realtime
 			}
 			userData.m_strDisplayName = name;
 
-			IRealtimeClient audience = RealtimeOut.Connections(NameAudience(userID));
+			IRealtimeClient audience = RealtimeOut.Groups(NameAudience(userID));
 			foreach (UserSession userSession in WebSocketManager.GetAllDataFromUser(userID))
 			{
 				await audience.MemberUpdate(new MemberUpdateEvent { Member = RealtimeMembers.Of(userSession) });
@@ -266,49 +293,50 @@ namespace GenOnlineService.Realtime
 			return Result.Success();
 		}
 
-		private partial async Task RestoreRoomAsync(UserSession session)
+		private partial async Task RestoreChannelAsync(UserSession session)
 		{
-			Int16 roomID = session.networkRoomID;
-			if (roomID < 0)
+			Int16 channelID = session.networkRoomID;
+			if (channelID < 0)
 			{
 				return;
 			}
 
-			string channel = RealtimeGroups.Room(roomID);
+			string channel = RealtimeGroups.Channel(channelID);
 			await Clients.Group(channel).MemberAdd(new MemberAddEvent { ChannelId = channel, Member = RealtimeMembers.Of(session) });
 			await Groups.AddToGroupAsync(Context.ConnectionId, channel);
-			await Clients.Caller.RoomMembers(BuildRoomMembers(roomID));
+			await Clients.Caller.ChannelMembers(BuildChannelMembers(channelID));
+			await SendChannelHistoryAsync(channelID);
 		}
 
-		// A dropped connection leaves its room for the others, the session keeps the room for RestoreRoomAsync
-		private static async Task LeaveRoomOnCloseAsync(UserSession session)
+		// A dropped connection leaves its channel for the others, the session keeps the channel for RestoreChannelAsync
+		private static async Task LeaveChannelOnCloseAsync(UserSession session)
 		{
-			// a newer connection of the same session took over and stays in the room
+			// a newer connection of the same session took over and stays in the channel
 			if (WebSocketManager.GetWebSocketForSession(session) != null)
 			{
 				return;
 			}
 
-			Int16 roomID = session.networkRoomID;
-			if (roomID >= 0)
+			Int16 channelID = session.networkRoomID;
+			if (channelID >= 0)
 			{
-				await AnnounceRoomLeaveAsync(session, roomID);
+				await AnnounceChannelLeaveAsync(session, channelID);
 			}
 		}
 
-		private async Task ChangeRoomAsync(UserSession session, Int16 oldRoom, Int16 newRoom)
+		private async Task ChangeChannelAsync(UserSession session, Int16 oldChannel, Int16 newChannel)
 		{
-			if (oldRoom != newRoom)
+			if (oldChannel != newChannel)
 			{
-				if (oldRoom >= 0)
+				if (oldChannel >= 0)
 				{
-					await Groups.RemoveFromGroupAsync(Context.ConnectionId, RealtimeGroups.Room(oldRoom));
-					await AnnounceRoomLeaveAsync(session, oldRoom);
+					await Groups.RemoveFromGroupAsync(Context.ConnectionId, RealtimeGroups.Channel(oldChannel));
+					await AnnounceChannelLeaveAsync(session, oldChannel);
 				}
 
-				if (newRoom >= 0)
+				if (newChannel >= 0)
 				{
-					string channel = RealtimeGroups.Room(newRoom);
+					string channel = RealtimeGroups.Channel(newChannel);
 					await Clients.Group(channel).MemberAdd(new MemberAddEvent { ChannelId = channel, Member = RealtimeMembers.Of(session) });
 					await Groups.AddToGroupAsync(Context.ConnectionId, channel);
 				}
@@ -316,40 +344,41 @@ namespace GenOnlineService.Realtime
 				PublishPresence(session.m_UserID);
 			}
 
-			if (newRoom >= 0)
+			if (newChannel >= 0)
 			{
-				await Clients.Caller.RoomMembers(BuildRoomMembers(newRoom));
+				await Clients.Caller.ChannelMembers(BuildChannelMembers(newChannel));
+				await SendChannelHistoryAsync(newChannel);
 			}
 		}
 
-		// MemberRemove carries only the user id, so the user's sessions still in the room are added again
-		private static async Task AnnounceRoomLeaveAsync(UserSession leaving, Int16 roomID)
+		// MemberRemove carries only the user id, so the user's sessions still in the channel are added again
+		private static async Task AnnounceChannelLeaveAsync(UserSession leaving, Int16 channelID)
 		{
-			string channel = RealtimeGroups.Room(roomID);
-			IRealtimeClient room = RealtimeOut.Group(channel);
-			await room.MemberRemove(new MemberRemoveEvent { ChannelId = channel, UserId = leaving.m_UserID });
+			string channel = RealtimeGroups.Channel(channelID);
+			IRealtimeClient audience = RealtimeOut.Group(channel);
+			await audience.MemberRemove(new MemberRemoveEvent { ChannelId = channel, UserId = leaving.m_UserID });
 
 			foreach (UserSession remaining in WebSocketManager.GetAllDataFromUser(leaving.m_UserID))
 			{
-				if (!ReferenceEquals(remaining, leaving) && remaining.networkRoomID == roomID && RealtimeAudience.ConnectionOf(remaining) != null)
+				if (!ReferenceEquals(remaining, leaving) && remaining.networkRoomID == channelID && RealtimeAudience.ConnectionOf(remaining) != null)
 				{
-					await room.MemberAdd(new MemberAddEvent { ChannelId = channel, Member = RealtimeMembers.Of(remaining) });
+					await audience.MemberAdd(new MemberAddEvent { ChannelId = channel, Member = RealtimeMembers.Of(remaining) });
 				}
 			}
 		}
 
-		private static RoomMembersEvent BuildRoomMembers(Int16 roomID)
+		private static ChannelMembersEvent BuildChannelMembers(Int16 channelID)
 		{
 			List<Member> members = new();
 			foreach (UserSession session in RealtimeAudience.AllSessions())
 			{
-				if (session.networkRoomID == roomID && RealtimeAudience.ConnectionOf(session) != null)
+				if (session.networkRoomID == channelID && RealtimeAudience.ConnectionOf(session) != null)
 				{
 					members.Add(RealtimeMembers.Of(session));
 				}
 			}
 
-			return new RoomMembersEvent { RoomId = roomID, Members = members };
+			return new ChannelMembersEvent { ChannelId = channelID, Members = members };
 		}
 
 		// Connections of the given sessions whose user blocked the author or was blocked by them
@@ -372,28 +401,29 @@ namespace GenOnlineService.Realtime
 			return excluded;
 		}
 
-		// Everyone who can see the user: their own connections, their rooms, their lobby and their friends
+		// Everyone who can see the user: their own connections, their channels, their lobby and their friends, as disjoint groups so nobody hears it twice
 		private static IReadOnlyList<string> NameAudience(Int64 userID)
 		{
 			List<UserSession> own = WebSocketManager.GetAllDataFromUser(userID);
-			HashSet<Int16> rooms = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
+			HashSet<Int16> channels = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
 			HashSet<Int64> lobbies = own.Where(s => s.currentLobbyID != -1).Select(s => s.currentLobbyID).ToHashSet();
-			HashSet<Int64> friends = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
 
-			HashSet<string> connections = new(StringComparer.Ordinal);
+			// the user and their friends hear it on every connection and every copy
+			HashSet<Int64> wholeUsers = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
+			wholeUsers.Add(userID);
+			HashSet<string> groups = new(wholeUsers.Select(RealtimeGroups.User), StringComparer.Ordinal);
+
+			// channel and lobby members are known from this copy's sessions only, each through its own session group
 			foreach (UserSession session in RealtimeAudience.AllSessions())
 			{
-				bool sees = session.m_UserID == userID
-					|| rooms.Contains(session.networkRoomID)
-					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID))
-					|| friends.Contains(session.m_UserID);
-				string? connectionID = sees ? RealtimeAudience.ConnectionOf(session) : null;
-				if (connectionID != null)
+				bool sees = channels.Contains(session.networkRoomID)
+					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID));
+				if (sees && !wholeUsers.Contains(session.m_UserID) && RealtimeAudience.ConnectionOf(session) != null)
 				{
-					connections.Add(connectionID);
+					groups.Add(RealtimeGroups.UserSession(session.m_UserID, session.GetSessionType()));
 				}
 			}
-			return connections.ToArray();
+			return groups.ToArray();
 		}
 
 		private static string? ReservedWordIn(string name)
@@ -421,7 +451,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			kind = channelID.Substring(0, separator);
-			return (kind == "room" || kind == "lobby" || kind == "dm")
+			return (kind == "channel" || kind == "lobby" || kind == "dm")
 				&& Int64.TryParse(channelID.Substring(separator + 1), NumberStyles.None, CultureInfo.InvariantCulture, out id);
 		}
 	}

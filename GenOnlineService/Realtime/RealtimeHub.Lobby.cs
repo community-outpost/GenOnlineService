@@ -111,7 +111,7 @@ namespace GenOnlineService.Realtime
 				lobbyID = await m_lobbyManager.CreateLobby(db, session, displayName, request.Name, request.Map.Name, request.Map.Path, request.Map.Official, request.MaxPlayers,
 					(UInt16)request.PreferredPort, settings.VanillaTeams, settings.TrackStats, (UInt32)settings.StartingCash, settings.LimitSuperweapons,
 					request.Password != null, request.Password ?? String.Empty, session.networkRoomID, settings.AllowObservers, (UInt16)settings.MaxCameraHeight,
-					build.ExeCrc ?? 0, build.IniCrc ?? 0, ELobbyType.CustomGame, (EKnownAnticheatID)build.AnticheatID,
+					GameBuild.Of(build), ELobbyType.CustomGame,
 					request.Visibility == LobbyVisibility.Friends ? ELobbyJoinability.FriendsOnly : ELobbyJoinability.Public);
 			}
 
@@ -153,7 +153,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			JoinLobbyResult joined = await m_lobbyManager.JoinAsync(new JoinLobbyCommand(request.LobbyId, UserID, SessionType, (UInt16)request.PreferredPort,
-				request.HasMap, (EKnownAnticheatID)build.AnticheatID, request.Password, build.ExeCrc ?? 0, build.IniCrc ?? 0));
+				request.HasMap, request.Password, GameBuild.Of(build)));
 
 			if (joined.Status != LobbyMembershipStatus.Success)
 			{
@@ -493,7 +493,7 @@ namespace GenOnlineService.Realtime
 				AllowTeams = playlist.AllowTeams,
 				TeamSize = playlist.TeamSize < 0 ? null : playlist.TeamSize,
 				AllowArmySelection = playlist.AllowArmySelection,
-				GracePeriodMs = playlist.GracePeriodAtMinPlayersMSec,
+				GracePeriodS = (playlist.GracePeriodAtMinPlayersMSec + 999) / 1000,
 				Maps = playlist.Maps.Select((map, index) => new PlaylistMap
 				{
 					Index = index,
@@ -528,7 +528,7 @@ namespace GenOnlineService.Realtime
 
 			UInt16 playlistID = (UInt16)request.PlaylistId;
 			MatchmakingManager.ERegisterResult registered = await MatchmakingManager.RegisterPlayer(Session, playlistID, request.MapIndexes,
-				build.ExeCrc ?? 0, build.IniCrc ?? 0, (EKnownAnticheatID)build.AnticheatID);
+				GameBuild.Of(build));
 
 			return registered switch
 			{

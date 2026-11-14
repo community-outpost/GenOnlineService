@@ -25,11 +25,11 @@ using System.Security.Claims;
 
 namespace GenOnlineService.Realtime
 {
-	// Realtime protocol v1 at /-/realtime; each area of the protocol lives in its own partial file
+	// Realtime protocol v1 at /realtime, each area of the protocol lives in its own partial file
 	[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 	public sealed partial class RealtimeHub : Hub<IRealtimeClient>
 	{
-		public const string Path = "/-/realtime";
+		public const string Path = "/realtime";
 		public const int ProtocolVersion = 1;
 		public const int ChatMaxLength = 512;
 		public const int ChatRateMessages = 3;
@@ -102,15 +102,13 @@ namespace GenOnlineService.Realtime
 				return;
 			}
 
+			// both groups are joined right before Ready, so no event reaches the client ahead of it
+			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserSession(userID, sessionType));
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.User(userID));
-			if (sessionType == EUserSessionType.GameClient)
-			{
-				await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserGame(userID));
-			}
-
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
-			await RestoreRoomAsync(session);
+			await SendDirectMessagesSnapshotAsync(session);
+			await RestoreChannelAsync(session);
 			await RestoreLobbyAsync(session);
 			await OnConnectionOpenedAsync(session);
 		}
@@ -159,17 +157,17 @@ namespace GenOnlineService.Realtime
 				User = RealtimeMembers.Of(userID),
 				Permissions = StaffRoles.PermissionsOf(userID).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
 				Badges = RealtimeBadges.Definitions,
-				Rooms = RoomCatalog.Rooms.Select(room => new RoomInfo
+				Channels = RoomCatalog.Rooms.Select(channel => new ChannelInfo
 				{
-					Id = room.ID,
-					Name = room.Name,
-					ParentId = room.ParentID,
-					ShowAllMatches = room.ID == 0
+					Id = channel.ID,
+					Name = channel.Name,
+					ParentId = channel.ParentID,
+					ShowAllMatches = channel.ID == 0
 				}).ToArray(),
 				Limits = new Limits
 				{
 					ChatMaxLength = ChatMaxLength,
-					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowMs = ChatRateWindowMs },
+					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
 					NameMinLength = NameMinLength,
 					NameMaxLength = NameMaxLength
 				}
@@ -237,7 +235,7 @@ namespace GenOnlineService.Realtime
 		// Implemented by the area files
 
 		private partial Task SendFriendsSnapshotAsync(UserSession session);
-		private partial Task RestoreRoomAsync(UserSession session);
+		private partial Task RestoreChannelAsync(UserSession session);
 		private partial Task RestoreLobbyAsync(UserSession session);
 		private partial Task OnConnectionOpenedAsync(UserSession session);
 		private partial Task OnConnectionClosedAsync(UserSession session);

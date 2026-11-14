@@ -939,6 +939,18 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("reports", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunReports(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("messages", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunMessages(args);
+				return;
+			}
+
 			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);
@@ -1107,15 +1119,21 @@ namespace GenOnlineService
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
 
-			// realtime protocol v1, see docs/realtime-protocol.md
-			builder.Services.AddSignalR(options =>
+			// realtime protocol v1, see docs/realtime-protocol.md; Realtime:backplane redis carries it between copies, see docs/realtime-scaling.md
+			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);
+			Microsoft.AspNetCore.SignalR.ISignalRServerBuilder signalR = builder.Services.AddSignalR(options =>
 			{
 				options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 				options.MaximumReceiveMessageSize = 64 * 1024;
 				options.EnableDetailedErrors = false;
 			}).AddJsonProtocol(options => GenOnlineService.Realtime.RealtimeJson.Configure(options.PayloadSerializerOptions));
-			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>, RealtimeLifetimeManager>();
+			if (realtimeBackplane.UsesRedis)
+			{
+				signalR.AddStackExchangeRedis(realtimeBackplane.ConfigureSignalR);
+			}
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, GenOnlineService.Realtime.RealtimeUserIdProvider>();
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>>(services => new RealtimeLifetimeManager(realtimeBackplane.CreateLifetimeManager(services)));
 
 			CorsPolicy corsPolicy = BuildCorsPolicy(builder.Configuration);
 
@@ -1307,6 +1325,7 @@ namespace GenOnlineService
 			var app = builder.Build();
 			ServiceLocator.Services = app.Services;
 			GenOnlineService.Realtime.RealtimeOut.Initialize(app.Services.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<GenOnlineService.Realtime.RealtimeHub, GenOnlineService.Realtime.IRealtimeClient>>());
+			await GenOnlineService.Realtime.RealtimeControl.StartAsync(realtimeBackplane);
 
 			// These log through AppLog, which only has a logger factory once ServiceLocator.Services is set, so they run after Build
 			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();
@@ -1540,7 +1559,7 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// Devices and session events past their retention are purged hourly
+			// Devices, session events, chat messages and closed reports past their retention are purged hourly
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(TimeSpan.FromHours(1).TotalMilliseconds);
 				timerTick.AutoReset = false;
@@ -1553,10 +1572,31 @@ namespace GenOnlineService
 							using var scope = app.Services.CreateScope();
 							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 							await using var db = await factory.CreateDbContextAsync();
-							var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
-							if (devices > 0 || sessionEvents > 0)
+							try
 							{
-								app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
+								var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
+								if (devices > 0 || sessionEvents > 0)
+								{
+									app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
+								}
+							}
+							catch (Exception ex)
+							{
+								app.Logger.LogError(ex, "Device and session event retention purge failed");
+							}
+
+							// Runs on its own so a device purge failure never skips it
+							try
+							{
+								var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
+								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0)
+								{
+									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers and {ChatReportCount} closed reports", chat.Messages, chat.ReadMarkers, chat.Reports);
+								}
+							}
+							catch (Exception ex)
+							{
+								app.Logger.LogError(ex, "Chat retention purge failed");
 							}
 						});
 					}

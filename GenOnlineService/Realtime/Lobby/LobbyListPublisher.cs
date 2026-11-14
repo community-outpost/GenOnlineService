@@ -20,7 +20,7 @@ using System.Collections.Concurrent;
 
 namespace GenOnlineService.Realtime
 {
-	// Lobby list watchers of section 6.3, each sees its own filtered list and latency so sends go per connection
+	// Lobby list watchers of section 6.3, each sees its own filtered list and latency so sends go per session
 	internal static class LobbyListPublisher
 	{
 		private sealed class Watcher
@@ -54,7 +54,7 @@ namespace GenOnlineService.Realtime
 				List<LobbySummary> lobbies = new();
 				foreach (Lobby lobby in lobbyManager.GetLobbies())
 				{
-					if (RealtimeLobbies.IsListedFor(lobby, viewer.m_UserID))
+					if (RealtimeLobbies.IsListedFor(lobby, viewer))
 					{
 						lobbies.Add(RealtimeLobbies.SummaryOf(lobby, viewer));
 						watcher.Visible.Add(lobby.LobbyID);
@@ -101,13 +101,14 @@ namespace GenOnlineService.Realtime
 					continue;
 				}
 
-				IRealtimeClient client = RealtimeOut.Connection(watcher.ConnectionID);
+				// the watcher's connection is the session's current one, reached through its session group
+				IRealtimeClient client = RealtimeOut.Session(watcher.Session);
 				lock (watcher.Lock)
 				{
 					foreach (Int64 lobbyID in dirty)
 					{
 						Lobby? lobby = lobbyManager.GetLobby(lobbyID);
-						if (lobby != null && RealtimeLobbies.IsListedFor(lobby, watcher.Session.m_UserID))
+						if (lobby != null && RealtimeLobbies.IsListedFor(lobby, watcher.Session))
 						{
 							watcher.Visible.Add(lobbyID);
 							RealtimeOut.Fire(client.LobbyListUpsert(new LobbyListUpsertEvent { Lobby = RealtimeLobbies.SummaryOf(lobby, watcher.Session) }));

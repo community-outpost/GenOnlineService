@@ -30,7 +30,7 @@ using System.Text.Json;
 
 namespace GenOnlineService.Identity
 {
-	public sealed record PlayBan(string Reason, DateTime? Until);
+	public sealed record PlayBan(string Reason, DateTime? ExpiresAt);
 
 	// User state and play bans for every request, reloaded on the reconcile tick; no database read per request
 	public static class AccessControl
@@ -321,7 +321,7 @@ namespace GenOnlineService.Identity
 			// a ban is announced before the revocation, which would otherwise close the game connections with auth.revoked first
 			if (ban != null)
 			{
-				await ModerationManager.DisconnectUser(userID, EModerationAction.Ban, ban.Reason, ban.Until);
+				await ModerationManager.DisconnectUser(userID, EModerationAction.Ban, ban.Reason, ban.ExpiresAt);
 			}
 
 			try
@@ -380,10 +380,10 @@ namespace GenOnlineService.Identity
 			return revoked.Count;
 		}
 
-		// Closes the user's realtime connections with auth.revoked, all or one session type
+		// Closes the user's realtime connections on every copy with auth.revoked, all or one session type
 		public static Task CloseRealtime(Int64 userID, EUserSessionType? onlySessionType)
 		{
-			return WebSocketManager.DisconnectUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType);
+			return Realtime.RealtimeControl.RequestClose(Realtime.CloseRequest.ForUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType));
 		}
 	}
 
@@ -465,15 +465,15 @@ namespace GenOnlineService.Identity
 			if (Context.Items.TryGetValue(BanItemKey, out object? value) && value is PlayBan ban && !Response.HasStarted)
 			{
 				Response.StatusCode = StatusCodes.Status403Forbidden;
-				string? until = ban.Until?.ToString("O");
+				string? expiresAt = ban.ExpiresAt?.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
 
 				if (Context.WebSockets.IsWebSocketRequest)
 				{
-					await Response.WriteAsJsonAsync(new { code = "moderation.banned", @params = new { reason = ban.Reason, until } });
+					await Response.WriteAsJsonAsync(new { code = "moderation.banned", @params = new { reason = ban.Reason, expires_at = expiresAt } });
 				}
 				else
 				{
-					await Response.WriteAsJsonAsync(new { message = "403 Forbidden - banned", error = "moderation.banned", reason = ban.Reason, until });
+					await Response.WriteAsJsonAsync(new { message = "403 Forbidden - banned", error = "moderation.banned", reason = ban.Reason, expires_at = expiresAt });
 				}
 
 				return;
