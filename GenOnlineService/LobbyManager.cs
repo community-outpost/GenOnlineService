@@ -949,7 +949,7 @@ namespace GenOnlineService
 		public UInt32 ExeCRC { get; private set; } = 0;
 		public UInt32 IniCRC { get; private set; } = 0;
 
-		// The OAuth client id of the host game, part of the build that joiners must match
+		// The game of the host client registry row, part of the build that joiners must match
 		[JsonIgnore]
 		public string Game { get; private set; } = String.Empty;
 

@@ -34,7 +34,7 @@ namespace GenOnlineService
 		public EModerationResult Result { get; init; }
 		public string TargetDisplayName { get; init; } = String.Empty;
 
-		// The stored kick, 0 when it could not be stored
+		// The stored kick, 0 when the kick was not applied
 		public Int64 SanctionID { get; init; }
 	}
 
@@ -52,35 +52,49 @@ namespace GenOnlineService
 			}
 
 			SharedUserData? target = WebSocketManager.GetSharedDataForUser(targetUserID);
-			if (target == null)
+			if (target == null && !RealtimeControl.IsShared)
 			{
-				// with a backplane the target may be online on another copy, which confirms the close
-				if (!RealtimeControl.IsShared || !await DisconnectUser(targetUserID, EModerationAction.Kick, reason, confirmRemote: true))
-				{
-					AppMetrics.RecordSecurityAction(EModerationAction.Kick.ToMetricLabel(), "target_offline");
-					return new ModerationResult { Result = EModerationResult.TargetNotOnline };
-				}
-			}
-			else
-			{
-				await DisconnectUser(targetUserID, EModerationAction.Kick, reason);
+				AppMetrics.RecordSecurityAction(EModerationAction.Kick.ToMetricLabel(), "target_offline");
+				return new ModerationResult { Result = EModerationResult.TargetNotOnline };
 			}
 
 			string targetDisplayName;
-			Sanction? kick;
+			Sanction kick;
 			using (var scope = ServiceLocator.Services.CreateScope())
 			{
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
+
+				// The kick is stored before it is applied and kept only when it was applied, so the sanction, the audit row and the kick always agree
+				await using var transaction = await db.Database.BeginTransactionAsync();
 				kick = await Database.Moderation.AddKick(db, targetUserID, reason, actor);
 				targetDisplayName = target?.m_strDisplayName ?? await Database.Users.GetDisplayName(db, targetUserID);
+
+				// with a backplane the target may be online on another copy, which confirms the close
+				bool applied = true;
+				if (target != null)
+				{
+					await DisconnectUser(targetUserID, EModerationAction.Kick, reason);
+				}
+				else
+				{
+					applied = await DisconnectUser(targetUserID, EModerationAction.Kick, reason, confirmRemote: true);
+				}
+				if (!applied)
+				{
+					await transaction.RollbackAsync();
+					AppMetrics.RecordSecurityAction(EModerationAction.Kick.ToMetricLabel(), "target_offline");
+					return new ModerationResult { Result = EModerationResult.TargetNotOnline };
+				}
+
+				await transaction.CommitAsync();
 			}
 
 			return new ModerationResult
 			{
 				Result = EModerationResult.Success,
 				TargetDisplayName = targetDisplayName,
-				SanctionID = kick?.ID ?? 0
+				SanctionID = kick.ID
 			};
 		}
 

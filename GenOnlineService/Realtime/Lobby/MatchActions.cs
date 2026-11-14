@@ -30,6 +30,9 @@ namespace GenOnlineService.Realtime
 		private static readonly TimeSpan s_answerLifetime = TimeSpan.FromHours(1);
 		private static readonly ConcurrentDictionary<(long MatchID, long UserID), (string Body, MatchResultResponse Answer, DateTime At)> s_answers = new();
 
+		// A result is accepted until this long after the match finished, or after it started while it has no end
+		public static readonly TimeSpan ResultWindow = TimeSpan.FromHours(24);
+
 		// Only a player of the match reports for it, the result is stored again on every call with a new body
 		public static async Task<Result<MatchResultResponse>> SubmitResultAsync(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, Int64 me, Int64 matchIDValue, MatchResultRequest request)
 		{
@@ -38,14 +41,6 @@ namespace GenOnlineService.Realtime
 			if (request.Stats == null) return Result.Invalid("stats");
 
 			UInt64 matchID = (UInt64)matchIDValue;
-			int slotIndexInLobby = -1;
-			DateTime lobbyCreationTime = DateTime.UnixEpoch;
-			UserSession? session = WebSocketManager.GetAllDataFromUser(me).FirstOrDefault(s => s.WasPlayerInMatch(matchID, out slotIndexInLobby, out _, out lobbyCreationTime));
-			if (session == null)
-			{
-				return Result.NotFound("match");
-			}
-
 			string body = JsonSerializer.Serialize(request, ApiResults.Json);
 			(long, long) key = (matchIDValue, me);
 			if (s_answers.TryGetValue(key, out var kept) && kept.Body == body && DateTime.UtcNow - kept.At < s_answerLifetime)
@@ -53,13 +48,35 @@ namespace GenOnlineService.Realtime
 				return Result.Success(kept.Answer);
 			}
 
-			// The lobby outlives a disconnected player's session, so the report is kept there for the winner decision.
-			// The match id check keeps a stale report away from whatever lobby the player is in now.
-			Lobby? outcomeLobby = lobbyManager.GetLobby(session.currentLobbyID);
-			if (outcomeLobby != null && outcomeLobby.MatchID == matchID)
+			// Eligibility comes from the stored roster, so a retry after the realtime connection closed still counts
+			var seat = await FindSeatAsync(dbFactory, matchIDValue, me);
+			if (seat == null)
 			{
-				outcomeLobby.RecordPlayerOutcome(me, request.Won);
+				return Result.NotFound("match");
 			}
+			if (DateTime.UtcNow - (seat.Value.FinishedAt ?? seat.Value.StartedAt) > ResultWindow)
+			{
+				return Result.Fail(ErrorCodes.MatchResultClosed);
+			}
+			int slotIndexInLobby = seat.Value.Slot;
+
+			// The upload folder date follows the lobby creation time like the other uploads of the match, the match start when the lobby is gone
+			Lobby? outcomeLobby = lobbyManager.GetLobbies().FirstOrDefault(lobby => lobby.MatchID == matchID);
+			DateTime lobbyCreationTime = outcomeLobby?.TimeCreated ?? seat.Value.StartedAt;
+			if (outcomeLobby == null)
+			{
+				foreach (UserSession session in WebSocketManager.GetAllDataFromUser(me))
+				{
+					if (session.WasPlayerInMatch(matchID, out _, out _, out DateTime createdAt))
+					{
+						lobbyCreationTime = createdAt;
+						break;
+					}
+				}
+			}
+
+			// The lobby outlives a disconnected player's session, so the report is kept there for the winner decision
+			outcomeLobby?.RecordPlayerOutcome(me, request.Won);
 
 			string screenshotURL = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_SCORESCREEN, matchID, me, slotIndexInLobby, lobbyCreationTime) ?? String.Empty;
 			string replayURL = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_REPLAY, EScreenshotType.NONE, matchID, me, slotIndexInLobby, lobbyCreationTime) ?? String.Empty;
@@ -83,6 +100,22 @@ namespace GenOnlineService.Realtime
 			}
 			s_answers[key] = (body, answer, now);
 			return Result.Success(answer);
+		}
+
+		// The caller's slot in the stored match with the match start and end, null when the caller did not play in it
+		private static async Task<(int Slot, DateTime StartedAt, DateTime? FinishedAt)?> FindSeatAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 matchID, Int64 me)
+		{
+			await using AppDbContext db = await dbFactory.CreateDbContextAsync();
+			var seat = await db.MatchPlayers.AsNoTracking()
+				.Where(player => player.MatchId == matchID && player.UserId == me)
+				.Join(db.Matches.AsNoTracking(), player => player.MatchId, match => match.Id, (player, match) => new { player.Slot, match.StartedAt, match.FinishedAt })
+				.FirstOrDefaultAsync();
+			if (seat == null)
+			{
+				return null;
+			}
+			DateTime? finishedAt = seat.FinishedAt == null ? null : DateTime.SpecifyKind(seat.FinishedAt.Value, DateTimeKind.Utc);
+			return (seat.Slot, DateTime.SpecifyKind(seat.StartedAt, DateTimeKind.Utc), finishedAt);
 		}
 
 		public static PlaylistsResponse Playlists()

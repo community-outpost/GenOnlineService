@@ -412,6 +412,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `chat.too_long` | `{max}` | `SendMessage` |
 | `chat.muted` | `{expires_at?}` | `SendMessage` |
 | `report.duplicate` | | `POST /api/v1/reports` when the caller already reported that message, or has an open report on that player |
+| `match.result_closed` | | `PUT /api/v1/matches/:id/results/me` more than 24 hours after the match finished (after it started when it has no end) |
 | `chat.not_friends` | | `SendMessage` to `dm:`, `POST /api/v1/groups`, `POST /api/v1/groups/:id/members` |
 | `group.full` | `{max}` | `POST /api/v1/groups`, `POST /api/v1/groups/:id/members` |
 | `group.not_owner` | | Adding, removing another member, renaming |
@@ -521,7 +522,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | Method and path | Body | Answer | Notes |
 |---|---|---|---|
 | `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
-| `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection |
+| `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection, until 24 hours after the match finished (`match.result_closed` after that) |
 | `GET /api/v1/matchmaking/playlists` | | `{playlists: [Playlist]}` | cacheable with `ETag` |
 
 ### 10.4 Other REST

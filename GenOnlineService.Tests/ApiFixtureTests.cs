@@ -18,6 +18,10 @@
 
 using GenOnlineService.Api;
 using GenOnlineService.Realtime;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -39,7 +43,7 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void FixturesArePresent()
 		{
-			Assert.True(Fixtures().Count() >= 17, $"expected the 17 fixtures in {s_fixtureDir}");
+			Assert.True(Fixtures().Count() >= 21, $"expected the 21 fixtures in {s_fixtureDir}");
 		}
 
 		[Theory]
@@ -84,6 +88,30 @@ namespace GenOnlineService.Tests
 		{
 			Assert.Equal("{\"error\":\"invalid_argument\",\"params\":{\"field\":\"user_ids\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(Result.Invalid("user_ids")), s_options));
 			Assert.Equal("{\"error\":\"session.not_registered\",\"params\":{}}", JsonSerializer.Serialize(ApiResults.BodyOf(Result.Fail(ErrorCodes.SessionNotRegistered)), s_options));
+		}
+
+		[Fact]
+		public async Task FailedRoleCheckOnARestEndpointAnswersTheForbiddenBodyWithoutParams()
+		{
+			DefaultHttpContext context = new DefaultHttpContext();
+			context.Response.Body = new MemoryStream();
+			ControllerActionDescriptor action = new ControllerActionDescriptor { ControllerTypeInfo = typeof(ProfileController).GetTypeInfo() };
+			context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(action), "profile"));
+
+			AuthorizationPolicy policy = new AuthorizationPolicyBuilder().RequireRole("GameClient").Build();
+			await new ApiAuthorizationResultHandler().HandleAsync(_ => Task.CompletedTask, context, policy, PolicyAuthorizationResult.Forbid());
+
+			Assert.Equal(403, context.Response.StatusCode);
+			context.Response.Body.Position = 0;
+			Assert.Equal("{\"error\":\"forbidden\",\"params\":{}}", await new StreamReader(context.Response.Body).ReadToEndAsync());
+		}
+
+		[Fact]
+		public void FailedPermissionPolicyNamesThePermission()
+		{
+			AuthorizationFailure failure = AuthorizationFailure.Failed(new IAuthorizationRequirement[] { new PermissionRequirement("moderation.kick") });
+			Assert.Equal("{\"error\":\"forbidden\",\"params\":{\"permission\":\"moderation.kick\"}}",
+				JsonSerializer.Serialize(ApiResults.BodyOf(ApiAuthorizationResultHandler.ForbiddenOf(PolicyAuthorizationResult.Forbid(failure))), s_options));
 		}
 
 		[Fact]

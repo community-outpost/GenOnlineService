@@ -1179,6 +1179,9 @@ namespace GenOnlineService
 						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
 
+			// REST controllers answer a failed role check with the forbidden body of section 7
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Api.ApiAuthorizationResultHandler>();
+
 			// OpenIddict stores cache entries without a size, so the cache has no size limit
 			builder.Services.AddMemoryCache();
 
