@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Rest
 {
@@ -26,6 +27,9 @@ namespace GenOnlineService.Rest
 	{
 		public long UserId { get; init; }
 		public string DisplayName { get; init; } = "";
+		// "0042": Name#tag is unique, the name alone is not (section 3.1)
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Tag { get; init; }
 		public IReadOnlyList<string> Roles { get; init; } = [];
 		public IReadOnlyList<string> Permissions { get; init; } = [];
 	}

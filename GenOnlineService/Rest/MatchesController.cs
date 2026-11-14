@@ -99,7 +99,8 @@ namespace GenOnlineService.Rest
 			{
 				Paging.WriteKeysetNext(HttpContext, "after_id", entries[^1].match_id);
 			}
-			return RestResults.Ok(new MatchListResponse { Matches = entries.Select(MatchResponse.Of).ToArray() });
+			IReadOnlyDictionary<long, int> tags = await TagsOf(db, entries.SelectMany(MatchResponse.UserIdsOf));
+			return RestResults.Ok(new MatchListResponse { Matches = entries.Select(entry => MatchResponse.Of(entry, tags)).ToArray() });
 		}
 
 		// One match, finished or running
@@ -108,7 +109,13 @@ namespace GenOnlineService.Rest
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(HttpContext.RequestAborted);
 			MatchHistory_Entry? entry = await Database.MatchHistory.LoadMatchHistoryEntryAsync(db, matchID, HttpContext.RequestAborted);
-			return entry == null ? RestResults.NotFound("match") : RestResults.Ok(MatchResponse.Of(entry));
+			return entry == null ? RestResults.NotFound("match") : RestResults.Ok(MatchResponse.Of(entry, await TagsOf(db, MatchResponse.UserIdsOf(entry))));
+		}
+
+		private static async Task<IReadOnlyDictionary<long, int>> TagsOf(AppDbContext db, IEnumerable<long> userIDs)
+		{
+			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, userIDs.ToHashSet());
+			return names.ToDictionary(pair => pair.Key, pair => pair.Value.Tag);
 		}
 	}
 }

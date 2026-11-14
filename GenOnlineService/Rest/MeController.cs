@@ -50,16 +50,17 @@ namespace GenOnlineService.Rest
 		[HttpGet("~/api/v1/me")]
 		public async Task<IActionResult> GetMe()
 		{
-			string displayName;
+			(string Name, int Tag)? name;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				displayName = await Database.Users.GetDisplayName(db, Me);
+				name = await Database.DisplayNames.Get(db, Me);
 			}
 
 			return RestResults.Ok(new MeResponse
 			{
 				UserId = Me,
-				DisplayName = displayName,
+				DisplayName = name?.Name ?? String.Empty,
+				Tag = PlayerTags.Of(name?.Tag ?? 0),
 				Roles = StaffRoles.RolesOf(Me).Order(StringComparer.Ordinal).ToList(),
 				Permissions = StaffRoles.PermissionsOf(Me).Order(StringComparer.Ordinal).ToList()
 			});
