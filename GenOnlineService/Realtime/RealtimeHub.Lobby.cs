@@ -33,7 +33,7 @@ namespace GenOnlineService.Realtime
 		// a module scan answer adds at most this many new modules, later scans pick up the rest
 		private const int MaxNewModulesPerScan = 256;
 
-		// Reconnects rejoin the lobby group and get the current state
+		// Reconnects rejoin the lobby group, get the current state and the lobby chat, then signalling restarts for the unconnected pairs
 		private async partial Task RestoreLobbyAsync(UserSession session)
 		{
 			if (session.GetSessionType() != EUserSessionType.GameClient || session.currentLobbyID == -1)
@@ -48,7 +48,15 @@ namespace GenOnlineService.Realtime
 			}
 
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.Lobby(lobby.LobbyID));
-			await Clients.Caller.LobbyState(new LobbyStateEvent { Lobby = RealtimeLobbies.StateOf(lobby) });
+			await SendLobbySnapshotAsync(lobby, session.m_UserID);
+			await lobby.ResendSignallingAfterReconnectAsync(session.m_UserID);
+		}
+
+		// LobbyState with the caller's start data, then the lobby chat as ChannelHistory
+		private async Task SendLobbySnapshotAsync(Lobby lobby, Int64 userID)
+		{
+			await Clients.Caller.LobbyState(new LobbyStateEvent { Lobby = RealtimeLobbies.StateOf(lobby) with { Start = lobby.StartFor(userID) } });
+			await SendLobbyHistoryAsync(lobby);
 		}
 
 		// 5.2 Lobbies
@@ -106,13 +114,13 @@ namespace GenOnlineService.Realtime
 			Int64 lobbyID;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				string displayName = await global::Database.Users.GetDisplayName(db, UserID);
+				(string Name, int Tag) owner = await global::Database.DisplayNames.Get(db, UserID) ?? (String.Empty, 0);
 				LobbySettings settings = request.Settings;
-				lobbyID = await m_lobbyManager.CreateLobby(db, session, displayName, request.Name, request.Map.Name, request.Map.Path, request.Map.Official, request.MaxPlayers,
+				lobbyID = await m_lobbyManager.CreateLobby(db, session, owner.Name, request.Name, request.Map.Name, request.Map.Path, request.Map.Official, request.MaxPlayers,
 					(UInt16)request.PreferredPort, settings.VanillaTeams, settings.TrackStats, (UInt32)settings.StartingCash, settings.LimitSuperweapons,
 					request.Password != null, request.Password ?? String.Empty, session.networkRoomID, settings.AllowObservers, (UInt16)settings.MaxCameraHeight,
-					build.ExeCrc ?? 0, build.IniCrc ?? 0, ELobbyType.CustomGame, (EKnownAnticheatID)build.AnticheatID,
-					request.Visibility == LobbyVisibility.Friends ? ELobbyJoinability.FriendsOnly : ELobbyJoinability.Public);
+					GameBuild.Of(build), ELobbyType.CustomGame,
+					request.Visibility == LobbyVisibility.Friends ? ELobbyJoinability.FriendsOnly : ELobbyJoinability.Public, owner.Tag);
 			}
 
 			if (lobbyID < 0)
@@ -153,7 +161,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			JoinLobbyResult joined = await m_lobbyManager.JoinAsync(new JoinLobbyCommand(request.LobbyId, UserID, SessionType, (UInt16)request.PreferredPort,
-				request.HasMap, (EKnownAnticheatID)build.AnticheatID, request.Password, build.ExeCrc ?? 0, build.IniCrc ?? 0));
+				request.HasMap, request.Password, GameBuild.Of(build)));
 
 			if (joined.Status != LobbyMembershipStatus.Success)
 			{
@@ -161,6 +169,11 @@ namespace GenOnlineService.Realtime
 			}
 
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.Lobby(request.LobbyId));
+			Lobby? joinedLobby = m_lobbyManager.GetLobby(request.LobbyId);
+			if (joinedLobby != null && joinedLobby.GetMemberFromUserID(UserID) != null)
+			{
+				await SendLobbySnapshotAsync(joinedLobby, UserID);
+			}
 			return Result.Success(new JoinLobbyData { Turn = new TurnCredentials { Username = joined.TurnUsername, Token = joined.TurnToken } });
 		}
 
@@ -432,80 +445,7 @@ namespace GenOnlineService.Realtime
 			};
 		}
 
-		public async Task<Result<ReportMatchOutcomeData>> ReportMatchOutcome(ReportMatchOutcomeRequest request)
-		{
-			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
-			{
-				return denied;
-			}
-
-			if (request.MatchId <= 0) return Result.Invalid("match_id");
-			if (request.DurationS < 0) return Result.Invalid("duration_s");
-			if (request.Stats == null) return Result.Invalid("stats");
-
-			UserSession session = Session;
-			UInt64 matchID = (UInt64)request.MatchId;
-
-			// only a player of that match reports for it
-			if (!session.WasPlayerInMatch(matchID, out int slotIndexInLobby, out _, out DateTime lobbyCreationTime))
-			{
-				return Result.NotFound("match");
-			}
-
-			// The lobby outlives a disconnected player's session, so the report is kept there for the winner decision.
-			// The match id check keeps a stale report away from whatever lobby the player is in now.
-			Lobby? outcomeLobby = m_lobbyManager.GetLobby(session.currentLobbyID);
-			if (outcomeLobby != null && outcomeLobby.MatchID == matchID)
-			{
-				outcomeLobby.RecordPlayerOutcome(UserID, request.Won);
-			}
-
-			string screenshotURL = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_SCORESCREEN, matchID, UserID, slotIndexInLobby, lobbyCreationTime) ?? String.Empty;
-			string replayURL = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_REPLAY, EScreenshotType.NONE, matchID, UserID, slotIndexInLobby, lobbyCreationTime) ?? String.Empty;
-
-			MatchStats stats = request.Stats;
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
-			{
-				await global::Database.MatchHistory.CommitPlayerOutcome(db, slotIndexInLobby, matchID, request.Side,
-					stats.BuildingsBuilt, stats.BuildingsKilled, stats.BuildingsLost, stats.UnitsBuilt, stats.UnitsKilled, stats.UnitsLost,
-					(int)Math.Clamp(stats.TotalMoney, Int32.MinValue, Int32.MaxValue), request.Won, request.Desynced, (UInt32)request.DurationS);
-			}
-
-			return Result.Success(new ReportMatchOutcomeData { ScreenshotUrl = screenshotURL, ReplayUrl = replayURL });
-		}
-
 		// 5.3 Matchmaking
-
-		public Task<Result<GetPlaylistsData>> GetPlaylists(Empty request)
-		{
-			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
-			{
-				return Task.FromResult<Result<GetPlaylistsData>>(denied);
-			}
-
-			Playlist[] playlists = MatchmakingManager.GetPlaylists().Values.OrderBy(playlist => playlist.PlaylistID).Select(playlist => new Playlist
-			{
-				Id = playlist.PlaylistID,
-				Name = playlist.Name,
-				MinPlayers = playlist.MinPlayers,
-				DesiredPlayers = playlist.DesiredPlayers,
-				MinSelectedMaps = MatchmakingManager.MinSelectedMapsOf(playlist),
-				AllowTeams = playlist.AllowTeams,
-				TeamSize = playlist.TeamSize < 0 ? null : playlist.TeamSize,
-				AllowArmySelection = playlist.AllowArmySelection,
-				GracePeriodMs = playlist.GracePeriodAtMinPlayersMSec,
-				Maps = playlist.Maps.Select((map, index) => new PlaylistMap
-				{
-					Index = index,
-					Name = map.Name,
-					Path = map.Path,
-					Custom = map.Custom,
-					MaxPlayers = map.MaxPlayers
-				}).ToArray()
-			}).ToArray();
-
-			return Task.FromResult(Result.Success(new GetPlaylistsData { Playlists = playlists }));
-		}
 
 		public async Task<Result<Empty>> JoinQueue(JoinQueueRequest request)
 		{
@@ -528,7 +468,7 @@ namespace GenOnlineService.Realtime
 
 			UInt16 playlistID = (UInt16)request.PlaylistId;
 			MatchmakingManager.ERegisterResult registered = await MatchmakingManager.RegisterPlayer(Session, playlistID, request.MapIndexes,
-				build.ExeCrc ?? 0, build.IniCrc ?? 0, (EKnownAnticheatID)build.AnticheatID);
+				GameBuild.Of(build));
 
 			return registered switch
 			{
@@ -579,6 +519,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			// both peers restart the handshake towards each other
+			lobby.ForgetConnection(source.UserID, target.UserID);
 			RealtimeOut.Fire(Clients.Caller.StartSignalling(lobby.StartSignallingFor(target)));
 			RealtimeOut.Fire(RealtimeOut.UserGame(target.UserID).StartSignalling(lobby.StartSignallingFor(source)));
 			return Task.CompletedTask;

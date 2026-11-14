@@ -23,6 +23,7 @@
       "max_camera_height": 310
     },
     "match_id": null,
+    "start": null,
     "created_at": "2026-11-13T20:00:00Z",
     "slots": [
       {
@@ -33,6 +34,7 @@
           "name": "Bob",
           "badges": []
         },
+        "name": "Bob",
         "ready": true,
         "has_map": true,
         "side": -1,
@@ -50,6 +52,7 @@
             "moderator"
           ]
         },
+        "name": "Ann",
         "ready": true,
         "has_map": true,
         "side": 2,

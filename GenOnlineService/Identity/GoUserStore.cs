@@ -18,6 +18,7 @@
 
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace GenOnlineService.Identity
 {
@@ -57,7 +58,7 @@ namespace GenOnlineService.Identity
 		public async Task<IdentityResult> CreateAsync(User user, CancellationToken cancellationToken)
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
-			user.UsernameNormalized = NameNormalizer.Normalize(user.Username);
+			await Database.DisplayNames.AssignNewUser(db, user);
 			user.CreatedAt = user.UpdatedAt = DateTime.UtcNow;
 			db.Users.Add(user);
 
@@ -102,7 +103,17 @@ namespace GenOnlineService.Identity
 		public async Task<User?> FindByNameAsync(string normalizedUserName, CancellationToken cancellationToken)
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
-			return await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UsernameNormalized == normalizedUserName, cancellationToken);
+			// Names are not unique: "Name#0042" finds one user, a bare name only when exactly one user has it
+			int hash = normalizedUserName.LastIndexOf('#');
+			if (hash > 0 && Int32.TryParse(normalizedUserName.AsSpan(hash + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int tag))
+			{
+				string name = NameNormalizer.Normalize(normalizedUserName.Substring(0, hash));
+				return await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UsernameNormalized == name && u.NameTag == tag, cancellationToken);
+			}
+
+			string normalized = NameNormalizer.Normalize(normalizedUserName);
+			List<User> matches = await db.Users.AsNoTracking().Where(u => u.UsernameNormalized == normalized).Take(2).ToListAsync(cancellationToken);
+			return matches.Count == 1 ? matches[0] : null;
 		}
 
 		public async Task AddLoginAsync(User user, UserLoginInfo login, CancellationToken cancellationToken)

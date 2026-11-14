@@ -20,7 +20,7 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void FixturesArePresent()
 		{
-			Assert.True(Fixtures().Count() >= 88, $"expected the 88 fixtures in {s_fixtureDir}");
+			Assert.True(Fixtures().Count() >= 82, $"expected the 82 fixtures in {s_fixtureDir}");
 		}
 
 		[Theory]

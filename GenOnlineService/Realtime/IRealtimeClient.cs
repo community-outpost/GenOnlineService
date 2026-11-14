@@ -23,14 +23,23 @@ namespace GenOnlineService.Realtime
 	{
 		Task Ready(ReadyEvent e);
 		Task BadgesUpdate(BadgesUpdateEvent e);
+		Task FeaturesUpdate(FeaturesUpdateEvent e);
 		Task Notice(NoticeEvent e);
 		Task ModerationNotice(ModerationNoticeEvent e);
+		Task ServerSwitching(ServerSwitchingEvent e);
 
-		Task RoomMembers(RoomMembersEvent e);
+		Task ChannelMembers(ChannelMembersEvent e);
 		Task MemberAdd(MemberAddEvent e);
 		Task MemberRemove(MemberRemoveEvent e);
 		Task MemberUpdate(MemberUpdateEvent e);
-		Task MessageCreate(MessageCreateEvent e);
+		Task ChannelHistory(ChannelHistoryEvent e);
+		Task MessageCreate(Message e);
+		Task MessageDelete(MessageRefEvent e);
+		Task Conversations(ConversationsEvent e);
+		Task ReadMarker(ReadMarkerEvent e);
+		Task GroupCreate(GroupEvent e);
+		Task GroupUpdate(GroupEvent e);
+		Task GroupRemoved(GroupRemovedEvent e);
 
 		Task LobbyListUpsert(LobbyListUpsertEvent e);
 		Task LobbyListRemove(LobbyIdEvent e);

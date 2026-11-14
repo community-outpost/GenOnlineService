@@ -45,11 +45,8 @@ namespace GenOnlineService
 		public string ConnectionId => m_context.ConnectionId;
 		internal bool IsOpen => Volatile.Read(ref m_closed) == 0 && !m_context.ConnectionAborted.IsCancellationRequested;
 
-		// Events sent here reach only this connection
-		public IRealtimeClient Client => RealtimeOut.Connection(ConnectionId);
-
-		// Sends a close record with a protocol close code, then drops the transport
-		public async Task CloseAsync(string code, bool allowReconnect)
+		// Sends the optional moderation notice and a close record with a protocol close code on this transport, then drops it
+		public async Task CloseAsync(string code, bool allowReconnect, ModerationNoticeEvent? notice = null)
 		{
 			if (Interlocked.Exchange(ref m_closed, 1) != 0)
 			{
@@ -59,6 +56,11 @@ namespace GenOnlineService
 			try
 			{
 				using CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+				if (notice != null)
+				{
+					// written to the transport directly so the notice always precedes the close record
+					await m_context.WriteAsync(new InvocationMessage(nameof(IRealtimeClient.ModerationNotice), new object?[] { notice }), timeout.Token);
+				}
 				await m_context.WriteAsync(new CloseMessage(code, allowReconnect), timeout.Token);
 			}
 			catch (Exception ex)
@@ -82,13 +84,16 @@ namespace GenOnlineService
 		}
 	}
 
-	// Keeps the transport context of every live hub connection so the service can write close records
-	public sealed class RealtimeLifetimeManager : DefaultHubLifetimeManager<RealtimeHub>
+	// Keeps the transport context of every live hub connection on this copy so the service can write close records, delivery goes to the wrapped manager (in memory or the Redis backplane)
+	public sealed class RealtimeLifetimeManager : HubLifetimeManager<RealtimeHub>, IDisposable
 	{
 		private static readonly ConcurrentDictionary<string, HubConnectionContext> s_connections = new(StringComparer.Ordinal);
 
-		public RealtimeLifetimeManager(ILogger<DefaultHubLifetimeManager<RealtimeHub>> logger) : base(logger)
+		private readonly HubLifetimeManager<RealtimeHub> m_inner;
+
+		public RealtimeLifetimeManager(HubLifetimeManager<RealtimeHub> inner)
 		{
+			m_inner = inner;
 		}
 
 		public static HubConnectionContext? Get(string connectionId) => s_connections.TryGetValue(connectionId, out HubConnectionContext? context) ? context : null;
@@ -96,13 +101,30 @@ namespace GenOnlineService
 		public override Task OnConnectedAsync(HubConnectionContext connection)
 		{
 			s_connections[connection.ConnectionId] = connection;
-			return base.OnConnectedAsync(connection);
+			return m_inner.OnConnectedAsync(connection);
 		}
 
 		public override Task OnDisconnectedAsync(HubConnectionContext connection)
 		{
 			s_connections.TryRemove(connection.ConnectionId, out _);
-			return base.OnDisconnectedAsync(connection);
+			return m_inner.OnDisconnectedAsync(connection);
 		}
+
+		public override Task SendAllAsync(string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendAllAsync(methodName, args, cancellationToken);
+		public override Task SendAllExceptAsync(string methodName, object?[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default) => m_inner.SendAllExceptAsync(methodName, args, excludedConnectionIds, cancellationToken);
+		public override Task SendConnectionAsync(string connectionId, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendConnectionAsync(connectionId, methodName, args, cancellationToken);
+		public override Task SendConnectionsAsync(IReadOnlyList<string> connectionIds, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendConnectionsAsync(connectionIds, methodName, args, cancellationToken);
+		public override Task SendGroupAsync(string groupName, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendGroupAsync(groupName, methodName, args, cancellationToken);
+		public override Task SendGroupsAsync(IReadOnlyList<string> groupNames, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendGroupsAsync(groupNames, methodName, args, cancellationToken);
+		public override Task SendGroupExceptAsync(string groupName, string methodName, object?[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default) => m_inner.SendGroupExceptAsync(groupName, methodName, args, excludedConnectionIds, cancellationToken);
+		public override Task SendUserAsync(string userId, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendUserAsync(userId, methodName, args, cancellationToken);
+		public override Task SendUsersAsync(IReadOnlyList<string> userIds, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendUsersAsync(userIds, methodName, args, cancellationToken);
+		public override Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) => m_inner.AddToGroupAsync(connectionId, groupName, cancellationToken);
+		public override Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) => m_inner.RemoveFromGroupAsync(connectionId, groupName, cancellationToken);
+		public override Task<T> InvokeConnectionAsync<T>(string connectionId, string methodName, object?[] args, CancellationToken cancellationToken) => m_inner.InvokeConnectionAsync<T>(connectionId, methodName, args, cancellationToken);
+		public override Task SetConnectionResultAsync(string connectionId, CompletionMessage result) => m_inner.SetConnectionResultAsync(connectionId, result);
+		public override bool TryGetReturnType(string invocationId, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Type? type) => m_inner.TryGetReturnType(invocationId, out type);
+
+		public void Dispose() => (m_inner as IDisposable)?.Dispose();
 	}
 }

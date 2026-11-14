@@ -64,15 +64,20 @@ namespace GenOnlineService.Realtime
 		public const string ChatTooLong = "chat.too_long";
 		public const string ChatMuted = "chat.muted";
 		public const string ChatNotFriends = "chat.not_friends";
-		public const string ChatRecipientOffline = "chat.recipient_offline";
+		public const string ReportDuplicate = "report.duplicate";
+		public const string MatchResultClosed = "match.result_closed";
+		public const string GroupFull = "group.full";
+		public const string GroupNotOwner = "group.not_owner";
+		public const string GroupNotMember = "group.not_member";
 		public const string NameLength = "name.length";
 		public const string NameInvalidCharacters = "name.invalid_characters";
 		public const string NameWhitespace = "name.whitespace";
 		public const string NameReserved = "name.reserved";
 		public const string NameTaken = "name.taken";
+		public const string NameManaged = "name.managed";
 		public const string NameChanged = "name.changed";
 		public const string ServerAnnouncement = "server.announcement";
-		public const string RoomUnavailable = "room.unavailable";
+		public const string ChannelUnavailable = "channel.unavailable";
 		public const string LobbyFull = "lobby.full";
 		public const string LobbyWrongPassword = "lobby.wrong_password";
 		public const string LobbyNotHost = "lobby.not_host";
@@ -108,6 +113,7 @@ namespace GenOnlineService.Realtime
 		public const string ModerationKicked = "moderation.kicked";
 		public const string ModerationBanned = "moderation.banned";
 		public const string ServerRestarting = "server.restarting";
+		public const string ServerSwitching = "server.switching";
 		public const string ProtocolError = "protocol.error";
 	}
 }

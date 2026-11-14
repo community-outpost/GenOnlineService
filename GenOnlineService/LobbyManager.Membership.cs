@@ -42,7 +42,7 @@ public enum LobbyMembershipStatus
 }
 
 public sealed record JoinLobbyCommand(long LobbyID, long UserID, EUserSessionType SessionType,
-	ushort PreferredPort, bool HasMap, EKnownAnticheatID AnticheatID, string? Password, uint ExeCRC, uint IniCRC);
+	ushort PreferredPort, bool HasMap, string? Password, GameBuild Build);
 public sealed record LeaveLobbyCommand(long LobbyID, long UserID, EUserSessionType SessionType);
 public sealed record KickLobbyMemberCommand(long LobbyID, long ActorUserID, long? TargetUserID);
 public sealed record JoinLobbyResult(LobbyMembershipStatus Status, string TurnUsername = "", string TurnToken = "");
@@ -80,11 +80,11 @@ public partial class LobbyManager
 		if (session == null || session.IsRetired) return new(LobbyMembershipStatus.SessionUnavailable);
 
 		await using var db = await membershipDbFactory.CreateDbContextAsync();
-		var displayName = await Users.GetDisplayName(db, command.UserID);
+		var name = await DisplayNames.Get(db, command.UserID) ?? (String.Empty, 0);
 		var preferences = await Users.GetUserLobbyPreferences(db, command.UserID);
 		if (preferences == null) return new(LobbyMembershipStatus.PreferencesUnavailable);
 		var sources = m_dictLobbies.Values.Where(source => source.GetMemberFromUserID(command.UserID) != null).ToArray();
-		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, displayName, preferences);
+		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, name.Name, name.Tag, preferences);
 		if (status != LobbyMembershipStatus.Success) return new(status);
 		RealtimeHub.PublishPresence(command.UserID);
 

@@ -25,28 +25,41 @@ using System.Security.Claims;
 
 namespace GenOnlineService.Realtime
 {
-	// Realtime protocol v1 at /-/realtime; each area of the protocol lives in its own partial file
+	// Realtime protocol v1 at /realtime, each area of the protocol lives in its own partial file
 	[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 	public sealed partial class RealtimeHub : Hub<IRealtimeClient>
 	{
-		public const string Path = "/-/realtime";
+		public const string Path = "/realtime";
 		public const int ProtocolVersion = 1;
 		public const int ChatMaxLength = 512;
 		public const int ChatRateMessages = 3;
 		public const long ChatRateWindowMs = 9000;
 		public const int NameMinLength = 3;
 		public const int NameMaxLength = 16;
+		public const int DefaultGroupMaxMembers = 10;
 
 		private const string ConnectionItem = "realtime.connection";
 
+		// Realtime:group_max_members, the most members of one group chat with the owner included
+		public static int GroupMaxMembers
+		{
+			get
+			{
+				int configured = Program.g_Config?.GetSection("Realtime").GetValue("group_max_members", DefaultGroupMaxMembers) ?? DefaultGroupMaxMembers;
+				return Math.Clamp(configured, 2, 50);
+			}
+		}
+
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly AccountsSettings m_accounts;
 		private readonly LobbyManager m_lobbyManager;
 		private readonly IAuthorizationService m_authorization;
 		private readonly IOpenIddictAuthorizationManager m_signIns;
 		private readonly ILogger<RealtimeHub> m_log;
 
-		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, IOpenIddictAuthorizationManager signIns, ILogger<RealtimeHub> log)
+		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, IOpenIddictAuthorizationManager signIns, AccountsSettings accounts, ILogger<RealtimeHub> log)
 		{
+			m_accounts = accounts;
 			m_dbFactory = dbFactory;
 			m_lobbyManager = lobbyManager;
 			m_authorization = authorization;
@@ -102,15 +115,13 @@ namespace GenOnlineService.Realtime
 				return;
 			}
 
+			// both groups are joined right before Ready, so no event reaches the client ahead of it
+			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserSession(userID, sessionType));
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.User(userID));
-			if (sessionType == EUserSessionType.GameClient)
-			{
-				await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserGame(userID));
-			}
-
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
-			await RestoreRoomAsync(session);
+			await SendConversationsSnapshotAsync(session);
+			await RestoreChannelAsync(session);
 			await RestoreLobbyAsync(session);
 			await OnConnectionOpenedAsync(session);
 		}
@@ -159,19 +170,20 @@ namespace GenOnlineService.Realtime
 				User = RealtimeMembers.Of(userID),
 				Permissions = StaffRoles.PermissionsOf(userID).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
 				Badges = RealtimeBadges.Definitions,
-				Rooms = RoomCatalog.Rooms.Select(room => new RoomInfo
+				Channels = RoomCatalog.Rooms.Select(channel => new ChannelInfo
 				{
-					Id = room.ID,
-					Name = room.Name,
-					ParentId = room.ParentID,
-					ShowAllMatches = room.ID == 0
+					Id = channel.ID,
+					Name = channel.Name,
+					ParentId = channel.ParentID,
+					ShowAllMatches = channel.ID == 0
 				}).ToArray(),
 				Limits = new Limits
 				{
 					ChatMaxLength = ChatMaxLength,
-					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowMs = ChatRateWindowMs },
+					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
 					NameMinLength = NameMinLength,
-					NameMaxLength = NameMaxLength
+					NameMaxLength = NameMaxLength,
+					GroupMaxMembers = GroupMaxMembers
 				}
 			};
 		}
@@ -234,10 +246,12 @@ namespace GenOnlineService.Realtime
 			return result.Succeeded ? null : Result.Forbidden(permission);
 		}
 
+		private Database.ModerationActor Actor() => SanctionActions.ActorOf(UserID);
+
 		// Implemented by the area files
 
 		private partial Task SendFriendsSnapshotAsync(UserSession session);
-		private partial Task RestoreRoomAsync(UserSession session);
+		private partial Task RestoreChannelAsync(UserSession session);
 		private partial Task RestoreLobbyAsync(UserSession session);
 		private partial Task OnConnectionOpenedAsync(UserSession session);
 		private partial Task OnConnectionClosedAsync(UserSession session);

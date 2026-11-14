@@ -49,10 +49,10 @@ Trade-offs accepted: friends, blocks and bans are per environment; the player id
 
 GitLab shape on top of ASP.NET Core Identity. Full table definitions in `schema-v1-design.md`.
 
-- `users`: account, display name (unique), email (optional), password hash (null without local passwords), `state` (active | blocked | deactivated), 2FA fields, sign-in timestamps.
+- `users`: account, display name with a 4-digit tag (`name#tag` unique, section 5a), email (optional), password hash (null without local passwords), `state` (active | blocked | deactivated), 2FA fields, sign-in timestamps.
 - `identities`: linked sign-in methods `(provider, extern_uid)`; `provider` is `keycloak`, `discord`, `steam`, `google`, `gamereplays` or a configured OIDC name.
 - `user_roles`: staff roles with a `source` (`local` or `upstream:<provider>`).
-- `bans`: play and chat restrictions with expiry and revocation.
+- `sanctions`: kicks, mutes and bans with expiry and lifting.
 - OpenIddict tables, `api_tokens`, `service_accounts`, `audit_log`, `application_settings`.
 
 ### 3.1 Bans versus blocks
@@ -61,8 +61,8 @@ A ban removes someone from the game, not from their account, so a banned player 
 
 | | Sign-in (website, account pages) | Game API and realtime | Authorizations revoked |
 |---|---|---|---|
-| **Ban** (`bans`, restriction `play`) | allowed | refused: 403 `moderation.banned`, realtime closed | game clients' only |
-| **Mute** (`bans`, restriction `chat`) | allowed | allowed, chat refused | none |
+| **Ban** (`sanctions`, type `ban`) | allowed | refused: 403 `moderation.banned`, realtime closed | game clients' only |
+| **Mute** (`sanctions`, type `mute`) | allowed | allowed, chat refused | none |
 | **Blocked** (`users.state = blocked`) | refused | refused | all |
 
 `blocked` is only for abuse of the account itself (compromise, spam sign-ups, fraud). Several active bans may exist; the longest lasting decides what the player sees.
@@ -177,6 +177,17 @@ Roles granted in Keycloak follow a person into every environment without sharing
 - Only providers marked trusted may assert roles or bans; a self-hoster's Discord sign-in never grants staff.
 
 Effective permissions in `application` = all `user_roles` rows (local and upstream) → `StaffRoles` → `PermissionHandler`.
+
+## 5a. Display names
+
+Model: Xbox modern gamertag. The display name is not unique; every account also has an automatic 4-digit tag (`0001` to `9999`), and `name#tag` is unique (`users.name_tag`, unique index on `(username_normalized, name_tag)`; names compare NFKC, upper case). One global name and tag per person across all environments of the official deployment.
+
+- **Official deployment:** Keycloak owns both, as user profile attributes `display_name` and `name_tag`. The GenOnline Keycloak plugin (repository `genonline-keycloak`: player ids, tags, GameReplays and Steam) checks the name (3 to 16 characters, no `#`, no control characters, no outer whitespace, no reserved words), assigns a free tag at sign-up and on every rename, and keeps `name_tag` read-only for users. There is no rename limit. Its token mapper sends `name` (the display name) and `name_tag` in the ID token, access token and userinfo.
+- **Copy at sign-in:** on every sign-in through a `trusted` provider the environment copies the `name` and `name_tag` claims (`UpstreamAccounts`). An untrusted provider never sets a name. A local user that still holds the copied `name#tag` has a stale copy (it renamed in Keycloak and has not been back); it moves to a free local tag until its own next sign-in. Every change writes a `user_username_history` row with the previous name and tag, so old matches show who someone was.
+- **Live renames (group sync):** with `group_sync` on, the reconcile tick also reads Keycloak user events of type `UPDATE_PROFILE` (a player's own rename) and admin events `UPDATE` on users (a staff rename in the admin console), each from its own cursor (`group_sync.<provider>.names_cursor`), then reads the user's `display_name` and `name_tag` and copies them. Players online get `MemberUpdate` and the `name.changed` notice at once. The realm must save `UPDATE_PROFILE` user events and admin events; the sync client needs `view-events` and `view-users`.
+- **Renaming:** players use Keycloak's update-profile page (`kc_action=UPDATE_PROFILE`); `PATCH /api/v1/me` answers `name.managed` where Keycloak owns names (any enabled provider with `player_ids`). Staff force a rename of an offensive name by editing `display_name` in the Keycloak admin console; the plugin re-tags and the group sync applies it.
+- **Self-hosters without Keycloak:** the environment owns name and tag with the same rules. Sign-up takes the provider's name and a free tag, `PATCH /api/v1/me` keeps the tag for a change of case and picks a free one otherwise, and staff with `moderation.rename` use the realtime `ForceRename`.
+- **Showing names:** `Name#1234` on profiles (`/users/me` returns `display_name` and `name_tag`), friend lists and requests, and moderation and staff tools (Discord `/whois` accepts and prints `Name#tag`). Lobbies and chat show the name only, with the tag on every member whose name another member there shares; the service computes each lobby slot's `name` that way (both get the tag when the second joins, and lose it when one leaves), and the realtime `Member` carries `tag` for chat. Leaderboards serve user ids only; clients that show a name there show `Name#tag`.
 
 ## 6. Tokens
 

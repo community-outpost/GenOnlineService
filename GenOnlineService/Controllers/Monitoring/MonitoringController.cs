@@ -56,6 +56,9 @@ namespace GenOnlineService.Controllers
 	public class GET_ActiveUsers_UserEntry
 	{
 		public string? name { get; set; }
+
+		// "0042": shown as name#name_tag, which is unique
+		public string? name_tag { get; set; }
 		public string? status { get; set; }
 		public string? client_id { get; set; }
 		public string? duration { get; set; }
@@ -91,6 +94,9 @@ namespace GenOnlineService.Controllers
 
 		public Int64 user_id { get; set; } = -1;
 		public string display_name { get; set; } = String.Empty;
+
+		// "0042": profiles show display_name#name_tag, which is unique
+		public string name_tag { get; set; } = String.Empty;
 	}
 
 	[ApiController]
@@ -143,6 +149,7 @@ namespace GenOnlineService.Controllers
 					{
 						GET_ActiveUsers_UserEntry userEntry = new();
 						userEntry.name = userSharedData.m_strDisplayName;
+						userEntry.name_tag = Database.DisplayNames.FormatTag(userSharedData.m_NameTag);
 						userEntry.status = UserPresence.DetermineUserStatusFromAllSessions(sessionData.Key, out bool isOnline);
 						userEntry.client_id = sessionData.Value.m_client_id;
 						userEntry.duration = TimeSpanToHumanReadableString(sessionData.Value.GetDuration());

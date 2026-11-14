@@ -62,16 +62,6 @@ namespace GenOnlineService
 		IPV6
 	}
 
-	public enum EConnectionStateClient
-	{
-		NOT_CONNECTED,
-		CONNECTING_DIRECT,
-		FINDING_ROUTE,
-		CONNECTED_DIRECT,
-		CONNECTION_FAILED,
-		CONNECTION_DISCONNECTED
-	};
-
 	public enum EConnectionState
 	{
 		NOT_CONNECTED,
@@ -325,7 +315,8 @@ namespace GenOnlineService
 
 		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
-			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
+			(string Name, int Tag) name = await Database.DisplayNames.Get(_db, ownerID) ?? (String.Empty, 0);
+			string strDisplayName = name.Name;
 			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
@@ -358,7 +349,7 @@ namespace GenOnlineService
 						// get stats
 						PlayerStats GameStats = await Database.UserStats.GetPlayerStats(_db, ownerID);
 
-						m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, GameStats);
+						m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 					}
 
 					// clear abandoned flag
@@ -398,7 +389,7 @@ namespace GenOnlineService
 				}
 				else
 				{
-					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, GameStats);
+					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 				}
 			}
 
@@ -578,17 +569,33 @@ namespace GenOnlineService
 			return m_dictUserSessions;
 		}
 
+		// An online user by "Name#0042", or by bare name when exactly one online user has it
 		public static SharedUserData? GetSharedDataForUser(string strDisplayName)
 		{
+			int hash = strDisplayName.LastIndexOf('#');
+			int tag = -1;
+			if (hash > 0 && Int32.TryParse(strDisplayName.AsSpan(hash + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int parsed))
+			{
+				tag = parsed;
+				strDisplayName = strDisplayName.Substring(0, hash);
+			}
+
+			string normalized = NameNormalizer.Normalize(strDisplayName);
+			SharedUserData? found = null;
 			foreach (var kvPair in m_dictSharedUserData)
 			{
-				if (String.Equals(kvPair.Value.m_strDisplayName, strDisplayName, StringComparison.OrdinalIgnoreCase))
+				SharedUserData data = kvPair.Value;
+				if ((tag < 0 || data.m_NameTag == tag) && NameNormalizer.Normalize(data.m_strDisplayName) == normalized)
 				{
-					return kvPair.Value;
+					if (found != null)
+					{
+						return null;
+					}
+					found = data;
 				}
 			}
 
-			return null;
+			return found;
 		}
 
 
@@ -722,10 +729,11 @@ namespace GenOnlineService
 			return lstRet;
 		}
 
-		// Closes the user's connections with a protocol close code and destroys their sessions, all or one session type
-		public static async Task DisconnectUser(Int64 userID, string closeCode, bool allowReconnect, ModerationNoticeEvent? notice = null, EUserSessionType? onlySessionType = null)
+		// Closes the user's connections on this copy with a protocol close code and destroys their sessions, all or one session type; RealtimeControl.RequestClose reaches every copy
+		public static async Task<int> DisconnectUser(Int64 userID, string closeCode, bool allowReconnect, ModerationNoticeEvent? notice = null, EUserSessionType? onlySessionType = null)
 		{
 			List<UserSession> userSessions = GetAllDataFromUser(userID);
+			int closed = 0;
 
 			foreach (UserSession userSession in userSessions)
 			{
@@ -734,16 +742,13 @@ namespace GenOnlineService
 					continue;
 				}
 
+				closed++;
 				try
 				{
 					RealtimeConnection? oldWS = GetWebSocketForSession(userSession);
 					if (oldWS != null)
 					{
-						if (notice != null)
-						{
-							await oldWS.Client.ModerationNotice(notice);
-						}
-						await oldWS.CloseAsync(closeCode, allowReconnect);
+						await oldWS.CloseAsync(closeCode, allowReconnect, notice);
 					}
 
 					await DeleteSession(userID, userSession.GetSessionType(), oldWS, true, userSession);
@@ -753,10 +758,11 @@ namespace GenOnlineService
 					s_log.LogError(ex, "DisconnectUser failed for user {UserId}, session {SessionType}", userID, userSession.GetSessionType());
 				}
 			}
+			return closed;
 		}
 
-		// Closes only the connections opened with that sign-in and destroys their sessions, the user's other sign-ins stay
-		public static async Task DisconnectSignIn(string authorizationID, string closeCode)
+		// Closes only the connections on this copy opened with that sign-in and destroys their sessions, the user's other sign-ins stay
+		public static async Task<int> DisconnectSignIn(string authorizationID, string closeCode)
 		{
 			// sessions inside their reconnect grace have no connection but still belong to the sign-in
 			List<UserSession> matches = m_dictUserSessions.Values
@@ -780,6 +786,7 @@ namespace GenOnlineService
 					s_log.LogError(ex, "DisconnectSignIn failed for user {UserId}, session {SessionType}", session.m_UserID, session.GetSessionType());
 				}
 			}
+			return matches.Count;
 		}
 
 		public static Task<bool> ClearDataFromUser(Int64 userID, EUserSessionType sessionType)
@@ -820,6 +827,9 @@ namespace GenOnlineService
 
 		public Int64 m_UserID = -1;
 		public string m_strDisplayName = String.Empty;
+
+		// The tag of the display name; Name#tag is unique
+		public int m_NameTag;
 
 		// contains ELO too
 		public PlayerStats? GameStats { get; private set; } = null;
@@ -872,9 +882,10 @@ namespace GenOnlineService
 			}
 		}
 
-		public SharedUserData(Int64 ownerID, UserSocialContainer socialContainer, string strDisplayName, PlayerStats userStats)
+		public SharedUserData(Int64 ownerID, UserSocialContainer socialContainer, string strDisplayName, int nameTag, PlayerStats userStats)
 		{
 			m_strDisplayName = strDisplayName;
+			m_NameTag = nameTag;
 
 			m_UserID = ownerID;
 
@@ -924,10 +935,8 @@ namespace GenOnlineService
 		internal bool IsRegisteredForMatchmaking { get; set; } = false;
 		internal SemaphoreSlim MatchmakingStateLock { get; } = new(1, 1);
 
-		// NOTE: These are not set on login, only when in quickmatch!
-		public UInt32 ExeCRC = 0;
-		public UInt32 IniCRC = 0;
-		public EKnownAnticheatID AnticheatID = EKnownAnticheatID.NONE;
+		// The build of the queue registration, set when the player joins the matchmaking queue
+		public GameBuild MatchmakingBuild = new GameBuild(String.Empty, 0, 0, EKnownAnticheatID.NONE);
 
 		private ConcurrentList<UInt64> m_lstHistoricMatchIDs = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToSlotIndexMap = new();
@@ -1038,9 +1047,6 @@ namespace GenOnlineService
 
 		// The sign-in whose connection installed or last took over this session
 		public string? AuthorizationID { get; set; }
-
-		// Events for this session's current connection only, nothing while it is disconnected
-		public IRealtimeClient Client => RealtimeOut.Session(this);
 
 		public async Task<RealtimeConnection?> CloseWebsocket(string closeCode, bool allowReconnect)
 		{

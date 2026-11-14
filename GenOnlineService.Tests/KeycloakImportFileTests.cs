@@ -9,7 +9,7 @@ namespace GenOnlineService.Tests
 	{
 		private static readonly KeycloakImportUser[] s_users =
 		{
-			new(42, new[] { new KeycloakImportIdentity("steam", "7656", "Steamer"), new KeycloakImportIdentity("gamereplays", "9", "gr") }),
+			new(42, new[] { new KeycloakImportIdentity("steam", "7656", "Steamer"), new KeycloakImportIdentity("gamereplays", "9", "gr"), new KeycloakImportIdentity("keycloak", "x", null) }, "Bob"),
 			new(7, new[] { new KeycloakImportIdentity("discord", "1234", null), new KeycloakImportIdentity("google", "g-1", "g@example.org") })
 		};
 
@@ -33,14 +33,26 @@ namespace GenOnlineService.Tests
 			var first = file["users"]![0]!["federatedIdentities"]!.AsArray();
 			var second = file["users"]![1]!["federatedIdentities"]!.AsArray();
 
-			Assert.Single(first);
-			Assert.Equal("steam", first[0]!["identityProvider"]!.GetValue<string>());
+			Assert.Equal(new[] { "steam", "gamereplays" }, first.Select(i => i!["identityProvider"]!.GetValue<string>()));
 			Assert.Equal("7656", first[0]!["userId"]!.GetValue<string>());
 			Assert.Equal("Steamer", first[0]!["userName"]!.GetValue<string>());
+
+			// GameReplays-only players keep their account: member id and GameReplays name, under the plugin's alias
+			Assert.Equal("9", first[1]!["userId"]!.GetValue<string>());
+			Assert.Equal("gr", first[1]!["userName"]!.GetValue<string>());
 			Assert.Equal(new[] { "discord", "google" }, second.Select(i => i!["identityProvider"]!.GetValue<string>()));
 
 			// Keycloak requires a user name on a link; the provider's own id stands in when none was stored
 			Assert.Equal("1234", second[0]!["userName"]!.GetValue<string>());
+		}
+
+		[Fact]
+		public void TheImportedNameBecomesTheDisplayName()
+		{
+			var users = KeycloakImportFile.BuildUsers(s_users)["users"]!.AsArray();
+
+			Assert.Equal("Bob", users[0]!["attributes"]!["display_name"]![0]!.GetValue<string>());
+			Assert.False(users[1]!["attributes"]!.AsObject().ContainsKey("display_name"));
 		}
 
 		[Fact]
@@ -62,9 +74,9 @@ namespace GenOnlineService.Tests
 		{
 			JsonObject counter = KeycloakImportFile.BuildCounter(s_users);
 
-			Assert.Equal(43, counter["player_id_next"]!.GetValue<long>());
+			Assert.Equal(43, counter[KeycloakImportFile.CounterStartAttribute]!.GetValue<long>());
 			Assert.Equal(42, counter["highest_imported_id"]!.GetValue<long>());
-			Assert.Equal(1, KeycloakImportFile.BuildCounter(Array.Empty<KeycloakImportUser>())["player_id_next"]!.GetValue<long>());
+			Assert.Equal(1, KeycloakImportFile.BuildCounter(Array.Empty<KeycloakImportUser>())[KeycloakImportFile.CounterStartAttribute]!.GetValue<long>());
 		}
 
 		[Fact]
@@ -80,7 +92,7 @@ namespace GenOnlineService.Tests
 				Assert.Equal(path, usersPath);
 				Assert.Equal(path + ".counter.json", counterPath);
 				Assert.Equal(2, JsonNode.Parse(File.ReadAllText(usersPath))!["users"]!.AsArray().Count);
-				Assert.Equal(43, JsonNode.Parse(File.ReadAllText(counterPath))!["player_id_next"]!.GetValue<long>());
+				Assert.Equal(43, JsonNode.Parse(File.ReadAllText(counterPath))![KeycloakImportFile.CounterStartAttribute]!.GetValue<long>());
 			}
 			finally
 			{

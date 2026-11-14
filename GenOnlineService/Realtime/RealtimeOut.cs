@@ -26,13 +26,23 @@ namespace GenOnlineService.Realtime
 	{
 		public const string LobbyList = "lobby-list";
 
+		// Every connection of the user, used where one connection must be left out
 		public static string User(Int64 userID) => $"user:{userID}";
 		public static string UserGame(Int64 userID) => $"user:{userID}:game";
-		public static string Room(Int64 roomID) => $"room:{roomID}";
+
+		// The one connection of a user and session type, a newer connection supersedes the older one
+		public static string UserSession(Int64 userID, EUserSessionType sessionType) => sessionType switch
+		{
+			EUserSessionType.GameLauncher => $"user:{userID}:launcher",
+			EUserSessionType.ChatClient => $"user:{userID}:chat",
+			_ => UserGame(userID),
+		};
+
+		public static string Channel(Int64 channelID) => $"channel:{channelID}";
 		public static string Lobby(Int64 lobbyID) => $"lobby:{lobbyID}";
 	}
 
-	// Sends server events from anywhere in the service, including the static game managers
+	// Sends server events from anywhere in the service, only through SignalR users and groups so a backplane carries them to every copy
 	public static class RealtimeOut
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(RealtimeOut));
@@ -45,11 +55,15 @@ namespace GenOnlineService.Realtime
 		}
 
 		public static IRealtimeClient All => s_hub?.Clients.All ?? s_nullClient;
-		public static IRealtimeClient Connection(string connectionID) => s_hub?.Clients.Client(connectionID) ?? s_nullClient;
-		public static IRealtimeClient Connections(IReadOnlyList<string> connectionIDs) => connectionIDs.Count == 0 ? s_nullClient : s_hub?.Clients.Clients(connectionIDs) ?? s_nullClient;
 		public static IRealtimeClient Group(string group) => s_hub?.Clients.Group(group) ?? s_nullClient;
+		public static IRealtimeClient Groups(IReadOnlyList<string> groups) => groups.Count == 0 ? s_nullClient : s_hub?.Clients.Groups(groups) ?? s_nullClient;
+
+		// The excluded connection ids come from this copy's sessions, so the exclusion holds only for connections on this copy
 		public static IRealtimeClient GroupExcept(string group, IReadOnlyList<string> excludedConnectionIDs) => s_hub?.Clients.GroupExcept(group, excludedConnectionIDs) ?? s_nullClient;
+
+		// Every connection of the user on any copy through the user group, which a connection joins just before Ready so Ready stays the first event
 		public static IRealtimeClient User(Int64 userID) => Group(RealtimeGroups.User(userID));
+		public static IRealtimeClient Users(IEnumerable<Int64> userIDs) => Groups(userIDs.Distinct().Select(RealtimeGroups.User).ToArray());
 		public static IRealtimeClient UserGame(Int64 userID) => Group(RealtimeGroups.UserGame(userID));
 		public static IRealtimeClient Lobby(Int64 lobbyID) => Group(RealtimeGroups.Lobby(lobbyID));
 
@@ -67,11 +81,27 @@ namespace GenOnlineService.Realtime
 			send.ContinueWith(t => s_log.LogWarning(t.Exception, "Realtime send failed"), TaskContinuationOptions.OnlyOnFaulted);
 		}
 
-		// Sends to one session's current connection, nothing when it is disconnected
+		// Sends to one session's connection through its user and session type group, nothing when it is disconnected
 		public static IRealtimeClient Session(UserSession? session)
 		{
-			string? connectionID = session == null ? null : WebSocketManager.GetWebSocketForSession(session)?.ConnectionId;
-			return connectionID == null ? s_nullClient : Connection(connectionID);
+			// the lookup only decides whether the session still owns a connection, delivery goes through the group
+			if (session == null || WebSocketManager.GetWebSocketForSession(session) == null)
+			{
+				return s_nullClient;
+			}
+			return Group(RealtimeGroups.UserSession(session.m_UserID, session.GetSessionType()));
+		}
+	}
+
+	// Names SignalR users by the user id the session principal carries in ClaimTypes.NameIdentifier, the OpenIddict subject
+	public sealed class RealtimeUserIdProvider : IUserIdProvider
+	{
+		public static string Format(Int64 userID) => userID.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+		public string? GetUserId(HubConnectionContext connection)
+		{
+			Int64 userID = RealtimeClaims.UserID(connection.User);
+			return userID > 0 ? Format(userID) : null;
 		}
 	}
 
@@ -95,16 +125,26 @@ namespace GenOnlineService.Realtime
 
 		public static string NameOf(Int64 userID) => WebSocketManager.GetSharedDataForUser(userID)?.m_strDisplayName ?? String.Empty;
 
-		public static Member Of(Int64 userID, string? displayName = null, ClientType? client = null)
+		// The tag of an online user; 0 when offline or not known
+		public static int TagOf(Int64 userID) => WebSocketManager.GetSharedDataForUser(userID)?.m_NameTag ?? 0;
+
+		// displayName and nameTag come from the database for users who may be offline; otherwise the online data is used
+		public static Member Of(Int64 userID, string? displayName = null, ClientType? client = null, int? nameTag = null)
 		{
+			int tag = nameTag ?? (displayName == null ? TagOf(userID) : 0);
 			return new Member
 			{
 				Id = userID,
 				Name = displayName ?? NameOf(userID),
+				Tag = tag > 0 ? Database.DisplayNames.FormatTag(tag) : null,
 				Badges = RealtimeBadges.For(userID),
 				Client = client
 			};
 		}
+
+		// A name looked up with RealtimeHub.NamesAsync; users not in it fall back to the online data
+		public static Member Of(Int64 userID, IReadOnlyDictionary<long, (string Name, int Tag)> names) =>
+			names.TryGetValue(userID, out (string Name, int Tag) stored) ? Of(userID, stored.Name, null, stored.Tag) : Of(userID);
 
 		public static Member Of(UserSession session) => Of(session.m_UserID, null, ClientOf(session.GetSessionType()));
 	}

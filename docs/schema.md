@@ -25,7 +25,7 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 | JSON only for genuinely open structures | per-match stat blobs, audit details |
 | Calendar keys include the year | `period_start date`, never `day_of_year` alone |
 | No version suffixes | no `_v2`, no `new_` |
-| Reasons are `varchar(512)` everywhere | bans, roles, audit (`ModerationManager.MaximumReasonLength` and the CLI raised to 512) |
+| Reasons are `varchar(512)` everywhere | sanctions, reports, roles, audit (`ModerationManager.MaximumReasonLength` and the CLI raised to 512) |
 
 ### Portability (MySQL and Postgres)
 
@@ -47,8 +47,9 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 ```
 users
   id                      bigint pk              -- the user id; with Keycloak player ids it is the player_id, set explicitly (identity section 3.2)
-  username                varchar(32)            -- display name
-  username_normalized     varchar(32) unique
+  username                varchar(32)            -- display name; not unique on its own
+  username_normalized     varchar(32)
+  name_tag                int                    -- 1 to 9999; unique (username_normalized, name_tag), shown as Name#0042
   email                   varchar(254) null
   email_normalized        varchar(254) null unique
   email_confirmed_at      timestamp null
@@ -60,7 +61,7 @@ users
   failed_sign_in_count    int
   created_at, updated_at, last_sign_in_at, renamed_at null
 
-user_username_history     id, user_id, username, changed_at, changed_by
+user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
 identities                id, user_id, provider varchar(32), extern_uid varchar(128),
                           extern_username varchar(128) null, created_at, last_used_at
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
@@ -76,11 +77,14 @@ user_roles
   granted_by varchar(64) null, granted_at, reason varchar(512) null
   pk (user_id, role, source)
 
-bans
-  id, user_id, restriction varchar(16) ('play' | 'chat'), source varchar(32),
-  reason varchar(512), created_by varchar(64) null, created_at, expires_at null,
-  revoked_at null, revoked_by varchar(64) null, revoke_reason varchar(512) null
-  -- several active bans per user allowed; the longest lasting decides what the player sees
+sanctions                 -- never purged
+  id, user_id, type varchar(16) ('kick' | 'mute' | 'ban'), source varchar(32) ('local' | 'upstream:<provider>'),
+  reason varchar(512) null, created_by_kind varchar(16), created_by_id bigint null, created_at,
+  expires_at null, lifted_at null, lifted_by_kind varchar(16) null, lifted_by_id bigint null,
+  lift_reason varchar(512) null, report_id bigint null
+  index (user_id, type, lifted_at, expires_at)
+  -- kick: expires_at = created_at, never active; mute: expires_at required; ban: null expires_at is permanent
+  -- several active sanctions per user allowed; the longest lasting ban decides what the player sees
 
 audit_log                 -- append-only, no retention purge
   id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account' | 'upstream'; upstream rows: actor = provider name),
@@ -88,7 +92,7 @@ audit_log                 -- append-only, no retention purge
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
 ```
 
-`source` on roles and bans holds what used to be the scope idea: `local` rows come from this environment, `upstream:<provider>` rows are replaced at each sign-in through that trusted provider (identity doc section 5). Mute is a `chat` ban; moderators may only kick and mute.
+`source` on roles and sanctions holds what used to be the scope idea: `local` rows come from this environment, `upstream:<provider>` rows are replaced at each sign-in through that trusted provider (identity doc section 5). Moderators may only kick and mute. `created_by_kind` and `lifted_by_kind` take the `audit_log` actor kinds, with the staff account in `created_by_id` and `lifted_by_id` when one acted (a CLI call with `--by` keeps kind `cli` and the user id). `report_id` names the player report a sanction answered and is set by tooling only.
 
 ### Social
 
@@ -97,6 +101,48 @@ friendships               user_id_low, user_id_high, created_at   pk (user_id_lo
 friend_requests           from_user_id, to_user_id, created_at    pk (from_user_id, to_user_id)
 blocks                    user_id, blocked_user_id, created_at    pk (user_id, blocked_user_id)
 ```
+
+### Chat
+
+```
+chat_messages             id, kind varchar(16) ('channel' | 'lobby' | 'direct' | 'group'), channel_id bigint null,
+                          lobby_id bigint null, match_id bigint null, sender_id, recipient_id null,
+                          group_id null, type varchar(16) ('chat' | 'action' | 'announcement'), content varchar(512),
+                          created_at, deleted_at null
+                          index (kind, channel_id, id), (lobby_id, id), (sender_id, recipient_id, id),
+                          (recipient_id, sender_id, id), (group_id, id), (created_at)
+                          -- retention: 30 days after created_at, tombstones included
+chat_groups               id, name varchar(32) null, owner_id, created_at
+                          -- no retention: deleted when its last member leaves
+chat_group_members        id, group_id, user_id, joined_at
+                          unique (group_id, user_id), index (user_id)
+                          -- id keeps the join order; removed on leave, removal and account deletion
+chat_read_markers         user_id, conversation varchar(64) ('dm:<user_id>' | 'channel:<id>' | 'group:<id>'),
+                          last_read_message_id, updated_at   pk (user_id, conversation)
+                          -- retention: purged with the messages, 30 days after updated_at
+player_reports            id, reporter_id, reported_user_id, message_id bigint null, reason varchar(512) null,
+                          evidence json, status varchar(16) ('open' | 'actioned' | 'dismissed'), created_at,
+                          resolved_at null, resolved_by_kind varchar(16) null, resolved_by_id bigint null,
+                          resolution_note varchar(512) null
+                          unique (reporter_id, message_id), index (status, created_at), (reported_user_id, created_at)
+                          -- retention: kept while open, purged 30 days after resolved_at
+```
+
+Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages, `group_id` for group messages (a group message keeps its `group_id` after the group is deleted and is purged with the other messages). A group has at most `Realtime:group_max_members` members (default 10), the owner included; when the owner leaves, the member with the lowest `chat_group_members.id` (the earliest to join) becomes owner, and leaving removes that member's read marker for the group. A report names a message (`message_id`, `reported_user_id` is its author) or a player (`message_id` null). The unique index covers message reports only, since NULLs never collide; the service allows one open player report per reporter and player. A message report's `evidence` is `{message, before: [up to 10, oldest first], after: [up to 10, oldest first], after_filled_at: ISO UTC or null}` for the same conversation: the report stores the message and `before`, and the hourly purge fills `after` and `after_filled_at` for open reports just before the reported message expires. Its `message_id` may therefore point at a purged message, and moderation reads the evidence instead. A player report's `evidence` is `{messages: [up to 10, oldest first]}`: the player's most recent stored messages the reporter could see (channel messages, lobby messages of a lobby the reporter was in or a match they played, messages of a group the reporter is in, unless either blocked the other, and direct messages from the player to the reporter). Resolving a report sets `status`, `resolved_at`, `resolved_by_*` and `resolution_note` and writes a `report_close` row to `audit_log`. Account deletion deletes the messages the user sent, their read markers, the resolved reports they filed and their group memberships (with the same owner handover, and a group left empty is deleted); their open reports stay until resolved. A staff direct message that uses the `chat.message_anyone` bypass (no mutual friendship, or a block either way) writes an `audit_log` row (`action` `staff_message`, target the user, `details` `{message_id}`, never the text).
+
+### Connection reports
+
+```
+connection_reports        id, reporter_id, lobby_id, target_user_id, attempt int, outcome varchar(16)
+                          ('connected_direct' | 'connected_relay' | 'failed' | 'disconnected'),
+                          transport varchar(8) ('gns' | 'eos'), ip_version int (4 | 6), events json,
+                          created_at, updated_at
+                          unique (reporter_id, lobby_id, target_user_id, attempt),
+                          index (target_user_id, updated_at), (lobby_id), (updated_at)
+                          -- retention: purged with the chat messages, 30 days after updated_at
+```
+
+One row is the final result of one connection attempt from `reporter_id` to `target_user_id` in a lobby, sent by `POST /api/v1/lobbies/:id/connection_reports`. A repeated report of the same attempt replaces the row (outcome, transport, ip_version, events and `updated_at`; `created_at` stays from the first report). `events` is `[{state, t_ms}]`, oldest first, at most 32. The table never holds an IP address. Staff read it with `connections player` and `connections lobby`, and each read writes a `connection_lookup` row to `audit_log` (target the user or the lobby, with the reason). Account deletion deletes the reports the user sent and the reports that name the user as target.
 
 ### Players and devices
 
@@ -141,7 +187,7 @@ faction_stats_daily       day date, side smallint, matches int, wins int     pk 
 
 - **Faction win rates** (today `daily_stats`, served by `GlobalStats`) are computed from `matches` and `match_players` (side and result). `faction_stats_daily` exists only as a cache keyed by real date, updated when a match finishes, if the query proves too slow.
 - **Player and lobby peaks** (today `service_stats`, written hourly and never read) are not stored: the existing OpenTelemetry gauges `genonline.players.online` and `genonline.lobbies.active` already provide them through `/-/metrics`.
-- **Connection outcomes** (today `connection_outcomes`, write-only) become the metric counter `genonline.connection.outcomes{protocol, result}`.
+- **Connection outcomes** (today `connection_outcomes`, write-only) become the metric counter `genonline.connection.outcomes{outcome, transport, ip_version}`, counted from `POST /api/v1/lobbies/:id/connection_reports`, which also stores the per-player rows of `connection_reports`.
 
 ### Anti-cheat
 
@@ -185,7 +231,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 | `users.google_id, google_email` | `identities(provider='google')`; email not trusted as verified |
 | `users.gamereplays_id, gamereplays_username` | `identities(provider='gamereplays')` |
 | `users.admin, permissionslevel` | **not imported**: printed in the validation report; staff re-granted by hand or via Keycloak groups |
-| `users.banned, ban_reason, banned_by, ban_verified_by, ban_aliases` | `bans(restriction='play', source='local', created_by=null, reason=ban_reason)`; the rest into one `audit_log` entry |
+| `users.banned, ban_reason, banned_by, ban_verified_by, ban_aliases` | `sanctions(type='ban', source='local', created_by_kind='cli', created_by_id=null, reason=ban_reason)`; the rest into one `audit_log` entry |
 | `users.elo_rating, elo_num_matches` | `player_ratings(kind='all_time')` |
 | `users.monthly_elo_rating` | `player_ratings(kind='monthly')` |
 | `users.favorite_*` | `player_preferences` |
@@ -211,7 +257,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 - **Dropped users (`account_type` Ghost or DevAccount):** their `users`, identities, devices, ratings, stats, preferences, network, friendships, friend requests, blocks, leaderboard and anti-cheat rows are not imported. Matches they took part in are kept: their `match_players` rows keep the slot with `user_id = null`, and a match they owned gets `owner_user_id = null`. Their ids are never reused. Exits non-zero until findings are resolved or waived in an import config file.
 - **Phase 2, convert:** table by table in dependency order, batched, through the EF models of both sides.
 - **Phase 3, verify:** row counts and checksums per mapping line, printed and written to a report; identity sequences set to max(id) + 1.
-- **Keycloak file (official deployment, optional, `Import:keycloak_file`):** a Keycloak partial import with federated identity links and `player_id` = the old user id, so a person's first Keycloak sign-in lands on their prod user; `<path>.counter.json` holds `player_id_next` (highest imported id + 1) for the GenOnline Keycloak plugin's counter. Written only after a committed real run.
+- **Keycloak file (official deployment, optional, `Import:keycloak_file`):** a Keycloak partial import with federated identity links (Steam, Discord, Google, GameReplays), `player_id` = the old user id and `display_name` = the imported name, so a person's first Keycloak sign-in lands on their prod user with their name; `<path>.counter.json` holds `genonlinePlayerIdStart` (highest imported id + 1), the realm attribute that starts the GenOnline Keycloak plugin's counter. Written only after a committed real run.
 - **Config switches:** legacy bans as local bans (default) or skipped; HMAC key path.
 - **Modes:** `--dry-run` into a scratch database; refuses a non-empty target.
 - **Cutover:** stop the old service, import, start the new deploy. No dual writes.
@@ -224,7 +270,7 @@ None.
 
 | Area | Owner |
 |---|---|
-| Moderation tables (`user_roles`, `bans`, `audit_log`), permissions | release session (`arctic/feat/moderation-roles`) |
+| Moderation tables (`user_roles`, `sanctions`, `player_reports`, `audit_log`), permissions | release session (`arctic/feat/moderation-roles`) |
 | Leaderboards | together with matches and stats |
 | Anti-cheat reports | the EOS/EAC integration owner (the auth hardening and API design session) |
 | Identity, tokens, API conventions | the auth hardening and API design session |

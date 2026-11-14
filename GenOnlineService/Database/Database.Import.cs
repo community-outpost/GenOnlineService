@@ -224,12 +224,12 @@ namespace Database
 
 			// written only after the commit, so Keycloak never holds player ids the database does not
 			List<KeycloakImportUser> keycloakUsers = KeycloakUsers(plan);
-			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)["player_id_next"]!.GetValue<long>();
+			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)[KeycloakImportFile.CounterStartAttribute]!.GetValue<long>();
 			if (settings.KeycloakFile != null && !options.DryRun)
 			{
 				(string usersPath, string counterPath) = KeycloakImportFile.Write(settings.KeycloakFile, keycloakUsers);
 				report.Line($"Keycloak file: {keycloakUsers.Count} users with player_id written to {Path.GetFullPath(usersPath)}");
-				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart} ({Path.GetFullPath(counterPath)})");
+				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart}: set the realm attribute {KeycloakImportFile.CounterStartAttribute} to it before anyone signs up ({Path.GetFullPath(counterPath)})");
 			}
 			else if (settings.KeycloakFile != null)
 			{
@@ -245,7 +245,8 @@ namespace Database
 		{
 			return plan.Kept.OrderBy(k => k.Key)
 				.Select(k => new KeycloakImportUser(k.Key,
-					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList()))
+					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList(),
+					k.Value.Username))
 				.ToList();
 		}
 
@@ -286,7 +287,7 @@ namespace Database
 
 		private static readonly string[] IdentityTables =
 		{
-			"users", "user_username_history", "identities", "bans", "audit_log", "devices", "session_events", "matches",
+			"users", "user_username_history", "identities", "sanctions", "audit_log", "devices", "session_events", "matches",
 			"anticheat_module_reports", "anticheat_new_account_games", "anticheat_probe_reports"
 		};
 
@@ -656,7 +657,7 @@ namespace Database
 				var discord = Line("users.discord_id, discord_username", "identities (discord)");
 				var google = Line("users.google_id", "identities (google)");
 				var gameReplays = Line("users.gamereplays_id, gamereplays_username", "identities (gamereplays)");
-				var bans = Line("users.banned, ban_reason", "bans (play, local)");
+				var bans = Line("users.banned, ban_reason", "sanctions (ban, local)");
 				var audit = Line("users.banned_by, ban_verified_by, ban_aliases", "audit_log (ban)");
 				var allTime = Line("users.elo_rating, elo_num_matches", "player_ratings (all_time)");
 				var monthly = Line("users.monthly_elo_rating", "player_ratings (monthly)");
@@ -678,6 +679,8 @@ namespace Database
 						ID = old.Id,
 						Username = kept.Username,
 						UsernameNormalized = NameNormalizer.Normalize(kept.Username),
+						// imported names are unique already (AssignUsernames), so tag 1 keeps name#tag unique; Keycloak's tag replaces it at sign-in
+						NameTag = 1,
 						Email = kept.Email,
 						EmailNormalized = kept.Email == null ? null : NameNormalizer.Normalize(kept.Email),
 						State = UserStates.Active,
@@ -725,15 +728,15 @@ namespace Database
 						}
 						else
 						{
-							string reason = string.IsNullOrWhiteSpace(old.BanReason) ? LegacyBanReason : Clamp(old.BanReason, ModerationManager.MaximumReasonLength, "bans", "reason");
+							string reason = string.IsNullOrWhiteSpace(old.BanReason) ? LegacyBanReason : Clamp(old.BanReason, ModerationManager.MaximumReasonLength, "sanctions", "reason");
 
-							Write(bans, new Ban
+							Write(bans, new Sanction
 							{
 								UserID = old.Id,
-								Restriction = BanRestrictions.Play,
+								Type = SanctionTypes.Ban,
 								Source = AuthoritySources.Local,
 								Reason = reason,
-								CreatedBy = null,
+								CreatedByKind = AuditActorKinds.Cli,
 								CreatedAt = _now
 							});
 

@@ -334,7 +334,7 @@ public class DiscordBot
 			Staff("uptime", "Shows when the service started").Build(),
 			Staff("peak", "Shows the highest player count since the last restart").Build(),
 			Staff("whois", "Finds the user id of an online player")
-				.AddOption("name", ApplicationCommandOptionType.String, "Display name", isRequired: true, maxLength: 32)
+				.AddOption("name", ApplicationCommandOptionType.String, "Display name, or Name#tag", isRequired: true, maxLength: 37)
 				.Build(),
 			Staff("kick", "Kicks an online player from the server")
 				.AddOption("user_id", ApplicationCommandOptionType.Integer, "User id of the player", isRequired: true, minValue: 1)
@@ -499,8 +499,8 @@ public class DiscordBot
 				string name = GetOption<string>(command, "name") ?? String.Empty;
 				SharedUserData? userDataFound = GenOnlineService.WebSocketManager.GetSharedDataForUser(name);
 				return userDataFound != null
-					? $"User {userDataFound.m_strDisplayName} is user ID {userDataFound.m_UserID}."
-					: $"User {name} is not active on the server.";
+					? $"User {Database.DisplayNames.Format(userDataFound.m_strDisplayName, userDataFound.m_NameTag)} is user ID {userDataFound.m_UserID}."
+					: $"User {name} is not active on the server, or more than one active user has that name: use Name#tag.";
 			}
 			case "kick":
 			{

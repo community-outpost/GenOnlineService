@@ -30,7 +30,7 @@ using System.Text.Json;
 
 namespace GenOnlineService.Identity
 {
-	public sealed record PlayBan(string Reason, DateTime? Until);
+	public sealed record PlayBan(string Reason, DateTime? ExpiresAt);
 
 	// User state and play bans for every request, reloaded on the reconcile tick; no database read per request
 	public static class AccessControl
@@ -69,17 +69,15 @@ namespace GenOnlineService.Identity
 				.Where(u => u.State != UserStates.Active)
 				.ToDictionaryAsync(u => u.ID, u => u.State);
 
-			List<Ban> bans = await db.Bans.AsNoTracking()
-				.Where(b => b.Restriction == BanRestrictions.Play && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
-				.ToListAsync();
+			List<Sanction> bans = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, now).ToListAsync();
 
 			// the longest lasting ban decides what the player sees
 			Dictionary<Int64, PlayBan> banned = bans
 				.GroupBy(b => b.UserID)
 				.ToDictionary(g => g.Key, g =>
 				{
-					Ban longest = g.OrderByDescending(b => b.ExpiresAt == null).ThenByDescending(b => b.ExpiresAt).First();
-					return new PlayBan(longest.Reason, longest.ExpiresAt);
+					Sanction longest = g.OrderByDescending(b => b.ExpiresAt == null).ThenByDescending(b => b.ExpiresAt).First();
+					return new PlayBan(longest.Reason ?? String.Empty, longest.ExpiresAt);
 				});
 
 			Dictionary<Int64, string> previousInactive = s_inactive;
@@ -313,7 +311,7 @@ namespace GenOnlineService.Identity
 			// a ban is announced before the revocation, which would otherwise close the game connections with auth.revoked first
 			if (ban != null)
 			{
-				await ModerationManager.DisconnectUser(userID, EModerationAction.Ban, ban.Reason, ban.Until);
+				await ModerationManager.DisconnectUser(userID, EModerationAction.Ban, ban.Reason, ban.ExpiresAt);
 			}
 
 			try
@@ -372,10 +370,10 @@ namespace GenOnlineService.Identity
 			return revoked.Count;
 		}
 
-		// Closes the user's realtime connections with auth.revoked, all or one session type
+		// Closes the user's realtime connections on every copy with auth.revoked, all or one session type
 		public static Task CloseRealtime(Int64 userID, EUserSessionType? onlySessionType)
 		{
-			return WebSocketManager.DisconnectUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType);
+			return Realtime.RealtimeControl.RequestClose(Realtime.CloseRequest.ForUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType));
 		}
 	}
 
@@ -468,9 +466,9 @@ namespace GenOnlineService.Identity
 
 				// one body for the upgrade and REST; a permanent ban has no expires_at
 				var parameters = new Dictionary<string, string> { ["reason"] = ban.Reason };
-				if (ban.Until != null)
+				if (ban.ExpiresAt != null)
 				{
-					parameters["expires_at"] = DateTime.SpecifyKind(ban.Until.Value, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+					parameters["expires_at"] = ban.ExpiresAt.Value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
 				}
 
 				await Response.WriteAsJsonAsync(new { error = "moderation.banned", @params = parameters });

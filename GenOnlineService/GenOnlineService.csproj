@@ -18,6 +18,11 @@
 		<PackageReference Update="System.Linq.AsyncEnumerable" ExcludeAssets="all" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<!-- Lets the tests drive a lobby through its internal membership calls -->
+		<InternalsVisibleTo Include="GenOnlineService.Tests" />
+	</ItemGroup>
+
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <WarningLevel>0</WarningLevel>
@@ -49,6 +54,7 @@
     <PackageReference Include="Discord.Net" Version="3.20.1" />
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
