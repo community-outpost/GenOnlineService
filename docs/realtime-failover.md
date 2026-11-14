@@ -28,7 +28,7 @@ Not goals:
 
 Production: the active copy prefers `k8swk01`, the standby runs on `k8swk02` (one k3s cluster). Both share Postgres (CloudNativePG, synchronous replica on `k8swk02`) and Redis or Valkey (replica on `k8swk02`).
 
-Two copies need Postgres as the shared database. With MySQL or MariaDB the service refuses to start when `Realtime:failover:enabled` is on. A single copy still runs on MySQL or MariaDB.
+Two copies need Postgres as the shared database. With MySQL or MariaDB the service refuses to start when `Realtime:failover:enabled` is on or `Realtime:backplane` is `redis`. A single copy still runs on MySQL or MariaDB and needs no Redis backplane.
 
 ## Lease
 
