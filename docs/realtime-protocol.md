@@ -178,7 +178,7 @@ A tombstone never shows its author or content.
 
 - `players` counts filled slots (players and AI), `max_players` counts slots that are not closed.
 - `latency_ms` is estimated per viewer, so each watcher receives its own value.
-- The list only contains custom lobbies in `setup` or `countdown` that the viewer may join: lobbies whose host blocked the viewer and friends-only lobbies of non-friends are left out.
+- The list only contains custom lobbies in `setup` or `countdown` that the viewer may join: lobbies of a different build (game, executable and INI CRC, anticheat), lobbies whose host blocked the viewer and friends-only lobbies of non-friends are left out. Players only ever meet players running the same build, in custom lobbies and in matchmaking alike, so a third-party client plays with its own kind.
 
 `LobbyState` (the lobby the user is in)
 
@@ -336,7 +336,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 **Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline friend is stored and delivered on their next connect through `DirectMessages` and `GetHistory`.
 
-Messages are stored in the service database as they are; the protocol and the service add no encryption beyond TLS on the connection.
+Messages are stored in the service database as they are; the protocol and the service add no encryption beyond TLS on the connection. Protecting the stored data (disk or volume encryption, encrypted backups) is the operator's job. Staff read a direct message only through a report or an audited lookup, and every lookup is written to `audit_log`.
 
 ### 6.3 Lobbies
 
