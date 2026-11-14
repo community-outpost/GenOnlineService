@@ -115,5 +115,8 @@ During the overlap, version N and N+1 run together:
 
 ## Open
 
+- Counters that restart per process (mesh check ids, probe ids) must not let a handed-over lobby accept a stale answer: start them at a random or time-based value, or reset the lobby's pending checks on handover.
+- The lobby state handed over must include the former member set, which connection reports use to check their target.
+- Lobby ids come from a database block allocator (blocks of 100 per copy). The allocator relies on synchronous database replication: an asynchronous replica can lose the last reserved block on failover and hand out ids again. Production runs a synchronous CloudNativePG replica; keep it that way.
 - Handover limit and batch size: start with 120 s and 5 percent every 200 ms, then tune from metrics.
 - Metrics to add: handover duration, connections moved per batch, lobbies moved, lobbies lost on an unplanned failover, reconnect time seen by clients.
