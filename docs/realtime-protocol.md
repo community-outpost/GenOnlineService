@@ -428,6 +428,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.reserved` | `{word}` | `PATCH /api/v1/me` (staff words and badge texts) |
 | `name.taken` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the new name together with the player's tag is already taken |
 | `name.managed` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` in an environment where Keycloak owns names and this environment may not rename (test and dev of the official deployment) |
+| `name.unavailable` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` when the service that owns names (the Keycloak plugin) cannot be reached or fails (HTTP 503). Nothing changed; the client may retry later |
 | `channel.unavailable` | | `JoinChannel` |
 | `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods; `lobby.not_member` also for `GetHistory` on a `lobby:` the caller is not in |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
