@@ -1,0 +1,26 @@
+{
+  "personal_access_tokens": [
+    {
+      "id": 42,
+      "name": "moderation-script",
+      "scopes": ["moderation.kick", "moderation.mute"],
+      "created_at": "2026-11-01T09:30:00Z",
+      "expires_at": "2027-02-01T00:00:00Z",
+      "last_used_at": "2026-11-14T08:12:45Z",
+      "last_used_ip": "203.0.113.4",
+      "revoked_at": null,
+      "token_last4": "aaaa"
+    },
+    {
+      "id": 17,
+      "name": "moderation-script",
+      "scopes": ["moderation.kick"],
+      "created_at": "2026-08-01T10:00:00Z",
+      "expires_at": "2026-11-01T10:00:00Z",
+      "last_used_at": null,
+      "last_used_ip": null,
+      "revoked_at": "2026-11-01T09:30:00Z",
+      "token_last4": "bbbb"
+    }
+  ]
+}

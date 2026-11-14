@@ -16,10 +16,9 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Rest;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace GenOnlineService
 {
@@ -42,10 +41,6 @@ namespace GenOnlineService
 			+ "  GenOnlineService tokens rotate <id> [--overlap-minutes <0-1440>] [--expires <yyyy-mm-dd>]\n"
 			+ "  GenOnlineService tokens revoke <id> [--reason <text>]";
 
-		private const int MaximumOverlapMinutes = 1440;
-
-		private static readonly Regex s_serviceAccountName = new("^[a-z0-9][a-z0-9_-]{0,63}$", RegexOptions.CultureInvariant);
-
 		private sealed class CliException : Exception
 		{
 			public CliException(string message) : base(message) { }
@@ -56,8 +51,6 @@ namespace GenOnlineService
 			public List<string> Positional = new();
 			public Dictionary<string, string> Options = new(StringComparer.OrdinalIgnoreCase);
 		}
-
-		private sealed record Owner(string Kind, Int64 ID, string Label);
 
 		private static Arguments Parse(string[] args, string usage, params string[] allowedOptions)
 		{
@@ -82,7 +75,7 @@ namespace GenOnlineService
 			return result;
 		}
 
-		private static string CliActor() => "cli:" + Environment.UserName;
+		private static readonly ApiTokenActor s_actor = ApiTokenActor.Cli();
 
 		private static async Task<int> Run(Func<Task<int>> command)
 		{
@@ -91,6 +84,11 @@ namespace GenOnlineService
 				return await command();
 			}
 			catch (CliException ex)
+			{
+				Console.Error.WriteLine(ex.Message);
+				return 2;
+			}
+			catch (ApiTokenAdminException ex)
 			{
 				Console.Error.WriteLine(ex.Message);
 				return 2;
@@ -115,36 +113,10 @@ namespace GenOnlineService
 			return db;
 		}
 
-		private static AuditLogEntry Audit(string action, string targetKind, Int64 targetID, object details, string? reason = null)
-		{
-			return new AuditLogEntry
-			{
-				CreatedAt = DateTime.UtcNow,
-				ActorKind = AuditActorKinds.Cli,
-				Actor = CliActor().Length > 64 ? CliActor().Substring(0, 64) : CliActor(),
-				Action = action,
-				TargetKind = targetKind,
-				TargetID = targetID,
-				Reason = String.IsNullOrEmpty(reason) ? null : reason,
-				Source = "cli",
-				Details = JsonSerializer.Serialize(details)
-			};
-		}
-
 		private static async Task<ServiceAccount> RequireServiceAccount(AppDbContext db, string name)
 		{
 			return await db.ServiceAccounts.AsTracking().FirstOrDefaultAsync(a => a.Name == name)
 				?? throw new CliException($"Service account {name} does not exist.");
-		}
-
-		private static string RequirePermission(string permission)
-		{
-			if (!Permissions.IsKnown(permission))
-			{
-				throw new CliException($"Unknown permission: {permission}. Known: {String.Join(", ", Permissions.All.OrderBy(p => p, StringComparer.Ordinal))}");
-			}
-
-			return permission;
 		}
 
 		public static Task<int> RunServiceAccounts(string[] args)
@@ -177,32 +149,8 @@ namespace GenOnlineService
 					case "create" when parsed.Positional.Count == 2:
 					{
 						string name = parsed.Positional[1];
-						if (!s_serviceAccountName.IsMatch(name))
-						{
-							throw new CliException("A service account name is 1 to 64 characters of a-z, 0-9, '-' and '_', starting with a letter or digit.");
-						}
-
 						string description = parsed.Options.GetValueOrDefault("--description", String.Empty).Trim();
-						if (description.Length > 256)
-						{
-							throw new CliException("The description must be 256 characters or fewer.");
-						}
-
-						if (await db.ServiceAccounts.AnyAsync(a => a.Name == name))
-						{
-							throw new CliException($"Service account {name} already exists.");
-						}
-
-						var account = new ServiceAccount { Name = name, Description = description, CreatedBy = CliActor(), CreatedAt = DateTime.UtcNow };
-						db.ServiceAccounts.Add(account);
-						// the row and its audit entry commit together
-						await using (var tx = await db.Database.BeginTransactionAsync())
-						{
-							await db.SaveChangesAsync();
-							db.AuditLog.Add(Audit("sa_create", AuditTargetKinds.ServiceAccount, account.ID, new { name, description }));
-							await db.SaveChangesAsync();
-							await tx.CommitAsync();
-						}
+						ServiceAccount account = await ApiTokenAdmin.CreateServiceAccount(db, s_actor, name, description);
 						Console.WriteLine($"Created service account {name} ({account.ID}).");
 						return 0;
 					}
@@ -211,30 +159,23 @@ namespace GenOnlineService
 					case "revoke-grant" when parsed.Positional.Count == 3:
 					{
 						ServiceAccount account = await RequireServiceAccount(db, parsed.Positional[1]);
-						string permission = RequirePermission(parsed.Positional[2]);
-						ServiceAccountPermission? existing = await db.ServiceAccountPermissions.FirstOrDefaultAsync(p => p.ServiceAccountID == account.ID && p.Permission == permission);
+						string permission = ApiTokenAdmin.RequirePermission(parsed.Positional[2], "permission");
 
 						if (command == "grant")
 						{
-							if (existing != null)
+							if (!await ApiTokenAdmin.StageGrant(db, s_actor, account, permission))
 							{
 								Console.WriteLine($"{account.Name} already holds {permission}.");
 								return 0;
 							}
-
-							db.ServiceAccountPermissions.Add(new ServiceAccountPermission { ServiceAccountID = account.ID, Permission = permission, GrantedBy = CliActor(), GrantedAt = DateTime.UtcNow });
-							db.AuditLog.Add(Audit("sa_grant", AuditTargetKinds.ServiceAccount, account.ID, new { permission, privileged = Permissions.IsPrivileged(permission) }));
 						}
 						else
 						{
-							if (existing == null)
+							if (!await ApiTokenAdmin.StageRevokeGrant(db, s_actor, account, permission))
 							{
 								Console.WriteLine($"{account.Name} does not hold {permission}.");
 								return 0;
 							}
-
-							db.ServiceAccountPermissions.Remove(existing);
-							db.AuditLog.Add(Audit("sa_revoke", AuditTargetKinds.ServiceAccount, account.ID, new { permission }));
 						}
 
 						await db.SaveChangesAsync();
@@ -246,8 +187,7 @@ namespace GenOnlineService
 					case "enable" when parsed.Positional.Count == 2:
 					{
 						ServiceAccount account = await RequireServiceAccount(db, parsed.Positional[1]);
-						account.DisabledAt = command == "disable" ? DateTime.UtcNow : null;
-						db.AuditLog.Add(Audit(command == "disable" ? "sa_disable" : "sa_enable", AuditTargetKinds.ServiceAccount, account.ID, new { name = account.Name }));
+						ApiTokenAdmin.StageSetDisabled(db, s_actor, account, command == "disable");
 						await db.SaveChangesAsync();
 						Console.WriteLine($"{account.Name} is {(command == "disable" ? "disabled" : "enabled")}.");
 						return 0;
@@ -288,12 +228,11 @@ namespace GenOnlineService
 			});
 		}
 
-		private static async Task<Owner> ResolveOwner(AppDbContext db, string text)
+		private static async Task<ApiTokenOwner> ResolveOwner(AppDbContext db, string text)
 		{
 			if (text.StartsWith("service:", StringComparison.Ordinal))
 			{
-				ServiceAccount account = await RequireServiceAccount(db, text.Substring("service:".Length));
-				return new Owner(ApiTokenOwnerKinds.ServiceAccount, account.ID, "service:" + account.Name);
+				return ApiTokenOwner.Service(await RequireServiceAccount(db, text.Substring("service:".Length)));
 			}
 
 			if (text.StartsWith("user:", StringComparison.Ordinal)
@@ -304,23 +243,10 @@ namespace GenOnlineService
 					throw new CliException($"User {userID} does not exist.");
 				}
 
-				return new Owner(ApiTokenOwnerKinds.User, userID, "user:" + userID);
+				return ApiTokenOwner.User(userID);
 			}
 
 			throw new CliException("--owner is service:<name> or user:<id>.");
-		}
-
-		// What the owner holds right now; a token never grants more
-		private static async Task<HashSet<string>> OwnerPermissions(AppDbContext db, Owner owner)
-		{
-			if (owner.Kind == ApiTokenOwnerKinds.ServiceAccount)
-			{
-				return (await db.ServiceAccountPermissions.AsNoTracking().Where(p => p.ServiceAccountID == owner.ID).Select(p => p.Permission).ToListAsync())
-					.ToHashSet(StringComparer.Ordinal);
-			}
-
-			List<string> roles = await db.UserRoles.AsNoTracking().Where(r => r.UserID == owner.ID).Select(r => r.Role).ToListAsync();
-			return StaffRoles.PermissionsFor(roles);
 		}
 
 		private static DateTime ParseExpiry(string text)
@@ -333,117 +259,17 @@ namespace GenOnlineService
 			return DateTime.SpecifyKind(date, DateTimeKind.Utc);
 		}
 
-		private static void CheckLifetime(ApiTokenSettings settings, IReadOnlyCollection<string> scopes, string? allowedIPs, DateTime expiresAt)
-		{
-			DateTime now = DateTime.UtcNow;
-			if (expiresAt <= now)
-			{
-				throw new CliException("The expiry date must be in the future.");
-			}
-
-			bool bPrivileged = scopes.Any(Permissions.IsPrivileged);
-			int maxDays = bPrivileged ? settings.PrivilegedMaxLifetimeDays : settings.MaxLifetimeDays;
-			if (expiresAt > now.AddDays(maxDays))
-			{
-				throw new CliException($"{(bPrivileged ? "A token with a privileged scope" : "A token")} may live at most {maxDays} days.");
-			}
-
-			if (bPrivileged && ApiTokenFormat.ParseAllowedIPs(allowedIPs).Count == 0)
-			{
-				throw new CliException("A token with a privileged scope needs --allowed-ips.");
-			}
-		}
-
-		private static async Task CheckActiveLimit(AppDbContext db, ApiTokenSettings settings, Owner owner)
-		{
-			DateTime now = DateTime.UtcNow;
-			IQueryable<ApiToken> active = db.ApiTokens.AsNoTracking().Where(t => t.ExpiresAt > now && (t.RevokedAt == null || t.RevokedAt > now));
-			active = owner.Kind == ApiTokenOwnerKinds.ServiceAccount ? active.Where(t => t.OwnerServiceID == owner.ID) : active.Where(t => t.OwnerUserID == owner.ID);
-
-			if (await active.CountAsync() >= settings.MaxActivePerOwner)
-			{
-				throw new CliException($"{owner.Label} already has {settings.MaxActivePerOwner} active tokens.");
-			}
-		}
-
-		private static ApiToken NewToken(Owner owner, string name, string scopes, string? allowedIPs, DateTime expiresAt, out string secret)
-		{
-			secret = ApiTokenFormat.Generate();
-			return new ApiToken
-			{
-				OwnerUserID = owner.Kind == ApiTokenOwnerKinds.User ? owner.ID : null,
-				OwnerServiceID = owner.Kind == ApiTokenOwnerKinds.ServiceAccount ? owner.ID : null,
-				Name = name,
-				TokenHash = ApiTokenFormat.Hash(secret),
-				TokenLast4 = ApiTokenFormat.Last4(secret),
-				Scopes = scopes,
-				AllowedIPs = String.IsNullOrWhiteSpace(allowedIPs) ? null : allowedIPs,
-				CreatedBy = CliActor(),
-				CreatedAt = DateTime.UtcNow,
-				ExpiresAt = expiresAt
-			};
-		}
-
 		private static async Task<int> Create(AppDbContext db, ApiTokenSettings settings, Arguments parsed)
 		{
-			Owner owner = await ResolveOwner(db, parsed.Options.GetValueOrDefault("--owner") ?? throw new CliException("--owner is required."));
-
+			ApiTokenOwner owner = await ResolveOwner(db, parsed.Options.GetValueOrDefault("--owner") ?? throw new CliException("--owner is required."));
 			string name = parsed.Options.GetValueOrDefault("--name", String.Empty).Trim();
-			if (name.Length == 0 || name.Length > ApiToken.NameMaxLength)
-			{
-				throw new CliException($"--name is required, at most {ApiToken.NameMaxLength} characters.");
-			}
-
 			List<string> scopes = ApiTokenFormat.ParseScopes(parsed.Options.GetValueOrDefault("--scopes", String.Empty));
-			if (scopes.Count == 0)
-			{
-				throw new CliException("--scopes needs at least one permission.");
-			}
-
-			scopes.ForEach(s => RequirePermission(s));
-
-			if (owner.Kind == ApiTokenOwnerKinds.User)
-			{
-				string? machine = scopes.FirstOrDefault(Permissions.IsMachine);
-				if (machine != null)
-				{
-					throw new CliException($"{machine} is a machine permission and only service accounts hold it.");
-				}
-			}
-
-			HashSet<string> held = await OwnerPermissions(db, owner);
-			string? missing = scopes.FirstOrDefault(s => !held.Contains(s));
-			if (missing != null)
-			{
-				throw new CliException($"{owner.Label} does not hold {missing}; a token never grants more than its owner holds.");
-			}
-
 			string? allowedIPs = parsed.Options.GetValueOrDefault("--allowed-ips");
-			try
-			{
-				ApiTokenFormat.ParseAllowedIPs(allowedIPs);
-			}
-			catch (FormatException ex)
-			{
-				throw new CliException(ex.Message);
-			}
 
-			DateTime expiresAt = ParseExpiry(parsed.Options.GetValueOrDefault("--expires") ?? throw new CliException("--expires is required."));
-			CheckLifetime(settings, scopes, allowedIPs, expiresAt);
-			await CheckActiveLimit(db, settings, owner);
+			(ApiToken token, string secret) = await ApiTokenAdmin.Mint(db, settings, s_actor, owner, name, scopes, allowedIPs,
+				() => ParseExpiry(parsed.Options.GetValueOrDefault("--expires") ?? throw new CliException("--expires is required.")), bFromHost: true);
 
-			ApiToken token = NewToken(owner, name, String.Join(' ', scopes), allowedIPs, expiresAt, out string secret);
-			db.ApiTokens.Add(token);
-			// the row and its audit entry commit together
-			await using (var tx = await db.Database.BeginTransactionAsync())
-			{
-				await db.SaveChangesAsync();
-				db.AuditLog.Add(Audit("token_mint", AuditTargetKinds.Token, token.ID, new { name, owner = owner.Label, scopes, expires_at = expiresAt, allowed_ips = token.AllowedIPs }));
-				await db.SaveChangesAsync();
-				await tx.CommitAsync();
-			}
-
-			Console.WriteLine($"Token {token.ID} ({name}) for {owner.Label}, expires {expiresAt:yyyy-MM-dd}. It is shown once:");
+			Console.WriteLine($"Token {token.ID} ({name}) for {owner.Label}, expires {token.ExpiresAt:yyyy-MM-dd}. It is shown once:");
 			Console.WriteLine(secret);
 			return 0;
 		}
@@ -461,46 +287,11 @@ namespace GenOnlineService
 		private static async Task<int> Rotate(AppDbContext db, ApiTokenSettings settings, Arguments parsed)
 		{
 			ApiToken old = await RequireToken(db, parsed.Positional[1]);
-			DateTime now = DateTime.UtcNow;
-
-			if (old.ExpiresAt <= now || old.RevokedAt != null)
-			{
-				throw new CliException($"Token {old.ID} is revoked, expired or already rotated; rotate its replacement or create a new one.");
-			}
-
 			int overlap = 0;
-			if (parsed.Options.TryGetValue("--overlap-minutes", out string? overlapText)
-				&& (!int.TryParse(overlapText, NumberStyles.None, CultureInfo.InvariantCulture, out overlap) || overlap > MaximumOverlapMinutes))
-			{
-				throw new CliException($"--overlap-minutes is 0 to {MaximumOverlapMinutes}.");
-			}
 
-			Owner owner = old.OwnerServiceID != null
-				? new Owner(ApiTokenOwnerKinds.ServiceAccount, old.OwnerServiceID.Value, "service:" + (await db.ServiceAccounts.AsNoTracking().Where(a => a.ID == old.OwnerServiceID).Select(a => a.Name).FirstAsync()))
-				: new Owner(ApiTokenOwnerKinds.User, old.OwnerUserID!.Value, "user:" + old.OwnerUserID);
-
-			List<string> scopes = ApiTokenFormat.ParseScopes(old.Scopes);
-			DateTime expiresAt = parsed.Options.TryGetValue("--expires", out string? expiresText)
-				? ParseExpiry(expiresText)
-				: now + (old.ExpiresAt - old.CreatedAt);
-			CheckLifetime(settings, scopes, old.AllowedIPs, expiresAt);
-			if (overlap > 0)
-			{
-				await CheckActiveLimit(db, settings, owner);
-			}
-
-			ApiToken token = NewToken(owner, old.Name, old.Scopes, old.AllowedIPs, expiresAt, out string secret);
-			old.RevokedAt = now.AddMinutes(overlap);
-			old.RevokedBy = CliActor();
-			db.ApiTokens.Add(token);
-			// the row and its audit entry commit together
-			await using (var tx = await db.Database.BeginTransactionAsync())
-			{
-				await db.SaveChangesAsync();
-				db.AuditLog.Add(Audit("token_rotate", AuditTargetKinds.Token, token.ID, new { old_token_id = old.ID, overlap_minutes = overlap, expires_at = expiresAt }));
-				await db.SaveChangesAsync();
-				await tx.CommitAsync();
-			}
+			(ApiToken token, string secret) = await ApiTokenAdmin.Rotate(db, settings, s_actor, old,
+				() => overlap = ApiTokenAdmin.CheckOverlap(parsed.Options.GetValueOrDefault("--overlap-minutes")),
+				() => parsed.Options.TryGetValue("--expires", out string? expiresText) ? ParseExpiry(expiresText) : null);
 
 			Console.WriteLine($"Token {token.ID} replaces {old.ID}, which stops {(overlap == 0 ? "now" : $"in {overlap} minutes")}. The new token is shown once:");
 			Console.WriteLine(secret);
@@ -511,23 +302,8 @@ namespace GenOnlineService
 		{
 			ApiToken token = await RequireToken(db, parsed.Positional[1]);
 			string reason = parsed.Options.GetValueOrDefault("--reason", String.Empty).Trim();
-			if (reason.Length > ModerationManager.MaximumReasonLength)
-			{
-				throw new CliException($"The reason must be {ModerationManager.MaximumReasonLength} characters or fewer.");
-			}
 
-			DateTime now = DateTime.UtcNow;
-			if (token.RevokedAt != null && token.RevokedAt <= now)
-			{
-				Console.WriteLine($"Token {token.ID} is already revoked.");
-				return 0;
-			}
-
-			token.RevokedAt = now;
-			token.RevokedBy = CliActor();
-			db.AuditLog.Add(Audit("token_revoke", AuditTargetKinds.Token, token.ID, new { reason }, reason));
-			await db.SaveChangesAsync();
-			Console.WriteLine($"Token {token.ID} is revoked.");
+			Console.WriteLine(await ApiTokenAdmin.Revoke(db, s_actor, token, reason) ? $"Token {token.ID} is revoked." : $"Token {token.ID} is already revoked.");
 			return 0;
 		}
 
@@ -536,8 +312,7 @@ namespace GenOnlineService
 			IQueryable<ApiToken> query = db.ApiTokens.AsNoTracking();
 			if (parsed.Options.TryGetValue("--owner", out string? ownerText))
 			{
-				Owner owner = await ResolveOwner(db, ownerText);
-				query = owner.Kind == ApiTokenOwnerKinds.ServiceAccount ? query.Where(t => t.OwnerServiceID == owner.ID) : query.Where(t => t.OwnerUserID == owner.ID);
+				query = ApiTokenAdmin.OwnedBy(query, await ResolveOwner(db, ownerText));
 			}
 
 			DateTime now = DateTime.UtcNow;

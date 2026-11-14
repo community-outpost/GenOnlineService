@@ -90,24 +90,8 @@ namespace Database
 				// Load stats JSON via EF
 				string? json = await _getUserStatsJson(db, userId);
 
-				if (string.IsNullOrEmpty(json))
-					return ps; // no stats row → return ELO-only stats
-
-				// Deserialize dictionary
-				Dictionary<int, int>? dict =
-					JsonSerializer.Deserialize<Dictionary<int, int>>(json);
-
-				if (dict == null)
-					return ps;
-
-				// Feed into PlayerStats
-				foreach (var kv in dict)
-				{
-					EStatIndex statId = (EStatIndex)kv.Key;
-					int statValue = kv.Value;
-
-					ps.ProcessFromDB(statId, statValue);
-				}
+				// no stats row → return ELO-only stats
+				ApplyStatsJson(ps, json);
 			}
 			catch (Exception ex)
 			{
@@ -115,6 +99,59 @@ namespace Database
 			}
 
 			return ps;
+		}
+
+		// Feeds a stored stats document into PlayerStats
+		private static void ApplyStatsJson(PlayerStats ps, string? json)
+		{
+			if (string.IsNullOrEmpty(json))
+				return;
+
+			Dictionary<int, int>? dict = JsonSerializer.Deserialize<Dictionary<int, int>>(json);
+			if (dict == null)
+				return;
+
+			foreach (var kv in dict)
+			{
+				ps.ProcessFromDB((EStatIndex)kv.Key, kv.Value);
+			}
+		}
+
+		// Stored stats of the visible users among userIds in three queries; ratings come from player_ratings, not the external API
+		public static async Task<Dictionary<long, PlayerStats>> GetPlayerStatsBulk(AppDbContext db, List<long> userIds)
+		{
+			var results = new Dictionary<long, PlayerStats>();
+			if (userIds.Count == 0)
+				return results;
+
+			List<long> known = await PublicPlayers.Visible(db)
+				.Where(u => userIds.Contains(u.ID))
+				.Select(u => u.ID)
+				.ToListAsync();
+			if (known.Count == 0)
+				return results;
+
+			Dictionary<long, EloData> ratings = await PlayerRatings.GetBulk(db, known);
+			Dictionary<long, string> documents = await db.PlayerStats.AsNoTracking()
+				.Where(s => known.Contains(s.UserId))
+				.ToDictionaryAsync(s => s.UserId, s => s.Stats);
+
+			foreach (long userId in known)
+			{
+				EloData elo = ratings.TryGetValue(userId, out EloData? stored) ? stored : new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
+				PlayerStats ps = new PlayerStats(userId, elo.Rating, elo.NumMatches, elo.MonthlyRating);
+				try
+				{
+					ApplyStatsJson(ps, documents.GetValueOrDefault(userId));
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "GetPlayerStatsBulk could not read the stats of user {UserId}", userId);
+				}
+				results[userId] = ps;
+			}
+
+			return results;
 		}
 
 

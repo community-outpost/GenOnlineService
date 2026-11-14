@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "clients": [
+    {"client_id": "generals_game", "ok": true},
+    {"client_id": "zerohour_game", "ok": true}
+  ]
+}

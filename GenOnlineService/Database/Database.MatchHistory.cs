@@ -17,7 +17,6 @@
 */
 
 using GenOnlineService;
-using GenOnlineService.Controllers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -292,17 +291,6 @@ namespace Database
 
 		private const int SlotCount = 8;
 
-		private static readonly Func<AppDbContext, DateTime, int, IAsyncEnumerable<Match>> _getMatchesSince =
-			EF.CompileAsyncQuery(
-				(AppDbContext db, DateTime since, int maxLobbiesPerRequest) =>
-					db.Matches
-					  .AsNoTracking()
-					  .Where(m => m.FinishedAt != null && m.FinishedAt >= since)
-					  .OrderBy(m => m.FinishedAt)
-					  .ThenBy(m => m.Id)
-					  .Take(maxLobbiesPerRequest)
-			);
-
 		public static MatchPlayerDetails ReadDetails(string? json)
 		{
 			if (string.IsNullOrEmpty(json))
@@ -376,12 +364,12 @@ namespace Database
 			return entry;
 		}
 
-		private static async Task<MatchHistoryCollection> ToCollection(AppDbContext db, List<Match> matches, CancellationToken cancellationToken = default)
+		private static async Task<List<MatchHistory_Entry>> ToEntries(AppDbContext db, List<Match> matches, CancellationToken cancellationToken = default)
 		{
-			MatchHistoryCollection collection = new();
+			List<MatchHistory_Entry> entries = new();
 
 			if (matches.Count == 0)
-				return collection;
+				return entries;
 
 			List<long> ids = matches.Select(m => m.Id).ToList();
 			var players = (await db.MatchPlayers.AsNoTracking()
@@ -391,10 +379,10 @@ namespace Database
 
 			foreach (Match match in matches)
 			{
-				collection.matches.Add(ToEntry(match, players[match.Id]));
+				entries.Add(ToEntry(match, players[match.Id]));
 			}
 
-			return collection;
+			return entries;
 		}
 
 		private static async Task<MatchPlayer?> GetPlayer(AppDbContext db, long matchId, int slotIndex, CancellationToken cancellationToken = default)
@@ -825,57 +813,24 @@ namespace Database
 			}
 		}
 
-		public static async Task<MatchHistoryCollection> GetMatchesInRange(AppDbContext db, long startID, long endID)
+		// Finished matches by id ascending after afterID, finished at or after since (a poller never misses a match that started before its cursor); the newest first when neither is given
+		public static async Task<List<MatchHistory_Entry>> GetMatchesPage(AppDbContext db, long? afterID, DateTime? since, int take, CancellationToken cancellationToken = default)
 		{
-			try
+			IQueryable<Match> query = db.Matches.AsNoTracking().Where(m => m.FinishedAt != null);
+			if (afterID != null)
 			{
-				List<Match> matches = await db.Matches.AsNoTracking()
-					.Where(m => m.Id >= startID && m.Id <= endID && m.FinishedAt != null)
-					.OrderBy(m => m.Id)
-					.ToListAsync();
+				long after = afterID.Value;
+				query = query.Where(m => m.Id > after);
+			}
+			if (since != null)
+			{
+				DateTime from = DateTime.SpecifyKind(since.Value, DateTimeKind.Utc);
+				query = query.Where(m => m.FinishedAt >= from);
+			}
+			query = afterID == null && since == null ? query.OrderByDescending(m => m.Id) : query.OrderBy(m => m.Id);
 
-				return await ToCollection(db, matches);
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetMatchesInRange failed");
-				return new MatchHistoryCollection();
-			}
-		}
-
-		public static async Task<MatchHistoryCollection> GetMatchesSince(AppDbContext db, DateTime since, int maxLobbiesPerRequest)
-		{
-			since = DateTime.SpecifyKind(since, DateTimeKind.Utc);
-
-			try
-			{
-				List<Match> matches = new();
-				await foreach (Match match in _getMatchesSince(db, since, maxLobbiesPerRequest))
-				{
-					matches.Add(match);
-				}
-
-				return await ToCollection(db, matches);
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetMatchesSince failed");
-				return new MatchHistoryCollection();
-			}
-		}
-
-		public static async Task<long> GetHighestMatchID(AppDbContext db)
-		{
-			try
-			{
-				long? result = await db.Matches.MaxAsync(m => (long?)m.Id);
-				return result ?? -1;
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetHighestMatchID failed");
-				return -1;
-			}
+			List<Match> matches = await query.Take(take).ToListAsync(cancellationToken);
+			return await ToEntries(db, matches, cancellationToken);
 		}
 
 		// Called when a lobby is deleted, the true end of a match

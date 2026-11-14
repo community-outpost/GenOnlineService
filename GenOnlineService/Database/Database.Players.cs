@@ -72,6 +72,11 @@ public class PlayerRatingConfiguration : IEntityTypeConfiguration<PlayerRating>
 		builder.Property(e => e.Rating).HasColumnName("rating");
 		builder.Property(e => e.MatchesPlayed).HasColumnName("matches_played");
 		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+		// Leaderboard order: highest rating first, ties by user id
+		builder.HasIndex(e => new { e.Kind, e.Rating, e.UserID })
+			.IsDescending(false, true, false)
+			.HasDatabaseName("ix_player_ratings_leaderboard");
 	}
 }
 
@@ -112,8 +117,62 @@ public class PlayerNetworkConfiguration : IEntityTypeConfiguration<PlayerNetwork
 
 namespace Database
 {
+	public readonly record struct PublicPlayer(long ID, string Name, DateTime CreatedAt);
+
+	public readonly record struct RankedPlayer(long UserID, string Name, int Rating, int Matches);
+
+	// Accounts other players may see: blocked and deactivated accounts are hidden, a play ban does not hide an account
+	public static class PublicPlayers
+	{
+		public static IQueryable<User> Visible(AppDbContext db) => db.Users.AsNoTracking().Where(u => u.State == UserStates.Active);
+
+		public static Task<PublicPlayer?> Get(AppDbContext db, long userID)
+		{
+			return Visible(db)
+				.Where(u => u.ID == userID)
+				.Select(u => (PublicPlayer?)new PublicPlayer(u.ID, u.Username, u.CreatedAt))
+				.FirstOrDefaultAsync();
+		}
+
+		// Case-insensitive prefix match on the normalized name; StartsWith becomes an escaped LIKE on Postgres and MariaDB
+		public static async Task<(int Total, List<PublicPlayer> Page)> Search(AppDbContext db, string prefix, int skip, int take)
+		{
+			string normalized = NameNormalizer.Normalize(prefix);
+			IQueryable<User> matches = Visible(db).Where(u => u.UsernameNormalized.StartsWith(normalized));
+			int total = await matches.CountAsync();
+			List<PublicPlayer> page = await matches
+				.OrderBy(u => u.UsernameNormalized)
+				.ThenBy(u => u.ID)
+				.Skip(skip)
+				.Take(take)
+				.Select(u => new PublicPlayer(u.ID, u.Username, u.CreatedAt))
+				.ToListAsync();
+			return (total, page);
+		}
+	}
+
 	public static class PlayerRatings
 	{
+		// All-time ratings of visible players with at least one rated match, highest first, ties by user id
+		public static async Task<(int Total, List<RankedPlayer> Page)> GetRanked(AppDbContext db, int skip, int take)
+		{
+			var ranked =
+				from rating in db.PlayerRatings.AsNoTracking()
+				join user in PublicPlayers.Visible(db) on rating.UserID equals user.ID
+				where rating.Kind == RatingKinds.AllTime && rating.MatchesPlayed > 0
+				select new { rating.UserID, user.Username, rating.Rating, rating.MatchesPlayed };
+
+			int total = await ranked.CountAsync();
+			List<RankedPlayer> page = await ranked
+				.OrderByDescending(r => r.Rating)
+				.ThenBy(r => r.UserID)
+				.Skip(skip)
+				.Take(take)
+				.Select(r => new RankedPlayer(r.UserID, r.Username, r.Rating, r.MatchesPlayed))
+				.ToListAsync();
+			return (total, page);
+		}
+
 		// Users without rows are left out
 		public static async Task<Dictionary<long, EloData>> GetBulk(AppDbContext db, List<long> userIds)
 		{

@@ -546,24 +546,18 @@ public class DiscordBot
 			}
 			case "announce":
 			{
-				string message = GetOption<string>(command, "message") ?? String.Empty;
-				return $"Announcement '{message}' was delivered to {DeliverAnnouncement(message)} users";
+				string? message = GetOption<string>(command, "message");
+				using var scope = ServiceLocator.Services.CreateScope();
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
+				(int deliveredTo, GenOnlineService.Realtime.Failure? failure) = await GenOnlineService.Rest.Announcements.SendAsync(db, actor, message);
+				return failure != null
+					? $"Announcement must be 1 to {GenOnlineService.Rest.Announcements.MaximumLength} characters."
+					: $"Announcement '{message!.Trim()}' was delivered to {deliveredTo} users";
 			}
 			default:
 				return "Unknown command.";
 		}
-	}
-
-	// Staff text travels as a notice parameter, clients render it as an announcement
-	private static int DeliverAnnouncement(string strMessage)
-	{
-		int numDelivered = GenOnlineService.WebSocketManager.GetNumberOfUsersOnline();
-		GenOnlineService.Realtime.RealtimeOut.Fire(GenOnlineService.Realtime.RealtimeOut.All.Notice(new GenOnlineService.Realtime.NoticeEvent
-		{
-			Code = GenOnlineService.Realtime.ErrorCodes.ServerAnnouncement,
-			Params = new { Message = strMessage }
-		}));
-		return numDelivered;
 	}
 
 	private static Task LogAsync(LogMessage log)

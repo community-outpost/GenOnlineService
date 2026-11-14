@@ -125,5 +125,19 @@ namespace Database
 
 			await db.SaveChangesAsync();
 		}
+
+		// True when a row was removed
+		public static async Task<bool> DeleteSetting(AppDbContext db, string key)
+		{
+			ApplicationSetting? row = await db.ApplicationSettings.AsTracking().FirstOrDefaultAsync(s => s.Key == key);
+			if (row == null)
+			{
+				return false;
+			}
+
+			db.ApplicationSettings.Remove(row);
+			await db.SaveChangesAsync();
+			return true;
+		}
 	}
 }
