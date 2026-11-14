@@ -289,11 +289,14 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
+| `FeaturesUpdate` | `{features: [string]}` (the user's full new feature list, sent to every connection of the user whenever it changes, for example after a role change) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason?, expires_at?}`; `reason` is absent when staff gave none; a close record follows for kick and ban |
 | `ServerSwitching` | `{retry_after_ms}` (a planned handover to another service copy; a `server.switching` close follows; the service spreads the values so clients do not all reconnect at once) |
+
+**Features.** `permissions` say what the service lets the user do. `features` say which client capabilities are switched on for this player: lowercase snake_case names with no prefix, for example `stats_exporter` (the game's local stats and casting tools: camera control, follow, replay control, observing, lobby control) and `observer` (observing other players' matches). The client only checks whether a name is in the list and never sees roles. The service computes the list per connection from a per-environment map of roles to features (the `streamer` role exists for players who get these tools without being staff); later rules such as an environment switch, a beta group or a rollout share can add to it without touching permissions. When the list changes the client switches features on or off at once; switching one off mid-match only closes client tools. Anything that reveals more than a player should see stays enforced by the service on the request itself, for example joining a match as an observer. EOS peer-to-peer is not gated by features.
 
 ### 6.2 Channels and chat
 
@@ -447,7 +450,7 @@ New codes are added freely; clients show a generic message for codes they do not
 
 | Group | Members | Used for |
 |---|---|---|
-| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved` |
+| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved`, `FeaturesUpdate` |
 | `user:<id>:game` | That user's game connection | Peer networking, `LobbyState`, matchmaking |
 | `channel:<id>` | Connections in that channel | `ChannelMembers`, `MemberAdd`/`Remove`, channel chat, `MessageDelete` |
 | `lobby:<id>` | Game connections of lobby members | `LobbyState` until the game starts, lobby chat, countdown events. From the start `LobbyState` goes to each member through `user:<id>:game`, because `start.screenshot_url` is per member |
