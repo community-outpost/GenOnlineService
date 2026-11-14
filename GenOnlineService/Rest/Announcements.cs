@@ -47,8 +47,21 @@ namespace GenOnlineService.Rest
 			return text.Length == 0 || text.Length > MaximumLength ? (null, Result.Invalid("message")) : (text, null);
 		}
 
+		// Validates, writes the audit row and broadcasts; a failed audit write throws and stops the broadcast. Answers the users online
+		public static async Task<(int DeliveredTo, Failure? Failure)> SendAsync(AppDbContext db, Database.ModerationActor actor, string? message)
+		{
+			(string? text, Failure? failure) = Validate(message);
+			if (failure != null)
+			{
+				return (0, failure);
+			}
+
+			await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.Announcement, AuditTargetKinds.Announcement, null, null, new { message = text });
+			return (Deliver(text!), null);
+		}
+
 		// Staff text travels as a notice parameter to every connection, clients render it as an announcement; answers the users online
-		public static int Deliver(string message)
+		private static int Deliver(string message)
 		{
 			int delivered = WebSocketManager.GetNumberOfUsersOnline();
 			RealtimeOut.Fire(RealtimeOut.All.Notice(new NoticeEvent
@@ -74,19 +87,11 @@ namespace GenOnlineService.Rest
 		[HttpPost("~/api/v1/announcements")]
 		public async Task<IActionResult> Post([FromBody] AnnouncementRequest? body)
 		{
-			(string? message, Failure? failure) = Announcements.Validate(body?.Message);
-			if (failure != null)
-			{
-				return RestResults.Fail(failure.Value);
-			}
-
-			// the audit row is written first and a failed write stops the broadcast
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
-			{
-				await Database.Moderation.AddAuditEntry(db, CallerActors.Of(User), ModerationActions.Announcement, AuditTargetKinds.Announcement, null, null, new { message });
-			}
-
-			return RestResults.Ok(new AnnouncementResponse { DeliveredTo = Announcements.Deliver(message!) });
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			(int deliveredTo, Failure? failure) = await Announcements.SendAsync(db, CallerActors.Of(User), body?.Message);
+			return failure != null
+				? RestResults.Fail(failure.Value)
+				: RestResults.Ok(new AnnouncementResponse { DeliveredTo = deliveredTo });
 		}
 	}
 }
