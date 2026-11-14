@@ -68,7 +68,6 @@ namespace GenOnlineService.Realtime
 		Task MeshCheckResult(MeshCheckResultEvent e);
 		Task AnticheatRegister(AnticheatPeerEvent e);
 		Task AnticheatDeregister(AnticheatPeerEvent e);
-		Task AnticheatMessage(RelayEvent e);
 		Task ProbeRequest(ProbeRequestEvent e);
 		Task ModuleScanRequest(ModuleScanRequestEvent e);
 	}

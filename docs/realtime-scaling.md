@@ -31,7 +31,8 @@ Two copies need Redis, the same `Accounts:issuer` and the same `Accounts` signin
 Even then, this state is still kept per copy in memory and is not shared:
 
 - sessions, reconnect grace and session takeover (`session.superseded` only happens when both connections reach the same copy)
-- lobbies, the lobby list and matchmaking
+- lobbies, the lobby list and matchmaking, including the connection order of each pair of lobby members (attempt and step, section 6.6 of `realtime-protocol.md`)
+- the transports each session sent with `SetPeerTransports`: a lobby reads them from the member sessions on its own copy, and a pair whose member session is on another copy gets `StartSignalling` without the four connection order fields
 - channel membership lists (`ChannelMembers`), presence of users on other copies, name change audiences beyond the user and their friends
 - the block filter of channel and lobby chat: blocked users are left out by connection id, which works only for connections on the copy that sends
 - game session registrations, the chat rate limit and the report rate limit

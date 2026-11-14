@@ -525,6 +525,15 @@ namespace GenOnlineService.Realtime
 
 		// 5.6 Peer networking
 
+		public Task SetPeerTransports(SetPeerTransportsRequest request)
+		{
+			if (RequireAccess(ESessionAccessType.Gameplay) == null)
+			{
+				Session.SetPeerTransports(request.Transports);
+			}
+			return Task.CompletedTask;
+		}
+
 		public Task RequestSignalling(RequestSignallingRequest request)
 		{
 			if (RequireAccess(ESessionAccessType.Gameplay) != null || !TryGetPeers(request.TargetUserId, out Lobby? lobby, out LobbyMember? source, out LobbyMember? target))
@@ -532,11 +541,7 @@ namespace GenOnlineService.Realtime
 				return Task.CompletedTask;
 			}
 
-			// both peers restart the handshake towards each other
-			lobby.ForgetConnection(source.UserID, target.UserID);
-			RealtimeOut.Fire(Clients.Caller.StartSignalling(lobby.StartSignallingFor(target)));
-			RealtimeOut.Fire(RealtimeOut.UserGame(target.UserID).StartSignalling(lobby.StartSignallingFor(source)));
-			return Task.CompletedTask;
+			return lobby.RequestSignallingAsync(source.UserID, target.UserID, request.FailedAttempt, Clients.Caller);
 		}
 
 		public Task Signal(RelayRequest request)
@@ -584,15 +589,6 @@ namespace GenOnlineService.Realtime
 			}
 
 			await m_lobbyManager.StoreMeshResponseAsync(Session, Connection, request);
-		}
-
-		public Task AnticheatMessage(RelayRequest request)
-		{
-			if (RequireAccess(ESessionAccessType.Gameplay) == null && request.Payload != null && TryGetPeers(request.To, out _, out _, out LobbyMember? target))
-			{
-				RealtimeOut.Fire(RealtimeOut.UserGame(target.UserID).AnticheatMessage(new RelayEvent { From = UserID, Payload = request.Payload }));
-			}
-			return Task.CompletedTask;
 		}
 
 		public Task ProbeResponse(ProbeResponseRequest request)

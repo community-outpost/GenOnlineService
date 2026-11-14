@@ -400,6 +400,13 @@ namespace GenOnlineService.Realtime
 	public sealed record RequestSignallingRequest
 	{
 		public long TargetUserId { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public int? FailedAttempt { get; init; }
+	}
+
+	public sealed record SetPeerTransportsRequest
+	{
+		public IReadOnlyList<string> Transports { get; init; } = [];
 	}
 
 	public sealed record RelayRequest
@@ -690,6 +697,14 @@ namespace GenOnlineService.Realtime
 		public long UserId { get; init; }
 		public int PreferredPort { get; init; }
 		public string MiddlewareId { get; init; } = "";
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public int? Attempt { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Transport { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public bool? Relay { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public int? TimeoutS { get; init; }
 	}
 
 	public sealed record DisconnectPeerEvent

@@ -938,6 +938,11 @@ namespace GenOnlineService
 		// The build of the queue registration, set when the player joins the matchmaking queue
 		public GameBuild MatchmakingBuild = new GameBuild(String.Empty, 0, 0, EKnownAnticheatID.NONE);
 
+		// The peer transports of SetPeerTransports in this session, null until the client sends it
+		private volatile string[]? m_peerTransports;
+		internal IReadOnlyList<string>? PeerTransports => m_peerTransports;
+		internal void SetPeerTransports(IEnumerable<string?>? transports) => m_peerTransports = GenOnlineService.Realtime.ConnectionOrder.KnownTransports(transports);
+
 		private ConcurrentList<UInt64> m_lstHistoricMatchIDs = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToSlotIndexMap = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToArmy = new();
