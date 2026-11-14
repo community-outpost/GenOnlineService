@@ -110,7 +110,7 @@ namespace GenOnlineService.Realtime
 
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
-			await RestoreRoomAsync(session);
+			await RestoreChannelAsync(session);
 			await RestoreLobbyAsync(session);
 			await OnConnectionOpenedAsync(session);
 		}
@@ -159,17 +159,17 @@ namespace GenOnlineService.Realtime
 				User = RealtimeMembers.Of(userID),
 				Permissions = StaffRoles.PermissionsOf(userID).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
 				Badges = RealtimeBadges.Definitions,
-				Rooms = RoomCatalog.Rooms.Select(room => new RoomInfo
+				Channels = RoomCatalog.Rooms.Select(channel => new ChannelInfo
 				{
-					Id = room.ID,
-					Name = room.Name,
-					ParentId = room.ParentID,
-					ShowAllMatches = room.ID == 0
+					Id = channel.ID,
+					Name = channel.Name,
+					ParentId = channel.ParentID,
+					ShowAllMatches = channel.ID == 0
 				}).ToArray(),
 				Limits = new Limits
 				{
 					ChatMaxLength = ChatMaxLength,
-					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowMs = ChatRateWindowMs },
+					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
 					NameMinLength = NameMinLength,
 					NameMaxLength = NameMaxLength
 				}
@@ -237,7 +237,7 @@ namespace GenOnlineService.Realtime
 		// Implemented by the area files
 
 		private partial Task SendFriendsSnapshotAsync(UserSession session);
-		private partial Task RestoreRoomAsync(UserSession session);
+		private partial Task RestoreChannelAsync(UserSession session);
 		private partial Task RestoreLobbyAsync(UserSession session);
 		private partial Task OnConnectionOpenedAsync(UserSession session);
 		private partial Task OnConnectionClosedAsync(UserSession session);

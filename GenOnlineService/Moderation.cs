@@ -72,7 +72,7 @@ namespace GenOnlineService
 		}
 
 		// Shows the notice, then closes with moderation.kicked (reconnect allowed) or moderation.banned
-		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason, DateTime? until = null, EUserSessionType? onlySessionType = null)
+		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason, DateTime? expiresAt = null, EUserSessionType? onlySessionType = null)
 		{
 			AppMetrics.RecordSecurityAction(action.ToMetricLabel(), "applied");
 			s_log.LogInformation("Applying moderation action {Action} to user {UserId}", action, userID);
@@ -82,7 +82,7 @@ namespace GenOnlineService
 				EModerationAction.Kick => (ModerationAction.Kick, CloseCodes.ModerationKicked, true),
 				_ => throw new ArgumentOutOfRangeException(nameof(action))
 			};
-			ModerationNoticeEvent notice = new ModerationNoticeEvent { Action = noticeAction, Reason = reason ?? String.Empty, Until = until };
+			ModerationNoticeEvent notice = new ModerationNoticeEvent { Action = noticeAction, Reason = String.IsNullOrEmpty(reason) ? null : reason, ExpiresAt = expiresAt };
 
 			await WebSocketManager.DisconnectUser(userID, closeCode, allowReconnect, notice, onlySessionType);
 		}

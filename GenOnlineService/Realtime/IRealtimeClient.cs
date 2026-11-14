@@ -26,7 +26,7 @@ namespace GenOnlineService.Realtime
 		Task Notice(NoticeEvent e);
 		Task ModerationNotice(ModerationNoticeEvent e);
 
-		Task RoomMembers(RoomMembersEvent e);
+		Task ChannelMembers(ChannelMembersEvent e);
 		Task MemberAdd(MemberAddEvent e);
 		Task MemberRemove(MemberRemoveEvent e);
 		Task MemberUpdate(MemberUpdateEvent e);

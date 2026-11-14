@@ -108,12 +108,18 @@ namespace GenOnlineService.Realtime
 		{
 			List<UserSession> sessions = WebSocketManager.GetAllDataFromUser(userID);
 			PresenceActivity activity = PresenceActivity.Offline;
+			Int64? channelID = null;
 			foreach (UserSession session in sessions)
 			{
 				PresenceActivity sessionActivity = ActivityOf(session);
 				if (Rank(sessionActivity) > Rank(activity))
 				{
 					activity = sessionActivity;
+				}
+				// the game client's channel wins when the sessions sit in different channels
+				if (session.networkRoomID >= 0 && (channelID == null || session.GetSessionType() == EUserSessionType.GameClient))
+				{
+					channelID = session.networkRoomID;
 				}
 			}
 
@@ -122,7 +128,8 @@ namespace GenOnlineService.Realtime
 				UserId = userID,
 				Online = sessions.Count > 0,
 				Clients = sessions.Select(s => RealtimeMembers.ClientOf(s.GetSessionType())).Distinct().OrderBy(c => c).ToArray(),
-				Activity = activity
+				Activity = activity,
+				ChannelId = channelID
 			};
 		}
 
@@ -139,7 +146,7 @@ namespace GenOnlineService.Realtime
 				return PresenceActivity.Matchmaking;
 			}
 
-			return session.networkRoomID >= 0 ? PresenceActivity.Room : PresenceActivity.Menu;
+			return session.networkRoomID >= 0 ? PresenceActivity.Channel : PresenceActivity.Menu;
 		}
 
 		private static int Rank(PresenceActivity activity) => activity switch
@@ -147,7 +154,7 @@ namespace GenOnlineService.Realtime
 			PresenceActivity.InGame => 5,
 			PresenceActivity.Lobby => 4,
 			PresenceActivity.Matchmaking => 3,
-			PresenceActivity.Room => 2,
+			PresenceActivity.Channel => 2,
 			PresenceActivity.Menu => 1,
 			_ => 0
 		};

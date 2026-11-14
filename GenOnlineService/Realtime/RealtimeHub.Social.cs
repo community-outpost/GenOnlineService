@@ -224,7 +224,7 @@ namespace GenOnlineService.Realtime
 				}
 
 				FriendPresenceEvent presence = RealtimePresence.Of(friendID);
-				friendList.Add(new FriendMember { Id = member.Id, Name = member.Name, Badges = member.Badges, Online = presence.Online, Activity = presence.Activity });
+				friendList.Add(new FriendMember { Id = member.Id, Name = member.Name, Badges = member.Badges, Online = presence.Online, Activity = presence.Activity, ChannelId = presence.ChannelId });
 			}
 
 			await Clients.Caller.Friends(new FriendsEvent
@@ -242,7 +242,7 @@ namespace GenOnlineService.Realtime
 			return Task.CompletedTask;
 		}
 
-		private partial Task OnConnectionClosedAsync(UserSession session) => LeaveRoomOnCloseAsync(session);
+		private partial Task OnConnectionClosedAsync(UserSession session) => LeaveChannelOnCloseAsync(session);
 
 		// Sends FriendPresence about the user to their online friends
 		internal static void PublishPresence(Int64 userID)

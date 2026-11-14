@@ -879,7 +879,7 @@ static class MatchmakingManager
 
 		private void QueueSetupProgress(int timeoutMSec, int countdownMSec = 0)
 		{
-			MatchSetupProgressEvent setupProgress = new MatchSetupProgressEvent { TimeoutMs = timeoutMSec, CountdownMs = countdownMSec };
+			MatchSetupProgressEvent setupProgress = new MatchSetupProgressEvent { TimeoutS = (timeoutMSec + 999) / 1000, CountdownS = (countdownMSec + 999) / 1000 };
 			foreach (MatchmakingBucketMember member in m_lstMembers)
 			{
 				UserSession? memberSession = member.GetAssociatedSession();

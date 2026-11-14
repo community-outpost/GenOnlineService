@@ -398,7 +398,7 @@ namespace GenOnlineService
 			m_TimeCountdownEnds = Environment.TickCount64 + StartCountdownMs;
 			m_TimeNextFullMeshSnapshotRequest = Environment.TickCount64 + FullMeshCheckSettings.SnapshotIntervalMs;
 			s_log.LogInformation("Lobby {LobbyId}: mesh check complete, countdown started", LobbyID);
-			RealtimeOut.Fire(RealtimeOut.Lobby(LobbyID).CountdownStarted(new CountdownStartedEvent { LobbyId = LobbyID, DurationMs = StartCountdownMs }));
+			RealtimeOut.Fire(RealtimeOut.Lobby(LobbyID).CountdownStarted(new CountdownStartedEvent { LobbyId = LobbyID, DurationS = (StartCountdownMs + 999) / 1000 }));
 		}
 
 		private static IReadOnlyList<Int64> ToUserIDs(IEnumerable<MeshPair> missing) => missing

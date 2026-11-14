@@ -72,7 +72,7 @@ namespace GenOnlineService.Realtime
 		public const string NameTaken = "name.taken";
 		public const string NameChanged = "name.changed";
 		public const string ServerAnnouncement = "server.announcement";
-		public const string RoomUnavailable = "room.unavailable";
+		public const string ChannelUnavailable = "channel.unavailable";
 		public const string LobbyFull = "lobby.full";
 		public const string LobbyWrongPassword = "lobby.wrong_password";
 		public const string LobbyNotHost = "lobby.not_host";

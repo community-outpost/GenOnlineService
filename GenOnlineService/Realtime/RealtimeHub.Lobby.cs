@@ -493,7 +493,7 @@ namespace GenOnlineService.Realtime
 				AllowTeams = playlist.AllowTeams,
 				TeamSize = playlist.TeamSize < 0 ? null : playlist.TeamSize,
 				AllowArmySelection = playlist.AllowArmySelection,
-				GracePeriodMs = playlist.GracePeriodAtMinPlayersMSec,
+				GracePeriodS = (playlist.GracePeriodAtMinPlayersMSec + 999) / 1000,
 				Maps = playlist.Maps.Select((map, index) => new PlaylistMap
 				{
 					Index = index,

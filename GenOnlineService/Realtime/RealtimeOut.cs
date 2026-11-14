@@ -28,7 +28,7 @@ namespace GenOnlineService.Realtime
 
 		public static string User(Int64 userID) => $"user:{userID}";
 		public static string UserGame(Int64 userID) => $"user:{userID}:game";
-		public static string Room(Int64 roomID) => $"room:{roomID}";
+		public static string Channel(Int64 channelID) => $"channel:{channelID}";
 		public static string Lobby(Int64 lobbyID) => $"lobby:{lobbyID}";
 	}
 
