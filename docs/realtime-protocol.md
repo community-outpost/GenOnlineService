@@ -221,7 +221,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
 | `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
-| `ReportMessage` | `{message_id, reason?}` | Result | any user who received the message; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters |
+| `ReportMessage` | `{message_id, reason?}` | Result | never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters |
 
 ### 5.2 Lobbies
 
@@ -283,7 +283,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `Unmute` | `{user_id, reason?}` | Result | `moderation.mute` |
 | `Ban` | `{user_id, duration_s?, reason}` | Result (no `duration_s` means permanent) | `moderation.ban` |
 | `Unban` | `{user_id, reason?}` | Result | `moderation.ban` |
-| `DeleteMessage` | `{message_id, reason?}` | Result | `chat.delete_any`; any channel, lobby or direct message. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
+| `DeleteMessage` | `{message_id, reason?}` | Result | `chat.delete_any`; any channel, lobby or direct message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 
 ### 5.6 Peer networking (game sessions only)
 
@@ -331,6 +331,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | Direct | the same with sender and recipient | unread and recent on connect, synced across the user's clients |
 
 - History respects blocks: messages from a user the viewer blocked, or who blocked the viewer, are left out.
+- A message sent while a `JoinChannel` or a reconnect restore is in progress can arrive both as `MessageCreate` and inside the following `ChannelHistory`; clients drop duplicates by message id.
 - No chat text in application logs or telemetry, only ids and counts. Account deletion removes or anonymises the user's messages. The privacy policy must say chat is stored, why, and for how long.
 - Every stored message (channel, lobby and direct) is kept 30 days, then purged. A report keeps its snapshot until its case is closed.
 
