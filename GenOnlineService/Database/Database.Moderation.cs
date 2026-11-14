@@ -30,11 +30,12 @@ public static class AuthoritySources
 	public static string Upstream(string provider) => UpstreamPrefix + provider;
 }
 
-// A play ban keeps the user out of the game, a chat ban (mute) only silences them
-public static class BanRestrictions
+// A kick closes the connections and is never active, a mute only silences the user, a ban keeps them out of the game
+public static class SanctionTypes
 {
-	public const string Play = "play";
-	public const string Chat = "chat";
+	public const string Kick = "kick";
+	public const string Mute = "mute";
+	public const string Ban = "ban";
 }
 
 public static class AuditActorKinds
@@ -43,6 +44,7 @@ public static class AuditActorKinds
 	public const string Cli = "cli";
 	public const string Discord = "discord";
 	public const string ServiceAccount = "service_account";
+	public const string Upstream = "upstream";
 }
 
 public static class AuditTargetKinds
@@ -91,22 +93,28 @@ public class UserRole
 	public string? Reason { get; set; }
 }
 
-public class Ban
+// A kick, mute or ban, lifted ones stay as history and sanctions are never purged
+public class Sanction
 {
 	public Int64 ID { get; set; }
 	public Int64 UserID { get; set; }
-	public string Restriction { get; set; } = BanRestrictions.Play;
+	public string Type { get; set; } = SanctionTypes.Ban;
 	public string Source { get; set; } = AuthoritySources.Local;
-	public string Reason { get; set; } = String.Empty;
-	public string? CreatedBy { get; set; }
+	public string? Reason { get; set; }
+	public string CreatedByKind { get; set; } = AuditActorKinds.Cli;
+	public Int64? CreatedByID { get; set; }
 	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
 
-	// Null means the ban never expires
+	// A kick expires as it starts, a mute always expires, a ban without one is permanent
 	public DateTime? ExpiresAt { get; set; }
 
-	public DateTime? RevokedAt { get; set; }
-	public string? RevokedBy { get; set; }
-	public string? RevokeReason { get; set; }
+	public DateTime? LiftedAt { get; set; }
+	public string? LiftedByKind { get; set; }
+	public Int64? LiftedByID { get; set; }
+	public string? LiftReason { get; set; }
+
+	// The player report this sanction answered, set by tooling
+	public Int64? ReportID { get; set; }
 }
 
 // Append only, every row is an action that already happened
@@ -144,26 +152,29 @@ public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
 	}
 }
 
-public class BanConfiguration : IEntityTypeConfiguration<Ban>
+public class SanctionConfiguration : IEntityTypeConfiguration<Sanction>
 {
-	public void Configure(EntityTypeBuilder<Ban> builder)
+	public void Configure(EntityTypeBuilder<Sanction> builder)
 	{
-		builder.ToTable("bans");
+		builder.ToTable("sanctions");
 
 		builder.HasKey(e => e.ID);
-		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_bans_user_id");
+		builder.HasIndex(e => new { e.UserID, e.Type, e.LiftedAt, e.ExpiresAt }).HasDatabaseName("ix_sanctions_user_type_lifted_expires");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.UserID).HasColumnName("user_id");
-		builder.Property(e => e.Restriction).HasColumnName("restriction").HasMaxLength(16);
+		builder.Property(e => e.Type).HasColumnName("type").HasMaxLength(16);
 		builder.Property(e => e.Source).HasColumnName("source").HasMaxLength(32);
 		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(ModerationManager.MaximumReasonLength);
-		builder.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(64);
+		builder.Property(e => e.CreatedByKind).HasColumnName("created_by_kind").HasMaxLength(16);
+		builder.Property(e => e.CreatedByID).HasColumnName("created_by_id");
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 		builder.Property(e => e.ExpiresAt).HasColumnName("expires_at");
-		builder.Property(e => e.RevokedAt).HasColumnName("revoked_at");
-		builder.Property(e => e.RevokedBy).HasColumnName("revoked_by").HasMaxLength(64);
-		builder.Property(e => e.RevokeReason).HasColumnName("revoke_reason").HasMaxLength(ModerationManager.MaximumReasonLength);
+		builder.Property(e => e.LiftedAt).HasColumnName("lifted_at");
+		builder.Property(e => e.LiftedByKind).HasColumnName("lifted_by_kind").HasMaxLength(16);
+		builder.Property(e => e.LiftedByID).HasColumnName("lifted_by_id");
+		builder.Property(e => e.LiftReason).HasColumnName("lift_reason").HasMaxLength(ModerationManager.MaximumReasonLength);
+		builder.Property(e => e.ReportID).HasColumnName("report_id");
 	}
 }
 
@@ -205,9 +216,10 @@ namespace Database
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Moderation));
 
-		private static IQueryable<Ban> ActiveBans(AppDbContext db, string restriction, DateTime now)
+		// Unlifted and unexpired, so a kick is never active
+		public static IQueryable<Sanction> ActiveSanctions(AppDbContext db, string type, DateTime now)
 		{
-			return db.Bans.AsNoTracking().Where(b => b.Restriction == restriction && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now));
+			return db.Sanctions.AsNoTracking().Where(s => s.Type == type && s.LiftedAt == null && (s.ExpiresAt == null || s.ExpiresAt > now));
 		}
 
 		private static AuditLogEntry UserEntry(ModerationActor actor, string action, Int64 target, string? reason, object? details, DateTime now)
@@ -258,32 +270,22 @@ namespace Database
 
 		public static async Task<List<Int64>> GetPlayBannedUserIDs(AppDbContext db)
 		{
-			return await ActiveBans(db, BanRestrictions.Play, DateTime.UtcNow).Select(b => b.UserID).Distinct().ToListAsync();
+			return await ActiveSanctions(db, SanctionTypes.Ban, DateTime.UtcNow).Select(s => s.UserID).Distinct().ToListAsync();
 		}
 
-		// The play ban that lasts longest decides what the player sees
-		public static async Task<Ban?> GetActivePlayBan(AppDbContext db, Int64 userID)
+		// The ban that lasts longest decides what the player sees
+		public static Task<Sanction?> GetActivePlayBan(AppDbContext db, Int64 userID) => LongestActive(db, SanctionTypes.Ban, userID);
+
+		// The mute that lasts longest decides when the mute ends
+		public static Task<Sanction?> GetActiveMute(AppDbContext db, Int64 userID) => LongestActive(db, SanctionTypes.Mute, userID);
+
+		private static async Task<Sanction?> LongestActive(AppDbContext db, string type, Int64 userID)
 		{
-			return await ActiveBans(db, BanRestrictions.Play, DateTime.UtcNow)
-				.Where(b => b.UserID == userID)
-				.OrderByDescending(b => b.ExpiresAt == null)
-				.ThenByDescending(b => b.ExpiresAt)
+			return await ActiveSanctions(db, type, DateTime.UtcNow)
+				.Where(s => s.UserID == userID)
+				.OrderByDescending(s => s.ExpiresAt == null)
+				.ThenByDescending(s => s.ExpiresAt)
 				.FirstOrDefaultAsync();
-		}
-
-		// The chat ban that lasts longest decides when the mute ends
-		public static async Task<Ban?> GetActiveChatMute(AppDbContext db, Int64 userID)
-		{
-			return await ActiveBans(db, BanRestrictions.Chat, DateTime.UtcNow)
-				.Where(b => b.UserID == userID)
-				.OrderByDescending(b => b.ExpiresAt == null)
-				.ThenByDescending(b => b.ExpiresAt)
-				.FirstOrDefaultAsync();
-		}
-
-		public static async Task<List<Ban>> GetBans(AppDbContext db, Int64 userID)
-		{
-			return await db.Bans.AsNoTracking().Where(b => b.UserID == userID).OrderBy(b => b.CreatedAt).ToListAsync();
 		}
 
 		public static async Task<List<AuditLogEntry>> GetUserLog(AppDbContext db, Int64 targetUserID, int limit)
@@ -335,27 +337,33 @@ namespace Database
 			return true;
 		}
 
-		public static async Task<Ban> AddBan(AppDbContext db, Int64 userID, string restriction, string reason, DateTime? expiresAt, ModerationActor actor)
+		public static async Task<Sanction> AddSanction(AppDbContext db, Int64 userID, string type, string? reason, DateTime? expiresAt, ModerationActor actor)
 		{
 			DateTime now = DateTime.UtcNow;
-			var ban = new Ban { UserID = userID, Restriction = restriction, Source = AuthoritySources.Local, Reason = reason, CreatedBy = actor.Name, CreatedAt = now, ExpiresAt = expiresAt };
-			string action = restriction == BanRestrictions.Chat ? ModerationActions.Mute : ModerationActions.Ban;
+			var sanction = new Sanction { UserID = userID, Type = type, Source = AuthoritySources.Local, Reason = String.IsNullOrEmpty(reason) ? null : reason, CreatedByKind = actor.Kind, CreatedByID = actor.UserID, CreatedAt = now, ExpiresAt = expiresAt };
 
-			db.Bans.Add(ban);
-			db.AuditLog.Add(UserEntry(actor, action, userID, reason, new { restriction, expires_at = expiresAt }, now));
-			await db.SaveChangesAsync();
-			return ban;
+			db.Sanctions.Add(sanction);
+			db.AuditLog.Add(UserEntry(actor, type, userID, reason, new { type, expires_at = expiresAt }, now));
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+			return sanction;
 		}
 
-		// Revoked bans stay in the table, so the history of every ban is kept
-		public static async Task<int> RevokeActiveBans(AppDbContext db, Int64 userID, string restriction, string reason, ModerationActor actor)
+		// Lifted sanctions stay in the table as history, the count is how many were active
+		public static async Task<int> LiftActiveSanctions(AppDbContext db, Int64 userID, string type, string reason, ModerationActor actor)
 		{
 			DateTime now = DateTime.UtcNow;
 
-			// every context defaults to no tracking, so the rows must be tracked for the revoke to be saved
-			List<Ban> active = await db.Bans
+			// every context defaults to no tracking, so the rows must be tracked for the lift to be saved
+			List<Sanction> active = await db.Sanctions
 				.AsTracking()
-				.Where(b => b.UserID == userID && b.Restriction == restriction && b.Source == AuthoritySources.Local && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
+				.Where(s => s.UserID == userID && s.Type == type && s.Source == AuthoritySources.Local && s.LiftedAt == null && (s.ExpiresAt == null || s.ExpiresAt > now))
 				.ToListAsync();
 
 			if (active.Count == 0)
@@ -363,17 +371,99 @@ namespace Database
 				return 0;
 			}
 
-			foreach (Ban ban in active)
+			foreach (Sanction sanction in active)
 			{
-				ban.RevokedAt = now;
-				ban.RevokedBy = actor.Name;
-				ban.RevokeReason = String.IsNullOrEmpty(reason) ? null : reason;
+				Lift(sanction, reason, actor, now);
 			}
 
-			string action = restriction == BanRestrictions.Chat ? ModerationActions.Unmute : ModerationActions.Unban;
-			db.AuditLog.Add(UserEntry(actor, action, userID, reason, new { restriction, revoked = active.Count }, now));
-			await db.SaveChangesAsync();
+			db.AuditLog.Add(UserEntry(actor, LiftAction(type), userID, reason, new { type, lifted = active.Count }, now));
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
 			return active.Count;
+		}
+
+		private static void Lift(Sanction sanction, string? reason, ModerationActor actor, DateTime now)
+		{
+			sanction.LiftedAt = now;
+			sanction.LiftedByKind = actor.Kind;
+			sanction.LiftedByID = actor.UserID;
+			sanction.LiftReason = String.IsNullOrEmpty(reason) ? null : reason;
+		}
+
+		private static string LiftAction(string type) => type == SanctionTypes.Mute ? ModerationActions.Unmute : ModerationActions.Unban;
+
+		// Stores a kick that already happened with its audit row, a failed write is only reported
+		public static async Task<Sanction?> AddKick(AppDbContext db, Int64 userID, string reason, ModerationActor actor)
+		{
+			DateTime now = DateTime.UtcNow;
+			var kick = new Sanction { UserID = userID, Type = SanctionTypes.Kick, Source = AuthoritySources.Local, Reason = String.IsNullOrEmpty(reason) ? null : reason, CreatedByKind = actor.Kind, CreatedByID = actor.UserID, CreatedAt = now, ExpiresAt = now };
+			try
+			{
+				db.Sanctions.Add(kick);
+				db.AuditLog.Add(UserEntry(actor, ModerationActions.Kick, userID, reason, null, now));
+				await db.SaveChangesAsync();
+				return kick;
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Moderation.AddKick failed for user {UserId}", userID);
+				return null;
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+		}
+
+		public static async Task<Sanction?> GetSanction(AppDbContext db, Int64 sanctionID)
+		{
+			return await db.Sanctions.AsNoTracking().FirstOrDefaultAsync(s => s.ID == sanctionID);
+		}
+
+		// Every sanction of a user newest first, active only leaves out lifted and expired ones and therefore every kick
+		public static async Task<List<Sanction>> GetSanctions(AppDbContext db, Int64 userID, bool activeOnly)
+		{
+			DateTime now = DateTime.UtcNow;
+			IQueryable<Sanction> query = db.Sanctions.AsNoTracking().Where(s => s.UserID == userID);
+			if (activeOnly)
+			{
+				query = query.Where(s => s.LiftedAt == null && (s.ExpiresAt == null || s.ExpiresAt > now));
+			}
+			return await query.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.ID).ToListAsync();
+		}
+
+		// Lifts one mute or ban, a sanction that already ended still gets its audit row, true when it was active
+		public static async Task<bool> LiftSanction(AppDbContext db, Int64 sanctionID, string reason, ModerationActor actor)
+		{
+			DateTime now = DateTime.UtcNow;
+			Sanction? sanction = await db.Sanctions.AsTracking().FirstOrDefaultAsync(s => s.ID == sanctionID);
+			if (sanction == null)
+			{
+				return false;
+			}
+
+			bool active = sanction.LiftedAt == null && (sanction.ExpiresAt == null || sanction.ExpiresAt > now);
+			if (active)
+			{
+				Lift(sanction, reason, actor, now);
+			}
+
+			db.AuditLog.Add(UserEntry(actor, LiftAction(sanction.Type), sanction.UserID, reason, new { type = sanction.Type, sanction_id = sanction.ID, lifted = active ? 1 : 0 }, now));
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+			return active;
 		}
 
 		// Writes one audit row for a non user target and throws on failure, for actions that must not happen unlogged

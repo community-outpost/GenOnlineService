@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
 using GenOnlineService.Identity;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Http.Extensions;
@@ -66,7 +67,7 @@ namespace GenOnlineService.Realtime
 						if (registration == null || registration.AuthorizationID != RealtimeClaims.AuthorizationID(context.User))
 						{
 							context.Response.StatusCode = StatusCodes.Status409Conflict;
-							await context.Response.WriteAsJsonAsync(new { code = ErrorCodes.SessionNotRegistered });
+							await context.Response.WriteAsJsonAsync(ApiResults.BodyOf(Result.Fail(ErrorCodes.SessionNotRegistered)), ApiResults.Json);
 							return;
 						}
 					}

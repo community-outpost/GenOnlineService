@@ -253,12 +253,12 @@ namespace GenOnlineService.Realtime
 		}
 
 		// True when either user holds chat.message_anyone, a block then does not hide their direct conversation
-		private static bool IsStaffConversation(Int64 userA, Int64 userB)
+		internal static bool IsStaffConversation(Int64 userA, Int64 userB)
 		{
 			return StaffRoles.HasPermission(userA, Permissions.ChatMessageAnyone) || StaffRoles.HasPermission(userB, Permissions.ChatMessageAnyone);
 		}
 
-		private static Group ToWireGroup(Database.GroupInfo group, IReadOnlyDictionary<long, string> names)
+		internal static Group ToWireGroup(Database.GroupInfo group, IReadOnlyDictionary<long, string> names)
 		{
 			return new Group
 			{
@@ -271,7 +271,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// Users the viewer blocked and users who blocked the viewer, read from the database so offline users count too
-		private static async Task<HashSet<long>> BlockedEitherWayAsync(AppDbContext db, Int64 userID)
+		internal static async Task<HashSet<long>> BlockedEitherWayAsync(AppDbContext db, Int64 userID)
 		{
 			List<long> ids = await db.Blocks.AsNoTracking()
 				.Where(b => b.UserId == userID || b.BlockedUserId == userID)
@@ -281,7 +281,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// Live names of online users, stored names of the others
-		private static async Task<Dictionary<long, string>> NamesAsync(AppDbContext db, IEnumerable<long> userIDs)
+		internal static async Task<Dictionary<long, string>> NamesAsync(AppDbContext db, IEnumerable<long> userIDs)
 		{
 			Dictionary<long, string> names = new();
 			List<long> offline = new();
@@ -362,7 +362,7 @@ namespace GenOnlineService.Realtime
 		};
 
 		// Message ids are positive decimal strings
-		private static bool TryParseMessageID(string? text, out Int64 id)
+		internal static bool TryParseMessageID(string? text, out Int64 id)
 		{
 			return Int64.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out id) && id > 0;
 		}

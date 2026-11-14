@@ -20,7 +20,7 @@ using System.Collections.Concurrent;
 
 namespace GenOnlineService.Realtime
 {
-	// ReportMessage allows 10 reports per user in any 60 s window
+	// POST /api/v1/reports allows 10 reports per user in any 60 s window, message and player reports together
 	internal static class ReportRateLimiter
 	{
 		public const int Reports = 10;

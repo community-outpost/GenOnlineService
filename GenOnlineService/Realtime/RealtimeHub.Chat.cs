@@ -18,26 +18,12 @@
 
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace GenOnlineService.Realtime
 {
-	// Channels, chat and display names (section 5.1 and 6.2)
+	// Channels and chat (section 5.1 and 6.2)
 	public sealed partial class RealtimeHub
 	{
-		private const int StoredNameMaxLength = 32;
-
-		// Words only staff may use in a display name, badge ids and badge texts are added at check time
-		private static readonly string[] s_reservedNameWords =
-		{
-			"admin", "staff", "mass^", "mas^", "m4ss^", "m4s^", "moderator",
-			"hitler", "h1tler", "h1tl3r", "hittler", "h1ttler", "h1ttl3r",
-			"olda", "oldanalytics", "ibra", "x64", "ronin"
-		};
-
-		// Lobbies add (N) to tell duplicate names apart, so a name never ends with one
-		private static readonly Regex s_dedupeSuffix = new(@"\((1[0-9]|20|[0-9])\)$", RegexOptions.Compiled);
-
 		public async Task<Result<Empty>> JoinChannel(JoinChannelRequest request)
 		{
 			if (request.ChannelId < 0 || request.ChannelId > Int16.MaxValue)
@@ -211,10 +197,10 @@ namespace GenOnlineService.Realtime
 				}
 			}
 
-			Ban? mute;
+			Sanction? mute;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				mute = await Database.Moderation.GetActiveChatMute(db, author);
+				mute = await Database.Moderation.GetActiveMute(db, author);
 			}
 			if (mute != null)
 			{
@@ -258,66 +244,6 @@ namespace GenOnlineService.Realtime
 			}
 
 			return Result.Success(new SendMessageData { MessageId = messageID });
-		}
-
-		public async Task<Result<Empty>> SetDisplayName(SetDisplayNameRequest request)
-		{
-			string name = request.Name ?? String.Empty;
-			if (name.Any(Char.IsControl) || !String.Equals(TextSanitizer.Clean(name, StoredNameMaxLength), name, StringComparison.Ordinal))
-			{
-				return Result.Fail(ErrorCodes.NameInvalidCharacters);
-			}
-			if (name.Length < NameMinLength || name.Length > NameMaxLength)
-			{
-				return Result.Fail(ErrorCodes.NameLength, new { Min = NameMinLength, Max = NameMaxLength });
-			}
-			if (Char.IsWhiteSpace(name[0]) || Char.IsWhiteSpace(name[^1]))
-			{
-				return Result.Fail(ErrorCodes.NameWhitespace);
-			}
-			if (s_dedupeSuffix.IsMatch(name))
-			{
-				return Result.Fail(ErrorCodes.NameInvalidCharacters);
-			}
-
-			Int64 userID = UserID;
-			if (!StaffRoles.HasPermission(userID, Permissions.NamesProtected))
-			{
-				string? word = ReservedWordIn(name);
-				if (word != null)
-				{
-					return Result.Fail(ErrorCodes.NameReserved, new { Word = word });
-				}
-			}
-
-			SharedUserData? userData = WebSocketManager.GetSharedDataForUser(userID);
-			if (userData == null)
-			{
-				return Result.NotFound("user");
-			}
-
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
-			{
-				if (!await Database.Users.SetDisplayName(db, userID, name))
-				{
-					return Result.Fail(ErrorCodes.NameTaken);
-				}
-			}
-
-			string oldName = userData.m_strDisplayName;
-			if (String.Equals(oldName, name, StringComparison.Ordinal))
-			{
-				return Result.Success();
-			}
-			userData.m_strDisplayName = name;
-
-			IRealtimeClient audience = RealtimeOut.Groups(NameAudience(userID));
-			foreach (UserSession userSession in WebSocketManager.GetAllDataFromUser(userID))
-			{
-				await audience.MemberUpdate(new MemberUpdateEvent { Member = RealtimeMembers.Of(userSession) });
-			}
-			await audience.Notice(new NoticeEvent { Code = ErrorCodes.NameChanged, Params = new { UserId = userID, OldName = oldName, NewName = name } });
-			return Result.Success();
 		}
 
 		private partial async Task RestoreChannelAsync(UserSession session)
@@ -456,45 +382,6 @@ namespace GenOnlineService.Realtime
 				}
 			}
 			return excluded;
-		}
-
-		// Everyone who can see the user: their own connections, their channels, their lobby and their friends, as disjoint groups so nobody hears it twice
-		private static IReadOnlyList<string> NameAudience(Int64 userID)
-		{
-			List<UserSession> own = WebSocketManager.GetAllDataFromUser(userID);
-			HashSet<Int16> channels = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
-			HashSet<Int64> lobbies = own.Where(s => s.currentLobbyID != -1).Select(s => s.currentLobbyID).ToHashSet();
-
-			// the user and their friends hear it on every connection and every copy
-			HashSet<Int64> wholeUsers = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
-			wholeUsers.Add(userID);
-			HashSet<string> groups = new(wholeUsers.Select(RealtimeGroups.User), StringComparer.Ordinal);
-
-			// channel and lobby members are known from this copy's sessions only, each through its own session group
-			foreach (UserSession session in RealtimeAudience.AllSessions())
-			{
-				bool sees = channels.Contains(session.networkRoomID)
-					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID));
-				if (sees && !wholeUsers.Contains(session.m_UserID) && RealtimeAudience.ConnectionOf(session) != null)
-				{
-					groups.Add(RealtimeGroups.UserSession(session.m_UserID, session.GetSessionType()));
-				}
-			}
-			return groups.ToArray();
-		}
-
-		private static string? ReservedWordIn(string name)
-		{
-			string lower = name.ToLowerInvariant();
-			IEnumerable<string> badgeWords = RealtimeBadges.Definitions.SelectMany(b => new[] { b.Key, b.Value.Text });
-			foreach (string word in s_reservedNameWords.Concat(badgeWords))
-			{
-				if (!String.IsNullOrWhiteSpace(word) && lower.Contains(word.ToLowerInvariant(), StringComparison.Ordinal))
-				{
-					return word;
-				}
-			}
-			return null;
 		}
 
 		private static bool TryParseChannel(string? channelID, out string kind, out Int64 id)

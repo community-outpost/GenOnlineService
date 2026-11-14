@@ -260,7 +260,7 @@ namespace Database
 
 		private static readonly string[] IdentityTables =
 		{
-			"users", "user_username_history", "identities", "bans", "audit_log", "devices", "session_events", "matches",
+			"users", "user_username_history", "identities", "sanctions", "audit_log", "devices", "session_events", "matches",
 			"anticheat_module_reports", "anticheat_new_account_games", "anticheat_probe_reports"
 		};
 
@@ -630,7 +630,7 @@ namespace Database
 				var discord = Line("users.discord_id, discord_username", "identities (discord)");
 				var google = Line("users.google_id", "identities (google)");
 				var gameReplays = Line("users.gamereplays_id, gamereplays_username", "identities (gamereplays)");
-				var bans = Line("users.banned, ban_reason", "bans (play, local)");
+				var bans = Line("users.banned, ban_reason", "sanctions (ban, local)");
 				var audit = Line("users.banned_by, ban_verified_by, ban_aliases", "audit_log (ban)");
 				var allTime = Line("users.elo_rating, elo_num_matches", "player_ratings (all_time)");
 				var monthly = Line("users.monthly_elo_rating", "player_ratings (monthly)");
@@ -699,15 +699,15 @@ namespace Database
 						}
 						else
 						{
-							string reason = string.IsNullOrWhiteSpace(old.BanReason) ? LegacyBanReason : Clamp(old.BanReason, ModerationManager.MaximumReasonLength, "bans", "reason");
+							string reason = string.IsNullOrWhiteSpace(old.BanReason) ? LegacyBanReason : Clamp(old.BanReason, ModerationManager.MaximumReasonLength, "sanctions", "reason");
 
-							Write(bans, new Ban
+							Write(bans, new Sanction
 							{
 								UserID = old.Id,
-								Restriction = BanRestrictions.Play,
+								Type = SanctionTypes.Ban,
 								Source = AuthoritySources.Local,
 								Reason = reason,
-								CreatedBy = null,
+								CreatedByKind = AuditActorKinds.Cli,
 								CreatedAt = _now
 							});
 

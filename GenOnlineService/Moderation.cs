@@ -33,6 +33,9 @@ namespace GenOnlineService
 	{
 		public EModerationResult Result { get; init; }
 		public string TargetDisplayName { get; init; } = String.Empty;
+
+		// The stored kick, 0 when it could not be stored
+		public Int64 SanctionID { get; init; }
 	}
 
 	public static class ModerationManager
@@ -64,18 +67,20 @@ namespace GenOnlineService
 			}
 
 			string targetDisplayName;
+			Sanction? kick;
 			using (var scope = ServiceLocator.Services.CreateScope())
 			{
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
-				await Database.Moderation.LogUserAction(db, actor, ModerationActions.Kick, targetUserID, reason);
+				kick = await Database.Moderation.AddKick(db, targetUserID, reason, actor);
 				targetDisplayName = target?.m_strDisplayName ?? await Database.Users.GetDisplayName(db, targetUserID);
 			}
 
 			return new ModerationResult
 			{
 				Result = EModerationResult.Success,
-				TargetDisplayName = targetDisplayName
+				TargetDisplayName = targetDisplayName,
+				SanctionID = kick?.ID ?? 0
 			};
 		}
 

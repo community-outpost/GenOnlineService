@@ -1559,7 +1559,7 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// Devices, session events, chat messages and closed reports past their retention are purged hourly
+			// Devices, session events, chat messages and resolved reports past their retention are purged hourly
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(TimeSpan.FromHours(1).TotalMilliseconds);
 				timerTick.AutoReset = false;
@@ -1591,7 +1591,7 @@ namespace GenOnlineService
 								var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
 								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0)
 								{
-									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers and {ChatReportCount} closed reports", chat.Messages, chat.ReadMarkers, chat.Reports);
+									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers and {ChatReportCount} resolved reports", chat.Messages, chat.ReadMarkers, chat.Reports);
 								}
 							}
 							catch (Exception ex)

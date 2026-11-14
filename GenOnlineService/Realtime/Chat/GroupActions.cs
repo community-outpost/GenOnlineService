@@ -16,35 +16,37 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
+using Microsoft.EntityFrameworkCore;
+
 namespace GenOnlineService.Realtime
 {
-	// Group chats: CreateGroup, AddGroupMembers, RemoveGroupMember, RenameGroup and LeaveGroup (section 5.1)
-	public sealed partial class RealtimeHub
+	// Group chats (section 10.1): create, add members, remove a member or leave, rename, the hub pushes GroupCreate, GroupUpdate and GroupRemoved
+	public static class GroupActions
 	{
 		// Membership changes of one group run one at a time on this copy, so the size limit and the owner checks hold
 		private static readonly SemaphoreSlim[] s_groupLocks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
-		public async Task<Result<CreateGroupData>> CreateGroup(CreateGroupRequest request)
+		public static async Task<Result<CreateGroupResponse>> CreateAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, CreateGroupRequest request)
 		{
 			if (!IsValidGroupName(request.Name))
 			{
 				return Result.Invalid("name");
 			}
 
-			Int64 me = UserID;
 			Int64[] invited = (request.UserIds ?? []).Where(id => id != me).Distinct().ToArray();
 			if (invited.Length == 0)
 			{
 				return Result.Invalid("user_ids");
 			}
-			if (invited.Length + 1 > GroupMaxMembers)
+			if (invited.Length + 1 > RealtimeHub.GroupMaxMembers)
 			{
-				return Result.Fail(ErrorCodes.GroupFull, new { Max = GroupMaxMembers });
+				return Result.Fail(ErrorCodes.GroupFull, new { Max = RealtimeHub.GroupMaxMembers });
 			}
 
 			Database.GroupInfo group;
 			Dictionary<long, string> names;
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			await using (AppDbContext db = await dbFactory.CreateDbContextAsync())
 			{
 				Failure? refused = await CheckInviteesAsync(db, me, invited);
 				if (refused != null)
@@ -53,16 +55,15 @@ namespace GenOnlineService.Realtime
 				}
 
 				group = await Database.Chat.CreateGroup(db, me, request.Name, invited);
-				names = await NamesAsync(db, group.MemberIDs);
+				names = await RealtimeHub.NamesAsync(db, group.MemberIDs);
 			}
 
-			await RealtimeOut.Users(group.MemberIDs).GroupCreate(new GroupEvent { Group = ToWireGroup(group, names) });
-			return Result.Success(new CreateGroupData { GroupId = group.Group.ID });
+			await RealtimeOut.Users(group.MemberIDs).GroupCreate(new GroupEvent { Group = RealtimeHub.ToWireGroup(group, names) });
+			return Result.Success(new CreateGroupResponse { GroupId = group.Group.ID });
 		}
 
-		public async Task<Result<Empty>> AddGroupMembers(AddGroupMembersRequest request)
+		public static async Task<Result<Empty>> AddMembersAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, Int64 groupID, AddGroupMembersRequest request)
 		{
-			Int64 me = UserID;
 			Int64[] requested = (request.UserIds ?? []).Where(id => id != me).Distinct().ToArray();
 			if (requested.Length == 0)
 			{
@@ -72,12 +73,12 @@ namespace GenOnlineService.Realtime
 			Database.GroupInfo group;
 			Int64[] added;
 			Dictionary<long, string> names;
-			SemaphoreSlim gate = GroupLock(request.GroupId);
+			SemaphoreSlim gate = GroupLock(groupID);
 			await gate.WaitAsync();
 			try
 			{
-				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-				Database.GroupInfo? current = await Database.Chat.GetGroup(db, request.GroupId);
+				await using AppDbContext db = await dbFactory.CreateDbContextAsync();
+				Database.GroupInfo? current = await Database.Chat.GetGroup(db, groupID);
 				if (current == null || !current.MemberIDs.Contains(me))
 				{
 					return Result.Fail(ErrorCodes.GroupNotMember);
@@ -93,9 +94,9 @@ namespace GenOnlineService.Realtime
 				{
 					return Result.Success();
 				}
-				if (current.MemberIDs.Count + added.Length > GroupMaxMembers)
+				if (current.MemberIDs.Count + added.Length > RealtimeHub.GroupMaxMembers)
 				{
-					return Result.Fail(ErrorCodes.GroupFull, new { Max = GroupMaxMembers });
+					return Result.Fail(ErrorCodes.GroupFull, new { Max = RealtimeHub.GroupMaxMembers });
 				}
 
 				Failure? refused = await CheckInviteesAsync(db, me, added);
@@ -104,9 +105,9 @@ namespace GenOnlineService.Realtime
 					return refused.Value;
 				}
 
-				await Database.Chat.AddGroupMembers(db, request.GroupId, added);
-				group = await Database.Chat.GetGroup(db, request.GroupId) ?? current;
-				names = await NamesAsync(db, group.MemberIDs);
+				await Database.Chat.AddGroupMembers(db, groupID, added);
+				group = await Database.Chat.GetGroup(db, groupID) ?? current;
+				names = await RealtimeHub.NamesAsync(db, group.MemberIDs);
 			}
 			finally
 			{
@@ -114,23 +115,28 @@ namespace GenOnlineService.Realtime
 			}
 
 			// new members get the whole group and read its stored history through GetHistory
-			Group wire = ToWireGroup(group, names);
+			Group wire = RealtimeHub.ToWireGroup(group, names);
 			await RealtimeOut.Users(added).GroupCreate(new GroupEvent { Group = wire });
 			await RealtimeOut.Users(group.MemberIDs.Where(id => !added.Contains(id))).GroupUpdate(new GroupEvent { Group = wire });
 			return Result.Success();
 		}
 
-		public async Task<Result<Empty>> RemoveGroupMember(RemoveGroupMemberRequest request)
+		// The caller's own id leaves the group, another member's id is a removal by the owner
+		public static async Task<Result<Empty>> RemoveMemberAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, Int64 groupID, Int64 userID)
 		{
-			Int64 me = UserID;
+			if (userID == me)
+			{
+				return await LeaveAsync(dbFactory, me, groupID);
+			}
+
 			Database.GroupInfo? remaining;
 			Dictionary<long, string> names;
-			SemaphoreSlim gate = GroupLock(request.GroupId);
+			SemaphoreSlim gate = GroupLock(groupID);
 			await gate.WaitAsync();
 			try
 			{
-				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-				Database.GroupInfo? current = await Database.Chat.GetGroup(db, request.GroupId);
+				await using AppDbContext db = await dbFactory.CreateDbContextAsync();
+				Database.GroupInfo? current = await Database.Chat.GetGroup(db, groupID);
 				if (current == null || !current.MemberIDs.Contains(me))
 				{
 					return Result.Fail(ErrorCodes.GroupNotMember);
@@ -139,49 +145,42 @@ namespace GenOnlineService.Realtime
 				{
 					return Result.Fail(ErrorCodes.GroupNotOwner);
 				}
-
-				// the owner leaves with LeaveGroup, never by removing themselves
-				if (request.UserId == me)
-				{
-					return Result.Invalid("user_id");
-				}
-				if (!current.MemberIDs.Contains(request.UserId))
+				if (!current.MemberIDs.Contains(userID))
 				{
 					return Result.NotFound("user");
 				}
 
-				remaining = (await Database.Chat.LeaveGroup(db, request.GroupId, request.UserId)).Remaining;
-				names = remaining == null ? new Dictionary<long, string>() : await NamesAsync(db, remaining.MemberIDs);
+				remaining = (await Database.Chat.LeaveGroup(db, groupID, userID)).Remaining;
+				names = remaining == null ? new Dictionary<long, string>() : await RealtimeHub.NamesAsync(db, remaining.MemberIDs);
 			}
 			finally
 			{
 				gate.Release();
 			}
 
-			await RealtimeOut.User(request.UserId).GroupRemoved(new GroupRemovedEvent { GroupId = request.GroupId, Reason = GroupRemovedReason.Removed });
+			await RealtimeOut.User(userID).GroupRemoved(new GroupRemovedEvent { GroupId = groupID, Reason = GroupRemovedReason.Removed });
 			if (remaining != null)
 			{
-				await RealtimeOut.Users(remaining.MemberIDs).GroupUpdate(new GroupEvent { Group = ToWireGroup(remaining, names) });
+				await RealtimeOut.Users(remaining.MemberIDs).GroupUpdate(new GroupEvent { Group = RealtimeHub.ToWireGroup(remaining, names) });
 			}
 			return Result.Success();
 		}
 
-		public async Task<Result<Empty>> RenameGroup(RenameGroupRequest request)
+		public static async Task<Result<Empty>> RenameAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, Int64 groupID, RenameGroupRequest request)
 		{
-			if (!IsValidGroupName(request.Name))
+			if (!request.Name.HasValue || !IsValidGroupName(request.Name.Value))
 			{
 				return Result.Invalid("name");
 			}
 
-			Int64 me = UserID;
 			Database.GroupInfo? group;
 			Dictionary<long, string> names;
-			SemaphoreSlim gate = GroupLock(request.GroupId);
+			SemaphoreSlim gate = GroupLock(groupID);
 			await gate.WaitAsync();
 			try
 			{
-				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-				Database.GroupInfo? current = await Database.Chat.GetGroup(db, request.GroupId);
+				await using AppDbContext db = await dbFactory.CreateDbContextAsync();
+				Database.GroupInfo? current = await Database.Chat.GetGroup(db, groupID);
 				if (current == null || !current.MemberIDs.Contains(me))
 				{
 					return Result.Fail(ErrorCodes.GroupNotMember);
@@ -191,51 +190,50 @@ namespace GenOnlineService.Realtime
 					return Result.Fail(ErrorCodes.GroupNotOwner);
 				}
 
-				await Database.Chat.RenameGroup(db, request.GroupId, request.Name);
-				group = await Database.Chat.GetGroup(db, request.GroupId);
+				await Database.Chat.RenameGroup(db, groupID, request.Name.Value);
+				group = await Database.Chat.GetGroup(db, groupID);
 				if (group == null)
 				{
 					return Result.Fail(ErrorCodes.GroupNotMember);
 				}
-				names = await NamesAsync(db, group.MemberIDs);
+				names = await RealtimeHub.NamesAsync(db, group.MemberIDs);
 			}
 			finally
 			{
 				gate.Release();
 			}
 
-			await RealtimeOut.Users(group.MemberIDs).GroupUpdate(new GroupEvent { Group = ToWireGroup(group, names) });
+			await RealtimeOut.Users(group.MemberIDs).GroupUpdate(new GroupEvent { Group = RealtimeHub.ToWireGroup(group, names) });
 			return Result.Success();
 		}
 
-		public async Task<Result<Empty>> LeaveGroup(GroupRequest request)
+		private static async Task<Result<Empty>> LeaveAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, Int64 groupID)
 		{
-			Int64 me = UserID;
 			Database.GroupLeaveResult result;
 			Dictionary<long, string> names;
-			SemaphoreSlim gate = GroupLock(request.GroupId);
+			SemaphoreSlim gate = GroupLock(groupID);
 			await gate.WaitAsync();
 			try
 			{
-				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+				await using AppDbContext db = await dbFactory.CreateDbContextAsync();
 
 				// the earliest member left becomes owner, the last member to leave deletes the group
-				result = await Database.Chat.LeaveGroup(db, request.GroupId, me);
+				result = await Database.Chat.LeaveGroup(db, groupID, me);
 				if (!result.WasMember)
 				{
 					return Result.Fail(ErrorCodes.GroupNotMember);
 				}
-				names = result.Remaining == null ? new Dictionary<long, string>() : await NamesAsync(db, result.Remaining.MemberIDs);
+				names = result.Remaining == null ? new Dictionary<long, string>() : await RealtimeHub.NamesAsync(db, result.Remaining.MemberIDs);
 			}
 			finally
 			{
 				gate.Release();
 			}
 
-			await RealtimeOut.User(me).GroupRemoved(new GroupRemovedEvent { GroupId = request.GroupId, Reason = GroupRemovedReason.Left });
+			await RealtimeOut.User(me).GroupRemoved(new GroupRemovedEvent { GroupId = groupID, Reason = GroupRemovedReason.Left });
 			if (result.Remaining != null)
 			{
-				await RealtimeOut.Users(result.Remaining.MemberIDs).GroupUpdate(new GroupEvent { Group = ToWireGroup(result.Remaining, names) });
+				await RealtimeOut.Users(result.Remaining.MemberIDs).GroupUpdate(new GroupEvent { Group = RealtimeHub.ToWireGroup(result.Remaining, names) });
 			}
 			return Result.Success();
 		}
@@ -243,7 +241,7 @@ namespace GenOnlineService.Realtime
 		// Every invitee is a mutual friend of the caller with no block either way, a block is reported first
 		private static async Task<Failure?> CheckInviteesAsync(AppDbContext db, Int64 me, IReadOnlyCollection<Int64> invitees)
 		{
-			HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
+			HashSet<long> blocked = await RealtimeHub.BlockedEitherWayAsync(db, me);
 			if (invitees.Any(blocked.Contains))
 			{
 				return Result.Fail(ErrorCodes.SocialBlocked);

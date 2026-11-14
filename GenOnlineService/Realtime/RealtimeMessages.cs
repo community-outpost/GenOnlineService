@@ -275,50 +275,6 @@ namespace GenOnlineService.Realtime
 		public string MessageId { get; init; } = "";
 	}
 
-	// DeleteMessage and ReportMessage
-	public sealed record MessageActionRequest
-	{
-		public string MessageId { get; init; } = "";
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? Reason { get; init; }
-	}
-
-	public sealed record CreateGroupRequest
-	{
-		public IReadOnlyList<long> UserIds { get; init; } = [];
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? Name { get; init; }
-	}
-
-	public sealed record AddGroupMembersRequest
-	{
-		public long GroupId { get; init; }
-		public IReadOnlyList<long> UserIds { get; init; } = [];
-	}
-
-	public sealed record RemoveGroupMemberRequest
-	{
-		public long GroupId { get; init; }
-		public long UserId { get; init; }
-	}
-
-	// A null name clears it
-	public sealed record RenameGroupRequest
-	{
-		public long GroupId { get; init; }
-		public string? Name { get; init; }
-	}
-
-	public sealed record GroupRequest
-	{
-		public long GroupId { get; init; }
-	}
-
-	public sealed record SetDisplayNameRequest
-	{
-		public string Name { get; init; } = "";
-	}
-
 	public sealed record CreateLobbyRequest
 	{
 		public string Name { get; init; } = "";
@@ -428,43 +384,10 @@ namespace GenOnlineService.Realtime
 		public long TotalMoney { get; init; }
 	}
 
-	public sealed record ReportMatchOutcomeRequest
-	{
-		public long MatchId { get; init; }
-		public bool Won { get; init; }
-		public bool Desynced { get; init; }
-		public int Side { get; init; }
-		public int DurationS { get; init; }
-		public MatchStats Stats { get; init; } = new MatchStats();
-	}
-
 	public sealed record JoinQueueRequest
 	{
 		public int PlaylistId { get; init; }
 		public IReadOnlyList<int> MapIndexes { get; init; } = [];
-	}
-
-	public sealed record ModerationRequest
-	{
-		public long UserId { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? Reason { get; init; }
-	}
-
-	public sealed record MuteRequest
-	{
-		public long UserId { get; init; }
-		public long? DurationS { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? Reason { get; init; }
-	}
-
-	public sealed record BanRequest
-	{
-		public long UserId { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public long? DurationS { get; init; }
-		public string? Reason { get; init; }
 	}
 
 	public sealed record RequestSignallingRequest
@@ -516,11 +439,6 @@ namespace GenOnlineService.Realtime
 		public bool HasMore { get; init; }
 	}
 
-	public sealed record CreateGroupData
-	{
-		public long GroupId { get; init; }
-	}
-
 	public sealed record WatchLobbyListData
 	{
 		public IReadOnlyList<LobbySummary> Lobbies { get; init; } = [];
@@ -535,17 +453,6 @@ namespace GenOnlineService.Realtime
 	public sealed record JoinLobbyData
 	{
 		public TurnCredentials Turn { get; init; } = new TurnCredentials();
-	}
-
-	public sealed record ReportMatchOutcomeData
-	{
-		public string ScreenshotUrl { get; init; } = "";
-		public string ReplayUrl { get; init; } = "";
-	}
-
-	public sealed record GetPlaylistsData
-	{
-		public IReadOnlyList<Playlist> Playlists { get; init; } = [];
 	}
 
 	// Events (one argument object per event)

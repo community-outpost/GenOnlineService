@@ -42,7 +42,7 @@ namespace GenOnlineService
 			"Usage:\n"
 			+ "  GenOnlineService reports list\n"
 			+ "  GenOnlineService reports show <report_id> --by <user_id>\n"
-			+ "  GenOnlineService reports close <report_id> [--reason <text>] [--by <user_id>]";
+			+ "  GenOnlineService reports close <report_id> [--status actioned|dismissed] [--reason <text>] [--by <user_id>]";
 
 		private const string MessagesUsage =
 			"Usage:\n"
@@ -234,19 +234,22 @@ namespace GenOnlineService
 				await RequireUser(db, userID);
 				DateTime now = DateTime.UtcNow;
 
-				List<Ban> bans = await Database.Moderation.GetBans(db, userID);
-				if (bans.Count == 0)
+				// every sanction is listed, kicks and mutes included, so the history reads in one place
+				List<Sanction> sanctions = await Database.Moderation.GetSanctions(db, userID, activeOnly: false);
+				if (sanctions.Count == 0)
 				{
-					Console.WriteLine("No bans.");
+					Console.WriteLine("No sanctions.");
 				}
 
-				foreach (Ban b in bans)
+				foreach (Sanction s in sanctions.OrderBy(s => s.CreatedAt).ThenBy(s => s.ID))
 				{
-					string state = b.RevokedAt != null ? $"revoked {b.RevokedAt:yyyy-MM-dd HH:mm} UTC ({b.RevokeReason})"
-						: b.ExpiresAt != null && b.ExpiresAt <= now ? "expired"
+					string state = s.Type == SanctionTypes.Kick ? "kicked"
+						: s.LiftedAt != null ? $"lifted {s.LiftedAt:yyyy-MM-dd HH:mm} UTC by {Who(s.LiftedByKind, s.LiftedByID)} ({s.LiftReason})"
+						: s.ExpiresAt != null && s.ExpiresAt <= now ? "expired"
 						: "active";
-					string until = b.ExpiresAt == null ? "permanent" : $"until {b.ExpiresAt:yyyy-MM-dd HH:mm} UTC";
-					Console.WriteLine($"#{b.ID}  {b.Restriction}  {b.Source}  {b.CreatedAt:yyyy-MM-dd HH:mm} UTC by {b.CreatedBy ?? "unknown"}  {until}  {state}  {b.Reason}");
+					string until = s.Type == SanctionTypes.Kick ? String.Empty : s.ExpiresAt == null ? "permanent  " : $"until {s.ExpiresAt:yyyy-MM-dd HH:mm} UTC  ";
+					string report = s.ReportID == null ? String.Empty : $"  report {s.ReportID}";
+					Console.WriteLine($"#{s.ID}  {s.Type}  {s.Source}  {s.CreatedAt:yyyy-MM-dd HH:mm} UTC by {Who(s.CreatedByKind, s.CreatedByID)}  {until}{state}  {s.Reason}{report}");
 				}
 
 				return 0;
@@ -271,7 +274,7 @@ namespace GenOnlineService
 
 				await using AppDbContext db = await OpenDatabase();
 				await RequireUser(db, userID);
-				Ban ban = await Database.Moderation.AddBan(db, userID, BanRestrictions.Play, reason, expiresAt, actor);
+				Sanction ban = await Database.Moderation.AddSanction(db, userID, SanctionTypes.Ban, reason, expiresAt, actor);
 				Console.WriteLine(expiresAt == null ? $"Banned user {userID} permanently (ban #{ban.ID})." : $"Banned user {userID} until {expiresAt:yyyy-MM-dd HH:mm} UTC (ban #{ban.ID}).");
 				return 0;
 			}
@@ -280,12 +283,14 @@ namespace GenOnlineService
 				string reason = ParseReason(parsed, required: false);
 				await using AppDbContext db = await OpenDatabase();
 				await RequireUser(db, userID);
-				int revoked = await Database.Moderation.RevokeActiveBans(db, userID, BanRestrictions.Play, reason, actor);
+				int revoked = await Database.Moderation.LiftActiveSanctions(db, userID, SanctionTypes.Ban, reason, actor);
 				Console.WriteLine(revoked > 0 ? $"Revoked {revoked} active ban(s) for user {userID}." : $"User {userID} has no active ban, nothing changed.");
 
 				return 0;
 			}
 		});
+
+		private static string Who(string? kind, Int64? userID) => userID == null ? kind ?? "unknown" : $"{kind}:user:{userID}";
 
 		private static Int64 ParseID(string text, string what)
 		{
@@ -321,23 +326,25 @@ namespace GenOnlineService
 			return $"#{m.ID}  {m.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC  user {m.SenderID}  {where}  {m.Type}: {content}";
 		}
 
+		private static string Subject(PlayerReport r) => r.MessageID == null ? $"player {r.ReportedUserID}" : $"message {r.MessageID} of user {r.ReportedUserID}";
+
 		public static Task<int> RunReports(string[] args) => Run(async () =>
 		{
-			Arguments parsed = Parse(args, ReportsUsage, "--reason", "--by");
+			Arguments parsed = Parse(args, ReportsUsage, "--reason", "--by", "--status");
 			string verb = parsed.Positional.FirstOrDefault()?.ToLowerInvariant() ?? String.Empty;
 
 			if (verb == "list" && parsed.Positional.Count == 1)
 			{
 				await using AppDbContext db = await OpenDatabase();
-				List<ChatReport> reports = await Database.Chat.GetReports(db, ChatReportStatuses.Open, ReportListLimit);
+				List<PlayerReport> reports = await Database.Chat.GetReports(db, PlayerReportStatuses.Open, ReportListLimit);
 				if (reports.Count == 0)
 				{
 					Console.WriteLine("No open reports.");
 				}
 
-				foreach (ChatReport r in reports)
+				foreach (PlayerReport r in reports)
 				{
-					Console.WriteLine($"report {r.ID}  message {r.MessageID}  by user {r.ReporterID}  {r.CreatedAt:yyyy-MM-dd HH:mm} UTC  {r.Reason}");
+					Console.WriteLine($"report {r.ID}  {r.Status}  {Subject(r)}  by user {r.ReporterID}  {r.CreatedAt:yyyy-MM-dd HH:mm} UTC  {r.Reason}");
 				}
 
 				return 0;
@@ -350,19 +357,19 @@ namespace GenOnlineService
 
 				await using AppDbContext db = await OpenDatabase();
 				await RequireUser(db, actor.UserID!.Value);
-				ChatReport report = await Database.Chat.GetReport(db, reportID) ?? throw new CliException($"Report {reportID} does not exist.");
+				PlayerReport report = await Database.Chat.GetReport(db, reportID) ?? throw new CliException($"Report {reportID} does not exist.");
 
 				// reading a report shows chat, so every read is logged before anything is printed
-				await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.ReportView, AuditTargetKinds.Report, reportID, null, new { message_id = report.MessageID });
+				await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.ReportView, AuditTargetKinds.Report, reportID, null, new { message_id = report.MessageID, reported_user_id = report.ReportedUserID });
 
-				string closed = report.ClosedAt == null ? String.Empty : $" {report.ClosedAt:yyyy-MM-dd HH:mm} UTC";
-				Console.WriteLine($"report {report.ID}  {report.Status}{closed}  message {report.MessageID}  by user {report.ReporterID}  {report.CreatedAt:yyyy-MM-dd HH:mm} UTC  {report.Reason}");
-				Console.WriteLine("snapshot:");
-				Console.WriteLine(report.Snapshot);
+				string resolved = report.ResolvedAt == null ? String.Empty : $" {report.ResolvedAt:yyyy-MM-dd HH:mm} UTC by {Who(report.ResolvedByKind, report.ResolvedByID)} ({report.ResolutionNote})";
+				Console.WriteLine($"report {report.ID}  {report.Status}{resolved}  {Subject(report)}  by user {report.ReporterID}  {report.CreatedAt:yyyy-MM-dd HH:mm} UTC  {report.Reason}");
+				Console.WriteLine("evidence:");
+				Console.WriteLine(report.Evidence);
 
-				if (Database.Chat.SnapshotAfterPending(report.Snapshot))
+				if (report.MessageID is Int64 messageID && Database.Chat.SnapshotAfterPending(report.Evidence))
 				{
-					ChatMessage? reported = await Database.Chat.GetMessage(db, report.MessageID);
+					ChatMessage? reported = await Database.Chat.GetMessage(db, messageID);
 					List<ChatMessage> after = reported == null ? new List<ChatMessage>() : await Database.Chat.GetMessagesAfter(db, reported);
 					Console.WriteLine("after (live, not yet frozen, the retention purge freezes it before the reported message expires):");
 					if (after.Count == 0)
@@ -384,6 +391,11 @@ namespace GenOnlineService
 				Int64 reportID = ParseID(parsed.Positional[1], "report");
 				string reason = ParseReason(parsed, required: false);
 				ModerationActor actor = ParseActor(parsed);
+				string status = parsed.Options.TryGetValue("--status", out string? statusText) ? statusText.ToLowerInvariant() : PlayerReportStatuses.Dismissed;
+				if (status != PlayerReportStatuses.Actioned && status != PlayerReportStatuses.Dismissed)
+				{
+					throw new CliException($"--status must be actioned or dismissed, got {statusText}.");
+				}
 
 				await using AppDbContext db = await OpenDatabase();
 				if (await Database.Chat.GetReport(db, reportID) == null)
@@ -391,14 +403,14 @@ namespace GenOnlineService
 					throw new CliException($"Report {reportID} does not exist.");
 				}
 
-				if (!await Database.Chat.CloseReport(db, reportID))
+				if (!await Database.Chat.ResolveReport(db, reportID, status, reason, actor.Kind, actor.UserID))
 				{
-					Console.WriteLine($"Report {reportID} is already closed, nothing changed.");
+					Console.WriteLine($"Report {reportID} is already resolved, nothing changed.");
 					return 0;
 				}
 
-				await Database.Moderation.LogAction(db, actor, ModerationActions.ReportClose, AuditTargetKinds.Report, reportID, reason);
-				Console.WriteLine($"Closed report {reportID}.");
+				await Database.Moderation.LogAction(db, actor, ModerationActions.ReportClose, AuditTargetKinds.Report, reportID, reason, new { status });
+				Console.WriteLine($"Resolved report {reportID} as {status}.");
 				return 0;
 			}
 

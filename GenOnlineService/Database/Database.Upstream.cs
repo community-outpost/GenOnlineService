@@ -76,26 +76,26 @@ namespace Database
 				db.AuditLog.Add(Entry(source, ModerationActions.RoleGrant, userID, new { role }, now));
 			}
 
-			List<Ban> bans = await db.Bans.AsTracking()
-				.Where(b => b.UserID == userID && b.Source == source && b.Restriction == BanRestrictions.Play && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
+			List<Sanction> bans = await db.Sanctions.AsTracking()
+				.Where(s => s.UserID == userID && s.Source == source && s.Type == SanctionTypes.Ban && s.LiftedAt == null && (s.ExpiresAt == null || s.ExpiresAt > now))
 				.ToListAsync();
 
 			if (bBanned && bans.Count == 0)
 			{
-				db.Bans.Add(new Ban { UserID = userID, Restriction = BanRestrictions.Play, Source = source, Reason = banReason, CreatedBy = source, CreatedAt = now });
-				db.AuditLog.Add(Entry(source, ModerationActions.Ban, userID, new { restriction = BanRestrictions.Play }, now));
+				db.Sanctions.Add(new Sanction { UserID = userID, Type = SanctionTypes.Ban, Source = source, Reason = String.IsNullOrEmpty(banReason) ? null : banReason, CreatedByKind = ActorKind, CreatedAt = now });
+				db.AuditLog.Add(Entry(source, ModerationActions.Ban, userID, new { type = SanctionTypes.Ban }, now));
 				changes.BanStarted = true;
 			}
 			else if (!bBanned && bans.Count > 0)
 			{
-				foreach (Ban ban in bans)
+				foreach (Sanction ban in bans)
 				{
-					ban.RevokedAt = now;
-					ban.RevokedBy = source;
-					ban.RevokeReason = "removed upstream";
+					ban.LiftedAt = now;
+					ban.LiftedByKind = ActorKind;
+					ban.LiftReason = "removed upstream";
 				}
 
-				db.AuditLog.Add(Entry(source, ModerationActions.Unban, userID, new { restriction = BanRestrictions.Play }, now));
+				db.AuditLog.Add(Entry(source, ModerationActions.Unban, userID, new { type = SanctionTypes.Ban }, now));
 				changes.BanEnded = true;
 			}
 

@@ -36,10 +36,12 @@ public static class ChatMessageTypes
 	public const string Announcement = "announcement";
 }
 
-public static class ChatReportStatuses
+// Staff resolve an open report as actioned (a sanction or a delete followed) or dismissed
+public static class PlayerReportStatuses
 {
 	public const string Open = "open";
-	public const string Closed = "closed";
+	public const string Actioned = "actioned";
+	public const string Dismissed = "dismissed";
 }
 
 // Stored as sent without encryption, who deleted a message and why live in audit_log
@@ -100,22 +102,32 @@ public class ChatReadMarker
 	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
 }
 
-// A player report of one message, the snapshot outlives the purged messages until the case is closed
-public class ChatReport
+// A report of one message or of a player, the evidence outlives the purged messages until the report is resolved
+public class PlayerReport
 {
 	public Int64 ID { get; set; }
-	public Int64 MessageID { get; set; }
 	public Int64 ReporterID { get; set; }
+
+	// The author of the reported message, or the reported player
+	public Int64 ReportedUserID { get; set; }
+
+	// Null for a report of a player
+	public Int64? MessageID { get; set; }
+
 	public string? Reason { get; set; }
 
-	// A JSON object with the reported message, up to 10 messages before it and up to 10 after it in the same conversation
-	// The retention purge fills "after" and "after_filled_at" just before the reported message expires
-	public string Snapshot { get; set; } = "{}";
+	// A message report: {message, before, after, after_filled_at}, the retention purge fills "after" just before the message expires
+	// A player report: {messages}, up to 10 of the player's most recent messages the reporter could see
+	public string Evidence { get; set; } = "{}";
 
-	// Whatever closes a report sets closed_at too, the purge counts from it
-	public string Status { get; set; } = ChatReportStatuses.Open;
+	public string Status { get; set; } = PlayerReportStatuses.Open;
 	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
-	public DateTime? ClosedAt { get; set; }
+
+	// Whatever resolves a report sets resolved_at too, the purge counts from it
+	public DateTime? ResolvedAt { get; set; }
+	public string? ResolvedByKind { get; set; }
+	public Int64? ResolvedByID { get; set; }
+	public string? ResolutionNote { get; set; }
 }
 
 public class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
@@ -205,25 +217,31 @@ public class ChatReadMarkerConfiguration : IEntityTypeConfiguration<ChatReadMark
 	}
 }
 
-public class ChatReportConfiguration : IEntityTypeConfiguration<ChatReport>
+public class PlayerReportConfiguration : IEntityTypeConfiguration<PlayerReport>
 {
-	public void Configure(EntityTypeBuilder<ChatReport> builder)
+	public void Configure(EntityTypeBuilder<PlayerReport> builder)
 	{
-		builder.ToTable("chat_reports");
+		builder.ToTable("player_reports");
 
 		builder.HasKey(e => e.ID);
-		builder.HasIndex(e => new { e.MessageID, e.ReporterID }).IsUnique().HasDatabaseName("ux_chat_reports_message_reporter");
-		builder.HasIndex(e => e.ReporterID).HasDatabaseName("ix_chat_reports_reporter_id");
-		builder.HasIndex(e => new { e.Status, e.ClosedAt }).HasDatabaseName("ix_chat_reports_status_closed_at");
+
+		// NULL message ids never collide, so this covers message reports only
+		builder.HasIndex(e => new { e.ReporterID, e.MessageID }).IsUnique().HasDatabaseName("ux_player_reports_reporter_message");
+		builder.HasIndex(e => new { e.Status, e.CreatedAt }).HasDatabaseName("ix_player_reports_status_created_at");
+		builder.HasIndex(e => new { e.ReportedUserID, e.CreatedAt }).HasDatabaseName("ix_player_reports_reported_user_created_at");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
-		builder.Property(e => e.MessageID).HasColumnName("message_id");
 		builder.Property(e => e.ReporterID).HasColumnName("reporter_id");
+		builder.Property(e => e.ReportedUserID).HasColumnName("reported_user_id");
+		builder.Property(e => e.MessageID).HasColumnName("message_id");
 		builder.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(Database.Chat.MaximumReasonLength);
-		builder.Property(e => e.Snapshot).HasColumnName("snapshot");
+		builder.Property(e => e.Evidence).HasColumnName("evidence");
 		builder.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
-		builder.Property(e => e.ClosedAt).HasColumnName("closed_at");
+		builder.Property(e => e.ResolvedAt).HasColumnName("resolved_at");
+		builder.Property(e => e.ResolvedByKind).HasColumnName("resolved_by_kind").HasMaxLength(16);
+		builder.Property(e => e.ResolvedByID).HasColumnName("resolved_by_id");
+		builder.Property(e => e.ResolutionNote).HasColumnName("resolution_note").HasMaxLength(Database.Chat.MaximumReasonLength);
 	}
 }
 
@@ -247,7 +265,7 @@ namespace Database
 	// The message is null when no message has that id, AlreadyDeleted is true when it was a tombstone before the call
 	public sealed record ChatTombstone(ChatMessage? Message, bool AlreadyDeleted);
 
-	public enum ChatReportResult
+	public enum ReportResult
 	{
 		Created,
 		Duplicate
@@ -265,9 +283,9 @@ namespace Database
 		public const int MaximumPageSize = 100;
 		public const int MaximumGroupNameLength = 32;
 
-		// Every stored message and tombstone is kept 30 days, closed reports 30 days after closing
+		// Every stored message and tombstone is kept 30 days, resolved reports 30 days after resolving
 		public static readonly TimeSpan MessageRetention = TimeSpan.FromDays(30);
-		public static readonly TimeSpan ClosedReportRetention = TimeSpan.FromDays(30);
+		public static readonly TimeSpan ResolvedReportRetention = TimeSpan.FromDays(30);
 
 		public const string DirectConversationPrefix = "dm:";
 		public const string ChannelConversationPrefix = "channel:";
@@ -587,47 +605,78 @@ namespace Database
 			return new ChatTombstone(message, message != null && updated == 0);
 		}
 
-		// Stores the report with a snapshot of the message and the messages before it in the same conversation
-		public static async Task<ChatReportResult> CreateReport(AppDbContext db, ChatMessage message, long reporterId, string? reason, CancellationToken cancellationToken = default)
+		// Stores a message report with the message and the messages before it in the same conversation, the id is 0 for a duplicate
+		public static async Task<(ReportResult Result, long ReportID)> CreateReport(AppDbContext db, ChatMessage message, long reporterId, string? reason, CancellationToken cancellationToken = default)
 		{
 			if (reason != null && reason.Length > MaximumReasonLength)
 			{
 				throw new ArgumentOutOfRangeException(nameof(reason));
 			}
 
-			if (await db.ChatReports.AnyAsync(r => r.MessageID == message.ID && r.ReporterID == reporterId, cancellationToken))
+			if (await db.PlayerReports.AnyAsync(r => r.MessageID == message.ID && r.ReporterID == reporterId, cancellationToken))
 			{
-				return ChatReportResult.Duplicate;
+				return (ReportResult.Duplicate, 0);
 			}
 
 			List<ChatMessage> context = await ConversationOf(db, message).Where(m => m.ID < message.ID).OrderByDescending(m => m.ID).Take(SnapshotContextMessages).ToListAsync(cancellationToken);
 			context.Reverse();
 
 			ChatReportSnapshot snapshot = new(ToSnapshot(message), context.Select(ToSnapshot).ToList(), new List<ChatSnapshotMessage>(), null);
-
-			db.ChatReports.Add(new ChatReport
+			PlayerReport report = new PlayerReport
 			{
-				MessageID = message.ID,
 				ReporterID = reporterId,
+				ReportedUserID = message.SenderID,
+				MessageID = message.ID,
 				Reason = reason,
-				Snapshot = JsonSerializer.Serialize(snapshot, s_snapshotJson),
-				Status = ChatReportStatuses.Open,
+				Evidence = JsonSerializer.Serialize(snapshot, s_snapshotJson),
+				Status = PlayerReportStatuses.Open,
 				CreatedAt = TruncateToMicroseconds(DateTime.UtcNow)
-			});
+			};
+			return await AddReport(db, report, cancellationToken);
+		}
 
+		// Stores a player report with the messages the caller picked as evidence, the one open report per reporter and player rule stays with the caller
+		public static async Task<long> CreatePlayerReport(AppDbContext db, long reporterId, long reportedUserId, string? reason, IReadOnlyList<ChatMessage> evidence, CancellationToken cancellationToken = default)
+		{
+			PlayerReport report = new PlayerReport
+			{
+				ReporterID = reporterId,
+				ReportedUserID = reportedUserId,
+				Reason = reason,
+				Evidence = JsonSerializer.Serialize(new PlayerEvidence(evidence.Select(ToSnapshot).ToList()), s_snapshotJson),
+				Status = PlayerReportStatuses.Open,
+				CreatedAt = TruncateToMicroseconds(DateTime.UtcNow)
+			};
+			return (await AddReport(db, report, cancellationToken)).ReportID;
+		}
+
+		private static async Task<(ReportResult Result, long ReportID)> AddReport(AppDbContext db, PlayerReport report, CancellationToken cancellationToken)
+		{
+			db.PlayerReports.Add(report);
 			try
 			{
 				await db.SaveChangesAsync(cancellationToken);
-				return ChatReportResult.Created;
+				return (ReportResult.Created, report.ID);
 			}
 			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
 			{
-				return ChatReportResult.Duplicate;
+				return (ReportResult.Duplicate, 0);
 			}
 			finally
 			{
 				db.ChangeTracker.Clear();
 			}
+		}
+
+		public static async Task<bool> HasOpenPlayerReport(AppDbContext db, long reporterId, long reportedUserId, CancellationToken cancellationToken = default)
+		{
+			return await db.PlayerReports.AnyAsync(r => r.ReporterID == reporterId && r.ReportedUserID == reportedUserId && r.MessageID == null && r.Status == PlayerReportStatuses.Open, cancellationToken);
+		}
+
+		// The newest stored messages of a user, deleted ones included, for the evidence of a player report
+		public static async Task<List<ChatMessage>> GetRecentMessagesBy(AppDbContext db, long senderId, int limit, CancellationToken cancellationToken = default)
+		{
+			return await db.ChatMessages.AsNoTracking().Where(m => m.SenderID == senderId).OrderByDescending(m => m.ID).Take(limit).ToListAsync(cancellationToken);
 		}
 
 		// Every message of the same conversation as the given one: same channel, same lobby or the same direct pair
@@ -649,23 +698,35 @@ namespace Database
 			return await ConversationOf(db, message).Where(m => m.ID > message.ID).OrderBy(m => m.ID).Take(SnapshotContextMessages).ToListAsync(cancellationToken);
 		}
 
-		public static async Task<List<ChatReport>> GetReports(AppDbContext db, string status, int limit, CancellationToken cancellationToken = default)
+		// Oldest first, a null status lists every report
+		public static async Task<List<PlayerReport>> GetReports(AppDbContext db, string? status, int limit, CancellationToken cancellationToken = default)
 		{
-			return await db.ChatReports.AsNoTracking().Where(r => r.Status == status).OrderBy(r => r.ID).Take(limit).ToListAsync(cancellationToken);
+			IQueryable<PlayerReport> query = db.PlayerReports.AsNoTracking();
+			if (status != null)
+			{
+				query = query.Where(r => r.Status == status);
+			}
+			return await query.OrderBy(r => r.CreatedAt).ThenBy(r => r.ID).Take(limit).ToListAsync(cancellationToken);
 		}
 
-		public static async Task<ChatReport?> GetReport(AppDbContext db, long reportId, CancellationToken cancellationToken = default)
+		public static async Task<PlayerReport?> GetReport(AppDbContext db, long reportId, CancellationToken cancellationToken = default)
 		{
-			return await db.ChatReports.AsNoTracking().FirstOrDefaultAsync(r => r.ID == reportId, cancellationToken);
+			return await db.PlayerReports.AsNoTracking().FirstOrDefaultAsync(r => r.ID == reportId, cancellationToken);
 		}
 
-		// Closes an open report and returns false when it was not open, the purge removes it 30 days later
-		public static async Task<bool> CloseReport(AppDbContext db, long reportId, CancellationToken cancellationToken = default)
+		// Resolves an open report and returns false when it was not open, the purge removes it 30 days later
+		public static async Task<bool> ResolveReport(AppDbContext db, long reportId, string status, string? note, string actorKind, long? actorId, CancellationToken cancellationToken = default)
 		{
 			DateTime now = TruncateToMicroseconds(DateTime.UtcNow);
-			int updated = await db.ChatReports
-				.Where(r => r.ID == reportId && r.Status == ChatReportStatuses.Open)
-				.ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, ChatReportStatuses.Closed).SetProperty(r => r.ClosedAt, now), cancellationToken);
+			string? stored = String.IsNullOrEmpty(note) ? null : note;
+			int updated = await db.PlayerReports
+				.Where(r => r.ID == reportId && r.Status == PlayerReportStatuses.Open)
+				.ExecuteUpdateAsync(s => s
+					.SetProperty(r => r.Status, status)
+					.SetProperty(r => r.ResolvedAt, now)
+					.SetProperty(r => r.ResolvedByKind, actorKind)
+					.SetProperty(r => r.ResolvedByID, actorId)
+					.SetProperty(r => r.ResolutionNote, stored), cancellationToken);
 			return updated > 0;
 		}
 
@@ -680,7 +741,7 @@ namespace Database
 		public static async Task<ChatPurgeCounts> PurgeExpired(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
 		{
 			DateTime messageCutoff = utcNow - MessageRetention;
-			DateTime reportCutoff = utcNow - ClosedReportRetention;
+			DateTime reportCutoff = utcNow - ResolvedReportRetention;
 
 			await FillReportsAfter(db, messageCutoff, utcNow, cancellationToken);
 
@@ -689,15 +750,15 @@ namespace Database
 			// A marker untouched for the retention period only points at purged messages
 			int markers = await db.ChatReadMarkers.Where(r => r.UpdatedAt < messageCutoff).ExecuteDeleteAsync(cancellationToken);
 
-			int reports = await db.ChatReports
-				.Where(r => r.Status == ChatReportStatuses.Closed && r.ClosedAt != null && r.ClosedAt < reportCutoff)
+			int reports = await db.PlayerReports
+				.Where(r => r.Status != PlayerReportStatuses.Open && r.ResolvedAt != null && r.ResolvedAt < reportCutoff)
 				.ExecuteDeleteAsync(cancellationToken);
 
 			return new ChatPurgeCounts(messages, markers, reports);
 		}
 
-		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers, closed reports and group memberships
-		// Open reports keep their snapshot until the case is closed, then the normal purge removes them
+		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers, the resolved reports they filed and group memberships
+		// Open reports keep their evidence until they are resolved, then the normal purge removes them
 		// A group the user owned passes to its earliest member, a group the user was alone in is deleted
 		public static async Task<int> DeleteUserData(AppDbContext db, long userId, CancellationToken cancellationToken = default)
 		{
@@ -707,7 +768,7 @@ namespace Database
 
 			int removed = await db.ChatMessages.Where(m => m.SenderID == userId).ExecuteDeleteAsync(cancellationToken);
 			removed += await db.ChatReadMarkers.Where(r => r.UserID == userId || r.Conversation == conversationWithUser).ExecuteDeleteAsync(cancellationToken);
-			removed += await db.ChatReports.Where(r => r.ReporterID == userId && r.Status == ChatReportStatuses.Closed).ExecuteDeleteAsync(cancellationToken);
+			removed += await db.PlayerReports.Where(r => r.ReporterID == userId && r.Status != PlayerReportStatuses.Open).ExecuteDeleteAsync(cancellationToken);
 
 			List<long> groups = await db.ChatGroupMembers.AsNoTracking().Where(m => m.UserID == userId).Select(m => m.GroupID).ToListAsync(cancellationToken);
 			foreach (long groupId in groups)
@@ -883,7 +944,7 @@ namespace Database
 
 		private const int FillBatchSize = 100;
 
-		// Freezes the later messages of every open report whose reported message is about to be purged, in batches by report id
+		// Freezes the later messages of every open message report whose reported message is about to be purged, in batches by report id
 		private static async Task FillReportsAfter(AppDbContext db, DateTime messageCutoff, DateTime utcNow, CancellationToken cancellationToken)
 		{
 			DateTime filledAt = TruncateToMicroseconds(utcNow);
@@ -892,9 +953,9 @@ namespace Database
 			while (true)
 			{
 				var batch = await (
-					from r in db.ChatReports.AsNoTracking()
-					join m in db.ChatMessages.AsNoTracking() on r.MessageID equals m.ID
-					where r.Status == ChatReportStatuses.Open && r.ID > lastReportId && m.CreatedAt < messageCutoff
+					from r in db.PlayerReports.AsNoTracking()
+					join m in db.ChatMessages.AsNoTracking() on r.MessageID equals (long?)m.ID
+					where r.Status == PlayerReportStatuses.Open && r.ID > lastReportId && m.CreatedAt < messageCutoff
 					orderby r.ID
 					select new { Report = r, Message = m })
 					.Take(FillBatchSize)
@@ -907,7 +968,7 @@ namespace Database
 
 				foreach (var row in batch)
 				{
-					ChatReportSnapshot? snapshot = ParseSnapshot(row.Report.Snapshot);
+					ChatReportSnapshot? snapshot = ParseSnapshot(row.Report.Evidence);
 					if (snapshot == null || snapshot.AfterFilledAt != null)
 					{
 						continue;
@@ -916,7 +977,7 @@ namespace Database
 					List<ChatMessage> after = await GetMessagesAfter(db, row.Message, cancellationToken);
 					string filled = JsonSerializer.Serialize(snapshot with { After = after.Select(ToSnapshot).ToList(), AfterFilledAt = filledAt }, s_snapshotJson);
 					long reportId = row.Report.ID;
-					await db.ChatReports.Where(r => r.ID == reportId).ExecuteUpdateAsync(s => s.SetProperty(r => r.Snapshot, filled), cancellationToken);
+					await db.PlayerReports.Where(r => r.ID == reportId).ExecuteUpdateAsync(s => s.SetProperty(r => r.Evidence, filled), cancellationToken);
 				}
 
 				lastReportId = batch[^1].Report.ID;
@@ -968,6 +1029,8 @@ namespace Database
 			[property: JsonPropertyName("before")] List<ChatSnapshotMessage> Before,
 			[property: JsonPropertyName("after")] List<ChatSnapshotMessage>? After,
 			[property: JsonPropertyName("after_filled_at"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] DateTime? AfterFilledAt);
+
+		private sealed record PlayerEvidence([property: JsonPropertyName("messages")] List<ChatSnapshotMessage> Messages);
 
 		private sealed record ChatSnapshotMessage(
 			[property: JsonPropertyName("id")] long ID,

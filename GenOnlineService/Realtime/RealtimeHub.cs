@@ -244,6 +244,8 @@ namespace GenOnlineService.Realtime
 			return result.Succeeded ? null : Result.Forbidden(permission);
 		}
 
+		private Database.ModerationActor Actor() => SanctionActions.ActorOf(UserID);
+
 		// Implemented by the area files
 
 		private partial Task SendFriendsSnapshotAsync(UserSession session);

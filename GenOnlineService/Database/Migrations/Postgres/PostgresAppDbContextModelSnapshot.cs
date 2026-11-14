@@ -304,72 +304,6 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("audit_log", (string)null);
                 });
 
-            modelBuilder.Entity("Ban", b =>
-                {
-                    b.Property<long>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime?>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("reason");
-
-                    b.Property<string>("Restriction")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("restriction");
-
-                    b.Property<string>("RevokeReason")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("revoke_reason");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("revoked_at");
-
-                    b.Property<string>("RevokedBy")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("revoked_by");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("source");
-
-                    b.Property<long>("UserID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("UserID")
-                        .HasDatabaseName("ix_bans_user_id");
-
-                    b.ToTable("bans", (string)null);
-                });
-
             modelBuilder.Entity("ChatGroup", b =>
                 {
                     b.Property<long>("ID")
@@ -537,62 +471,6 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasDatabaseName("ix_chat_read_markers_updated_at");
 
                     b.ToTable("chat_read_markers", (string)null);
-                });
-
-            modelBuilder.Entity("ChatReport", b =>
-                {
-                    b.Property<long>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
-
-                    b.Property<DateTime?>("ClosedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("closed_at");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<long>("MessageID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("message_id");
-
-                    b.Property<string>("Reason")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("reason");
-
-                    b.Property<long>("ReporterID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("reporter_id");
-
-                    b.Property<string>("Snapshot")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("snapshot");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("status");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("ReporterID")
-                        .HasDatabaseName("ix_chat_reports_reporter_id");
-
-                    b.HasIndex("MessageID", "ReporterID")
-                        .IsUnique()
-                        .HasDatabaseName("ux_chat_reports_message_reporter");
-
-                    b.HasIndex("Status", "ClosedAt")
-                        .HasDatabaseName("ix_chat_reports_status_closed_at");
-
-                    b.ToTable("chat_reports", (string)null);
                 });
 
             modelBuilder.Entity("Device", b =>
@@ -1255,6 +1133,80 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("player_ratings", (string)null);
                 });
 
+            modelBuilder.Entity("PlayerReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("evidence");
+
+                    b.Property<long?>("MessageID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ReportedUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reported_user_id");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<long?>("ResolvedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resolved_by_id");
+
+                    b.Property<string>("ResolvedByKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("resolved_by_kind");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ReportedUserID", "CreatedAt")
+                        .HasDatabaseName("ix_player_reports_reported_user_created_at");
+
+                    b.HasIndex("ReporterID", "MessageID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_player_reports_reporter_message");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_player_reports_status_created_at");
+
+                    b.ToTable("player_reports", (string)null);
+                });
+
             modelBuilder.Entity("PlayerStat", b =>
                 {
                     b.Property<long>("UserId")
@@ -1273,6 +1225,84 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasKey("UserId");
 
                     b.ToTable("player_stats", (string)null);
+                });
+
+            modelBuilder.Entity("Sanction", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("CreatedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("CreatedByKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("created_by_kind");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("LiftReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("lift_reason");
+
+                    b.Property<DateTime?>("LiftedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lifted_at");
+
+                    b.Property<long?>("LiftedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lifted_by_id");
+
+                    b.Property<string>("LiftedByKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("lifted_by_kind");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("ReportID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("report_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("type");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID", "Type", "LiftedAt", "ExpiresAt")
+                        .HasDatabaseName("ix_sanctions_user_type_lifted_expires");
+
+                    b.ToTable("sanctions", (string)null);
                 });
 
             modelBuilder.Entity("ServiceAccount", b =>

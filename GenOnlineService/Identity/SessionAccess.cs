@@ -69,17 +69,15 @@ namespace GenOnlineService.Identity
 				.Where(u => u.State != UserStates.Active)
 				.ToDictionaryAsync(u => u.ID, u => u.State);
 
-			List<Ban> bans = await db.Bans.AsNoTracking()
-				.Where(b => b.Restriction == BanRestrictions.Play && b.RevokedAt == null && (b.ExpiresAt == null || b.ExpiresAt > now))
-				.ToListAsync();
+			List<Sanction> bans = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, now).ToListAsync();
 
 			// the longest lasting ban decides what the player sees
 			Dictionary<Int64, PlayBan> banned = bans
 				.GroupBy(b => b.UserID)
 				.ToDictionary(g => g.Key, g =>
 				{
-					Ban longest = g.OrderByDescending(b => b.ExpiresAt == null).ThenByDescending(b => b.ExpiresAt).First();
-					return new PlayBan(longest.Reason, longest.ExpiresAt);
+					Sanction longest = g.OrderByDescending(b => b.ExpiresAt == null).ThenByDescending(b => b.ExpiresAt).First();
+					return new PlayBan(longest.Reason ?? String.Empty, longest.ExpiresAt);
 				});
 
 			Dictionary<Int64, string> previousInactive = s_inactive;
