@@ -20,7 +20,7 @@ public class LobbyNameProbeTests
 	private static UserSession Session(long userID) => new(userID, EUserSessionType.GameClient, "genonline_zerohour", "EU", "NL", 0, 0);
 
 	private static Lobby NewLobby(UserSession owner) => new(9001, owner, "Probe lobby", ELobbyState.GAME_SETUP, "Tournament Desert", "maps/tournament desert/tournament desert",
-		false, 10000, false, true, false, String.Empty, true, 1, -1, false, 310, 0, 0, 4, ELobbyType.CustomGame, EKnownAnticheatID.NONE);
+		false, 10000, false, true, false, String.Empty, true, 1, -1, false, 310, new GameBuild("zerohour", 0, 0, EKnownAnticheatID.NONE), 4, ELobbyType.CustomGame);
 
 	private static string? ShownName(Lobby lobby, long userID)
 	{
