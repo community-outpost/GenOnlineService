@@ -173,7 +173,7 @@ Authorization:
 - `PermissionHandler`: a token principal passes when it carries the permission claim; a session principal passes when `StaffRoles.HasPermission(sub, name)` is true.
 - Endpoints use `[Authorize(Policy = "perm:...")]` and never check how the caller authenticated.
 
-Rate limiting partitions token callers by `token:<id>`.
+HTTP rate limiting belongs to the proxy (Envoy with CrowdSec), which limits and blocks callers; the service does none.
 
 `allowed_ips` relies on the real client address. The service logs an error at startup when any active token has an allow-list while `TrustedProxies` is empty and forwarded headers are present on requests, because every caller would then appear as the proxy.
 

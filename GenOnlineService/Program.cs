@@ -23,7 +23,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.WebSockets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -49,7 +48,6 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using System.Xml;
 using GenOnlineService.Identity;
@@ -84,13 +82,6 @@ namespace GenOnlineService
 
 			return ipAddress;
 		}
-	}
-
-	public static class AuthRateLimitPolicies
-	{
-		public const string SignIn = "auth_sign_in";
-		public const string Token = "auth_token";
-		public const string Session = "auth_session";
 	}
 
 	public static class TokenHelper
@@ -765,45 +756,6 @@ namespace GenOnlineService
 			}
 		}
 
-		// Authenticated callers are partitioned by user id and anonymous callers by client address.
-		private static string RateLimitPartitionKey(HttpContext httpContext, bool bPreferUser)
-		{
-			Int64? tokenID = ApiTokenPrincipals.TokenID(httpContext.User);
-			if (tokenID != null)
-			{
-				return "token:" + tokenID;
-			}
-
-			string? userID = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-			if (bPreferUser && httpContext.User.Identity?.IsAuthenticated == true && !String.IsNullOrEmpty(userID))
-			{
-				return "user:" + userID;
-			}
-
-			return "ip:" + (httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous");
-		}
-
-		// A limit of zero or less leaves the policy unlimited.
-		private static void AddAuthRateLimitPolicy(RateLimiterOptions options, string policyName, int permitsPerMinute, bool bPreferUser)
-		{
-			options.AddPolicy(policyName, httpContext =>
-			{
-				if (permitsPerMinute <= 0)
-				{
-					return RateLimitPartition.GetNoLimiter("unlimited");
-				}
-
-				return RateLimitPartition.GetSlidingWindowLimiter(policyName + ":" + RateLimitPartitionKey(httpContext, bPreferUser), _ => new SlidingWindowRateLimiterOptions
-				{
-					PermitLimit = permitsPerMinute,
-					Window = TimeSpan.FromMinutes(1),
-					SegmentsPerWindow = 6,
-					QueueLimit = 0,
-					AutoReplenishment = true
-				});
-			});
-		}
-
 		private static CorsPolicy BuildCorsPolicy(IConfiguration configuration)
 		{
 			string[] configuredOrigins = configuration
@@ -1154,50 +1106,6 @@ namespace GenOnlineService
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
 
-			var rateLimitingSettings = Program.g_Config.GetSection("RateLimiting");
-			bool bUseBuiltinRateLimiter = rateLimitingSettings.GetValue<bool>("use_builtin_ratelimiter"); // use built in Kestrel/dotnet rate limiting if you do not have a reverse proxy or other rate limiter in front of service
-
-			// The auth endpoint limits apply even when the global limiter is off, because a proxy limiter does not know these endpoints.
-			bool bUseAuthRateLimits = rateLimitingSettings.GetValue<bool?>("auth_limits_enabled") ?? true;
-			builder.Services.AddRateLimiter(options =>
-			{
-				options.OnRejected = (context, cancellationToken) =>
-				{
-					// The auth policies answer 429, the global limiter keeps its existing 503.
-					string? policyName = context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
-					if (policyName != null && policyName.StartsWith("auth_", StringComparison.Ordinal))
-					{
-						context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-					}
-
-					AppMetrics.RecordSecurityAction("http_rate_limit", "rejected");
-					return ValueTask.CompletedTask;
-				};
-
-				AddAuthRateLimitPolicy(options, AuthRateLimitPolicies.SignIn, bUseAuthRateLimits ? rateLimitingSettings.GetValue<int?>("sign_in_per_minute") ?? 30 : 0, false);
-				AddAuthRateLimitPolicy(options, AuthRateLimitPolicies.Token, bUseAuthRateLimits ? rateLimitingSettings.GetValue<int?>("token_per_minute") ?? 30 : 0, false);
-				AddAuthRateLimitPolicy(options, AuthRateLimitPolicies.Session, bUseAuthRateLimits ? rateLimitingSettings.GetValue<int?>("session_per_minute") ?? 20 : 0, true);
-
-				if (bUseBuiltinRateLimiter)
-				{
-					options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-					{
-						// Use authenticated user ID or fallback to IP address
-						string userKey = RateLimitPartitionKey(httpContext, true);
-
-						return RateLimitPartition.GetTokenBucketLimiter(userKey, _ => new TokenBucketRateLimiterOptions
-						{
-							TokenLimit = 50, // max burst
-							TokensPerPeriod = 10, // refill rate
-							ReplenishmentPeriod = TimeSpan.FromSeconds(5),
-							AutoReplenishment = true,
-							QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-							QueueLimit = 10
-						});
-					});
-				}
-			});
-
 			CorsPolicy corsPolicy = BuildCorsPolicy(builder.Configuration);
 
 			builder.Services.AddCors(options =>
@@ -1496,8 +1404,6 @@ namespace GenOnlineService
 				return next(context);
 			});
 
-			// The limiter runs after authentication so authenticated callers are partitioned by user id.
-			app.UseRateLimiter();
 			app.UseAuthorization();
 
 			app.MapControllers();
@@ -1508,7 +1414,7 @@ namespace GenOnlineService
 			{
 				status = "ok",
 				version = buildVersion
-			})).AllowAnonymous().DisableRateLimiting();
+			})).AllowAnonymous();
 
 
 			// cleanup

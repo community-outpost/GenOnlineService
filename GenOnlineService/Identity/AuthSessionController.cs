@@ -18,7 +18,6 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
 using System.Text.Json;
@@ -59,7 +58,6 @@ namespace GenOnlineService.Identity
 
 		[HttpPost("~/api/v1/auth/session")]
 		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
-		[EnableRateLimiting(AuthRateLimitPolicies.Session)]
 		public async Task<IActionResult> Register([FromBody] AuthSessionRequest? body)
 		{
 			Int64 userID = TokenHelper.GetUserID(this);
