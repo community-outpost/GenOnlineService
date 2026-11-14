@@ -117,24 +117,20 @@ namespace GenOnlineService.Realtime
 			return Result.Success(new HistoryData { Messages = page.Messages.Select(m => ToWire(m, me, names)).ToArray(), HasMore = page.HasMore });
 		}
 
+		// Marks the whole dm: or group: conversation read up to its newest message
 		public async Task<Result<Empty>> MarkRead(MarkReadRequest request)
 		{
-			if (!TryParseChannel(request.ChannelId, out string kind, out Int64 targetID) || kind == "lobby" || (kind == "dm" && (targetID <= 0 || targetID == UserID)))
+			if (!TryParseChannel(request.ChannelId, out string kind, out Int64 targetID))
 			{
 				return Result.Invalid("channel_id");
 			}
-			if (!TryParseMessageID(request.MessageId, out Int64 messageID))
+			Int64 me = UserID;
+			if ((kind != "dm" && kind != "group") || targetID <= 0 || (kind == "dm" && targetID == me))
 			{
-				return Result.Invalid("message_id");
+				return Result.NotFound("channel");
 			}
 
-			Int64 me = UserID;
-			string conversation = kind switch
-			{
-				"dm" => Database.Chat.DirectConversationKey(targetID),
-				"group" => Database.Chat.GroupConversationKey(targetID),
-				_ => Database.Chat.ChannelConversationKey(targetID)
-			};
+			string conversation = kind == "dm" ? Database.Chat.DirectConversationKey(targetID) : Database.Chat.GroupConversationKey(targetID);
 
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
@@ -143,16 +139,15 @@ namespace GenOnlineService.Realtime
 					return Result.Fail(ErrorCodes.GroupNotMember);
 				}
 
-				if (!await Database.Chat.SetReadMarker(db, me, conversation, messageID))
+				// an unchanged marker or an empty conversation is already read
+				if (!await Database.Chat.MarkConversationRead(db, me, conversation))
 				{
-					// an unchanged marker is fine, a message outside the conversation is not
-					ChatMessage? row = await Database.Chat.GetMessage(db, messageID);
-					return row != null && IsParty(row, me) && ConversationIDOf(row, me) == conversation ? Result.Success() : Result.NotFound("message");
+					return Result.Success();
 				}
 			}
 
 			// the user's other connections on any copy
-			await Clients.OthersInGroup(RealtimeGroups.User(me)).ReadMarker(new MessageRefEvent { ChannelId = conversation, MessageId = messageID.ToString(CultureInfo.InvariantCulture) });
+			await Clients.OthersInGroup(RealtimeGroups.User(me)).ReadMarker(new ReadMarkerEvent { ChannelId = conversation });
 			return Result.Success();
 		}
 
