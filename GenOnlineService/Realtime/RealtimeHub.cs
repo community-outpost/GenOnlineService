@@ -105,6 +105,7 @@ namespace GenOnlineService.Realtime
 			if (Context.Items.TryGetValue(ConnectionItem, out object? item) && item is RealtimeConnection connection)
 			{
 				UserSession session = connection.OwnerSession;
+				LobbyListPublisher.Unwatch(Context.ConnectionId);
 				await WebSocketManager.DeleteSession(connection.m_UserID, connection.m_SessionType, connection, false, session);
 				await OnConnectionClosedAsync(session);
 			}

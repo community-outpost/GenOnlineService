@@ -17,6 +17,7 @@
 */
 
 using Database;
+using GenOnlineService.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace GenOnlineService;
@@ -36,11 +37,12 @@ public enum LobbyMembershipStatus
 	NoOpenSlot,
 	BlockedByOwner,
 	FriendshipRequired,
-	PreferencesUnavailable
+	PreferencesUnavailable,
+	BuildMismatch
 }
 
 public sealed record JoinLobbyCommand(long LobbyID, long UserID, EUserSessionType SessionType,
-	ushort PreferredPort, bool HasMap, EKnownAnticheatID AnticheatID, string? Password);
+	ushort PreferredPort, bool HasMap, EKnownAnticheatID AnticheatID, string? Password, uint ExeCRC, uint IniCRC);
 public sealed record LeaveLobbyCommand(long LobbyID, long UserID, EUserSessionType SessionType);
 public sealed record KickLobbyMemberCommand(long LobbyID, long ActorUserID, long? TargetUserID);
 public sealed record JoinLobbyResult(LobbyMembershipStatus Status, string TurnUsername = "", string TurnToken = "");
@@ -84,6 +86,7 @@ public partial class LobbyManager
 		var sources = m_dictLobbies.Values.Where(source => source.GetMemberFromUserID(command.UserID) != null).ToArray();
 		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, displayName, preferences);
 		if (status != LobbyMembershipStatus.Success) return new(status);
+		RealtimeHub.PublishPresence(command.UserID);
 
 		var credentials = await membershipConnections.CreateRelayCredentialsAsync(command.UserID);
 		return new(status, credentials.Username, credentials.Token);
@@ -107,9 +110,8 @@ public partial class LobbyManager
 		var status = await lobby.KickMemberAsync(command);
 		if (status == LobbyMembershipStatus.Success && command.TargetUserID is long targetID)
 		{
+			// the removal already sent LobbyLeft kicked to the target
 			await ClearSessionMembershipStateAsync(targetID, EUserSessionType.GameClient);
-			// Removed members no longer receive ordinary dirty lobby updates.
-			await lobby.DirtyRetransmitToSingleMember(targetID);
 		}
 		return status;
 	}
@@ -123,6 +125,7 @@ public partial class LobbyManager
 		finally
 		{
 			membershipConnections.GetSession(userID, sessionType)?.UpdateSessionLobbyID(-1);
+			RealtimeHub.PublishPresence(userID);
 		}
 		// Match-history membership is owned by the match-history service.
 	}
@@ -145,14 +148,14 @@ public partial class LobbyManager
 		return removed;
 	}
 
-	internal async Task<bool> TryRequeueMatchmakingAsync(UserSession session, long expectedLobbyID, byte[] requeueActionJSON)
+	internal async Task<bool> TryRequeueMatchmakingAsync(UserSession session, long expectedLobbyID, MatchRequeueReason reason)
 	{
 		using var membership = await AcquireMembershipGateAsync(session.m_UserID);
 		if (!IsCurrentSession(session) || session.IsRetired
 			|| (session.currentLobbyID != -1 && session.currentLobbyID != expectedLobbyID)) return false;
 		if (session.currentLobbyID == expectedLobbyID && expectedLobbyID != -1)
 			await ClearSessionMembershipStateAsync(session.m_UserID, session.GetSessionType());
-		return await MatchmakingManager.TryRequeueRegisteredPlayer(session, requeueActionJSON);
+		return await MatchmakingManager.TryRequeueRegisteredPlayer(session, reason);
 	}
 
 	public async Task LeaveAllLobbiesAsync(long userID)

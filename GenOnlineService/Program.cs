@@ -1610,28 +1610,6 @@ namespace GenOnlineService
 				timerTick.Start();
 			}
 
-			// tick network rooms (done at lower frequency)
-			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(1000); // 1s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += (sender, e) =>
-				{
-					try
-					{
-						WebSocketManager.TickRoomMemberList();
-					}
-					catch (Exception ex)
-					{
-						app.Logger.LogError(ex, "Network-room tick timer failed");
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
-			}
-
 			// Faction win rates are recomputed from today's finished matches every minute
 			{
 				System.Timers.Timer timerTick = new System.Timers.Timer(60000); // 60s tick
