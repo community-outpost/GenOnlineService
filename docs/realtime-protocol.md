@@ -128,7 +128,7 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 {"id":7,"name":"Ann","tag":"0042","badges":["moderator"],"client":"game"}
 ```
 
-- `name` and `tag`: the display name is not unique; `name#tag` is (identity section 5a). Show `Ann#0042` on profiles, friend lists and friend requests, and in staff tools. In channels, lobbies and chat show the name alone, and add `#tag` only when two members there share the name (names compare case-insensitively). `tag` is always four digits and absent only for a user whose tag is not known. Lobby slot names follow the same rule on the server side: a player who joins a lobby where a member already has the name is listed as `Name#tag`.
+- `name` and `tag`: the display name is not unique; `name#tag` is (identity section 5a). Show `Ann#0042` on profiles, friend lists and friend requests, and in staff tools. In channels, lobbies and chat show the name alone, and add `#tag` only when two members there share the name (names compare case-insensitively). `tag` is always four digits and absent only for a user whose tag is not known. In lobbies the service applies this rule itself: each player slot carries `name`, the name the lobby shows.
 - `badges`: badge ids, highest priority first; definitions (text and color) arrive in `Ready` and `BadgesUpdate`. Clients render a user's name in the color of their first badge and never hard-code badge ids, because operators define badges at runtime.
 - `client`: `game`, `launcher` or `chat`. Present in member lists, omitted in chat messages.
 
@@ -159,7 +159,7 @@ A tombstone never shows its author or content.
 `Slot`
 
 ```json
-{"index":1,"state":"player","member":{"id":7,"name":"Ann","badges":[]},"ready":true,"has_map":true,"side":2,"color":4,"team":null,"start_position":3}
+{"index":1,"state":"player","member":{"id":7,"name":"Ann","badges":[]},"name":"Ann","ready":true,"has_map":true,"side":2,"color":4,"team":null,"start_position":3}
 ```
 
 | Field | Values |
@@ -167,6 +167,7 @@ A tombstone never shows its author or content.
 | `index` | 0 to 7; slot 0 is the host and is always ready |
 | `state` | `open`, `closed`, `player`, `ai_easy`, `ai_medium`, `ai_brutal` |
 | `member` | `Member` for `player` slots, absent otherwise |
+| `name` | for `player` slots, the name this lobby shows: the member's name, or `Name#tag` for every member whose name another member of the lobby shares (case-insensitive). It changes for both when such a member joins and goes back when one leaves; clients show it as is. Absent otherwise |
 | `ready`, `has_map` | booleans; AI slots are always ready |
 | `side`, `color`, `start_position` | game ids, `-1` means random |
 | `team` | team number or `null` for no team |

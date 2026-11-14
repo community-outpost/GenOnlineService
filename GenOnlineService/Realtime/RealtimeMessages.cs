@@ -100,6 +100,10 @@ namespace GenOnlineService.Realtime
 		public SlotState State { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public Member? Member { get; init; }
+
+		// The name this lobby shows for the player: the member's name, or Name#tag while another member has the same name
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Name { get; init; }
 		public bool Ready { get; init; }
 		public bool HasMap { get; init; }
 		public int Side { get; init; }

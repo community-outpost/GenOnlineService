@@ -1175,7 +1175,7 @@ public async Task FinalizeACChecks()
 		}
 
 		internal static async Task<LobbyMembershipStatus> TransferMemberAsync(Lobby destination, IReadOnlyCollection<Lobby> sources,
-			JoinLobbyCommand command, UserSession session, string displayName, UserLobbyPreferences preferences)
+			JoinLobbyCommand command, UserSession session, string displayName, int nameTag, UserLobbyPreferences preferences)
 		{
 			var locked = sources.Append(destination).Distinct().OrderBy(lobby => lobby.LobbyID).ToArray();
 			int acquired = 0;
@@ -1190,7 +1190,7 @@ public async Task FinalizeACChecks()
 				}
 				var admission = destination.ValidateJoin(command);
 				if (admission != LobbyMembershipStatus.Success) return admission;
-				var added = destination.AddMemberLocked(session, displayName, command.PreferredPort, command.HasMap, preferences);
+				var added = destination.AddMemberLocked(session, displayName, nameTag, command.PreferredPort, command.HasMap, preferences);
 				if (added.Member == null) return added.Status;
 				// Destination admission and insertion must succeed before releasing old membership.
 				foreach (var source in sources)
@@ -1218,15 +1218,15 @@ public async Task FinalizeACChecks()
 				return Task.FromResult(true);
 			});
 
-		internal Task<LobbyMembershipStatus> AddCreatorAsync(UserSession session, string displayName, ushort preferredPort, UserLobbyPreferences preferences) =>
+		internal Task<LobbyMembershipStatus> AddCreatorAsync(UserSession session, string displayName, int nameTag, ushort preferredPort, UserLobbyPreferences preferences) =>
 			RunExclusiveAsync(() =>
 			{
-				var added = AddMemberLocked(session, displayName, preferredPort, true, preferences);
+				var added = AddMemberLocked(session, displayName, nameTag, preferredPort, true, preferences);
 				if (added.Member != null) PublishMemberAddition(session, added.Member);
 				return Task.FromResult(added.Status);
 			});
 
-		private (LobbyMembershipStatus Status, LobbyMember? Member) AddMemberLocked(UserSession playerSession, string strDisplayName, UInt16 userPreferredPort, bool bHasMap, UserLobbyPreferences lobbyPrefs)
+		private (LobbyMembershipStatus Status, LobbyMember? Member) AddMemberLocked(UserSession playerSession, string strDisplayName, int nameTag, UInt16 userPreferredPort, bool bHasMap, UserLobbyPreferences lobbyPrefs)
 		{
 			if (State != ELobbyState.GAME_SETUP) return (LobbyMembershipStatus.NotInSetup, null);
 			if (GetMemberFromUserID(playerSession.m_UserID) != null) return (LobbyMembershipStatus.AlreadyMember, null);
@@ -1248,15 +1248,8 @@ public async Task FinalizeACChecks()
 				}
 			}
 
-			// Lobbies show the name alone; a joiner whose name a member already has shows Name#tag, which is unique
+			// the name this lobby shows is decided for every member once the new one is in (RefreshLobbyNamesLocked)
 			string strOriginalDisplayName = strDisplayName;
-			string strNormalized = NameNormalizer.Normalize(strDisplayName);
-			bool bShared = Members.Any(memberEntry => memberEntry.IsHuman() && NameNormalizer.Normalize(memberEntry.DisplayNameNotDeduped) == strNormalized);
-			if (bShared)
-			{
-				int tag = WebSocketManager.GetSharedDataForUser(playerSession.m_UserID)?.m_NameTag ?? 0;
-				strDisplayName = tag > 0 ? Database.DisplayNames.Format(strDisplayName, tag) : $"{strDisplayName} ({playerSession.m_UserID})";
-			}
 
 			// only apply lobby prefs if not QM
 			LobbyMember? newMember = null;
@@ -1283,7 +1276,7 @@ public async Task FinalizeACChecks()
 					}
 				}
 
-				newMember = new LobbyMember(this, playerSession, playerSession.m_UserID, strDisplayName, strOriginalDisplayName, userPreferredPort, sideToUse, colorToUse, -1, EPlayerType.SLOT_PLAYER, slotIndex, bHasMap);
+				newMember = new LobbyMember(this, playerSession, playerSession.m_UserID, strDisplayName, strOriginalDisplayName, userPreferredPort, sideToUse, colorToUse, -1, EPlayerType.SLOT_PLAYER, slotIndex, bHasMap, nameTag);
 			}
 			else
 			{
@@ -1307,13 +1300,14 @@ public async Task FinalizeACChecks()
 				int sideToUse = allowedTeams[Random.Shared.Next(0, allowedTeams.Length)];
 
 				// team is random for now, matchmaker will assign teams on start
-				newMember = new LobbyMember(this, playerSession, playerSession.m_UserID, strDisplayName, strOriginalDisplayName, userPreferredPort, sideToUse, -1, -1, EPlayerType.SLOT_PLAYER, slotIndex, bHasMap);
+				newMember = new LobbyMember(this, playerSession, playerSession.m_UserID, strDisplayName, strOriginalDisplayName, userPreferredPort, sideToUse, -1, -1, EPlayerType.SLOT_PLAYER, slotIndex, bHasMap, nameTag);
 			}
 
 			Members[slotIndex] = newMember;
 			++m_MembershipVersion;
 			InvalidateMeshCheck("membership_changed");
 			TimeMemberLeft[playerSession.m_UserID] = DateTime.UnixEpoch;
+			RefreshLobbyNamesLocked();
 
 			// Lobby members leave public-room presence.
 			playerSession.TryUpdateSessionNetworkRoom(-1);
@@ -1410,6 +1404,33 @@ public async Task FinalizeACChecks()
 			return status;
 		}
 
+		// Lobbies show names alone; while two human members share a name (compared like names in the database), both show
+		// Name#tag, which is unique, and a member drops back to the bare name once nobody else has it (identity section 5a).
+		// Changed names reach everyone in the next LobbyState.
+		private void RefreshLobbyNamesLocked()
+		{
+			List<LobbyMember> humans = Members.Where(m => m.IsHuman()).ToList();
+			bool changed = false;
+			foreach (LobbyMember member in humans)
+			{
+				string key = NameNormalizer.Normalize(member.DisplayNameNotDeduped);
+				bool shared = humans.Any(other => !ReferenceEquals(other, member) && NameNormalizer.Normalize(other.DisplayNameNotDeduped) == key);
+				string shown = !shared ? member.DisplayNameNotDeduped
+					: member.NameTag > 0 ? Database.DisplayNames.Format(member.DisplayNameNotDeduped, member.NameTag)
+					: $"{member.DisplayNameNotDeduped} ({member.UserID})";
+				if (!String.Equals(shown, member.DisplayName, StringComparison.Ordinal))
+				{
+					member.SetLobbyName(shown);
+					changed = true;
+				}
+			}
+
+			if (changed)
+			{
+				DirtyRetransmit();
+			}
+		}
+
 		// Caller holds the lobby gate; validation and host migration form one transition.
 		private bool RemoveMemberLocked(LobbyMember member)
 		{
@@ -1423,6 +1444,7 @@ public async Task FinalizeACChecks()
 			LobbyMember placeholderMember = new LobbyMember(this, null, -1, String.Empty, String.Empty, 0, -1, -1, -1, EPlayerType.SLOT_OPEN, member.SlotIndex, true);
 			Members[member.SlotIndex] = placeholderMember;
 			TimeMemberLeft[member.UserID] = DateTime.UtcNow;
+			RefreshLobbyNamesLocked();
 
 			OnAfterPlayerLeftLocked(member.UserID);
 			++m_MembershipVersion;
@@ -1795,7 +1817,13 @@ public async Task FinalizeACChecks()
 	public class LobbyMember
 	{
 		public Int64 UserID { get; private set; } = -999999;
+		// The name this lobby shows: the display name, or Name#tag while another member has the same name
 		public string DisplayName { get; private set; } = "";
+
+		[JsonIgnore]
+		public int NameTag { get; private set; }
+
+		internal void SetLobbyName(string name) => DisplayName = name;
 
 		[JsonIgnore]
 		public string DisplayNameNotDeduped { get; set; } = ""; // internal only, used for determining dedupe counts
@@ -1866,8 +1894,9 @@ public async Task FinalizeACChecks()
 			return PlayerSession;
 		}
 
-		public LobbyMember(Lobby owningLobby, UserSession? owningSession, Int64 UserID_in, string DisplayName_in, string strUndedupedDisplayName, UInt16 Port_in, int Side_in, int Color_in, int StartingPosition_in, EPlayerType SlotState_in, UInt16 SlotIndex_in, bool bHasMap_in)
+		public LobbyMember(Lobby owningLobby, UserSession? owningSession, Int64 UserID_in, string DisplayName_in, string strUndedupedDisplayName, UInt16 Port_in, int Side_in, int Color_in, int StartingPosition_in, EPlayerType SlotState_in, UInt16 SlotIndex_in, bool bHasMap_in, int nameTag_in = 0)
 		{
+			NameTag = nameTag_in;
 			CurrentLobby = new WeakReference<Lobby?>(owningLobby);
 			PlayerSession = new WeakReference<UserSession?>(owningSession);
 
@@ -2097,7 +2126,7 @@ public async Task FinalizeACChecks()
 
 		public async Task<Int64> CreateLobby(AppDbContext _db, UserSession owningSession, string strOwnerDisplayName, string strName, string strMapName, string strMapPath, bool bMapOfficial, int maxPlayers,
 			UInt16 hostPreferredPort, bool bVanillaTeams, bool bTrackStats, UInt32 starting_cash, bool bLimitSuperweapons, bool bPassworded, String strPassword, Int16 parentNetworkRoom, bool bAllowObservers,
-			UInt16 maxCamHeight, UInt32 exe_crc, UInt32 ini_crc, ELobbyType lobbyType, EKnownAnticheatID anticheatID, ELobbyJoinability joinability = ELobbyJoinability.Public)
+			UInt16 maxCamHeight, UInt32 exe_crc, UInt32 ini_crc, ELobbyType lobbyType, EKnownAnticheatID anticheatID, ELobbyJoinability joinability = ELobbyJoinability.Public, int ownerNameTag = 0)
 		{
 			using var membership = await AcquireMembershipGateAsync(owningSession.m_UserID);
 			if (!IsCurrentSession(owningSession) || owningSession.IsRetired) return -1;
@@ -2122,7 +2151,7 @@ public async Task FinalizeACChecks()
 			if (lobbyType != ELobbyType.QuickMatch) // QuickMatch clients join after allocation.
 			{
 				var preferences = await Database.Users.GetUserLobbyPreferences(_db, owningSession.m_UserID);
-				if (preferences != null && await newLobby.AddCreatorAsync(owningSession, strOwnerDisplayName, hostPreferredPort, preferences) == LobbyMembershipStatus.Success)
+				if (preferences != null && await newLobby.AddCreatorAsync(owningSession, strOwnerDisplayName, ownerNameTag, hostPreferredPort, preferences) == LobbyMembershipStatus.Success)
 					RealtimeHub.PublishPresence(owningSession.m_UserID);
 			}
 

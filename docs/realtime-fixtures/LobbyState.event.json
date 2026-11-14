@@ -33,6 +33,7 @@
           "name": "Bob",
           "badges": []
         },
+        "name": "Bob",
         "ready": true,
         "has_map": true,
         "side": -1,
@@ -50,6 +51,7 @@
             "moderator"
           ]
         },
+        "name": "Ann",
         "ready": true,
         "has_map": true,
         "side": 2,

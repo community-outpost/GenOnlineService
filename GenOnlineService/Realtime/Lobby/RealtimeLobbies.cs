@@ -74,6 +74,7 @@ namespace GenOnlineService.Realtime
 				Index = member.SlotIndex,
 				State = SlotStateOf(member.SlotState),
 				Member = human ? RealtimeMembers.Of(member.UserID) : null,
+				Name = human ? member.DisplayName : null,
 				Ready = (human || ai) && member.IsReady,
 				HasMap = human ? member.HasMap : ai,
 				Side = member.Side,
