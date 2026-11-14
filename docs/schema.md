@@ -165,7 +165,8 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 
 | Old | New |
 |---|---|
-| `users.user_id, displayname, lastlogin, active` | `users` (id, username, last_sign_in_at, state) |
+| `users.user_id, displayname, lastlogin` | `users` (id, username, last_sign_in_at); every user is imported with `state = 'active'` |
+| `users.active` | **not imported**: the old service never read it |
 | `users.account_type` | dropped: `Steam`/`Discord` is already recorded in `identities`; `Ghost` and `DevAccount` users are not imported (below) |
 | `users.steam_id` | `identities(provider='steam')` |
 | `users.discord_id, discord_username` | `identities(provider='discord')` |

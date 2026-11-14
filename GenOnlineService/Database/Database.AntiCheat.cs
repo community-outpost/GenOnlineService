@@ -294,7 +294,7 @@ namespace Database
 					await db.Database.ExecuteSqlRawAsync(sql.ToString(), parameters);
 				}
 
-				AppMetrics.RecordSecurityAction("anticheat_", "success");
+				AppMetrics.RecordSecurityAction("anticheat_module_review", "success");
 				return true;
 			}
 			catch (Exception ex)
@@ -304,7 +304,7 @@ namespace Database
 					return true;
 				}
 
-				AppMetrics.RecordSecurityAction("anticheat_", "error");
+				AppMetrics.RecordSecurityAction("anticheat_module_review", "error");
 				s_log.LogError(ex, "FlagAccountForReview_Modules failed");
 				return false;
 			}
@@ -328,11 +328,11 @@ namespace Database
 				});
 
 				await db.SaveChangesAsync();
-				AppMetrics.RecordSecurityAction("anticheat_", "success");
+				AppMetrics.RecordSecurityAction("anticheat_probe_review", "success");
 			}
 			catch (Exception ex)
 			{
-				AppMetrics.RecordSecurityAction("anticheat_", "error");
+				AppMetrics.RecordSecurityAction("anticheat_probe_review", "error");
 				s_log.LogError(ex, "FlagAccountForReview_SuspectProbes failed");
 			}
 		}
@@ -352,11 +352,11 @@ namespace Database
 				});
 
 				await db.SaveChangesAsync();
-				AppMetrics.RecordSecurityAction("anticheat_", "success");
+				AppMetrics.RecordSecurityAction("anticheat_new_account_review", "success");
 			}
 			catch (Exception ex)
 			{
-				AppMetrics.RecordSecurityAction("anticheat_", "error");
+				AppMetrics.RecordSecurityAction("anticheat_new_account_review", "error");
 				s_log.LogError(ex, "FlagAccountForReview_NewAccount_FirstMatches failed");
 			}
 		}
