@@ -229,7 +229,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `LeaveChannel` | `{}` | Result | |
 | `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:`, `dm:`, `group:` and `lobby:` (current members of that lobby) only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
-| `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
+| `MarkRead` | `{channel_id}` | Result | Marks the whole conversation read, up to the newest message the service holds at that moment; `Conversations` then shows `unread` 0 for it. The user's other connections get `ReadMarker`. `dm:` and `group:` conversations the caller is part of, otherwise `not_found {what: channel}` or `group.not_member` |
 
 Group chats are small private conversations, like group direct messages in Discord. Groups are created and managed over REST (section 10.1); their messages use `SendMessage` to `group:<id>`.
 
@@ -289,11 +289,14 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
+| `FeaturesUpdate` | `{features: [string]}` (the user's full new feature list, sent to every connection of the user whenever it changes, for example after a role change) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason?, expires_at?}`; `reason` is absent when staff gave none; a close record follows for kick and ban |
 | `ServerSwitching` | `{retry_after_ms}` (a planned handover to another service copy; a `server.switching` close follows; the service spreads the values so clients do not all reconnect at once) |
+
+**Features.** `permissions` say what the service lets the user do. `features` say which client capabilities are switched on for this player: lowercase snake_case names with no prefix, for example `stats_exporter` (the game's local stats and casting tools: camera control, follow, replay control, observing, lobby control) and `observer` (observing other players' matches). The client only checks whether a name is in the list and never sees roles. The service computes the list per connection from a per-environment map of roles to features (the `streamer` role exists for players who get these tools without being staff); later rules such as an environment switch, a beta group or a rollout share can add to it without touching permissions. When the list changes the client switches features on or off at once; switching one off mid-match only closes client tools. Anything that reveals more than a player should see stays enforced by the service on the request itself, for example joining a match as an observer. EOS peer-to-peer is not gated by features.
 
 ### 6.2 Channels and chat
 
@@ -307,7 +310,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
 | `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: every direct message conversation and group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
-| `ReadMarker` | `{channel_id, message_id}` (the user's read position changed on another connection) |
+| `ReadMarker` | `{channel_id}` (the user read that whole conversation on another connection; clear its unread count) |
 | `GroupCreate` | `{group: Group}` (the user was put in a group, by creating it or being added) |
 | `GroupUpdate` | `{group: Group}` (members, name or owner changed; sent to every member) |
 | `GroupRemoved` | `{group_id, reason: "left"|"removed"}` (the user is no longer in the group) |
@@ -447,7 +450,7 @@ New codes are added freely; clients show a generic message for codes they do not
 
 | Group | Members | Used for |
 |---|---|---|
-| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved` |
+| `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved`, `FeaturesUpdate` |
 | `user:<id>:game` | That user's game connection | Peer networking, `LobbyState`, matchmaking |
 | `channel:<id>` | Connections in that channel | `ChannelMembers`, `MemberAdd`/`Remove`, channel chat, `MessageDelete` |
 | `lobby:<id>` | Game connections of lobby members | `LobbyState` until the game starts, lobby chat, countdown events. From the start `LobbyState` goes to each member through `user:<id>:game`, because `start.screenshot_url` is per member |
@@ -524,6 +527,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
 | `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection, until 24 hours after the match finished (`match.result_closed` after that) |
 | `GET /api/v1/matchmaking/playlists` | | `{playlists: [Playlist]}` | cacheable with `ETag` |
+| `POST /api/v1/lobbies/:id/connection_reports` | `{target_user_id, outcome, transport, ip_version, attempt?, events?: [{state, t_ms}]}` | 204 | the final result of one connection attempt to one peer (replaces `ConnectionOutcome`), sent once when the attempt ends. `outcome` is `connected_direct`, `connected_relay`, `failed` or `disconnected`; `transport` is `gns` or `eos`; `ip_version` is 4 or 6. `attempt` (1 or more, default 1) numbers the attempts of this pair in this lobby; a connection that drops during the match is sent again with the same `attempt` and its events ending in `disconnected`, a reconnect after that is a new attempt. `events` lists every state change of the attempt, oldest first, at most 32: `state` is `connecting`, `finding_route`, `connected_direct`, `connected_relay`, `failed` or `disconnected`, `t_ms` the milliseconds since the attempt started, never decreasing, at most 600000; anything else is `invalid_argument`. The caller must be a member of that lobby (`lobby.not_member`). Stored per player for 30 days, keyed by reporter, lobby, target and attempt, so a repeated report replaces the earlier one; staff use it to troubleshoot a player's connections and to line up both sides of a pair. Never stores IP addresses. Account deletion removes them, and the privacy policy must name them with their purpose and retention. Metrics are counted by outcome, transport and IP version |
 
 ### 10.4 Other REST
 
