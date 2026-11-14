@@ -82,6 +82,7 @@ public static class ModerationSources
 	public const string Discord = "discord";
 	public const string Cli = "cli";
 	public const string Realtime = "realtime";
+	public const string Api = "api";
 }
 
 public class UserRole

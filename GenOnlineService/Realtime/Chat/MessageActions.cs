@@ -77,7 +77,7 @@ namespace GenOnlineService.Realtime
 
 				// ids only, the audit row never holds the chat text
 				object details = new { kind = row.Kind, sender_id = row.SenderID, channel_id = row.ChannelID, lobby_id = row.LobbyID, recipient_id = row.RecipientID, group_id = row.GroupID };
-				await Database.Moderation.LogAction(db, SanctionActions.ActorOf(me), ModerationActions.MessageDelete, AuditTargetKinds.Message, messageID, reason, details);
+				await Database.Moderation.LogAction(db, SanctionActions.ApiActorOf(me), ModerationActions.MessageDelete, AuditTargetKinds.Message, messageID, reason, details);
 
 				if (row.Kind == ChatMessageKinds.Group)
 				{
@@ -261,7 +261,7 @@ namespace GenOnlineService.Realtime
 				return Result.NotFound("report");
 			}
 
-			Database.ModerationActor actor = SanctionActions.ActorOf(me);
+			Database.ModerationActor actor = SanctionActions.ApiActorOf(me);
 			if (await Database.Chat.ResolveReport(db, reportID, request.Status, request.ResolutionNote, actor.Kind, actor.UserID))
 			{
 				await Database.Moderation.LogAction(db, actor, ModerationActions.ReportClose, AuditTargetKinds.Report, reportID, request.ResolutionNote, new { status = request.Status });

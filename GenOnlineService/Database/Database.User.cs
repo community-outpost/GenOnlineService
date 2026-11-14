@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService;
+using GenOnlineService.Names;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System.Text;
@@ -60,6 +61,9 @@ public class User
 
 	// The display name is not unique; the 4-digit tag makes Name#tag unique (DisplayNames)
 	public int NameTag { get; set; }
+
+	// The plugin's look-alike key of Username (NameKey.Of), unique with NameTag. AppDbContext writes it on every save.
+	public string NameKey { get; set; } = String.Empty;
 	public string? Email { get; set; }
 	public string? EmailNormalized { get; set; }
 	public DateTime? EmailConfirmedAt { get; set; }
@@ -128,12 +132,15 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
 		builder.HasKey(e => e.ID);
 		builder.HasIndex(e => new { e.UsernameNormalized, e.NameTag }).IsUnique().HasDatabaseName("ux_users_username_normalized_name_tag");
+		// closes the race between two look-alike names on one tag, which the code checks cannot
+		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
 		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
 		builder.Property(e => e.UsernameNormalized).HasColumnName("username_normalized").HasMaxLength(User.UsernameMaxLength);
 		builder.Property(e => e.NameTag).HasColumnName("name_tag");
+		builder.Property(e => e.NameKey).HasColumnName("name_key").HasMaxLength(NameKey.MaxLength);
 		builder.Property(e => e.Email).HasColumnName("email").HasMaxLength(User.EmailMaxLength);
 		builder.Property(e => e.EmailNormalized).HasColumnName("email_normalized").HasMaxLength(User.EmailMaxLength);
 		builder.Property(e => e.EmailConfirmedAt).HasColumnName("email_confirmed_at");
@@ -246,16 +253,26 @@ namespace Database
 				CreatedAt = now,
 				UpdatedAt = now
 			};
-			await DisplayNames.AssignNewUser(db, user);
-
 			if (userId != null)
 			{
 				user.ID = userId.Value;
 			}
 
-			db.Users.Add(user);
-			await db.SaveChangesAsync();
-			return user;
+			for (int attempt = 1; ; attempt++)
+			{
+				await DisplayNames.AssignNewUser(db, user);
+				db.Users.Add(user);
+				try
+				{
+					await db.SaveChangesAsync();
+					return user;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				{
+					// a look-alike sign-up took the same tag at the same moment, so pick another
+					db.Entry(user).State = EntityState.Detached;
+				}
+			}
 		}
 
 #if DEBUG
@@ -452,39 +469,6 @@ namespace Database
 			{
 				s_log.LogError(ex, "UpdateLastLoginData failed");
 			}
-		}
-
-		// A player's own rename where the environment owns names; null when the name cannot be stored or no tag is free
-		public static async Task<NameChange?> SetDisplayName(AppDbContext db, long userId, string newName)
-		{
-			// Client-supplied: refuse a name that contains NUL (PostgreSQL rejects it) or does not fit instead of rewriting it
-			if (!DisplayNames.IsStorable(newName))
-			{
-				return null;
-			}
-
-			try
-			{
-				return await DisplayNames.Rename(db, userId, newName, $"user:{userId}")
-					?? await CurrentName(db, userId);
-			}
-			catch (NameTagsExhaustedException)
-			{
-				return null;
-			}
-			catch (Exception ex)
-			{
-				db.ChangeTracker.Clear();
-				s_log.LogError(ex, "SetDisplayName failed");
-				return null;
-			}
-		}
-
-		// An unchanged name reads back as a change to itself, so the caller can tell it from a failure
-		private static async Task<NameChange?> CurrentName(AppDbContext db, long userId)
-		{
-			(string Name, int Tag)? current = await DisplayNames.Get(db, userId);
-			return current == null ? null : new NameChange(userId, current.Value.Name, current.Value.Tag, current.Value.Name, current.Value.Tag);
 		}
 
 		public static async Task SaveELOData(AppDbContext db, long userId, EloData newEloData, CancellationToken cancellationToken = default)

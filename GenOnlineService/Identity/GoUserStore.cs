@@ -58,20 +58,27 @@ namespace GenOnlineService.Identity
 		public async Task<IdentityResult> CreateAsync(User user, CancellationToken cancellationToken)
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
-			await Database.DisplayNames.AssignNewUser(db, user);
 			user.CreatedAt = user.UpdatedAt = DateTime.UtcNow;
-			db.Users.Add(user);
 
-			try
+			for (int attempt = 1; ; attempt++)
 			{
-				await db.SaveChangesAsync(cancellationToken);
+				await Database.DisplayNames.AssignNewUser(db, user);
+				db.Users.Add(user);
+				try
+				{
+					await db.SaveChangesAsync(cancellationToken);
+					return IdentityResult.Success;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				{
+					// a look-alike sign-up took the same tag at the same moment, so pick another
+					db.Entry(user).State = EntityState.Detached;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+				{
+					return IdentityResult.Failed(new IdentityError { Code = "DuplicateUserName", Description = "The username is taken." });
+				}
 			}
-			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
-			{
-				return IdentityResult.Failed(new IdentityError { Code = "DuplicateUserName", Description = "The username is taken." });
-			}
-
-			return IdentityResult.Success;
 		}
 
 		public async Task<IdentityResult> UpdateAsync(User user, CancellationToken cancellationToken)

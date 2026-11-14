@@ -35,12 +35,22 @@ namespace GenOnlineService.Realtime
 			_ => Permissions.ModerationBan
 		};
 
+		// A staff action through the realtime hub
 		public static Database.ModerationActor ActorOf(Int64 userID) => new Database.ModerationActor
 		{
 			Kind = AuditActorKinds.User,
 			UserID = userID,
 			Name = $"user:{userID}",
 			Source = ModerationSources.Realtime
+		};
+
+		// A staff action through the REST API, such as these sanction endpoints and the staff rename
+		public static Database.ModerationActor ApiActorOf(Int64 userID) => new Database.ModerationActor
+		{
+			Kind = AuditActorKinds.User,
+			UserID = userID,
+			Name = $"user:{userID}",
+			Source = ModerationSources.Api
 		};
 
 		public static async Task<Result<CreateSanctionResponse>> CreateAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, Int64 target, CreateSanctionRequest request, Func<string, Task<Failure?>> requirePermission)
@@ -78,7 +88,7 @@ namespace GenOnlineService.Realtime
 				return await TargetOfflineAsync(dbFactory, target);
 			}
 
-			ModerationResult result = await ModerationManager.KickUser(target, reason ?? String.Empty, ActorOf(me));
+			ModerationResult result = await ModerationManager.KickUser(target, reason ?? String.Empty, ApiActorOf(me));
 			return result.Result switch
 			{
 				EModerationResult.Success => Result.Success(new CreateSanctionResponse { SanctionId = result.SanctionID }),
@@ -109,7 +119,7 @@ namespace GenOnlineService.Realtime
 				{
 					return Result.NotFound("user");
 				}
-				mute = await Database.Moderation.AddSanction(db, target, SanctionTypes.Mute, reason, expiresAt, ActorOf(me));
+				mute = await Database.Moderation.AddSanction(db, target, SanctionTypes.Mute, reason, expiresAt, ApiActorOf(me));
 			}
 
 			ModerationNoticeEvent notice = new ModerationNoticeEvent { Action = ModerationAction.Mute, Reason = String.IsNullOrEmpty(reason) ? null : reason, ExpiresAt = expiresAt };
@@ -133,7 +143,7 @@ namespace GenOnlineService.Realtime
 				{
 					return Result.NotFound("user");
 				}
-				ban = await Database.Moderation.AddSanction(db, target, SanctionTypes.Ban, reason, expiresAt, ActorOf(me));
+				ban = await Database.Moderation.AddSanction(db, target, SanctionTypes.Ban, reason, expiresAt, ApiActorOf(me));
 
 				// the reload refuses new connections and revokes and closes the game sessions at once
 				await AccessControl.Reload(db);
@@ -189,7 +199,7 @@ namespace GenOnlineService.Realtime
 				return Result.NotFound("sanction");
 			}
 
-			await Database.Moderation.LiftSanction(db, sanction.ID, reason ?? String.Empty, ActorOf(me));
+			await Database.Moderation.LiftSanction(db, sanction.ID, reason ?? String.Empty, ApiActorOf(me));
 			if (sanction.Type == SanctionTypes.Ban)
 			{
 				// lets the player connect again without waiting for the reload tick

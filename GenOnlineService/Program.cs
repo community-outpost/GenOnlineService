@@ -657,7 +657,8 @@ namespace GenOnlineService
 			return true;
 		}
 
-		// "GenOnlineService migrate [--yes]": applies pending migrations without starting the web host.
+		// "GenOnlineService migrate [--yes]": applies pending migrations without starting the web host, then brings every
+		// users.name_key up to date and stops with a report when look-alike names collide (NameKeyBackfill).
 		private static async Task<int> RunMigrateCommand(string[] args)
 		{
 			bool assumeYes = args.Skip(1).Any(a => a.Equals("--yes", StringComparison.OrdinalIgnoreCase));
@@ -679,7 +680,7 @@ namespace GenOnlineService
 				if (pending.Count == 0)
 				{
 					Console.WriteLine("Database is up to date.");
-					return 0;
+					return await Names.NameKeyBackfill.RunCommand(db, Console.Out, Console.Error);
 				}
 
 				Console.WriteLine($"Pending migrations: {pending.Count}");
@@ -716,7 +717,7 @@ namespace GenOnlineService
 
 				await db.Database.MigrateAsync();
 				Console.WriteLine($"Applied {pending.Count} migration(s) successfully.");
-				return 0;
+				return await Names.NameKeyBackfill.RunCommand(db, Console.Out, Console.Error);
 			}
 			catch (Exception ex)
 			{

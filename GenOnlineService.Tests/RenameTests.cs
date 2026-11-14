@@ -79,6 +79,36 @@ namespace GenOnlineService.Tests
 			Assert.NotEqual(NameKey.Of("Bob"), NameKey.Of("Rob"));
 		}
 
+		// REST staff actions are audited as api, the realtime hub keeps realtime
+		[Fact]
+		public void RestStaffActionsUseTheApiSource()
+		{
+			Assert.Equal(("api", "user:5", 5L), (SanctionActions.ApiActorOf(5).Source, SanctionActions.ApiActorOf(5).Name, SanctionActions.ApiActorOf(5).UserID!.Value));
+			Assert.Equal("realtime", SanctionActions.ActorOf(5).Source);
+		}
+
+		// The plugin's rule (NameRules.check): its default list, a case-insensitive substring match, the word as listed
+		[Fact]
+		public void ReservedWordsFollowThePluginRule()
+		{
+			// genonline-keycloak NameRules.DEFAULT_RESERVED_WORDS
+			Assert.Equal(new[]
+			{
+				"admin", "staff", "mass^", "mas^", "m4ss^", "m4s^", "moderator",
+				"hitler", "h1tler", "h1tl3r", "hittler", "h1ttler", "h1ttl3r",
+				"olda", "oldanalytics", "ibra", "x64", "ronin"
+			}, ProfileActions.ReservedNameWords);
+
+			Assert.Null(ProfileActions.ReservedWordIn("AliceByMod"));
+			Assert.Null(ProfileActions.ReservedWordIn("Modern"));
+			Assert.Null(ProfileActions.ReservedWordIn("Model"));
+			Assert.Equal("staff", ProfileActions.ReservedWordIn("AliceStaffSet"));
+			Assert.Equal("admin", ProfileActions.ReservedWordIn("Admin"));
+			Assert.Equal("admin", ProfileActions.ReservedWordIn("SUPERADMIN"));
+			Assert.Equal("moderator", ProfileActions.ReservedWordIn("TheModerator"));
+			Assert.Equal("staff", ProfileActions.ReservedWordIn("\u0130STAFF"));
+		}
+
 		private static object? Param(Failure failure, string name)
 		{
 			JsonElement element = JsonSerializer.SerializeToElement(failure.Params, ApiResults.Json);

@@ -1646,6 +1646,12 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("lockout_end_at");
 
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("name_key");
+
                     b.Property<int>("NameTag")
                         .HasColumnType("integer")
                         .HasColumnName("name_tag");
@@ -1696,6 +1702,10 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasIndex("EmailNormalized")
                         .IsUnique()
                         .HasDatabaseName("ux_users_email_normalized");
+
+                    b.HasIndex("NameKey", "NameTag")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_name_key_name_tag");
 
                     b.HasIndex("UsernameNormalized", "NameTag")
                         .IsUnique()

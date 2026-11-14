@@ -48,8 +48,9 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 users
   id                      bigint pk              -- the user id; with Keycloak player ids it is the player_id, set explicitly (identity section 3.2)
   username                varchar(32)            -- display name; not unique on its own
-  username_normalized     varchar(32)
+  username_normalized     varchar(32)            -- NFKC, upper case: exact name lookups (Name#0042 sign-in)
   name_tag                int                    -- 1 to 9999; unique (username_normalized, name_tag), shown as Name#0042
+  name_key                varchar(255)           -- the plugin's look-alike key (NameKey); unique (name_key, name_tag), utf8mb4_bin on MySQL
   email                   varchar(254) null
   email_normalized        varchar(254) null unique
   email_confirmed_at      timestamp null
@@ -90,6 +91,7 @@ audit_log                 -- append-only, no retention purge
   id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account' | 'upstream'; upstream rows: actor = provider name),
   actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token' | 'client'),
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
+                          -- source: where the action came in, for example 'api' (REST), 'realtime' (hub), 'discord', 'cli', 'import', 'startup_sweep'
 ```
 
 `source` on roles and sanctions holds what used to be the scope idea: `local` rows come from this environment, `upstream:<provider>` rows are replaced at each sign-in through that trusted provider (identity doc section 5). Moderators may only kick and mute. `created_by_kind` and `lifted_by_kind` take the `audit_log` actor kinds, with the staff account in `created_by_id` and `lifted_by_id` when one acted (a CLI call with `--by` keeps kind `cli` and the user id). `report_id` names the player report a sanction answered and is set by tooling only.

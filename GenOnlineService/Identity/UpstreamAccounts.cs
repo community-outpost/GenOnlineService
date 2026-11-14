@@ -186,6 +186,7 @@ namespace GenOnlineService.Identity
 					{
 						user.Username = change.NewName;
 						user.UsernameNormalized = NameNormalizer.Normalize(change.NewName);
+						user.NameKey = GenOnlineService.Names.NameKey.Of(change.NewName);
 						user.NameTag = change.NewTag;
 					}
 				}

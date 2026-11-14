@@ -162,4 +162,34 @@ public class RenameProbeTests
 		Assert.Equal(("Rob", 7, 1, 0), await Read(probe, user.ID));
 		Assert.Empty(plugin.RenameRequests);
 	}
+
+	// Two look-alike renames onto one tag at once: whether the check or the unique (name_key, name_tag) index stops the
+	// second, exactly one wins and the other answers name.taken
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ConcurrentLookAlikeRenamesOnOneTagLetExactlyOneWin(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		FakeRenamePlugin plugin = new();
+		AccountsSettings accounts = AccountsSettings.Read(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+		PlayerNames names = new(new Factory(probe), accounts, new KeycloakRenameClient(plugin, accounts));
+
+		for (int tag = 1; tag <= 10; tag++)
+		{
+			User first = await AddUser(probe, "Anna", tag);
+			User second = await AddUser(probe, "Bert", tag);
+
+			Result<Empty>[] results = await Task.WhenAll(
+				Task.Run(() => names.RenameSelfAsync(first.ID, "Bob")),
+				Task.Run(() => names.RenameSelfAsync(second.ID, "B0b")));
+
+			Assert.Single(results, r => r.Ok);
+			Assert.Single(results, r => !r.Ok && r.Code == ErrorCodes.NameTaken);
+			await using AppDbContext db = probe.Open();
+			Assert.Equal(1, await db.Users.CountAsync(u => u.NameTag == tag && u.NameKey == "bob"));
+			Assert.Equal(1, await db.UserUsernameHistory.CountAsync(h => h.UserID == first.ID || h.UserID == second.ID));
+		}
+		Assert.Empty(plugin.RenameRequests);
+	}
 }
