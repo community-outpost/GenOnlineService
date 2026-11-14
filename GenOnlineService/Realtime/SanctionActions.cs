@@ -160,7 +160,7 @@ namespace GenOnlineService.Realtime
 				Reason = String.IsNullOrEmpty(row.Reason) ? null : row.Reason,
 				CreatedAt = row.CreatedAt,
 				ExpiresAt = row.Type == SanctionTypes.Kick ? null : row.ExpiresAt,
-				RevokedAt = row.LiftedAt,
+				LiftedAt = row.LiftedAt,
 				CreatedBy = row.CreatedByID is long creator ? RealtimeMembers.Of(creator, names.TryGetValue(creator, out string? name) ? name : null) : null
 			}).ToArray();
 			return Result.Success(new SanctionsResponse { Sanctions = sanctions });

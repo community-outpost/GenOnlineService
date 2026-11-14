@@ -1137,8 +1137,6 @@ namespace GenOnlineService
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
-			// Failed policies on /api and /-/ answer with the single error body
-			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Rest.RestAuthorizationResultHandler>();
 
 			builder.Services.AddAuthorization(options =>
 			{
@@ -1149,6 +1147,9 @@ namespace GenOnlineService
 						|| context.User.IsInRole("GameLauncher")
 						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
+
+			// REST controllers answer a failed role check with the forbidden body of section 7
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Api.ApiAuthorizationResultHandler>();
 
 			// OpenIddict stores cache entries without a size, so the cache has no size limit
 			builder.Services.AddMemoryCache();

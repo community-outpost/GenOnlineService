@@ -428,8 +428,8 @@ namespace Database
 
 		private static string LiftAction(string type) => type == SanctionTypes.Mute ? ModerationActions.Unmute : ModerationActions.Unban;
 
-		// Stores a kick that already happened with its audit row, a failed write is only reported
-		public static async Task<Sanction?> AddKick(AppDbContext db, Int64 userID, string reason, ModerationActor actor)
+		// Stores a kick with its audit row before it is applied, a failed write throws so the kick is never applied
+		public static async Task<Sanction> AddKick(AppDbContext db, Int64 userID, string reason, ModerationActor actor)
 		{
 			DateTime now = DateTime.UtcNow;
 			var kick = new Sanction { UserID = userID, Type = SanctionTypes.Kick, Source = AuthoritySources.Local, Reason = String.IsNullOrEmpty(reason) ? null : reason, CreatedByKind = actor.Kind, CreatedByID = actor.UserID, CreatedAt = now, ExpiresAt = now };
@@ -439,11 +439,6 @@ namespace Database
 				db.AuditLog.Add(UserEntry(actor, ModerationActions.Kick, userID, reason, null, now));
 				await db.SaveChangesAsync();
 				return kick;
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "Moderation.AddKick failed for user {UserId}", userID);
-				return null;
 			}
 			finally
 			{

@@ -65,6 +65,7 @@ namespace GenOnlineService.Realtime
 		public const string ChatMuted = "chat.muted";
 		public const string ChatNotFriends = "chat.not_friends";
 		public const string ReportDuplicate = "report.duplicate";
+		public const string MatchResultClosed = "match.result_closed";
 		public const string GroupFull = "group.full";
 		public const string GroupNotOwner = "group.not_owner";
 		public const string GroupNotMember = "group.not_member";

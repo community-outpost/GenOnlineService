@@ -52,6 +52,7 @@ namespace GenOnlineService.Api
 		public long UserId { get; init; }
 	}
 
+	[ApiFixture("get-me-friends.response")]
 	public sealed record FriendsResponse
 	{
 		public IReadOnlyList<FriendMember> Friends { get; init; } = [];
@@ -59,6 +60,7 @@ namespace GenOnlineService.Api
 		public IReadOnlyList<Member> Outgoing { get; init; } = [];
 	}
 
+	[ApiFixture("get-me-blocks.response")]
 	public sealed record BlocksResponse
 	{
 		public IReadOnlyList<Member> Blocked { get; init; } = [];
@@ -117,7 +119,7 @@ namespace GenOnlineService.Api
 		public string? Reason { get; init; }
 		public DateTime CreatedAt { get; init; }
 		public DateTime? ExpiresAt { get; init; }
-		public DateTime? RevokedAt { get; init; }
+		public DateTime? LiftedAt { get; init; }
 		public Member? CreatedBy { get; init; }
 	}
 
@@ -168,12 +170,14 @@ namespace GenOnlineService.Api
 		public string? ResolutionNote { get; init; }
 	}
 
+	[ApiFixture("get-reports.response")]
 	public sealed record ReportsResponse
 	{
 		public IReadOnlyList<ReportInfo> Reports { get; init; } = [];
 	}
 
 	// Status is actioned or dismissed
+	[ApiFixture("patch-reports.request")]
 	public sealed record ResolveReportRequest
 	{
 		public string? Status { get; init; }

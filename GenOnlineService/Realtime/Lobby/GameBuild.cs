@@ -23,8 +23,8 @@ namespace GenOnlineService
 	// The build a player runs: game, executable and INI CRC and anticheat, players only meet players of the same build
 	public readonly record struct GameBuild(string Game, UInt32 ExeCRC, UInt32 IniCRC, EKnownAnticheatID AnticheatID)
 	{
-		// The game is the OAuth client id of the registered session, so a third party client only meets its own kind
+		// The game comes from the client registry row of the registered session, never from the client id
 		public static GameBuild Of(GameSessionRegistration registration) =>
-			new GameBuild(registration.ClientID, registration.ExeCrc ?? 0, registration.IniCrc ?? 0, (EKnownAnticheatID)registration.AnticheatID);
+			new GameBuild(registration.Game, registration.ExeCrc ?? 0, registration.IniCrc ?? 0, (EKnownAnticheatID)registration.AnticheatID);
 	}
 }

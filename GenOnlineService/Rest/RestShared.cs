@@ -18,8 +18,6 @@
 
 using GenOnlineService.Api;
 using GenOnlineService.Realtime;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using System.Globalization;
@@ -151,22 +149,6 @@ namespace GenOnlineService.Rest
 		public const string Motd = "motd";
 
 		public static readonly IReadOnlyList<string> Editable = [Motd];
-	}
-
-	// A failed policy on /api and /-/ answers 403 forbidden {permission}; other paths keep the default answer
-	public sealed class RestAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
-	{
-		private readonly AuthorizationMiddlewareResultHandler m_default = new AuthorizationMiddlewareResultHandler();
-
-		public Task HandleAsync(RequestDelegate next, HttpContext context, AuthorizationPolicy policy, PolicyAuthorizationResult authorizeResult)
-		{
-			if (authorizeResult.Forbidden && RestResults.IsRestPath(context.Request.Path))
-			{
-				string? permission = authorizeResult.AuthorizationFailure?.FailedRequirements.OfType<PermissionRequirement>().Select(r => r.Permission).FirstOrDefault();
-				return RestResults.WriteAsync(context, ErrorCodes.Forbidden, permission == null ? Empty.Instance : new { Permission = permission });
-			}
-			return m_default.HandleAsync(next, context, policy, authorizeResult);
-		}
 	}
 
 	public static class RestSetup
