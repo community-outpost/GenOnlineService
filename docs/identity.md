@@ -73,7 +73,7 @@ A ban removes someone from the game, not from their account, so a banned player 
 
 ```
 game client           system browser                 accounts (this environment)      application
-   | open /oauth/authorize?client_id=gen_online_60hz&response_type=code
+   | open /oauth/authorize?client_id=generalsmd&response_type=code
    |   &code_challenge=...&code_challenge_method=S256
    |   &redirect_uri=http://127.0.0.1:<port>/callback&scope=openid game
    |------------------------>|-------------------------------->|
