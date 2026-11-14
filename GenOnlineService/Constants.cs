@@ -352,21 +352,21 @@ namespace GenOnlineService
 		public enum EKnownClients
 		{
 			unknown = -1,
-			gen_online_30hz = 0,
-			gen_online_60hz = 1,
-			genhub = 2,
-			communityoutpost_chat = 3,
-			superhackers_community_patch_client = 4,
+			generalsmd = 0,
+			generals = 1,
+			launcher = 2,
+			chat = 3,
+			genhub = 4,
 			custom_third_party_client = 5
 		}
 
 		public static ConcurrentDictionary<EKnownClients, EUserSessionType> KnownClientSessionTypes = new()
 		{
-			[EKnownClients.gen_online_30hz] = EUserSessionType.GameClient,
-			[EKnownClients.gen_online_60hz] = EUserSessionType.GameClient,
+			[EKnownClients.generalsmd] = EUserSessionType.GameClient,
+			[EKnownClients.generals] = EUserSessionType.GameClient,
+			[EKnownClients.launcher] = EUserSessionType.GameLauncher,
+			[EKnownClients.chat] = EUserSessionType.ChatClient,
 			[EKnownClients.genhub] = EUserSessionType.GameLauncher,
-			[EKnownClients.communityoutpost_chat] = EUserSessionType.ChatClient,
-			[EKnownClients.superhackers_community_patch_client] = EUserSessionType.GameClient,
 			[EKnownClients.custom_third_party_client] = EUserSessionType.GameClient
 		};
 	}
@@ -1809,7 +1809,6 @@ namespace GenOnlineService
 		{
 			// TODO_EFCORE: website uses this index as 1 (60hz) to 0 (30hz), update it to use new enum + support new clients, also need to update DB to match
 			// TODO_EFCORE: Move away from db for this and just have website login call endpoint on service
-			//UInt16 clientID = clientIDStr == "gen_online_60hz" ? (UInt16)1 : (UInt16)0;
 
 			s_log.LogInformation("StartSession deleting other sessions for user {UserId}", userID);
 
