@@ -5,6 +5,7 @@
       "rank": 21,
       "user_id": 42,
       "name": "Bob",
+      "tag": "0042",
       "rating": 1184,
       "matches": 57
     },
@@ -12,6 +13,7 @@
       "rank": 22,
       "user_id": 7,
       "name": "Ann",
+      "tag": "0007",
       "rating": 1171,
       "matches": 203
     },
@@ -19,6 +21,7 @@
       "rank": 23,
       "user_id": 315,
       "name": "Cid",
+      "tag": "0315",
       "rating": 1171,
       "matches": 88
     }

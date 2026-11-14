@@ -1,6 +1,7 @@
 {
   "id": 42,
   "name": "Bob",
+  "tag": "0042",
   "badges": [],
   "created_at": "2025-03-02T18:41:07Z",
   "elo_rating": 1184,
