@@ -47,7 +47,8 @@ namespace Database
 		MySqlSslMode SslMode,
 		bool LegacyBansAsLocal,
 		IReadOnlySet<string> Waivers,
-		string ReportPath);
+		string ReportPath,
+		string? KeycloakFile = null);
 
 	public sealed class ImportOptions
 	{
@@ -145,7 +146,8 @@ namespace Database
 				sslMode,
 				legacyBans == "local",
 				waivers,
-				reportPath);
+				reportPath,
+				string.IsNullOrWhiteSpace(section.GetValue<string>("keycloak_file")) ? null : section.GetValue<string>("keycloak_file")!.Trim());
 		}
 
 		public static async Task<int> Execute(AppDbContext target, ImportSettings settings, ImportOptions options)
@@ -157,6 +159,7 @@ namespace Database
 			report.Line($"Target: {(target.Database.IsNpgsql() ? "PostgreSQL" : "MySQL/MariaDB")}");
 			report.Line($"Legacy bans: {(settings.LegacyBansAsLocal ? "imported as local play bans" : "skipped")}");
 			report.Line($"Waived findings: {(settings.Waivers.Count == 0 ? "none" : string.Join(", ", settings.Waivers.OrderBy(w => w)))}");
+			report.Line($"Keycloak file: {settings.KeycloakFile ?? "not requested (Import:keycloak_file)"}");
 
 			await CheckTarget(target);
 
@@ -219,8 +222,31 @@ namespace Database
 				report.Line("Import complete: verification passed and the transaction was committed.");
 			}
 
+			// written only after the commit, so Keycloak never holds player ids the database does not
+			List<KeycloakImportUser> keycloakUsers = KeycloakUsers(plan);
+			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)["player_id_next"]!.GetValue<long>();
+			if (settings.KeycloakFile != null && !options.DryRun)
+			{
+				(string usersPath, string counterPath) = KeycloakImportFile.Write(settings.KeycloakFile, keycloakUsers);
+				report.Line($"Keycloak file: {keycloakUsers.Count} users with player_id written to {Path.GetFullPath(usersPath)}");
+				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart} ({Path.GetFullPath(counterPath)})");
+			}
+			else if (settings.KeycloakFile != null)
+			{
+				report.Line($"Keycloak file: not written in a dry run; it would hold {keycloakUsers.Count} users, counter start {counterStart}");
+			}
+
 			report.Save(settings.ReportPath);
 			return 0;
+		}
+
+		// Each kept user with its kept identities; the player id is the user id the import keeps
+		private static List<KeycloakImportUser> KeycloakUsers(Plan plan)
+		{
+			return plan.Kept.OrderBy(k => k.Key)
+				.Select(k => new KeycloakImportUser(k.Key,
+					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList()))
+				.ToList();
 		}
 
 		private static string QuoteTable(AppDbContext db, string table)
@@ -1363,6 +1389,18 @@ namespace Database
 				Link(IdentityProviders.Discord, user.DiscordId > 0 ? user.DiscordId.Value.ToString(CultureInfo.InvariantCulture) : null, user.DiscordUsername);
 				Link(IdentityProviders.Google, user.GoogleId, null);
 				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null, user.GameReplaysUsername);
+			}
+
+			// the target allows one identity per provider per user; a second one on a user is reported and not kept
+			foreach (var group in all.GroupBy(x => (x.User.Id, x.Identity.Provider)).Where(g => g.Count() > 1))
+			{
+				foreach (var extra in group.Skip(1))
+				{
+					extra.Identity.Kept = false;
+				}
+
+				Findings.Add(ImportFindings.DuplicateIdentities,
+					$"user {group.Key.Id} has {group.Count()} {group.Key.Provider} identities ({string.Join(", ", group.Select(x => x.Identity.ExternUid))}); {group.First().Identity.ExternUid} is kept");
 			}
 
 			foreach (var group in all.GroupBy(x => (x.Identity.Provider, x.Identity.ExternUid)).Where(g => g.Count() > 1))
