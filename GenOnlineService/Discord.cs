@@ -527,49 +527,15 @@ public class DiscordBot
 		}
 	}
 
+	// Staff text travels as a notice parameter, clients render it as an announcement
 	private static int DeliverAnnouncement(string strMessage)
 	{
-		// net room
-		WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsgRoom = new WebSocketMessage_NetworkRoomChatMessageOutbound();
-		outboundMsgRoom.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
-		outboundMsgRoom.message = String.Format("--- ADMIN ANNOUNCEMENT ---    {0}", strMessage);
-		outboundMsgRoom.action = true;
-		byte[] outboundMsgRoomJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsgRoom));
-
-		// lobby
-		WebSocketMessage_LobbyChatMessageOutbound outboundMsgLobby = new WebSocketMessage_LobbyChatMessageOutbound();
-		outboundMsgLobby.user_id = -2;
-		outboundMsgLobby.msg_id = (int)EWebSocketMessageID.LOBBY_CHAT_FROM_SERVER;
-		outboundMsgLobby.message = String.Format("--- ADMIN ANNOUNCEMENT ---    {0}", strMessage);
-		outboundMsgLobby.action = true;
-		outboundMsgLobby.announcement = true;
-		outboundMsgLobby.show_announcement_to_host = true;
-		byte[] outboundMsgLobbyJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsgLobby));
-
-		// send to everyone
-		int numDelivered = 0;
-		foreach (var sessionDataByClient in GenOnlineService.WebSocketManager.GetUserDataCache())
+		int numDelivered = GenOnlineService.WebSocketManager.GetNumberOfUsersOnline();
+		GenOnlineService.Realtime.RealtimeOut.Fire(GenOnlineService.Realtime.RealtimeOut.All.Notice(new GenOnlineService.Realtime.NoticeEvent
 		{
-			foreach (var sessionData in sessionDataByClient.Value)
-			{
-				UserSession sess = sessionData.Value;
-
-				if (sess != null)
-				{
-					if (sess.currentLobbyID == -1)
-					{
-						sess.QueueWebsocketSend(outboundMsgRoomJSON);
-					}
-					else
-					{
-						sess.QueueWebsocketSend(outboundMsgLobbyJSON);
-					}
-
-					++numDelivered;
-				}
-			}
-		}
-
+			Code = GenOnlineService.Realtime.ErrorCodes.ServerAnnouncement,
+			Params = new { Message = strMessage }
+		}));
 		return numDelivered;
 	}
 

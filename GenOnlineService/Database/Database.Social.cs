@@ -292,6 +292,49 @@ namespace Database
 			}
 		}
 
+		// Requests the user sent that are still waiting for an answer
+		public static async Task<HashSet<long>> GetOutgoingFriendRequests(AppDbContext db, long sourceUserId)
+		{
+			HashSet<long> result = new();
+
+			try
+			{
+				List<long> ids = await db.FriendRequests.AsNoTracking().Where(r => r.FromUserId == sourceUserId).Select(r => r.ToUserId).ToListAsync();
+				result.UnionWith(ids);
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "GetOutgoingFriendRequests failed");
+			}
+
+			return result;
+		}
+
+		public static async Task<bool> HasFriendRequest(AppDbContext db, long fromUserId, long toUserId)
+		{
+			return await db.FriendRequests.AsNoTracking().AnyAsync(r => r.FromUserId == fromUserId && r.ToUserId == toUserId);
+		}
+
+		// Removes one direction only, the request the sender withdraws
+		public static async Task RemoveFriendRequest(AppDbContext db, long fromUserId, long toUserId)
+		{
+			try
+			{
+				await db.FriendRequests
+					.Where(r => r.FromUserId == fromUserId && r.ToUserId == toUserId)
+					.ExecuteDeleteAsync();
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "RemoveFriendRequest failed");
+			}
+		}
+
+		public static async Task<bool> IsBlocked(AppDbContext db, long userId, long blockedUserId)
+		{
+			return await db.Blocks.AsNoTracking().AnyAsync(b => b.UserId == userId && b.BlockedUserId == blockedUserId);
+		}
+
 		public static async Task AddPendingFriendRequest(AppDbContext db, long sourceUserId, long targetUserId)
 		{
 			try

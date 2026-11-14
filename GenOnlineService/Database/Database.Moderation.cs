@@ -68,6 +68,7 @@ public static class ModerationSources
 	public const string WebSocket = "websocket";
 	public const string Discord = "discord";
 	public const string Cli = "cli";
+	public const string Realtime = "realtime";
 }
 
 public class UserRole
@@ -252,6 +253,16 @@ namespace Database
 		public static async Task<Ban?> GetActivePlayBan(AppDbContext db, Int64 userID)
 		{
 			return await ActiveBans(db, BanRestrictions.Play, DateTime.UtcNow)
+				.Where(b => b.UserID == userID)
+				.OrderByDescending(b => b.ExpiresAt == null)
+				.ThenByDescending(b => b.ExpiresAt)
+				.FirstOrDefaultAsync();
+		}
+
+		// The chat ban that lasts longest decides when the mute ends
+		public static async Task<Ban?> GetActiveChatMute(AppDbContext db, Int64 userID)
+		{
+			return await ActiveBans(db, BanRestrictions.Chat, DateTime.UtcNow)
 				.Where(b => b.UserID == userID)
 				.OrderByDescending(b => b.ExpiresAt == null)
 				.ThenByDescending(b => b.ExpiresAt)

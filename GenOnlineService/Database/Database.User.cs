@@ -315,6 +315,11 @@ namespace Database
 			}
 		}
 
+		public static async Task<bool> Exists(AppDbContext db, long userId)
+		{
+			return await db.Users.AsNoTracking().AnyAsync(u => u.ID == userId);
+		}
+
 		public static async Task<string> GetDisplayName(AppDbContext db, long userId)
 		{
 			try
