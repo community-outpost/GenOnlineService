@@ -57,6 +57,7 @@ public static class AuditTargetKinds
 	public const string Client = "client";
 	public const string Setting = "setting";
 	public const string Announcement = "announcement";
+	public const string Lobby = "lobby";
 }
 
 public static class ModerationActions
@@ -75,6 +76,7 @@ public static class ModerationActions
 	public const string ReportClose = "report_close";
 	public const string SettingUpdate = "setting_update";
 	public const string Announcement = "announcement";
+	public const string ConnectionLookup = "connection_lookup";
 }
 
 public static class ModerationSources

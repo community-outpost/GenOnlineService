@@ -129,6 +129,20 @@ player_reports            id, reporter_id, reported_user_id, message_id bigint n
 
 Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages, `group_id` for group messages (a group message keeps its `group_id` after the group is deleted and is purged with the other messages). A group has at most `Realtime:group_max_members` members (default 10), the owner included; when the owner leaves, the member with the lowest `chat_group_members.id` (the earliest to join) becomes owner, and leaving removes that member's read marker for the group. A report names a message (`message_id`, `reported_user_id` is its author) or a player (`message_id` null). The unique index covers message reports only, since NULLs never collide; the service allows one open player report per reporter and player. A message report's `evidence` is `{message, before: [up to 10, oldest first], after: [up to 10, oldest first], after_filled_at: ISO UTC or null}` for the same conversation: the report stores the message and `before`, and the hourly purge fills `after` and `after_filled_at` for open reports just before the reported message expires. Its `message_id` may therefore point at a purged message, and moderation reads the evidence instead. A player report's `evidence` is `{messages: [up to 10, oldest first]}`: the player's most recent stored messages the reporter could see (channel messages, lobby messages of a lobby the reporter was in or a match they played, messages of a group the reporter is in, unless either blocked the other, and direct messages from the player to the reporter). Resolving a report sets `status`, `resolved_at`, `resolved_by_*` and `resolution_note` and writes a `report_close` row to `audit_log`. Account deletion deletes the messages the user sent, their read markers, the resolved reports they filed and their group memberships (with the same owner handover, and a group left empty is deleted); their open reports stay until resolved. A staff direct message that uses the `chat.message_anyone` bypass (no mutual friendship, or a block either way) writes an `audit_log` row (`action` `staff_message`, target the user, `details` `{message_id}`, never the text).
 
+### Connection reports
+
+```
+connection_reports        id, reporter_id, lobby_id, target_user_id, attempt int, outcome varchar(16)
+                          ('connected_direct' | 'connected_relay' | 'failed' | 'disconnected'),
+                          transport varchar(8) ('gns' | 'eos'), ip_version int (4 | 6), events json,
+                          created_at, updated_at
+                          unique (reporter_id, lobby_id, target_user_id, attempt),
+                          index (target_user_id, updated_at), (lobby_id), (updated_at)
+                          -- retention: purged with the chat messages, 30 days after updated_at
+```
+
+One row is the final result of one connection attempt from `reporter_id` to `target_user_id` in a lobby, sent by `POST /api/v1/lobbies/:id/connection_reports`. A repeated report of the same attempt replaces the row (outcome, transport, ip_version, events and `updated_at`; `created_at` stays from the first report). `events` is `[{state, t_ms}]`, oldest first, at most 32. The table never holds an IP address. Staff read it with `connections player` and `connections lobby`, and each read writes a `connection_lookup` row to `audit_log` (target the user or the lobby, with the reason). Account deletion deletes the reports the user sent and the reports that name the user as target.
+
 ### Players and devices
 
 ```
@@ -172,7 +186,7 @@ faction_stats_daily       day date, side smallint, matches int, wins int     pk 
 
 - **Faction win rates** (today `daily_stats`, served by `GlobalStats`) are computed from `matches` and `match_players` (side and result). `faction_stats_daily` exists only as a cache keyed by real date, updated when a match finishes, if the query proves too slow.
 - **Player and lobby peaks** (today `service_stats`, written hourly and never read) are not stored: the existing OpenTelemetry gauges `genonline.players.online` and `genonline.lobbies.active` already provide them through `/-/metrics`.
-- **Connection outcomes** (today `connection_outcomes`, write-only) become the metric counter `genonline.connection.outcomes{protocol, result}`.
+- **Connection outcomes** (today `connection_outcomes`, write-only) become the metric counter `genonline.connection.outcomes{outcome, transport, ip_version}`, counted from `POST /api/v1/lobbies/:id/connection_reports`, which also stores the per-player rows of `connection_reports`.
 
 ### Anti-cheat
 

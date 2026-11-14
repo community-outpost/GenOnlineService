@@ -272,7 +272,6 @@ namespace GenOnlineService.Realtime
 	public sealed record MarkReadRequest
 	{
 		public string ChannelId { get; init; } = "";
-		public string MessageId { get; init; } = "";
 	}
 
 	public sealed record CreateLobbyRequest
@@ -463,12 +462,19 @@ namespace GenOnlineService.Realtime
 		public int RetryAfterMs { get; init; }
 	}
 
+	// The full list of client features of the user, sent again whenever it changes
+	public sealed record FeaturesUpdateEvent
+	{
+		public IReadOnlyList<string> Features { get; init; } = [];
+	}
+
 	public sealed record ReadyEvent
 	{
 		public int ProtocolVersion { get; init; }
 		public ClientType SessionType { get; init; }
 		public Member User { get; init; } = new Member();
 		public IReadOnlyList<string> Permissions { get; init; } = [];
+		public IReadOnlyList<string> Features { get; init; } = [];
 		public IReadOnlyDictionary<string, BadgeDefinition> Badges { get; init; } = new Dictionary<string, BadgeDefinition>();
 		public IReadOnlyList<ChannelInfo> Channels { get; init; } = [];
 		public Limits Limits { get; init; } = new Limits();
@@ -524,11 +530,17 @@ namespace GenOnlineService.Realtime
 		public bool HasMore { get; init; }
 	}
 
-	// MessageDelete and ReadMarker
+	// MessageDelete
 	public sealed record MessageRefEvent
 	{
 		public string ChannelId { get; init; } = "";
 		public string MessageId { get; init; } = "";
+	}
+
+	// The user read the whole conversation on another connection
+	public sealed record ReadMarkerEvent
+	{
+		public string ChannelId { get; init; } = "";
 	}
 
 	// One direct or group conversation, channel_id is dm:<user_id> or group:<group_id>

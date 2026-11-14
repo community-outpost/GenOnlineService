@@ -11,7 +11,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GenOnlineService.Migrations.Postgres
 {
     [DbContext(typeof(PostgresAppDbContext))]
-    [Migration("20261114125052_LeaderboardIndex")]
+    [Migration("20261114134250_LeaderboardIndex")]
     partial class LeaderboardIndex
     {
         /// <inheritdoc />
@@ -550,6 +550,78 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasKey("ClientDbID", "ExeCrc", "IniCrc");
 
                     b.ToTable("client_builds", (string)null);
+                });
+
+            modelBuilder.Entity("ConnectionReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Events")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("events");
+
+                    b.Property<int>("IpVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("ip_version");
+
+                    b.Property<long>("LobbyID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lobby_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<long>("TargetUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_user_id");
+
+                    b.Property<string>("Transport")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("transport");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("LobbyID")
+                        .HasDatabaseName("ix_connection_reports_lobby_id");
+
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("ix_connection_reports_updated_at");
+
+                    b.HasIndex("TargetUserID", "UpdatedAt")
+                        .HasDatabaseName("ix_connection_reports_target_updated_at");
+
+                    b.HasIndex("ReporterID", "LobbyID", "TargetUserID", "Attempt")
+                        .IsUnique()
+                        .HasDatabaseName("ux_connection_reports_reporter_lobby_target_attempt");
+
+                    b.ToTable("connection_reports", (string)null);
                 });
 
             modelBuilder.Entity("Device", b =>

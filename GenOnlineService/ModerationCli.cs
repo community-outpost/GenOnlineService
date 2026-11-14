@@ -24,6 +24,7 @@ namespace GenOnlineService
 {
 	// "roles" and "bans" change the database directly, a running service applies the change on its next reconcile tick
 	// "reports" and "messages" are how staff read chat: through a report or an audited lookup, each written to audit_log
+	// "connections" reads connection reports by player or by lobby, each read written to audit_log
 	public static class ModerationCli
 	{
 		private const string RolesUsage =
@@ -48,6 +49,11 @@ namespace GenOnlineService
 			"Usage:\n"
 			+ "  GenOnlineService messages show <message_id> --reason <text> --by <user_id>\n"
 			+ "  GenOnlineService messages purge";
+
+		private const string ConnectionsUsage =
+			"Usage:\n"
+			+ "  GenOnlineService connections player <user_id> --reason <text> --by <user_id>\n"
+			+ "  GenOnlineService connections lobby <lobby_id> --reason <text> --by <user_id>";
 
 		private const int MaximumBanDays = 36500;
 		private const int ReportListLimit = 200;
@@ -442,11 +448,85 @@ namespace GenOnlineService
 			{
 				await using AppDbContext db = await OpenDatabase();
 				ChatPurgeCounts counts = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
-				Console.WriteLine($"Purged {counts.Messages} message(s), {counts.ReadMarkers} read marker(s) and {counts.Reports} closed report(s).");
+				Console.WriteLine($"Purged {counts.Messages} message(s), {counts.ReadMarkers} read marker(s), {counts.Reports} closed report(s) and {counts.ConnectionReports} connection report(s).");
 				return 0;
 			}
 
 			throw new CliException(MessagesUsage);
 		});
+
+		// Connection reports name who played whom, so every read is audited like a chat lookup
+		public static Task<int> RunConnections(string[] args) => Run(async () =>
+		{
+			Arguments parsed = Parse(args, ConnectionsUsage, "--reason", "--by");
+			string verb = parsed.Positional.FirstOrDefault()?.ToLowerInvariant() ?? String.Empty;
+
+			if ((verb == "player" || verb == "lobby") && parsed.Positional.Count == 2)
+			{
+				Int64 id = verb == "player" ? ParseUserID(parsed.Positional[1]) : ParseLobbyID(parsed.Positional[1]);
+				string reason = ParseReason(parsed, required: true);
+				ModerationActor actor = ParseReader(parsed);
+
+				await using AppDbContext db = await OpenDatabase();
+				await RequireUser(db, actor.UserID!.Value);
+
+				// the audit row is written first and a failed write stops the lookup
+				string targetKind = verb == "player" ? AuditTargetKinds.User : AuditTargetKinds.Lobby;
+				await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.ConnectionLookup, targetKind, id, reason, new { by = verb });
+
+				List<ConnectionReport> rows = verb == "player"
+					? await Database.ConnectionReports.GetByPlayer(db, id)
+					: await Database.ConnectionReports.GetByLobby(db, id);
+
+				if (rows.Count == 0)
+				{
+					Console.WriteLine("No connection reports.");
+					return 0;
+				}
+
+				if (verb == "player")
+				{
+					foreach (ConnectionReport r in rows)
+					{
+						Console.WriteLine(DescribeConnection(r));
+					}
+					return 0;
+				}
+
+				// both sides of a pair line up: user a to b, then b to a, attempt by attempt
+				var pairs = rows
+					.GroupBy(r => (Low: Math.Min(r.ReporterID, r.TargetUserID), High: Math.Max(r.ReporterID, r.TargetUserID)))
+					.OrderBy(g => g.Key.Low).ThenBy(g => g.Key.High);
+
+				foreach (var pair in pairs)
+				{
+					Console.WriteLine($"pair user {pair.Key.Low} and user {pair.Key.High}:");
+					foreach (ConnectionReport r in pair.OrderBy(r => r.Attempt).ThenBy(r => r.ReporterID == pair.Key.Low ? 0 : 1))
+					{
+						Console.WriteLine("  " + DescribeConnection(r));
+					}
+				}
+				return 0;
+			}
+
+			throw new CliException(ConnectionsUsage);
+		});
+
+		// Lobby ids count from 0
+		private static Int64 ParseLobbyID(string text)
+		{
+			if (!Int64.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out Int64 id))
+			{
+				throw new CliException($"Not a lobby id: {text}");
+			}
+
+			return id;
+		}
+
+		private static string DescribeConnection(ConnectionReport r)
+		{
+			string timeline = String.Join(", ", Database.ConnectionReports.ParseEvents(r.Events).Select(e => $"{e.State}@{e.TMs}ms"));
+			return $"lobby {r.LobbyID}  user {r.ReporterID} -> user {r.TargetUserID}  attempt {r.Attempt}  {r.Outcome}  {r.Transport}  ipv{r.IpVersion}  updated {r.UpdatedAt:yyyy-MM-dd HH:mm:ss} UTC  events [{timeline}]";
+		}
 	}
 }

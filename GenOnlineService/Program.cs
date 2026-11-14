@@ -922,6 +922,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("connections", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunConnections(args);
+				return;
+			}
+
 			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);
@@ -1564,9 +1570,9 @@ namespace GenOnlineService
 							try
 							{
 								var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
-								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0)
+								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0 || chat.ConnectionReports > 0)
 								{
-									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers and {ChatReportCount} resolved reports", chat.Messages, chat.ReadMarkers, chat.Reports);
+									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers, {ChatReportCount} resolved reports and {ConnectionReportCount} connection reports", chat.Messages, chat.ReadMarkers, chat.Reports, chat.ConnectionReports);
 								}
 							}
 							catch (Exception ex)

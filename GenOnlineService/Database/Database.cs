@@ -92,6 +92,9 @@ public abstract class AppDbContext : DbContext
 	public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
 	public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
 
+	// Lobbies
+	public DbSet<ConnectionReport> ConnectionReports => Set<ConnectionReport>();
+
 	// Players and devices
 	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
 	public DbSet<PlayerStat> PlayerStats => Set<PlayerStat>();
@@ -165,6 +168,7 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new PlayerReportConfiguration());
 		modelBuilder.ApplyConfiguration(new ChatGroupConfiguration());
 		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
+		modelBuilder.ApplyConfiguration(new ConnectionReportConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());

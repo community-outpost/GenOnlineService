@@ -271,7 +271,7 @@ namespace Database
 		Duplicate
 	}
 
-	public sealed record ChatPurgeCounts(int Messages, int ReadMarkers, int Reports);
+	public sealed record ChatPurgeCounts(int Messages, int ReadMarkers, int Reports, int ConnectionReports);
 
 	// Chat storage, block filtering stays with the caller and the queries only take ids to leave out
 	public static class Chat
@@ -511,6 +511,26 @@ namespace Database
 			}
 
 			return await query.ToDictionaryAsync(r => r.Conversation, r => r.LastReadMessageID, cancellationToken);
+		}
+
+		// Moves the read position to the newest message of the conversation, true when it moved
+		public static async Task<bool> MarkConversationRead(AppDbContext db, long userId, string conversation, CancellationToken cancellationToken = default)
+		{
+			long? newest = null;
+			if (conversation.StartsWith(DirectConversationPrefix, StringComparison.Ordinal) && long.TryParse(conversation.AsSpan(DirectConversationPrefix.Length), out long other))
+			{
+				newest = await db.ChatMessages.AsNoTracking()
+					.Where(m => (m.SenderID == userId && m.RecipientID == other) || (m.SenderID == other && m.RecipientID == userId))
+					.MaxAsync(m => (long?)m.ID, cancellationToken);
+			}
+			else if (conversation.StartsWith(GroupConversationPrefix, StringComparison.Ordinal) && long.TryParse(conversation.AsSpan(GroupConversationPrefix.Length), out long groupId))
+			{
+				newest = await db.ChatMessages.AsNoTracking()
+					.Where(m => m.Kind == ChatMessageKinds.Group && m.GroupID == groupId)
+					.MaxAsync(m => (long?)m.ID, cancellationToken);
+			}
+
+			return newest != null && await SetReadMarker(db, userId, conversation, newest.Value, cancellationToken);
 		}
 
 		// Moves the read position forward only and returns true when it moved
@@ -754,10 +774,12 @@ namespace Database
 				.Where(r => r.Status != PlayerReportStatuses.Open && r.ResolvedAt != null && r.ResolvedAt < reportCutoff)
 				.ExecuteDeleteAsync(cancellationToken);
 
-			return new ChatPurgeCounts(messages, markers, reports);
+			int connectionReports = await ConnectionReports.PurgeExpired(db, utcNow, cancellationToken);
+
+			return new ChatPurgeCounts(messages, markers, reports, connectionReports);
 		}
 
-		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers, the resolved reports they filed and group memberships
+		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers, the resolved reports they filed, group memberships and connection reports the user sent or is named in
 		// Open reports keep their evidence until they are resolved, then the normal purge removes them
 		// A group the user owned passes to its earliest member, a group the user was alone in is deleted
 		public static async Task<int> DeleteUserData(AppDbContext db, long userId, CancellationToken cancellationToken = default)
@@ -769,6 +791,7 @@ namespace Database
 			int removed = await db.ChatMessages.Where(m => m.SenderID == userId).ExecuteDeleteAsync(cancellationToken);
 			removed += await db.ChatReadMarkers.Where(r => r.UserID == userId || r.Conversation == conversationWithUser).ExecuteDeleteAsync(cancellationToken);
 			removed += await db.PlayerReports.Where(r => r.ReporterID == userId && r.Status != PlayerReportStatuses.Open).ExecuteDeleteAsync(cancellationToken);
+			removed += await ConnectionReports.DeleteUserData(db, userId, cancellationToken);
 
 			List<long> groups = await db.ChatGroupMembers.AsNoTracking().Where(m => m.UserID == userId).Select(m => m.GroupID).ToListAsync(cancellationToken);
 			foreach (long groupId in groups)
