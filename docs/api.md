@@ -76,7 +76,7 @@ Sign-out everywhere for another user is `POST /api/v1/users/:id/revoke_sessions`
 |---|---|---|
 | `GET\|HEAD /-/health` | anonymous | `{status, version, started_at, uptime_s}` |
 | `GET /-/liveness` | anonymous | `{status: "ok"}` |
-| `GET /-/readiness` | anonymous | `{status: "ok"}`, or 503 `service.unavailable {what: database}` |
+| `GET /-/readiness` | anonymous | `{status: "ok"}`, or 503 `service.unavailable {what: database}`, or with failover on `{what: standby}` on a copy that is not serving |
 | `GET /-/database` | `ops.database` | `{ok}` |
 | `GET /-/self_check/version` | `server.stats` | `{ok, clients: [{client_id, ok}]}` |
 | `GET /.well-known/jwks.json` | anonymous | the EOS token keys |
