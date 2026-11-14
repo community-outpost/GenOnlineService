@@ -434,7 +434,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `social.friend_list_full` | `{max}` | Sending or accepting a friend request |
 | `social.blocked` | | Social and group endpoints involving a block |
 | `moderation.target_offline` | | A kick of a user with no connection |
-| `moderation.target_outranks` | | Sanctions and message deletes: staff only act on users of lower rank (admin above moderator above everyone else), never on themselves |
+| `moderation.target_outranks` | | Sanctions and message deletes: staff only act on users of lower rank (admin above moderator above everyone else). Staff acting on themselves get `invalid_argument {field: id}` instead |
 | `moderation.reason_too_long` | `{max}` | Sanctions, lifting them, message deletes, reports |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
 
@@ -500,7 +500,7 @@ A group has one owner and at most `limits.group_max_members` members, the owner 
 
 ### 10.2 Moderation and reports
 
-Each endpoint is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick`, `moderation.mute`, `chat.delete_any` and `chat.message_anyone`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute or ban an admin or another moderator, or lift their sanctions. A mute is a ban with restriction `chat`: the user keeps playing but cannot send messages. Every action is written to `audit_log` with the actor, the target and the reason; the reason is stored only there.
+Each endpoint is a `perm:<permission>` policy, so the service decides from the caller's roles in this environment (local roles and roles synced from the upstream sign-in). Moderators hold `moderation.kick`, `moderation.mute`, `chat.delete_any` and `chat.message_anyone`; admins also hold `moderation.ban`. Staff only act on users of lower rank: a moderator cannot kick, mute or ban an admin or another moderator, or lift their sanctions. Kick, mute and ban are sanctions of one record type: a mute is a sanction of type `mute`, so the user keeps playing but cannot send messages. Every action is written to `audit_log` with the actor, the target and the reason; the reason is stored only there.
 
 - Reasons are optional, except on a ban, where the reason is required and not blank (`invalid_argument {field: reason}`). Reasons are up to 512 characters.
 - `duration_s` is whole seconds, at least 60 and a multiple of 60, at most 10 years (315360000); otherwise `invalid_argument {field: duration_s}`. Clients offer presets (10 minutes, 1 hour, 1 day, 7 days, 30 days, permanent for bans).
@@ -509,11 +509,12 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | Method and path | Body | Answer | Notes |
 |---|---|---|---|
 | `POST /api/v1/players/:id/sanctions` | `{type: "kick"|"mute"|"ban", duration_s?, reason?}` | `{sanction_id}` | permission by type: `moderation.kick`, `moderation.mute`, `moderation.ban`. A kick needs a connected target (`moderation.target_offline`). The target gets `ModerationNotice`; a kick or ban then closes their connections (section 3) |
-| `GET /api/v1/players/:id/sanctions?active=` | | `{sanctions: [{id, type, reason, created_at, expires_at, revoked_at, created_by: Member}]}` | `moderation.kick` or higher |
+| `GET /api/v1/players/:id/sanctions?active=` | | `{sanctions: [{id, type, reason, created_at, expires_at, lifted_at, created_by: Member}]}` | `moderation.kick` or higher |
 | `DELETE /api/v1/sanctions/:id` | `{reason?}` | 204 | lifts a mute or ban; `moderation.mute` or `moderation.ban` by type |
 | `DELETE /api/v1/messages/:id` | `{reason?}` | 204 | `chat.delete_any`; any channel, lobby, direct or group message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 | `POST /api/v1/reports` | `{message_id?, user_id?, reason?}` | `{report_id}` | exactly one of `message_id` and `user_id`. A message: never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient, a group message by any other current member; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters. A player: any other user, one open report per reporter and player |
-| `GET /api/v1/reports`, `PATCH /api/v1/reports/:id` | | | the staff queue for message and player reports, `moderation.kick` or higher |
+| `GET /api/v1/reports?status=` | | `{reports: [{id, reporter: Member, reported: Member, message_id, reason, status, created_at, resolved_at, resolution_note}]}` | the staff queue for message and player reports, `moderation.kick` or higher; `message_id` is `null` for a report of a player; `status` is `open`, `actioned` or `dismissed` |
+| `PATCH /api/v1/reports/:id` | `{status: "actioned"|"dismissed", resolution_note?}` | 204 | closes a report, `moderation.kick` or higher |
 
 ### 10.3 Profile, matches and playlists
 
