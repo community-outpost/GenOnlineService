@@ -218,7 +218,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `JoinChannel` | `{channel_id}` | Result | Then `ChannelMembers`, then `ChannelHistory`. A parent channel resolves to its default child; `ChannelMembers.channel_id` is the channel actually joined. Leaving a channel happens by joining another or `LeaveChannel` |
 | `LeaveChannel` | `{}` | Result | |
 | `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship; a message to an offline friend is stored and answers ok. Content 1 to 512 characters |
-| `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; messages older than `before`, or the newest when it is absent; `limit` 1 to 100 |
+| `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
 | `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
 
@@ -335,7 +335,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 **Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline friend is stored and delivered on their next connect through `DirectMessages` and `GetHistory`.
 
-OPEN: encryption at rest versus end to end.
+Messages are not end-to-end encrypted. The service stores them in its database and does no message encryption itself; operators encrypt data at rest at the storage layer (volume encryption, or database table encryption where the provider has it) and encrypt backups.
 
 ### 6.3 Lobbies
 
