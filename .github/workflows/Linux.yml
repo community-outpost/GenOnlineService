@@ -9,6 +9,22 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    # Throwaway databases for the DB probe tests (GENONLINE_PROBE_*); each probe creates and drops its own database
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: probe
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: probe
+        ports:
+          - 3306:3306
+        options: --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 20
     strategy:
       matrix:
         arch: [x64, arm64]
@@ -26,6 +42,9 @@ jobs:
       
     - name: Test
       if: matrix.arch == 'x64'
+      env:
+        GENONLINE_PROBE_POSTGRES: Host=127.0.0.1;Port=5432;Username=postgres;Password=probe
+        GENONLINE_PROBE_MARIADB: Server=127.0.0.1;Port=3306;User ID=root;Password=probe
       run: dotnet test GenOnlineService.Tests/GenOnlineService.Tests.csproj --verbosity normal --configuration ${{ matrix.conf }} -p:Platform=x64
 
     - name: Publish
