@@ -436,7 +436,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.length` | `{min, max}` | `PATCH /api/v1/me` |
 | `name.invalid_characters` | | `PATCH /api/v1/me` |
 | `name.whitespace` | | `PATCH /api/v1/me` |
-| `name.reserved` | `{word}` | `PATCH /api/v1/me` (staff words and badge texts) |
+| `name.reserved` | `{word}` | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the name contains a word from the reserved list (case-insensitive, anywhere in the name), the same list the Keycloak plugin uses; `word` is the listed word in lowercase |
 | `name.taken` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the new name together with the player's tag is already taken |
 | `name.managed` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` in an environment where Keycloak owns names and this environment may not rename (test and dev of the official deployment) |
 | `name.unavailable` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` when the service that owns names (the Keycloak plugin) cannot be reached or fails (HTTP 503). Nothing changed; the client may retry later |
@@ -456,7 +456,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `moderation.target_outranks` | | Sanctions and message deletes: staff only act on users of lower rank (admin above moderator above everyone else). Staff acting on themselves get `invalid_argument {field: id}` instead |
 | `moderation.reason_too_long` | `{max}` | Sanctions, lifting them, message deletes, reports |
 | `name.changed` | `{user_id, old_name, new_name}` | `Notice` |
-| `service.unavailable` | `{what}` | A REST route whose backing service is not configured or not reachable: `eos_token`, `eos`, `config`, `database` (HTTP 503) |
+| `service.unavailable` | `{what}` | A REST route whose backing service is not configured or not reachable: `eos_token`, `eos`, `config`, `database` (HTTP 503). With failover on, a copy that is not serving answers `{what: standby}` with `Retry-After: 1` on REST calls, on the realtime upgrade and on `/-/readiness`; clients wait that long and retry, without showing an error or signing the player out |
 | `session.game_required` | | `POST /api/v1/me/eos_token` and `PUT /api/v1/me/linked_accounts/eos` from a session that is not a game session (HTTP 403) |
 | `eos.invalid_token` | | `PUT /api/v1/me/linked_accounts/eos` with an Epic ID token that does not validate |
 | `eos.account_mismatch` | | `PUT /api/v1/me/linked_accounts/eos` when the Epic account does not belong to the caller's binding (HTTP 403) |
