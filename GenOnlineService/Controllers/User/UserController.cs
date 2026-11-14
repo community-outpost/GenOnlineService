@@ -144,7 +144,7 @@ namespace GenOnlineService.Controllers
 				UserSession? session = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 				if (session != null)
 				{
-					UserWebSocketInstance ws = await session.CloseWebsocket(WebSocketCloseStatus.NormalClosure, "User logged out");
+					RealtimeConnection? ws = await session.CloseWebsocket(GenOnlineService.Realtime.CloseCodes.AuthRevoked, allowReconnect: false);
 					await WebSocketManager.DeleteSession(user_id, sessionType, ws, true);
 				}
 			}

@@ -53,6 +53,7 @@ using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using System.Xml;
 using GenOnlineService.Identity;
+using GenOnlineService.Realtime;
 
 namespace GenOnlineService
 {
@@ -1154,6 +1155,16 @@ namespace GenOnlineService
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
 
+			// realtime protocol v1, see docs/realtime-protocol.md
+			builder.Services.AddSignalR(options =>
+			{
+				options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+				options.MaximumReceiveMessageSize = 64 * 1024;
+				options.EnableDetailedErrors = false;
+			}).AddJsonProtocol(options => GenOnlineService.Realtime.RealtimeJson.Configure(options.PayloadSerializerOptions));
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>, RealtimeLifetimeManager>();
+
 			var rateLimitingSettings = Program.g_Config.GetSection("RateLimiting");
 			bool bUseBuiltinRateLimiter = rateLimitingSettings.GetValue<bool>("use_builtin_ratelimiter"); // use built in Kestrel/dotnet rate limiting if you do not have a reverse proxy or other rate limiter in front of service
 
@@ -1387,6 +1398,7 @@ namespace GenOnlineService
 
 			var app = builder.Build();
 			ServiceLocator.Services = app.Services;
+			GenOnlineService.Realtime.RealtimeOut.Initialize(app.Services.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<GenOnlineService.Realtime.RealtimeHub, GenOnlineService.Realtime.IRealtimeClient>>());
 
 			// These log through AppLog, which only has a logger factory once ServiceLocator.Services is set, so they run after Build
 			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();
@@ -1432,8 +1444,8 @@ namespace GenOnlineService
 
 			var webSocketOptions = new WebSocketOptions
 			{
-				KeepAliveInterval = UserWebSocketInstance.c_KeepAliveInterval,
-				KeepAliveTimeout = UserWebSocketInstance.c_KeepAliveTimeout
+				KeepAliveInterval = TimeSpan.FromSeconds(15),
+				KeepAliveTimeout = TimeSpan.FromSeconds(30)
 			};
 
 			app.UseWebSockets(webSocketOptions);
@@ -1488,7 +1500,9 @@ namespace GenOnlineService
 			}
 
 			app.UseCors();
+			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
+			app.UseRealtimeRegistrationGate();
 			bool bTrustedProxiesConfigured = (builder.Configuration.GetSection("TrustedProxies").Get<string[]>() ?? Array.Empty<string>()).Any(v => !string.IsNullOrWhiteSpace(v));
 			app.Use((context, next) =>
 			{
@@ -1501,6 +1515,11 @@ namespace GenOnlineService
 			app.UseAuthorization();
 
 			app.MapControllers();
+			app.MapHub<GenOnlineService.Realtime.RealtimeHub>(GenOnlineService.Realtime.RealtimeHub.Path, options =>
+			{
+				options.Transports = Microsoft.AspNetCore.Http.Connections.HttpTransportType.WebSockets;
+				options.ApplicationMaxBufferSize = 64 * 1024;
+			});
 
 			// Unauthenticated liveness probe used by deployment tooling. Exposes only status and build version.
 			// Load balancers probe with HEAD as well as GET (Kestrel drops the body of a HEAD response).

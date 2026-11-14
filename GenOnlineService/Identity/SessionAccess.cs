@@ -45,7 +45,23 @@ namespace GenOnlineService.Identity
 
 		public static PlayBan? GetPlayBan(Int64 userID) => s_banned.GetValueOrDefault(userID);
 
+		private static readonly SemaphoreSlim s_reloadGate = new SemaphoreSlim(1, 1);
+
+		// Moderation calls this right after a ban as well as the reconcile tick, so reloads never overlap
 		public static async Task Reload(AppDbContext db)
+		{
+			await s_reloadGate.WaitAsync();
+			try
+			{
+				await ReloadCore(db);
+			}
+			finally
+			{
+				s_reloadGate.Release();
+			}
+		}
+
+		private static async Task ReloadCore(AppDbContext db)
 		{
 			DateTime now = DateTime.UtcNow;
 
@@ -228,7 +244,7 @@ namespace GenOnlineService.Identity
 
 			if (ban != null)
 			{
-				await ModerationManager.DisconnectUser(userID, EModerationAction.Ban, ban.Reason);
+				await ModerationManager.DisconnectUser(userID, EModerationAction.Ban, ban.Reason, ban.Until);
 			}
 			else
 			{
@@ -239,11 +255,10 @@ namespace GenOnlineService.Identity
 			return revoked.Count;
 		}
 
-		// Sends AUTH_REVOKED and closes the user's realtime connections, all or one session type
+		// Closes the user's realtime connections with auth.revoked, all or one session type
 		public static Task CloseRealtime(Int64 userID, EUserSessionType? onlySessionType)
 		{
-			byte[] message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { msg_id = (int)EWebSocketMessageID.AUTH_REVOKED, code = AuthRevokedCode }));
-			return WebSocketManager.DisconnectUser(userID, message, onlySessionType);
+			return WebSocketManager.DisconnectUser(userID, AuthRevokedCode, allowReconnect: false, notice: null, onlySessionType);
 		}
 	}
 

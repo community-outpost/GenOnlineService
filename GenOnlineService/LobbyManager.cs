@@ -263,7 +263,7 @@ namespace GenOnlineService
 		}
 
 		// End AC Probes
-		private sealed record MeshParticipant(LobbyMember Member, UserSession Session, UserWebSocketInstance? Socket);
+		private sealed record MeshParticipant(LobbyMember Member, UserSession Session, RealtimeConnection? Socket);
 		private Dictionary<long, MeshParticipant> m_MeshParticipants = new();
 		private MeshParticipant? m_MeshHost;
 		private long m_MembershipVersion;
@@ -271,7 +271,7 @@ namespace GenOnlineService
 		[JsonIgnore]
 		public string? LastFullMeshCheckFailureReason { get; private set; }
 
-		public Task<long> StartMeshCheckAsync(UserSession? requester = null, UserWebSocketInstance? socket = null)
+		public Task<long> StartMeshCheckAsync(UserSession? requester = null, RealtimeConnection? socket = null)
 		{
 			return RunExclusiveAsync(() =>
 			{
@@ -664,7 +664,7 @@ namespace GenOnlineService
 			});
 		}
 
-		public Task StoreMeshResponseAsync(UserSession source, UserWebSocketInstance socket,
+		public Task StoreMeshResponseAsync(UserSession source, RealtimeConnection socket,
 			WebSocketMessage_FullMeshConnectivityCheckResponseFromUser response) => RunExclusiveAsync(() =>
 		{
 			// Legacy zero IDs cannot distinguish successive checks on the same socket.

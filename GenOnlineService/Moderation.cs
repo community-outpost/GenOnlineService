@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Text.Json;
 
+using GenOnlineService.Realtime;
+
 namespace GenOnlineService
 {
 	public enum EModerationResult
@@ -69,24 +71,20 @@ namespace GenOnlineService
 			};
 		}
 
-		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason, EUserSessionType? onlySessionType = null)
+		// Shows the notice, then closes with moderation.kicked (reconnect allowed) or moderation.banned
+		public static async Task DisconnectUser(Int64 userID, EModerationAction action, string? reason, DateTime? until = null, EUserSessionType? onlySessionType = null)
 		{
 			AppMetrics.RecordSecurityAction(action.ToMetricLabel(), "applied");
 			s_log.LogInformation("Applying moderation action {Action} to user {UserId}", action, userID);
-			WebSocketMessage_ModerationNotice notice = new WebSocketMessage_ModerationNotice
+			(ModerationAction noticeAction, string closeCode, bool allowReconnect) = action switch
 			{
-				msg_id = (int)EWebSocketMessageID.MODERATION_NOTICE,
-				action_type = action switch
-				{
-					EModerationAction.Ban => "ban",
-					EModerationAction.Kick => "kick",
-					_ => throw new ArgumentOutOfRangeException(nameof(action))
-				},
-				reason = reason ?? String.Empty
+				EModerationAction.Ban => (ModerationAction.Ban, CloseCodes.ModerationBanned, false),
+				EModerationAction.Kick => (ModerationAction.Kick, CloseCodes.ModerationKicked, true),
+				_ => throw new ArgumentOutOfRangeException(nameof(action))
 			};
-			byte[] noticeJson = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(notice));
+			ModerationNoticeEvent notice = new ModerationNoticeEvent { Action = noticeAction, Reason = reason ?? String.Empty, Until = until };
 
-			await WebSocketManager.DisconnectUser(userID, noticeJson, onlySessionType);
+			await WebSocketManager.DisconnectUser(userID, closeCode, allowReconnect, notice, onlySessionType);
 		}
 	}
 }

@@ -17,27 +17,28 @@
 */
 
 using Database;
-using System.Net.WebSockets;
+using GenOnlineService.Realtime;
+using Microsoft.AspNetCore.SignalR;
 
 namespace GenOnlineService;
 
 public partial class LobbyManager
 {
-	internal async Task<UserWebSocketInstance> OpenSessionAsync(AppDbContext db, EUserSessionType sessionType, bool reconnect,
+	internal async Task<RealtimeConnection?> OpenSessionAsync(AppDbContext db, EUserSessionType sessionType, bool reconnect,
 		long userID, KnownClients.EKnownClients clientID, string ipAddress, string continent, string country,
-		double latitude, double longitude)
+		double latitude, double longitude, HubConnectionContext transport)
 	{
 		using var membership = await AcquireMembershipGateAsync(userID);
 		var previous = membershipConnections.GetSession(userID, sessionType);
 		if (!reconnect && previous != null) await DestroySessionAsync(previous);
 		if (reconnect && (previous == null || previous.IsRetired)) return null;
 		var installed = await WebSocketManager.InstallSession(db, sessionType, reconnect, userID, clientID,
-			ipAddress, continent, country, latitude, longitude);
+			ipAddress, continent, country, latitude, longitude, transport);
 		if (reconnect && previous != null) await InvalidateSessionMeshAsync(previous);
 		return installed;
 	}
 
-	internal async Task DisconnectSessionAsync(UserSession? session, UserWebSocketInstance? socket, bool destroySession)
+	internal async Task DisconnectSessionAsync(UserSession? session, RealtimeConnection? socket, bool destroySession)
 	{
 		if (session == null) return;
 		using (await AcquireMembershipGateAsync(session.m_UserID))
@@ -56,7 +57,8 @@ public partial class LobbyManager
 					if (lobby?.State == ELobbyState.INGAME) lobby.RecordPlayerIngameAbandon(session.m_UserID);
 				}
 			}
-			if (socket != null) await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session being deleted");
+			// also reached when a new registration replaces the session, so the old connection must hear why
+			if (socket != null) await socket.CloseAsync(CloseCodes.SessionSuperseded, allowReconnect: false);
 		}
 	}
 
@@ -131,9 +133,8 @@ public partial class LobbyManager
 				}
 				finally
 				{
-					// Send loops never invoke lifecycle operations. Stop the old queue reader
-					// before allowing a reconnect to attach another reader to the same session.
-					if (socket != null) await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session replaced or expired");
+					// a destroyed session takes its connection down, callers that need another close code close first
+					if (socket != null) await socket.CloseAsync(CloseCodes.SessionSuperseded, allowReconnect: false);
 				}
 			}
 		}
@@ -146,7 +147,7 @@ public partial class LobbyManager
 		if (lobby != null) await lobby.InvalidateMeshForSessionAsync(session);
 	}
 
-	internal async Task StartMeshCheckAsync(UserSession session, UserWebSocketInstance socket)
+	internal async Task StartMeshCheckAsync(UserSession session, RealtimeConnection socket)
 	{
 		using var membership = await AcquireMembershipGateAsync(session.m_UserID);
 		if (!IsCurrentSession(session) || session.IsRetired || !ReferenceEquals(WebSocketManager.GetWebSocketForSession(session), socket)) return;
@@ -154,7 +155,7 @@ public partial class LobbyManager
 		if (lobby != null) await lobby.StartMeshCheckAsync(session, socket);
 	}
 
-	internal async Task StoreMeshResponseAsync(UserSession session, UserWebSocketInstance socket,
+	internal async Task StoreMeshResponseAsync(UserSession session, RealtimeConnection socket,
 		WebSocketMessage_FullMeshConnectivityCheckResponseFromUser response)
 	{
 		using var membership = await AcquireMembershipGateAsync(session.m_UserID);

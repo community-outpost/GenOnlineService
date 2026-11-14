@@ -112,7 +112,7 @@ namespace GenOnlineService.Identity
 				user_id = userID,
 				display_name = displayName,
 				session_type = sessionType.ToString(),
-				ws_url = $"{(Request.IsHttps ? "wss" : "ws")}://{Request.Host}{Request.PathBase}/ws"
+				ws_url = $"{(Request.IsHttps ? "wss" : "ws")}://{Request.Host}{Request.PathBase}{GenOnlineService.Realtime.RealtimeHub.Path}"
 			});
 		}
 
@@ -125,9 +125,10 @@ namespace GenOnlineService.Identity
 			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
 			string? authorizationID = User.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value;
 
+			// closing first tells the client auth.revoked before the session is cleared
 			GameSessions.Remove(userID, sessionType);
-			await WebSocketManager.ClearDataFromUser(userID, sessionType);
 			await SessionRevocation.CloseRealtime(userID, sessionType);
+			await WebSocketManager.ClearDataFromUser(userID, sessionType);
 
 			if (!String.IsNullOrEmpty(authorizationID))
 			{

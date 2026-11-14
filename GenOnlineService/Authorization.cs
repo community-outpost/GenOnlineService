@@ -100,6 +100,7 @@ namespace GenOnlineService
 		};
 
 		private static volatile Dictionary<Int64, HashSet<string>> s_permissionsByUser = new();
+		private static volatile Dictionary<Int64, HashSet<string>> s_rolesByUser = new();
 		private static string s_lastUnknownRoles = String.Empty;
 
 		public static IReadOnlyCollection<string> All => s_rolePermissions.Keys;
@@ -109,6 +110,17 @@ namespace GenOnlineService
 		public static bool HasPermission(Int64 userID, string permission)
 		{
 			return s_permissionsByUser.TryGetValue(userID, out HashSet<string>? permissions) && permissions.Contains(permission);
+		}
+
+		public static IReadOnlyCollection<string> PermissionsOf(Int64 userID)
+		{
+			return s_permissionsByUser.TryGetValue(userID, out HashSet<string>? permissions) ? permissions : Array.Empty<string>();
+		}
+
+		// Known roles only, so an unknown role never shows a badge
+		public static IReadOnlyCollection<string> RolesOf(Int64 userID)
+		{
+			return s_rolesByUser.TryGetValue(userID, out HashSet<string>? roles) ? roles : Array.Empty<string>();
 		}
 
 		// A role the code does not know grants nothing, so a typo in the database never widens access
@@ -159,6 +171,10 @@ namespace GenOnlineService
 
 			s_lastUnknownRoles = unknown;
 			s_permissionsByUser = next;
+			s_rolesByUser = rows
+				.Where(r => IsKnown(r.Role))
+				.GroupBy(r => r.UserID)
+				.ToDictionary(g => g.Key, g => new HashSet<string>(g.Select(r => r.Role), StringComparer.Ordinal));
 		}
 	}
 
