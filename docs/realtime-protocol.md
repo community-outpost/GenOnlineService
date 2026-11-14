@@ -221,7 +221,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
 | `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
-| `ReportMessage` | `{message_id, reason?}` | Result | any user who received the message; one report per user per message (`report.duplicate`); the service snapshots the message and up to 10 messages before it in the same conversation, kept until the case is closed; reasons up to 512 characters |
+| `ReportMessage` | `{message_id, reason?}` | Result | any user who received the message; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters |
 
 ### 5.2 Lobbies
 
