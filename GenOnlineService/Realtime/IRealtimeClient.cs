@@ -25,6 +25,7 @@ namespace GenOnlineService.Realtime
 		Task BadgesUpdate(BadgesUpdateEvent e);
 		Task Notice(NoticeEvent e);
 		Task ModerationNotice(ModerationNoticeEvent e);
+		Task ServerSwitching(ServerSwitchingEvent e);
 
 		Task ChannelMembers(ChannelMembersEvent e);
 		Task MemberAdd(MemberAddEvent e);

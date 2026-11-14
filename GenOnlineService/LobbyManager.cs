@@ -441,20 +441,43 @@ namespace GenOnlineService
 		// every member gets its own load screen upload target
 		public async Task BroadcastStartGameAsync()
 		{
+			Dictionary<Int64, string?> screenshotURLs = new();
+			foreach (LobbyMember lobbyMember in Members)
+			{
+				if (lobbyMember.IsHuman())
+				{
+					string? screenshotURL = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_LOADSCREEN, MatchID, lobbyMember.UserID, lobbyMember.SlotIndex, TimeCreated);
+					screenshotURLs[lobbyMember.UserID] = String.IsNullOrEmpty(screenshotURL) ? null : screenshotURL;
+				}
+			}
+
+			// LobbyState carries the same start data, so a member who misses GameStart still starts
+			m_StartData = new LobbyStartData((long)MatchID, RNGSeed, screenshotURLs);
 			foreach (LobbyMember lobbyMember in Members)
 			{
 				if (lobbyMember.GetSession().TryGetTarget(out UserSession? sess) && sess != null)
 				{
-					string? screenshotURL = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_LOADSCREEN, MatchID, lobbyMember.UserID, lobbyMember.SlotIndex, TimeCreated);
 					RealtimeOut.Fire(RealtimeOut.Session(sess).GameStart(new GameStartEvent
 					{
 						LobbyId = LobbyID,
 						MatchId = (long)MatchID,
 						RngSeed = RNGSeed,
-						ScreenshotUrl = String.IsNullOrEmpty(screenshotURL) ? null : screenshotURL
+						ScreenshotUrl = screenshotURLs.GetValueOrDefault(lobbyMember.UserID)
 					}));
 				}
 			}
+			DirtyRetransmit();
+		}
+
+		// The start data of one member once the game started, null before
+		internal LobbyStart? StartFor(Int64 userID)
+		{
+			LobbyStartData? start = m_StartData;
+			if (start == null || (State != ELobbyState.INGAME && State != ELobbyState.COMPLETE))
+			{
+				return null;
+			}
+			return new LobbyStart { MatchId = start.MatchId, RngSeed = start.RngSeed, ScreenshotUrl = start.ScreenshotURLs.GetValueOrDefault(userID) };
 		}
 
 		private bool IsCurrentMeshParticipant(MeshParticipant participant) =>
@@ -599,8 +622,75 @@ namespace GenOnlineService
 
 		private void SendStartSignallingToMember(LobbyMember recipient, LobbyMember peer)
 		{
+			ForgetConnection(recipient.UserID, peer.UserID);
 			RealtimeOut.Fire(RealtimeLobbies.GameOf(recipient).StartSignalling(StartSignallingFor(peer)));
 		}
+
+		// A pair counts as connected once both members reported each other in a mesh check response
+		private bool IsPairConnected(Int64 userA, Int64 userB) =>
+			m_ReportedConnections.ContainsKey((userA, userB)) && m_ReportedConnections.ContainsKey((userB, userA));
+
+		// A StartSignalling restarts the pair on both clients, so its earlier reports no longer hold
+		internal void ForgetConnection(Int64 userA, Int64 userB)
+		{
+			m_ReportedConnections.TryRemove((userA, userB), out _);
+			m_ReportedConnections.TryRemove((userB, userA), out _);
+		}
+
+		private void ForgetConnectionsOf(Int64 userID)
+		{
+			foreach ((Int64 Reporter, Int64 Peer) pair in m_ReportedConnections.Keys)
+			{
+				if (pair.Reporter == userID || pair.Peer == userID)
+				{
+					m_ReportedConnections.TryRemove(pair, out _);
+				}
+			}
+		}
+
+		// The latest response of a member replaces its earlier reports towards the other members
+		private void RecordReportedConnections(Int64 reporter, IReadOnlyList<Int64> connected)
+		{
+			foreach (LobbyMember peer in Members)
+			{
+				if (!peer.IsHuman() || peer.UserID == reporter)
+				{
+					continue;
+				}
+				if (connected.Contains(peer.UserID))
+				{
+					m_ReportedConnections[(reporter, peer.UserID)] = 0;
+				}
+				else
+				{
+					m_ReportedConnections.TryRemove((reporter, peer.UserID), out _);
+				}
+			}
+		}
+
+		// A reconnect during setup restarts every pair of the member that has not reported connected, both peers get StartSignalling
+		internal Task ResendSignallingAfterReconnectAsync(Int64 userID) => RunExclusiveAsync(() =>
+		{
+			LobbyMember? member = GetMemberFromUserID(userID);
+			if (member == null || (State != ELobbyState.GAME_SETUP && State != ELobbyState.COUNTDOWN))
+			{
+				return Task.CompletedTask;
+			}
+
+			foreach (LobbyMember peer in Members)
+			{
+				if (peer == member || !peer.IsHuman() || !peer.GetSession().TryGetTarget(out UserSession? peerSession) || peerSession == null
+					|| IsPairConnected(userID, peer.UserID))
+				{
+					continue;
+				}
+
+				s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} after a reconnect", LobbyID, userID, peer.UserID);
+				SendStartSignallingToMember(member, peer);
+				SendStartSignallingToMember(peer, member);
+			}
+			return Task.CompletedTask;
+		});
 
 		// tells a member how to reach the given peer
 		internal StartSignallingEvent StartSignallingFor(LobbyMember peer) => new StartSignallingEvent
@@ -648,12 +738,16 @@ namespace GenOnlineService
 
 		public Task StoreMeshResponseAsync(UserSession source, RealtimeConnection socket, MeshCheckResponseRequest response) => RunExclusiveAsync(() =>
 		{
-			if (!EnsureMeshCheckIsCurrentLocked() || (!PendingFullMeshConnectivityChecks && m_StartPhase != EStartPhase.Countdown) || m_TimeToRetryFullMeshChecks != -1
+			if (!EnsureMeshCheckIsCurrentLocked()
 				|| !m_MeshParticipants.TryGetValue(source.m_UserID, out var participant)
 				|| !ReferenceEquals(participant.Session, source) || !ReferenceEquals(participant.Socket, socket)
 				|| !FullMeshCheckProtocol.MatchesCurrentAttempt(response.MeshCheckId, response.Attempt, FullMeshCheckID, FullMeshCheckAttempt))
 				return Task.CompletedTask;
 			IReadOnlyList<Int64> connected = response.Connected ?? Array.Empty<Int64>();
+			// every valid answer of the current check counts for the reconnect pairs, also after the check finished
+			RecordReportedConnections(source.m_UserID, connected);
+			if ((!PendingFullMeshConnectivityChecks && m_StartPhase != EStartPhase.Countdown) || m_TimeToRetryFullMeshChecks != -1)
+				return Task.CompletedTask;
 			if (m_StartPhase == EStartPhase.Countdown)
 			{
 				var missingLinks = m_MeshParticipants.Keys
@@ -865,6 +959,13 @@ namespace GenOnlineService
 		public Int16 NetworkRoomID { get; private set; } = -1;
 
 		public int RNGSeed { get; private set; } = -1;
+
+		// The start data GameStart carried with each member's load screen upload URL, null before the start
+		private sealed record LobbyStartData(long MatchId, int RngSeed, IReadOnlyDictionary<Int64, string?> ScreenshotURLs);
+		private volatile LobbyStartData? m_StartData;
+
+		// The peers each member reported connected in its latest mesh check response, cleared for a pair on every StartSignalling
+		private readonly ConcurrentDictionary<(Int64 Reporter, Int64 Peer), byte> m_ReportedConnections = new();
 
 		public ELobbyType LobbyType { get; private set; } = ELobbyType.CustomGame;
 
@@ -1178,7 +1279,22 @@ public async Task FinalizeACChecks()
 
 			if (Interlocked.Exchange(ref m_lobbyUpdatePending, 0) != 0)
 			{
-				RealtimeOut.Fire(RealtimeOut.Lobby(LobbyID).LobbyState(new LobbyStateEvent { Lobby = RealtimeLobbies.StateOf(this) }));
+				LobbyInfo state = RealtimeLobbies.StateOf(this);
+				if (m_StartData == null)
+				{
+					RealtimeOut.Fire(RealtimeOut.Lobby(LobbyID).LobbyState(new LobbyStateEvent { Lobby = state }));
+				}
+				else
+				{
+					// once the game started every member gets its own start data
+					foreach (LobbyMember member in Members)
+					{
+						if (member.IsHuman())
+						{
+							RealtimeOut.Fire(RealtimeOut.UserGame(member.UserID).LobbyState(new LobbyStateEvent { Lobby = state with { Start = StartFor(member.UserID) } }));
+						}
+					}
+				}
 			}
 		}
 
@@ -1325,6 +1441,7 @@ public async Task FinalizeACChecks()
 			}
 
 			Members[slotIndex] = newMember;
+			ForgetConnectionsOf(playerSession.m_UserID);
 			++m_MembershipVersion;
 			InvalidateMeshCheck("membership_changed");
 			TimeMemberLeft[playerSession.m_UserID] = DateTime.UnixEpoch;
@@ -1437,6 +1554,7 @@ public async Task FinalizeACChecks()
 			LobbyMember placeholderMember = new LobbyMember(this, null, -1, String.Empty, String.Empty, 0, -1, -1, -1, EPlayerType.SLOT_OPEN, member.SlotIndex, true);
 			Members[member.SlotIndex] = placeholderMember;
 			TimeMemberLeft[member.UserID] = DateTime.UtcNow;
+			ForgetConnectionsOf(member.UserID);
 
 			OnAfterPlayerLeftLocked(member.UserID);
 			++m_MembershipVersion;

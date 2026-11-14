@@ -175,6 +175,7 @@ namespace GenOnlineService.Realtime
 		public AnticheatKind Anticheat { get; init; }
 		public LobbySettings Settings { get; init; } = new LobbySettings();
 		public long? MatchId { get; init; }
+		public LobbyStart? Start { get; init; }
 		public DateTime CreatedAt { get; init; }
 		public IReadOnlyList<Slot> Slots { get; init; } = [];
 	}
@@ -549,6 +550,12 @@ namespace GenOnlineService.Realtime
 
 	// Events (one argument object per event)
 
+	// A planned handover to another service copy, a server.switching close follows
+	public sealed record ServerSwitchingEvent
+	{
+		public int RetryAfterMs { get; init; }
+	}
+
 	public sealed record ReadyEvent
 	{
 		public int ProtocolVersion { get; init; }
@@ -676,6 +683,14 @@ namespace GenOnlineService.Realtime
 		public CountdownCancelReason Reason { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public IReadOnlyList<long>? Missing { get; init; }
+	}
+
+	// The start data of GameStart, kept in LobbyState once the game started
+	public sealed record LobbyStart
+	{
+		public long MatchId { get; init; }
+		public int RngSeed { get; init; }
+		public string? ScreenshotUrl { get; init; }
 	}
 
 	public sealed record GameStartEvent

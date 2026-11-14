@@ -343,6 +343,30 @@ namespace Database
 			return ToPage(rows, limit);
 		}
 
+		// Same shape as channel history for the lobby messages since the lobby was created, lobby ids restart with the service
+		public static async Task<ChatPage> GetLobbyHistory(AppDbContext db, long lobbyId, DateTime since, long? beforeId, int limit, IReadOnlyCollection<long>? excludeSenderIds = null, CancellationToken cancellationToken = default)
+		{
+			limit = Math.Clamp(limit, 1, MaximumPageSize);
+			DateTime from = TruncateToMicroseconds(since);
+
+			IQueryable<ChatMessage> query = db.ChatMessages.AsNoTracking()
+				.Where(m => m.Kind == ChatMessageKinds.Lobby && m.LobbyID == lobbyId && m.CreatedAt >= from);
+
+			if (beforeId is long before)
+			{
+				query = query.Where(m => m.ID < before);
+			}
+
+			if (excludeSenderIds is { Count: > 0 })
+			{
+				long[] excluded = excludeSenderIds.ToArray();
+				query = query.Where(m => !excluded.Contains(m.SenderID));
+			}
+
+			List<ChatMessage> rows = await query.OrderByDescending(m => m.ID).Take(limit + 1).ToListAsync(cancellationToken);
+			return ToPage(rows, limit);
+		}
+
 		// Same shape as channel history, messages of the excluded senders are left out
 		public static async Task<ChatPage> GetGroupHistory(AppDbContext db, long groupId, long? beforeId, int limit, IReadOnlyCollection<long>? excludeSenderIds = null, CancellationToken cancellationToken = default)
 		{

@@ -33,7 +33,7 @@ namespace GenOnlineService.Realtime
 		// a module scan answer adds at most this many new modules, later scans pick up the rest
 		private const int MaxNewModulesPerScan = 256;
 
-		// Reconnects rejoin the lobby group and get the current state
+		// Reconnects rejoin the lobby group, get the current state and the lobby chat, then signalling restarts for the unconnected pairs
 		private async partial Task RestoreLobbyAsync(UserSession session)
 		{
 			if (session.GetSessionType() != EUserSessionType.GameClient || session.currentLobbyID == -1)
@@ -48,7 +48,15 @@ namespace GenOnlineService.Realtime
 			}
 
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.Lobby(lobby.LobbyID));
-			await Clients.Caller.LobbyState(new LobbyStateEvent { Lobby = RealtimeLobbies.StateOf(lobby) });
+			await SendLobbySnapshotAsync(lobby, session.m_UserID);
+			await lobby.ResendSignallingAfterReconnectAsync(session.m_UserID);
+		}
+
+		// LobbyState with the caller's start data, then the lobby chat as ChannelHistory
+		private async Task SendLobbySnapshotAsync(Lobby lobby, Int64 userID)
+		{
+			await Clients.Caller.LobbyState(new LobbyStateEvent { Lobby = RealtimeLobbies.StateOf(lobby) with { Start = lobby.StartFor(userID) } });
+			await SendLobbyHistoryAsync(lobby);
 		}
 
 		// 5.2 Lobbies
@@ -161,6 +169,11 @@ namespace GenOnlineService.Realtime
 			}
 
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.Lobby(request.LobbyId));
+			Lobby? joinedLobby = m_lobbyManager.GetLobby(request.LobbyId);
+			if (joinedLobby != null && joinedLobby.GetMemberFromUserID(UserID) != null)
+			{
+				await SendLobbySnapshotAsync(joinedLobby, UserID);
+			}
 			return Result.Success(new JoinLobbyData { Turn = new TurnCredentials { Username = joined.TurnUsername, Token = joined.TurnToken } });
 		}
 
@@ -579,6 +592,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			// both peers restart the handshake towards each other
+			lobby.ForgetConnection(source.UserID, target.UserID);
 			RealtimeOut.Fire(Clients.Caller.StartSignalling(lobby.StartSignallingFor(target)));
 			RealtimeOut.Fire(RealtimeOut.UserGame(target.UserID).StartSignalling(lobby.StartSignallingFor(source)));
 			return Task.CompletedTask;

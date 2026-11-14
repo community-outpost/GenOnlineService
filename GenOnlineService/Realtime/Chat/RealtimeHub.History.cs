@@ -26,6 +26,7 @@ namespace GenOnlineService.Realtime
 	public sealed partial class RealtimeHub
 	{
 		private const int DefaultHistorySize = 50;
+		private const int LobbyHistorySize = 50;
 		private const int DirectConversationsMax = 50;
 
 		// One ChannelHistory event stays under 64 KB with room for the event envelope
@@ -45,7 +46,7 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<HistoryData>> GetHistory(GetHistoryRequest request)
 		{
-			if (!TryParseChannel(request.ChannelId, out string kind, out Int64 targetID) || kind == "lobby")
+			if (!TryParseChannel(request.ChannelId, out string kind, out Int64 targetID))
 			{
 				return Result.Invalid("channel_id");
 			}
@@ -76,6 +77,16 @@ namespace GenOnlineService.Realtime
 					return Result.NotFound("channel");
 				}
 				page = await Database.Chat.GetChannelHistory(db, targetID, before, request.Limit, blocked);
+			}
+			else if (kind == "lobby")
+			{
+				// current members only, and only the messages of this lobby since it was created
+				Lobby? lobby = m_lobbyManager.GetLobby(targetID);
+				if (lobby == null || lobby.GetMemberFromUserID(me) == null)
+				{
+					return Result.Fail(ErrorCodes.LobbyNotMember);
+				}
+				page = await Database.Chat.GetLobbyHistory(db, targetID, lobby.TimeCreated, before, request.Limit, blocked);
 			}
 			else if (kind == "group")
 			{
@@ -158,7 +169,29 @@ namespace GenOnlineService.Realtime
 				names = await NamesAsync(db, page.Messages.Select(m => m.SenderID));
 			}
 
-			string channel = Database.Chat.ChannelConversationKey(channelID);
+			await SendHistoryEventsAsync(Database.Chat.ChannelConversationKey(channelID), page, names);
+		}
+
+		// The lobby messages since the lobby was created after LobbyState, at most LobbyHistorySize, oldest first
+		private async Task SendLobbyHistoryAsync(Lobby lobby)
+		{
+			Int64 me = UserID;
+			Database.ChatPage page;
+			Dictionary<long, string> names;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
+				page = await Database.Chat.GetLobbyHistory(db, lobby.LobbyID, lobby.TimeCreated, null, LobbyHistorySize, blocked);
+				names = await NamesAsync(db, page.Messages.Select(m => m.SenderID));
+			}
+
+			await SendHistoryEventsAsync(RealtimeGroups.Lobby(lobby.LobbyID), page, names);
+		}
+
+		// One replay as ChannelHistory events to the caller, split to keep each event under 64 KB
+		private async Task SendHistoryEventsAsync(string channel, Database.ChatPage page, IReadOnlyDictionary<long, string> names)
+		{
+			Int64 me = UserID;
 			List<Message> chunk = new();
 			int size = 0;
 			foreach (ChatMessage row in page.Messages)

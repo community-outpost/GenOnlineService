@@ -111,6 +111,7 @@ namespace GenOnlineService.Realtime
 		public const string ModerationKicked = "moderation.kicked";
 		public const string ModerationBanned = "moderation.banned";
 		public const string ServerRestarting = "server.restarting";
+		public const string ServerSwitching = "server.switching";
 		public const string ProtocolError = "protocol.error";
 	}
 }
