@@ -506,6 +506,16 @@ public class DiscordBot
 			{
 				Int64 targetUserID = GetOption<Int64>(command, "user_id");
 				string reason = GetOption<string>(command, "reason") ?? String.Empty;
+
+				// a discord_admins entry has no account and keeps admin standing
+				bool bMayModerate = actor.UserID is Int64 actorUserID
+					? StaffRoles.CanModerate(actorUserID, targetUserID)
+					: StaffRoles.Outranks(StaffRoles.AdminRank, targetUserID);
+				if (!bMayModerate)
+				{
+					return "You cannot moderate a member of equal or higher staff rank.";
+				}
+
 				ModerationResult kickResult = await ModerationManager.KickUser(targetUserID, reason, actor);
 
 				return kickResult.Result switch

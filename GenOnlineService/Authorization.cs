@@ -99,6 +99,15 @@ namespace GenOnlineService
 			[Admin] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal)
 		};
 
+		// Staff rank decides who may moderate whom, a role the code does not know ranks as a player
+		public const int AdminRank = 2;
+
+		private static readonly Dictionary<string, int> s_roleRanks = new(StringComparer.Ordinal)
+		{
+			[Moderator] = 1,
+			[Admin] = AdminRank
+		};
+
 		private static volatile Dictionary<Int64, HashSet<string>> s_permissionsByUser = new();
 		private static volatile Dictionary<Int64, HashSet<string>> s_rolesByUser = new();
 		private static string s_lastUnknownRoles = String.Empty;
@@ -116,6 +125,24 @@ namespace GenOnlineService
 		{
 			return s_permissionsByUser.TryGetValue(userID, out HashSet<string>? permissions) ? permissions : Array.Empty<string>();
 		}
+
+		public static int Rank(Int64 userID)
+		{
+			int rank = 0;
+			foreach (string role in RolesOf(userID))
+			{
+				if (s_roleRanks.TryGetValue(role, out int roleRank) && roleRank > rank)
+				{
+					rank = roleRank;
+				}
+			}
+			return rank;
+		}
+
+		// Only a strictly higher rank may act on a user, so staff never moderate their peers or seniors
+		public static bool Outranks(int actorRank, Int64 targetID) => actorRank > Rank(targetID);
+
+		public static bool CanModerate(Int64 actorID, Int64 targetID) => actorID != targetID && Outranks(Rank(actorID), targetID);
 
 		// Known roles only, so an unknown role never shows a badge
 		public static IReadOnlyCollection<string> RolesOf(Int64 userID)
@@ -170,11 +197,12 @@ namespace GenOnlineService
 			}
 
 			s_lastUnknownRoles = unknown;
-			s_permissionsByUser = next;
+			// ranks go first, so a new permission holder is never moderatable as a player while the swap runs
 			s_rolesByUser = rows
 				.Where(r => IsKnown(r.Role))
 				.GroupBy(r => r.UserID)
 				.ToDictionary(g => g.Key, g => new HashSet<string>(g.Select(r => r.Role), StringComparer.Ordinal));
+			s_permissionsByUser = next;
 		}
 	}
 

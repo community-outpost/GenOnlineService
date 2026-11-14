@@ -97,6 +97,7 @@ namespace GenOnlineService.Realtime
 		public const string SocialBlocked = "social.blocked";
 		public const string ModerationTargetOffline = "moderation.target_offline";
 		public const string ModerationReasonTooLong = "moderation.reason_too_long";
+		public const string ModerationTargetOutranks = "moderation.target_outranks";
 	}
 
 	// Close codes from section 3 of the protocol

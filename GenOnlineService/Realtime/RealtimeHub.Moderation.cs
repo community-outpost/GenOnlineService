@@ -144,6 +144,10 @@ namespace GenOnlineService.Realtime
 			{
 				return ReasonTooLong();
 			}
+			if (!StaffRoles.CanModerate(UserID, target))
+			{
+				return Result.Fail(ErrorCodes.ModerationTargetOutranks);
+			}
 			return null;
 		}
 
