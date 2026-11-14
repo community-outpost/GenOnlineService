@@ -96,11 +96,20 @@ namespace GenOnlineService.Identity
 	}
 
 	// The build identity is read by realtime instead of being sent again with every lobby and queue call
-	// OpenIddict keeps a row per issued token; expired and revoked rows are removed once a day
+	// OpenIddict keeps a row per issued token; old dead rows are removed once a day
+	// OpenIddict's own PruneAsync puts LIMIT inside an IN subquery, which MariaDB refuses, so the same rules run as plain batched deletes
 	public static class OAuthMaintenance
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(OAuthMaintenance));
 		private static DateTime s_lastPrune = DateTime.MinValue;
+
+		private const int BatchSize = 1000;
+
+		// redeemed refresh tokens stay this long so a late replay is still caught as reuse
+		private static readonly TimeSpan s_retention = TimeSpan.FromDays(14);
+
+		// an authorization without tokens is dead once its last refresh token could have expired
+		private static readonly TimeSpan s_emptyAuthorizationAge = TimeSpan.FromDays(31);
 
 		public static async Task PruneDaily(IServiceProvider services)
 		{
@@ -110,11 +119,52 @@ namespace GenOnlineService.Identity
 			}
 
 			s_lastPrune = DateTime.UtcNow;
-			using IServiceScope scope = services.CreateScope();
-			DateTimeOffset threshold = DateTimeOffset.UtcNow.AddDays(-1);
-			long tokens = await scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>().PruneAsync(threshold);
-			long authorizations = await scope.ServiceProvider.GetRequiredService<IOpenIddictAuthorizationManager>().PruneAsync(threshold);
+			await using AppDbContext db = await services.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContextAsync();
+			(long tokens, long authorizations) = await Prune(db, DateTime.UtcNow);
 			s_log.LogInformation("Pruned {Tokens} OAuth tokens and {Authorizations} authorizations", tokens, authorizations);
+		}
+
+		public static async Task<(long Tokens, long Authorizations)> Prune(AppDbContext db, DateTime now)
+		{
+			DateTime threshold = now - s_retention;
+			DateTime emptyThreshold = now - s_emptyAuthorizationAge;
+			string valid = OpenIddictConstants.Statuses.Valid;
+			string inactive = OpenIddictConstants.Statuses.Inactive;
+
+			IQueryable<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken> deadTokens = db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken>()
+				.Where(t => t.CreationDate < threshold
+					&& ((t.Status != inactive && t.Status != valid)
+						|| (t.Authorization != null && t.Authorization.Status != valid)
+						|| t.ExpirationDate < now));
+
+			IQueryable<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization> deadAuthorizations = db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization>()
+				.Where(a => !a.Tokens.Any()
+					&& ((a.CreationDate < threshold && (a.Status != valid || a.Type == OpenIddictConstants.AuthorizationTypes.AdHoc))
+						|| a.CreationDate < emptyThreshold));
+
+			long tokens = await DeleteInBatches(deadTokens.Select(t => t.Id!), ids => db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken>().Where(t => ids.Contains(t.Id!)).ExecuteDeleteAsync());
+			long authorizations = await DeleteInBatches(deadAuthorizations.Select(a => a.Id!), ids => db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization>().Where(a => ids.Contains(a.Id!)).ExecuteDeleteAsync());
+			return (tokens, authorizations);
+		}
+
+		// ids are read first and deleted by value, so no provider sees LIMIT inside a subquery
+		private static async Task<long> DeleteInBatches(IQueryable<string> ids, Func<List<string>, Task<int>> delete)
+		{
+			long total = 0;
+			while (true)
+			{
+				List<string> batch = await ids.Take(BatchSize).ToListAsync();
+				if (batch.Count == 0)
+				{
+					return total;
+				}
+
+				total += await delete(batch);
+				if (batch.Count < BatchSize)
+				{
+					return total;
+				}
+			}
 		}
 	}
 
