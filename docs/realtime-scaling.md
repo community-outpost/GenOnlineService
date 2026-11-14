@@ -1,6 +1,6 @@
 # Running more than one realtime copy
 
-The realtime hub (`/-/realtime`, see `realtime-protocol.md`) is built so an environment can later run more than one service copy, for deploys without downtime. Today one copy per environment is the supported setup.
+The realtime hub (`/realtime`, see `realtime-protocol.md`) is built so an environment can later run more than one service copy, for deploys without downtime. Today one copy per environment is the supported setup.
 
 ## One copy
 

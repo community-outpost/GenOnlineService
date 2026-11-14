@@ -25,11 +25,11 @@ using System.Security.Claims;
 
 namespace GenOnlineService.Realtime
 {
-	// Realtime protocol v1 at /-/realtime; each area of the protocol lives in its own partial file
+	// Realtime protocol v1 at /realtime, each area of the protocol lives in its own partial file
 	[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 	public sealed partial class RealtimeHub : Hub<IRealtimeClient>
 	{
-		public const string Path = "/-/realtime";
+		public const string Path = "/realtime";
 		public const int ProtocolVersion = 1;
 		public const int ChatMaxLength = 512;
 		public const int ChatRateMessages = 3;
