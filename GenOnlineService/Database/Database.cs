@@ -109,6 +109,9 @@ public abstract class AppDbContext : DbContext
 	public DbSet<ServiceAccountPermission> ServiceAccountPermissions => Set<ServiceAccountPermission>();
 	public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
+	// ASP.NET Core data protection key ring, shared by every copy
+	public DbSet<GenOnlineService.Identity.DataProtectionKeyRow> DataProtectionKeys => Set<GenOnlineService.Identity.DataProtectionKeyRow>();
+
 	// Non-generic so the derived contexts can pass their own DbContextOptions<TDerived>
 	protected AppDbContext(DbContextOptions options)
 		: base(options)
@@ -146,6 +149,7 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientBuildConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.Identity.DataProtectionKeyConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
 		modelBuilder.ApplyConfiguration(new BanConfiguration());
 		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());

@@ -192,7 +192,50 @@ Effective permissions in `application` = all `user_roles` rows (local and upstre
 - `application` keeps user state, bans and roles in in-memory caches reloaded on the reconcile tick, so a block or ban cuts access within a tick even with a valid access token.
 - Realtime connections authenticate once at connect and are closed on a change (`auth.revoked`, `moderation.banned`); no re-authentication on the open socket.
 - The service-issued HS256 session tokens and `TokenRevocationManager` generations are retired.
-- Keys: signing and encryption certificates from files or the OS store, two active for rotation, published in the JWKS.
+- Keys: signing and encryption certificates from configuration, current plus next for rotation, published in the JWKS (section 6.1).
+
+### 6.1 Keys shared by every copy
+
+Every copy of one environment (the active copy and the standby in `realtime-failover.md`) must use the same keys. Otherwise a restart, a deploy or a handover signs everyone out and invalidates every token. Nothing is generated per start outside Development.
+
+| Key | Protects | Kept in | Configuration |
+|---|---|---|---|
+| OpenIddict signing | access and ID tokens | certificates | `Accounts:signing_certificates` |
+| OpenIddict encryption | authorization codes, stored refresh tokens, upstream sign-in state | certificates | `Accounts:encryption_certificates` |
+| ASP.NET Core data protection | the `go_session` cookie, the consent page's antiforgery token | table `data_protection_keys` | `DataProtection:application_name`, `DataProtection:certificates` |
+
+Configuration:
+
+- `Accounts:signing_certificates`, `Accounts:encryption_certificates`: ordered lists. Each entry is one of:
+  - a `.pfx` or `.p12` file path (password in `Accounts:certificate_password`);
+  - a PEM file path holding the certificate and its unencrypted private key (for example `tls.crt` and `tls.key` concatenated);
+  - the PEM text itself (for example from an environment variable).
+
+  The first entry signs or encrypts. Every entry is published (signing keys in the JWKS) and accepted.
+- `Accounts:issuer`: set it to the public URL. Every copy then issues and accepts the same `iss`; without it each copy uses the host of the request.
+- `Accounts:ephemeral_keys`: in-memory keys, Development only.
+- `DataProtection:application_name`: the same value on every copy of one environment and a different one per environment, for example `genonline-prod`. It is required outside Development.
+- `DataProtection:certificates` (optional) and `DataProtection:certificate_password`: the first certificate encrypts new ring keys at rest, and every listed certificate decrypts. The official deployment sets it: without it the ring rows are plain XML, and anyone who can read the database can forge sign-in cookies.
+- Data protection keys rotate on their own: ASP.NET Core adds a ring key every 90 days to the same table, and every copy picks it up.
+
+Startup refuses to run outside Development:
+
+- when `Accounts:ephemeral_keys` is set;
+- when the accounts profile has no signing or encryption certificate;
+- when `DataProtection:application_name` is missing;
+- when a certificate cannot be loaded or has no private key.
+
+The error names the setting and entry index and never echoes the entry.
+
+Rotation runbook (signing certificate). Every step is a Secret change followed by a rolling restart of every copy:
+
+1. **Add.** Create the next certificate, for example `openssl req -x509 -newkey rsa:3072 -nodes -days 400 -subj "/CN=genonline-<env>-signing-<n>" -addext keyUsage=digitalSignature -keyout next.key -out next.crt`. List it second. The current certificate still signs, and both are published. Wait until every copy runs with it and any remote validator (an `application` profile with `Accounts:enabled` false) has reloaded the JWKS: restart it, or give it a day.
+2. **Promote.** Swap the order so the next certificate is first. New tokens are signed with it, and tokens from the old certificate stay valid. A copy that is not yet restarted keeps signing with the old one, which every copy accepts.
+3. **Retire.** After `refresh_token_days`, remove the old entry. The wait matters because OpenIddict signs refresh tokens too: the stored refresh token keeps its signature. A refresh token issued before the promotion and unused since is refused once its certificate is gone, which signs out that idle session. Active sessions are unaffected, since every refresh issues a new token signed with the new certificate.
+
+The encryption certificate rotates the same way (use `keyUsage=keyEncipherment`). It also needs the `refresh_token_days` wait: stored refresh tokens and codes encrypted with it become unreadable once it is removed.
+
+To rotate the data protection certificate, list the new certificate first and keep the old one second. Remove the old one after 90 days, once every ring key it protected has expired.
 
 ## 7. Account security
 

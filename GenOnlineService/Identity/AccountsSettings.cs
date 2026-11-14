@@ -80,8 +80,9 @@ namespace GenOnlineService.Identity
 		public int AccessTokenMinutes { get; init; } = 15;
 		public int RefreshTokenDays { get; init; } = 30;
 		public int RefreshReuseLeewaySeconds { get; init; } = 30;
-		public List<string> SigningCertificatePaths { get; init; } = new();
-		public List<string> EncryptionCertificatePaths { get; init; } = new();
+		// Each entry is a .pfx/.p12 path, a PEM file with the private key, or PEM text; the first signs or encrypts, every entry is accepted
+		public List<string> SigningCertificates { get; init; } = new();
+		public List<string> EncryptionCertificates { get; init; } = new();
 		public string? CertificatePassword { get; init; }
 
 		// Development only: keys live in memory and every restart invalidates every token
@@ -151,8 +152,8 @@ namespace GenOnlineService.Identity
 				AccessTokenMinutes = section.GetValue<int?>("access_token_minutes") ?? 15,
 				RefreshTokenDays = section.GetValue<int?>("refresh_token_days") ?? 30,
 				RefreshReuseLeewaySeconds = section.GetValue<int?>("refresh_reuse_leeway_seconds") ?? 30,
-				SigningCertificatePaths = section.GetSection("signing_certificate_paths").Get<List<string>>() ?? new(),
-				EncryptionCertificatePaths = section.GetSection("encryption_certificate_paths").Get<List<string>>() ?? new(),
+				SigningCertificates = section.GetSection("signing_certificates").Get<List<string>>() ?? new(),
+				EncryptionCertificates = section.GetSection("encryption_certificates").Get<List<string>>() ?? new(),
 				CertificatePassword = section.GetValue<string>("certificate_password"),
 				EphemeralKeys = section.GetValue<bool>("ephemeral_keys"),
 				RequireHttps = config.GetSection("Core").GetValue<bool?>("enforce_https") ?? true,

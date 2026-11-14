@@ -155,6 +155,8 @@ anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
 ```
 service_accounts, service_account_permissions, api_tokens      -- api-tokens-design.md
 application_settings      key varchar(64) pk, value json, updated_by varchar(64), updated_at
+data_protection_keys      -- ASP.NET Core data protection key ring shared by every copy (identity.md section 6.1); written only by the framework
+  id bigint pk, friendly_name varchar(128) null, xml text, created_at
 ```
 
 ### OAuth clients

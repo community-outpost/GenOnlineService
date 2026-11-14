@@ -1166,7 +1166,8 @@ namespace GenOnlineService
 			.AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, null)
 			.AddScheme<AuthenticationSchemeOptions, SessionTokenHandler>(SessionTokenHandler.SchemeName, null);
 
-			builder.Services.AddGenOnlineIdentity(accountsSettings);
+			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
+			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
 
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
