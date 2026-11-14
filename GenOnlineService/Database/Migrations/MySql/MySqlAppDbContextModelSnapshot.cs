@@ -371,6 +371,66 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("bans", (string)null);
                 });
 
+            modelBuilder.Entity("ChatGroup", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("OwnerID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_id");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("chat_groups", (string)null);
+                });
+
+            modelBuilder.Entity("ChatGroupMember", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<long>("GroupID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("group_id");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("joined_at");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_chat_group_members_user_id");
+
+                    b.HasIndex("GroupID", "UserID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_chat_group_members_group_user");
+
+                    b.ToTable("chat_group_members", (string)null);
+                });
+
             modelBuilder.Entity("ChatMessage", b =>
                 {
                     b.Property<long>("ID")
@@ -397,6 +457,10 @@ namespace GenOnlineService.Migrations.MySql
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("deleted_at");
+
+                    b.Property<long?>("GroupID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("group_id");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -430,6 +494,9 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.HasIndex("CreatedAt")
                         .HasDatabaseName("ix_chat_messages_created_at");
+
+                    b.HasIndex("GroupID", "ID")
+                        .HasDatabaseName("ix_chat_messages_group");
 
                     b.HasIndex("LobbyID", "ID")
                         .HasDatabaseName("ix_chat_messages_lobby");

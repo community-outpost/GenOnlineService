@@ -33,8 +33,11 @@ namespace GenOnlineService.Realtime
 		Task ChannelHistory(ChannelHistoryEvent e);
 		Task MessageCreate(Message e);
 		Task MessageDelete(MessageRefEvent e);
-		Task DirectMessages(DirectMessagesEvent e);
+		Task Conversations(ConversationsEvent e);
 		Task ReadMarker(MessageRefEvent e);
+		Task GroupCreate(GroupEvent e);
+		Task GroupUpdate(GroupEvent e);
+		Task GroupRemoved(GroupRemovedEvent e);
 
 		Task LobbyListUpsert(LobbyListUpsertEvent e);
 		Task LobbyListRemove(LobbyIdEvent e);

@@ -29,6 +29,7 @@ namespace GenOnlineService
 		public const string ModerationBan = "moderation.ban";
 		public const string ModerationMute = "moderation.mute";
 		public const string ChatDeleteAny = "chat.delete_any";
+		public const string ChatMessageAnyone = "chat.message_anyone";
 		public const string ChatStaffBadge = "chat.staff_badge";
 		public const string NamesProtected = "names.protected";
 		public const string SocialUnblockable = "social.unblockable";
@@ -45,7 +46,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ChatDeleteAny, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage
+			ModerationKick, ModerationBan, ModerationMute, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -80,7 +81,8 @@ namespace GenOnlineService
 		{
 			Permissions.ModerationKick,
 			Permissions.ModerationMute,
-			Permissions.ChatDeleteAny
+			Permissions.ChatDeleteAny,
+			Permissions.ChatMessageAnyone
 		};
 
 		private static readonly string[] s_adminPermissions = s_moderatorPermissions.Concat(new[]

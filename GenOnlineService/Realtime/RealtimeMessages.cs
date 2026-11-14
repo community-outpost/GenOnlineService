@@ -35,6 +35,7 @@ namespace GenOnlineService.Realtime
 	public enum LobbyLeftReason { Left, Kicked, Closed }
 	public enum CountdownCancelReason { PlayerNotReady, MeshIncomplete, PlayerLeft, SettingsChanged }
 	public enum MatchRequeueReason { PlayerLeft, LobbyGone, MeshIncomplete, JoinTimeout, SetupFailed }
+	public enum GroupRemovedReason { Left, Removed }
 
 	// Shared objects
 
@@ -221,6 +222,17 @@ namespace GenOnlineService.Realtime
 		public ChatRate ChatRate { get; init; } = new ChatRate();
 		public int NameMinLength { get; init; }
 		public int NameMaxLength { get; init; }
+		public int GroupMaxMembers { get; init; }
+	}
+
+	// A group chat, members in join order with the owner included
+	public sealed record Group
+	{
+		public long Id { get; init; }
+		public string? Name { get; init; }
+		public long OwnerId { get; init; }
+		public IReadOnlyList<Member> Members { get; init; } = [];
+		public DateTime CreatedAt { get; init; }
 	}
 
 	public sealed record MeshPair
@@ -268,6 +280,37 @@ namespace GenOnlineService.Realtime
 		public string MessageId { get; init; } = "";
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public string? Reason { get; init; }
+	}
+
+	public sealed record CreateGroupRequest
+	{
+		public IReadOnlyList<long> UserIds { get; init; } = [];
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Name { get; init; }
+	}
+
+	public sealed record AddGroupMembersRequest
+	{
+		public long GroupId { get; init; }
+		public IReadOnlyList<long> UserIds { get; init; } = [];
+	}
+
+	public sealed record RemoveGroupMemberRequest
+	{
+		public long GroupId { get; init; }
+		public long UserId { get; init; }
+	}
+
+	// A null name clears it
+	public sealed record RenameGroupRequest
+	{
+		public long GroupId { get; init; }
+		public string? Name { get; init; }
+	}
+
+	public sealed record GroupRequest
+	{
+		public long GroupId { get; init; }
 	}
 
 	public sealed record SetDisplayNameRequest
@@ -472,6 +515,11 @@ namespace GenOnlineService.Realtime
 		public bool HasMore { get; init; }
 	}
 
+	public sealed record CreateGroupData
+	{
+		public long GroupId { get; init; }
+	}
+
 	public sealed record WatchLobbyListData
 	{
 		public IReadOnlyList<LobbySummary> Lobbies { get; init; } = [];
@@ -569,16 +617,30 @@ namespace GenOnlineService.Realtime
 		public string MessageId { get; init; } = "";
 	}
 
-	public sealed record DirectConversationInfo
+	// One direct or group conversation, channel_id is dm:<user_id> or group:<group_id>
+	public sealed record ConversationInfo
 	{
-		public long UserId { get; init; }
+		public string ChannelId { get; init; } = "";
 		public int Unread { get; init; }
-		public Message Last { get; init; } = new Message();
+		public Message? Last { get; init; }
 	}
 
-	public sealed record DirectMessagesEvent
+	public sealed record ConversationsEvent
 	{
-		public IReadOnlyList<DirectConversationInfo> Conversations { get; init; } = [];
+		public IReadOnlyList<ConversationInfo> Conversations { get; init; } = [];
+		public IReadOnlyList<Group> Groups { get; init; } = [];
+	}
+
+	// GroupCreate and GroupUpdate
+	public sealed record GroupEvent
+	{
+		public Group Group { get; init; } = new Group();
+	}
+
+	public sealed record GroupRemovedEvent
+	{
+		public long GroupId { get; init; }
+		public GroupRemovedReason Reason { get; init; }
 	}
 
 	public sealed record LobbyListUpsertEvent

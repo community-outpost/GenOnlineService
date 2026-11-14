@@ -26,6 +26,7 @@ public static class ChatMessageKinds
 	public const string Channel = "channel";
 	public const string Lobby = "lobby";
 	public const string Direct = "direct";
+	public const string Group = "group";
 }
 
 public static class ChatMessageTypes
@@ -59,6 +60,9 @@ public class ChatMessage
 	// Set for direct messages only
 	public Int64? RecipientID { get; set; }
 
+	// Set for group messages only, the group row may be gone while its messages wait for the retention purge
+	public Int64? GroupID { get; set; }
+
 	public string Type { get; set; } = String.Empty;
 	public string Content { get; set; } = String.Empty;
 	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
@@ -67,7 +71,27 @@ public class ChatMessage
 	public DateTime? DeletedAt { get; set; }
 }
 
-// The last message a user has read in one conversation, keyed by the wire channel id (dm:<user_id>, channel:<id>)
+// A group chat, deleted when its last member leaves
+public class ChatGroup
+{
+	public Int64 ID { get; set; }
+
+	// Null when the owner set none, clients then show the member names
+	public string? Name { get; set; }
+	public Int64 OwnerID { get; set; }
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+}
+
+// One member of a group, the id keeps the join order
+public class ChatGroupMember
+{
+	public Int64 ID { get; set; }
+	public Int64 GroupID { get; set; }
+	public Int64 UserID { get; set; }
+	public DateTime JoinedAt { get; set; } = DateTime.UnixEpoch;
+}
+
+// The last message a user has read in one conversation, keyed by the wire channel id (dm:<user_id>, channel:<id>, group:<id>)
 public class ChatReadMarker
 {
 	public Int64 UserID { get; set; }
@@ -112,6 +136,9 @@ public class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
 		builder.HasIndex(e => new { e.SenderID, e.RecipientID, e.ID }).HasDatabaseName("ix_chat_messages_sender_recipient");
 		builder.HasIndex(e => new { e.RecipientID, e.SenderID, e.ID }).HasDatabaseName("ix_chat_messages_recipient_sender");
 
+		// Group history paging and conversation lists
+		builder.HasIndex(e => new { e.GroupID, e.ID }).HasDatabaseName("ix_chat_messages_group");
+
 		// Retention purge
 		builder.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_chat_messages_created_at");
 
@@ -122,10 +149,43 @@ public class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
 		builder.Property(e => e.MatchID).HasColumnName("match_id");
 		builder.Property(e => e.SenderID).HasColumnName("sender_id");
 		builder.Property(e => e.RecipientID).HasColumnName("recipient_id");
+		builder.Property(e => e.GroupID).HasColumnName("group_id");
 		builder.Property(e => e.Type).HasColumnName("type").HasMaxLength(16);
 		builder.Property(e => e.Content).HasColumnName("content").HasMaxLength(Database.Chat.MaximumContentLength);
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 		builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+	}
+}
+
+public class ChatGroupConfiguration : IEntityTypeConfiguration<ChatGroup>
+{
+	public void Configure(EntityTypeBuilder<ChatGroup> builder)
+	{
+		builder.ToTable("chat_groups");
+
+		builder.HasKey(e => e.ID);
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.Name).HasColumnName("name").HasMaxLength(Database.Chat.MaximumGroupNameLength);
+		builder.Property(e => e.OwnerID).HasColumnName("owner_id");
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+	}
+}
+
+public class ChatGroupMemberConfiguration : IEntityTypeConfiguration<ChatGroupMember>
+{
+	public void Configure(EntityTypeBuilder<ChatGroupMember> builder)
+	{
+		builder.ToTable("chat_group_members");
+
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => new { e.GroupID, e.UserID }).IsUnique().HasDatabaseName("ux_chat_group_members_group_user");
+		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_chat_group_members_user_id");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.GroupID).HasColumnName("group_id");
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.JoinedAt).HasColumnName("joined_at");
 	}
 }
 
@@ -172,8 +232,17 @@ namespace Database
 	// One page of a conversation oldest first, HasMore is true when older messages exist
 	public sealed record ChatPage(List<ChatMessage> Messages, bool HasMore);
 
-	// One direct conversation of a user, for the DirectMessages snapshot
+	// One direct conversation of a user, for the Conversations snapshot
 	public sealed record DirectConversation(long OtherUserID, int Unread, ChatMessage Last);
+
+	// A group with its member ids in join order, the owner included
+	public sealed record GroupInfo(ChatGroup Group, List<long> MemberIDs);
+
+	// One group conversation of a user, Last is null while the group has no message the user may see
+	public sealed record GroupConversation(long GroupID, int Unread, ChatMessage? Last);
+
+	// WasMember is false when the user was not in the group, Remaining is null when the last member left and the group is gone
+	public sealed record GroupLeaveResult(bool WasMember, GroupInfo? Remaining);
 
 	// The message is null when no message has that id, AlreadyDeleted is true when it was a tombstone before the call
 	public sealed record ChatTombstone(ChatMessage? Message, bool AlreadyDeleted);
@@ -194,6 +263,7 @@ namespace Database
 		public const int MaximumConversationLength = 64;
 		public const int SnapshotContextMessages = 10;
 		public const int MaximumPageSize = 100;
+		public const int MaximumGroupNameLength = 32;
 
 		// Every stored message and tombstone is kept 30 days, closed reports 30 days after closing
 		public static readonly TimeSpan MessageRetention = TimeSpan.FromDays(30);
@@ -201,9 +271,11 @@ namespace Database
 
 		public const string DirectConversationPrefix = "dm:";
 		public const string ChannelConversationPrefix = "channel:";
+		public const string GroupConversationPrefix = "group:";
 
 		public static string DirectConversationKey(long otherUserId) => DirectConversationPrefix + otherUserId;
 		public static string ChannelConversationKey(long channelId) => ChannelConversationPrefix + channelId;
+		public static string GroupConversationKey(long groupId) => GroupConversationPrefix + groupId;
 
 		public static Task<ChatMessage> InsertChannelMessage(AppDbContext db, long channelId, long senderId, string type, string content, CancellationToken cancellationToken = default)
 		{
@@ -218,6 +290,11 @@ namespace Database
 		public static Task<ChatMessage> InsertDirectMessage(AppDbContext db, long senderId, long recipientId, string type, string content, CancellationToken cancellationToken = default)
 		{
 			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Direct, SenderID = senderId, RecipientID = recipientId, Type = type, Content = content }, cancellationToken);
+		}
+
+		public static Task<ChatMessage> InsertGroupMessage(AppDbContext db, long groupId, long senderId, string type, string content, CancellationToken cancellationToken = default)
+		{
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Group, GroupID = groupId, SenderID = senderId, Type = type, Content = content }, cancellationToken);
 		}
 
 		// Returns the stored row with its id and created_at, failures throw so the caller can answer the sender
@@ -264,6 +341,32 @@ namespace Database
 
 			List<ChatMessage> rows = await query.OrderByDescending(m => m.ID).Take(limit + 1).ToListAsync(cancellationToken);
 			return ToPage(rows, limit);
+		}
+
+		// Same shape as channel history, messages of the excluded senders are left out
+		public static async Task<ChatPage> GetGroupHistory(AppDbContext db, long groupId, long? beforeId, int limit, IReadOnlyCollection<long>? excludeSenderIds = null, CancellationToken cancellationToken = default)
+		{
+			limit = Math.Clamp(limit, 1, MaximumPageSize);
+
+			IQueryable<ChatMessage> query = VisibleGroupMessages(db, groupId, excludeSenderIds);
+			if (beforeId is long before)
+			{
+				query = query.Where(m => m.ID < before);
+			}
+
+			List<ChatMessage> rows = await query.OrderByDescending(m => m.ID).Take(limit + 1).ToListAsync(cancellationToken);
+			return ToPage(rows, limit);
+		}
+
+		private static IQueryable<ChatMessage> VisibleGroupMessages(AppDbContext db, long groupId, IReadOnlyCollection<long>? excludeSenderIds)
+		{
+			IQueryable<ChatMessage> query = db.ChatMessages.AsNoTracking().Where(m => m.GroupID == groupId);
+			if (excludeSenderIds is { Count: > 0 })
+			{
+				long[] excluded = excludeSenderIds.ToArray();
+				query = query.Where(m => !excluded.Contains(m.SenderID));
+			}
+			return query;
 		}
 
 		// Both directions between two users, same shape as channel history
@@ -433,6 +536,12 @@ namespace Database
 				return await db.ChatMessages.AnyAsync(m => m.ID == messageId && m.Kind == ChatMessageKinds.Channel && m.ChannelID == channelId, cancellationToken);
 			}
 
+			// membership is the caller's check, the message only has to be in the group
+			if (conversation.StartsWith(GroupConversationPrefix, StringComparison.Ordinal) && long.TryParse(conversation.AsSpan(GroupConversationPrefix.Length), out long groupId))
+			{
+				return await db.ChatMessages.AnyAsync(m => m.ID == messageId && m.Kind == ChatMessageKinds.Group && m.GroupID == groupId, cancellationToken);
+			}
+
 			return false;
 		}
 
@@ -505,6 +614,7 @@ namespace Database
 			{
 				ChatMessageKinds.Channel => conversation.Where(m => m.Kind == ChatMessageKinds.Channel && m.ChannelID == message.ChannelID),
 				ChatMessageKinds.Lobby => conversation.Where(m => m.Kind == ChatMessageKinds.Lobby && m.LobbyID == message.LobbyID),
+				ChatMessageKinds.Group => conversation.Where(m => m.Kind == ChatMessageKinds.Group && m.GroupID == message.GroupID),
 				_ => conversation.Where(m => m.Kind == ChatMessageKinds.Direct && ((m.SenderID == message.SenderID && m.RecipientID == message.RecipientID) || (m.SenderID == message.RecipientID && m.RecipientID == message.SenderID)))
 			};
 		}
@@ -562,8 +672,9 @@ namespace Database
 			return new ChatPurgeCounts(messages, markers, reports);
 		}
 
-		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers and closed reports
+		// Account deletion removes rows instead of anonymising them: messages the user sent, the user's read markers, closed reports and group memberships
 		// Open reports keep their snapshot until the case is closed, then the normal purge removes them
+		// A group the user owned passes to its earliest member, a group the user was alone in is deleted
 		public static async Task<int> DeleteUserData(AppDbContext db, long userId, CancellationToken cancellationToken = default)
 		{
 			string conversationWithUser = DirectConversationKey(userId);
@@ -574,8 +685,176 @@ namespace Database
 			removed += await db.ChatReadMarkers.Where(r => r.UserID == userId || r.Conversation == conversationWithUser).ExecuteDeleteAsync(cancellationToken);
 			removed += await db.ChatReports.Where(r => r.ReporterID == userId && r.Status == ChatReportStatuses.Closed).ExecuteDeleteAsync(cancellationToken);
 
+			List<long> groups = await db.ChatGroupMembers.AsNoTracking().Where(m => m.UserID == userId).Select(m => m.GroupID).ToListAsync(cancellationToken);
+			foreach (long groupId in groups)
+			{
+				if ((await LeaveGroupCore(db, groupId, userId, cancellationToken)).WasMember)
+				{
+					removed++;
+				}
+			}
+
 			await transaction.CommitAsync(cancellationToken);
 			return removed;
+		}
+
+		// Creates the group with the owner first and the members in the given order
+		public static async Task<GroupInfo> CreateGroup(AppDbContext db, long ownerId, string? name, IReadOnlyList<long> memberIds, CancellationToken cancellationToken = default)
+		{
+			if (name != null && (name.Length == 0 || name.Length > MaximumGroupNameLength))
+			{
+				throw new ArgumentOutOfRangeException(nameof(name));
+			}
+
+			DateTime now = TruncateToMicroseconds(DateTime.UtcNow);
+			List<long> members = new() { ownerId };
+			members.AddRange(memberIds.Where(id => id != ownerId).Distinct());
+
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+			ChatGroup group = new() { Name = name, OwnerID = ownerId, CreatedAt = now };
+			try
+			{
+				db.ChatGroups.Add(group);
+				await db.SaveChangesAsync(cancellationToken);
+
+				// one save per member keeps the ids in join order on both providers
+				foreach (long userId in members)
+				{
+					db.ChatGroupMembers.Add(new ChatGroupMember { GroupID = group.ID, UserID = userId, JoinedAt = now });
+					await db.SaveChangesAsync(cancellationToken);
+				}
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+
+			await transaction.CommitAsync(cancellationToken);
+			return new GroupInfo(group, members);
+		}
+
+		public static async Task<GroupInfo?> GetGroup(AppDbContext db, long groupId, CancellationToken cancellationToken = default)
+		{
+			ChatGroup? group = await db.ChatGroups.AsNoTracking().FirstOrDefaultAsync(g => g.ID == groupId, cancellationToken);
+			if (group == null)
+			{
+				return null;
+			}
+
+			List<long> members = await db.ChatGroupMembers.AsNoTracking().Where(m => m.GroupID == groupId).OrderBy(m => m.ID).Select(m => m.UserID).ToListAsync(cancellationToken);
+			return new GroupInfo(group, members);
+		}
+
+		// Every group the user is in, oldest membership first
+		public static async Task<List<GroupInfo>> GetGroupsOf(AppDbContext db, long userId, CancellationToken cancellationToken = default)
+		{
+			List<long> groupIds = await db.ChatGroupMembers.AsNoTracking().Where(m => m.UserID == userId).OrderBy(m => m.ID).Select(m => m.GroupID).ToListAsync(cancellationToken);
+			if (groupIds.Count == 0)
+			{
+				return new List<GroupInfo>();
+			}
+
+			Dictionary<long, ChatGroup> groups = await db.ChatGroups.AsNoTracking().Where(g => groupIds.Contains(g.ID)).ToDictionaryAsync(g => g.ID, cancellationToken);
+			var members = await db.ChatGroupMembers.AsNoTracking().Where(m => groupIds.Contains(m.GroupID)).OrderBy(m => m.ID).Select(m => new { m.GroupID, m.UserID }).ToListAsync(cancellationToken);
+			ILookup<long, long> byGroup = members.ToLookup(m => m.GroupID, m => m.UserID);
+
+			return groupIds.Where(groups.ContainsKey).Select(id => new GroupInfo(groups[id], byGroup[id].ToList())).ToList();
+		}
+
+		public static async Task<bool> IsGroupMember(AppDbContext db, long groupId, long userId, CancellationToken cancellationToken = default)
+		{
+			return await db.ChatGroupMembers.AnyAsync(m => m.GroupID == groupId && m.UserID == userId, cancellationToken);
+		}
+
+		// Adds the users in the given order and skips current members, the caller checks the size limit
+		public static async Task AddGroupMembers(AppDbContext db, long groupId, IReadOnlyList<long> userIds, CancellationToken cancellationToken = default)
+		{
+			DateTime now = TruncateToMicroseconds(DateTime.UtcNow);
+			HashSet<long> current = (await db.ChatGroupMembers.AsNoTracking().Where(m => m.GroupID == groupId).Select(m => m.UserID).ToListAsync(cancellationToken)).ToHashSet();
+			try
+			{
+				foreach (long userId in userIds.Distinct().Where(id => !current.Contains(id)))
+				{
+					db.ChatGroupMembers.Add(new ChatGroupMember { GroupID = groupId, UserID = userId, JoinedAt = now });
+					await db.SaveChangesAsync(cancellationToken);
+				}
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+		}
+
+		// Null clears the name, returns false when the group does not exist
+		public static async Task<bool> RenameGroup(AppDbContext db, long groupId, string? name, CancellationToken cancellationToken = default)
+		{
+			if (name != null && (name.Length == 0 || name.Length > MaximumGroupNameLength))
+			{
+				throw new ArgumentOutOfRangeException(nameof(name));
+			}
+
+			return await db.ChatGroups.Where(g => g.ID == groupId).ExecuteUpdateAsync(s => s.SetProperty(g => g.Name, name), cancellationToken) > 0;
+		}
+
+		// Removes one member, passes ownership to the earliest member left and deletes the group when nobody is left
+		public static async Task<GroupLeaveResult> LeaveGroup(AppDbContext db, long groupId, long userId, CancellationToken cancellationToken = default)
+		{
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+			GroupLeaveResult result = await LeaveGroupCore(db, groupId, userId, cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return result;
+		}
+
+		private static async Task<GroupLeaveResult> LeaveGroupCore(AppDbContext db, long groupId, long userId, CancellationToken cancellationToken)
+		{
+			int removed = await db.ChatGroupMembers.Where(m => m.GroupID == groupId && m.UserID == userId).ExecuteDeleteAsync(cancellationToken);
+			if (removed == 0)
+			{
+				return new GroupLeaveResult(false, await GetGroup(db, groupId, cancellationToken));
+			}
+
+			// a member who left keeps no read position, the history is theirs again only when added back
+			string key = GroupConversationKey(groupId);
+			await db.ChatReadMarkers.Where(r => r.UserID == userId && r.Conversation == key).ExecuteDeleteAsync(cancellationToken);
+
+			long? earliest = await db.ChatGroupMembers.AsNoTracking().Where(m => m.GroupID == groupId).OrderBy(m => m.ID).Select(m => (long?)m.UserID).FirstOrDefaultAsync(cancellationToken);
+			if (earliest == null)
+			{
+				// the stored messages stay until the normal retention purge
+				await db.ChatGroups.Where(g => g.ID == groupId).ExecuteDeleteAsync(cancellationToken);
+				return new GroupLeaveResult(true, null);
+			}
+
+			long newOwner = earliest.Value;
+			await db.ChatGroups.Where(g => g.ID == groupId && g.OwnerID == userId).ExecuteUpdateAsync(s => s.SetProperty(g => g.OwnerID, newOwner), cancellationToken);
+			return new GroupLeaveResult(true, await GetGroup(db, groupId, cancellationToken));
+		}
+
+		// The last visible message and the unread count past the read marker of every given group
+		public static async Task<List<GroupConversation>> GetGroupConversations(AppDbContext db, long userId, IReadOnlyCollection<long> groupIds, IReadOnlyCollection<long>? excludeSenderIds = null, CancellationToken cancellationToken = default)
+		{
+			Dictionary<string, long> markers = await GetReadMarkers(db, userId, GroupConversationPrefix, cancellationToken);
+			List<GroupConversation> result = new(groupIds.Count);
+			foreach (long groupId in groupIds)
+			{
+				IQueryable<ChatMessage> visible = VisibleGroupMessages(db, groupId, excludeSenderIds);
+				ChatMessage? last = await visible.OrderByDescending(m => m.ID).FirstOrDefaultAsync(cancellationToken);
+
+				int unread = 0;
+				if (last != null)
+				{
+					long readUpTo = markers.GetValueOrDefault(GroupConversationKey(groupId));
+					unread = await visible.CountAsync(m => m.ID > readUpTo && m.SenderID != userId && m.DeletedAt == null, cancellationToken);
+				}
+				result.Add(new GroupConversation(groupId, unread, last));
+			}
+			return result;
+		}
+
+		// True when the sender holds a stored direct message to the recipient, tombstones included
+		public static async Task<bool> HasDirectMessage(AppDbContext db, long senderId, long recipientId, CancellationToken cancellationToken = default)
+		{
+			return await db.ChatMessages.AnyAsync(m => m.Kind == ChatMessageKinds.Direct && m.SenderID == senderId && m.RecipientID == recipientId, cancellationToken);
 		}
 
 		private const int FillBatchSize = 100;
@@ -657,7 +936,7 @@ namespace Database
 
 		private static ChatSnapshotMessage ToSnapshot(ChatMessage m)
 		{
-			return new ChatSnapshotMessage(m.ID, m.Kind, m.ChannelID, m.LobbyID, m.MatchID, m.SenderID, m.RecipientID, m.Type, m.Content, m.CreatedAt, m.DeletedAt);
+			return new ChatSnapshotMessage(m.ID, m.Kind, m.ChannelID, m.LobbyID, m.MatchID, m.SenderID, m.RecipientID, m.GroupID, m.Type, m.Content, m.CreatedAt, m.DeletedAt);
 		}
 
 		private sealed record ChatReportSnapshot(
@@ -674,6 +953,7 @@ namespace Database
 			[property: JsonPropertyName("match_id")] long? MatchID,
 			[property: JsonPropertyName("sender_id")] long SenderID,
 			[property: JsonPropertyName("recipient_id")] long? RecipientID,
+			[property: JsonPropertyName("group_id")] long? GroupID,
 			[property: JsonPropertyName("type")] string Type,
 			[property: JsonPropertyName("content")] string Content,
 			[property: JsonPropertyName("created_at")] DateTime CreatedAt,

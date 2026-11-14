@@ -65,6 +65,7 @@ public static class ModerationActions
 	public const string RoleRevoke = "role_revoke";
 	public const string MessageDelete = "message_delete";
 	public const string MessageLookup = "message_lookup";
+	public const string StaffMessage = "staff_message";
 	public const string ReportView = "report_view";
 	public const string ReportClose = "report_close";
 }

@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -98,7 +99,7 @@ namespace GenOnlineService.Realtime
 			string storedType = StoredType(request.Type);
 			Func<AppDbContext, Task<ChatMessage>> store;
 			Func<Message, Task> deliver;
-			bool recipientOffline = false;
+			Int64? staffRecipient = null;
 			switch (kind)
 			{
 				case "channel":
@@ -155,22 +156,25 @@ namespace GenOnlineService.Realtime
 					};
 					break;
 				}
-				default:
+				case "dm":
 				{
 					if (targetID <= 0 || targetID == author)
 					{
 						return Result.Invalid("channel_id");
 					}
-					if (!SocialState.HasFriend(author, targetID) || SocialState.HasBlocked(author, targetID))
+
+					DirectAccess access = await DirectAccessAsync(author, targetID);
+					if (access == DirectAccess.UnknownUser)
+					{
+						return Result.NotFound("user");
+					}
+					if (access == DirectAccess.Denied)
 					{
 						return Result.Fail(ErrorCodes.ChatNotFriends);
 					}
-
-					// an offline friend has no cached social state, so the block check below reads the database
-					recipientOffline = WebSocketManager.GetSharedDataForUser(targetID) == null;
-					if (!recipientOffline && (SocialState.HasBlocked(targetID, author) || !SocialState.HasFriend(targetID, author)))
+					if (access == DirectAccess.Staff)
 					{
-						return Result.Fail(ErrorCodes.ChatNotFriends);
+						staffRecipient = targetID;
 					}
 
 					Int64 recipient = targetID;
@@ -184,15 +188,32 @@ namespace GenOnlineService.Realtime
 					};
 					break;
 				}
+				default:
+				{
+					// group:<id>, members who block each other stay in the group and never receive each other's messages
+					Int64 groupID = targetID;
+					Int64[] recipients;
+					await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+					{
+						Database.GroupInfo? group = await Database.Chat.GetGroup(db, groupID);
+						if (group == null || !group.MemberIDs.Contains(author))
+						{
+							return Result.Fail(ErrorCodes.GroupNotMember);
+						}
+
+						HashSet<long> blocked = await BlockedEitherWayAsync(db, author);
+						recipients = group.MemberIDs.Where(id => id == author || !blocked.Contains(id)).ToArray();
+					}
+
+					store = db => Database.Chat.InsertGroupMessage(db, groupID, author, storedType, content);
+					deliver = message => RealtimeOut.Users(recipients).MessageCreate(message);
+					break;
+				}
 			}
 
 			Ban? mute;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				if (recipientOffline && await Database.Social.IsBlocked(db, targetID, author))
-				{
-					return Result.Fail(ErrorCodes.ChatNotFriends);
-				}
 				mute = await Database.Moderation.GetActiveChatMute(db, author);
 			}
 			if (mute != null)
@@ -200,7 +221,7 @@ namespace GenOnlineService.Realtime
 				return mute.ExpiresAt == null ? Result.Fail(ErrorCodes.ChatMuted) : Result.Fail(ErrorCodes.ChatMuted, new { ExpiresAt = mute.ExpiresAt.Value });
 			}
 
-			// only the public channel chat is rate limited, lobby hosts can kick and direct messages go to friends
+			// only the public channel chat is rate limited, lobby hosts can kick and direct and group messages go to friends
 			if (kind == "channel" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
 			{
 				return Result.Fail(ErrorCodes.ChatRateLimited, new { RetryAfterMs = retryAfterMs });
@@ -211,6 +232,12 @@ namespace GenOnlineService.Realtime
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				stored = await store(db);
+
+				// ids only, the audit row never holds the chat text
+				if (staffRecipient is Int64 staffTarget)
+				{
+					await Database.Moderation.LogAction(db, Actor(), ModerationActions.StaffMessage, AuditTargetKinds.User, staffTarget, null, new { message_id = stored.ID });
+				}
 			}
 
 			string messageID = stored.ID.ToString(CultureInfo.InvariantCulture);
@@ -381,6 +408,36 @@ namespace GenOnlineService.Realtime
 			return new ChannelMembersEvent { ChannelId = channelID, Members = members };
 		}
 
+		private enum DirectAccess { Denied, UnknownUser, Friend, Staff, Reply }
+
+		// Mutual friends without a block, staff holding chat.message_anyone to anyone, and a user answering staff who wrote to them
+		private async Task<DirectAccess> DirectAccessAsync(Int64 author, Int64 recipient)
+		{
+			Int64 low = Math.Min(author, recipient);
+			Int64 high = Math.Max(author, recipient);
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+
+			bool friends = await db.Friendships.AnyAsync(f => f.UserIdLow == low && f.UserIdHigh == high);
+			bool blocked = await db.Blocks.AnyAsync(b => (b.UserId == author && b.BlockedUserId == recipient) || (b.UserId == recipient && b.BlockedUserId == author));
+			if (friends && !blocked)
+			{
+				return DirectAccess.Friend;
+			}
+
+			// staff reach any user, friend or not, and a block does not stop them
+			if (await RequirePermissionAsync(Permissions.ChatMessageAnyone) == null)
+			{
+				return await Database.Users.Exists(db, recipient) ? DirectAccess.Staff : DirectAccess.UnknownUser;
+			}
+
+			// the user answers staff for as long as the conversation holds a stored message from them
+			if (!blocked && StaffRoles.HasPermission(recipient, Permissions.ChatMessageAnyone) && await Database.Chat.HasDirectMessage(db, recipient, author))
+			{
+				return DirectAccess.Reply;
+			}
+			return DirectAccess.Denied;
+		}
+
 		// Connections of the given sessions whose user blocked the author or was blocked by them
 		private static List<string> BlockedConnections(Int64 author, IEnumerable<UserSession> sessions)
 		{
@@ -451,7 +508,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			kind = channelID.Substring(0, separator);
-			return (kind == "channel" || kind == "lobby" || kind == "dm")
+			return (kind == "channel" || kind == "lobby" || kind == "dm" || kind == "group")
 				&& Int64.TryParse(channelID.Substring(separator + 1), NumberStyles.None, CultureInfo.InvariantCulture, out id);
 		}
 	}

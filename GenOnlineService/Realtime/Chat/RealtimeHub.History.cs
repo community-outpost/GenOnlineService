@@ -22,7 +22,7 @@ using System.Text.Json;
 
 namespace GenOnlineService.Realtime
 {
-	// Stored chat: ChannelHistory, GetHistory, DirectMessages and read markers (sections 5.1 and 6.2)
+	// Stored chat: ChannelHistory, GetHistory, Conversations and read markers (sections 5.1 and 6.2)
 	public sealed partial class RealtimeHub
 	{
 		private const int DefaultHistorySize = 50;
@@ -77,6 +77,16 @@ namespace GenOnlineService.Realtime
 				}
 				page = await Database.Chat.GetChannelHistory(db, targetID, before, request.Limit, blocked);
 			}
+			else if (kind == "group")
+			{
+				if (!await Database.Chat.IsGroupMember(db, targetID, me))
+				{
+					return Result.Fail(ErrorCodes.GroupNotMember);
+				}
+
+				// members who block each other stay in the group and never see each other's messages
+				page = await Database.Chat.GetGroupHistory(db, targetID, before, request.Limit, blocked);
+			}
 			else
 			{
 				if (targetID <= 0 || targetID == me)
@@ -84,8 +94,8 @@ namespace GenOnlineService.Realtime
 					return Result.Invalid("channel_id");
 				}
 
-				// a removed friend stays readable, a block hides the whole conversation like SendMessage refuses it
-				if (blocked.Contains(targetID))
+				// a removed friend stays readable, a block hides the whole conversation like SendMessage refuses it, except with staff
+				if (blocked.Contains(targetID) && !IsStaffConversation(me, targetID))
 				{
 					return Result.Success(new HistoryData());
 				}
@@ -108,10 +118,20 @@ namespace GenOnlineService.Realtime
 			}
 
 			Int64 me = UserID;
-			string conversation = kind == "dm" ? Database.Chat.DirectConversationKey(targetID) : Database.Chat.ChannelConversationKey(targetID);
+			string conversation = kind switch
+			{
+				"dm" => Database.Chat.DirectConversationKey(targetID),
+				"group" => Database.Chat.GroupConversationKey(targetID),
+				_ => Database.Chat.ChannelConversationKey(targetID)
+			};
 
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
+				if (kind == "group" && !await Database.Chat.IsGroupMember(db, targetID, me))
+				{
+					return Result.Fail(ErrorCodes.GroupNotMember);
+				}
+
 				if (!await Database.Chat.SetReadMarker(db, me, conversation, messageID))
 				{
 					// an unchanged marker is fine, a message outside the conversation is not
@@ -159,25 +179,62 @@ namespace GenOnlineService.Realtime
 			await Clients.Caller.ChannelHistory(new ChannelHistoryEvent { ChannelId = channel, Messages = chunk, HasMore = page.HasMore });
 		}
 
-		// Snapshot after Friends: every direct conversation with its unread count and last message, blocked users left out
-		private async Task SendDirectMessagesSnapshotAsync(UserSession session)
+		// Snapshot after Friends: every direct conversation and group chat with its unread count and last message, newest activity first
+		// Direct conversations with blocked users are left out unless one side is staff, group messages of blocked members are left out
+		private async Task SendConversationsSnapshotAsync(UserSession session)
 		{
 			Int64 me = session.m_UserID;
-			List<Database.DirectConversation> conversations;
+			List<Database.DirectConversation> direct;
+			List<Database.GroupInfo> groups;
+			List<Database.GroupConversation> groupConversations;
 			Dictionary<long, string> names;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
-				conversations = await Database.Chat.GetDirectConversations(db, me, DirectConversationsMax, blocked);
-				names = await NamesAsync(db, conversations.Select(c => c.OtherUserID));
+				HashSet<long> hiddenPartners = blocked.Where(other => !IsStaffConversation(me, other)).ToHashSet();
+				direct = await Database.Chat.GetDirectConversations(db, me, DirectConversationsMax, hiddenPartners);
+				groups = await Database.Chat.GetGroupsOf(db, me);
+				groupConversations = await Database.Chat.GetGroupConversations(db, me, groups.Select(g => g.Group.ID).ToArray(), blocked);
+
+				IEnumerable<long> people = direct.Select(c => c.OtherUserID)
+					.Concat(groups.SelectMany(g => g.MemberIDs))
+					.Concat(groupConversations.Where(c => c.Last != null).Select(c => c.Last!.SenderID));
+				names = await NamesAsync(db, people);
 			}
 
 			// users without a row no longer exist and are left out
-			DirectConversationInfo[] list = conversations
+			List<(DateTime Activity, ConversationInfo Info)> entries = direct
 				.Where(c => names.ContainsKey(c.OtherUserID))
-				.Select(c => new DirectConversationInfo { UserId = c.OtherUserID, Unread = c.Unread, Last = ToWire(c.Last, me, names) })
-				.ToArray();
-			await Clients.Caller.DirectMessages(new DirectMessagesEvent { Conversations = list });
+				.Select(c => (c.Last.CreatedAt, new ConversationInfo { ChannelId = Database.Chat.DirectConversationKey(c.OtherUserID), Unread = c.Unread, Last = ToWire(c.Last, me, names) }))
+				.ToList();
+
+			Dictionary<long, Database.GroupInfo> groupsByID = groups.ToDictionary(g => g.Group.ID);
+			foreach (Database.GroupConversation c in groupConversations)
+			{
+				DateTime activity = c.Last?.CreatedAt ?? groupsByID[c.GroupID].Group.CreatedAt;
+				entries.Add((activity, new ConversationInfo { ChannelId = Database.Chat.GroupConversationKey(c.GroupID), Unread = c.Unread, Last = c.Last == null ? null : ToWire(c.Last, me, names) }));
+			}
+
+			ConversationInfo[] list = entries.OrderByDescending(e => e.Activity).Select(e => e.Info).ToArray();
+			await Clients.Caller.Conversations(new ConversationsEvent { Conversations = list, Groups = groups.Select(g => ToWireGroup(g, names)).ToArray() });
+		}
+
+		// True when either user holds chat.message_anyone, a block then does not hide their direct conversation
+		private static bool IsStaffConversation(Int64 userA, Int64 userB)
+		{
+			return StaffRoles.HasPermission(userA, Permissions.ChatMessageAnyone) || StaffRoles.HasPermission(userB, Permissions.ChatMessageAnyone);
+		}
+
+		private static Group ToWireGroup(Database.GroupInfo group, IReadOnlyDictionary<long, string> names)
+		{
+			return new Group
+			{
+				Id = group.Group.ID,
+				Name = group.Group.Name,
+				OwnerId = group.Group.OwnerID,
+				Members = group.MemberIDs.Select(id => RealtimeMembers.Of(id, names.TryGetValue(id, out string? name) ? name : null)).ToArray(),
+				CreatedAt = group.Group.CreatedAt
+			};
 		}
 
 		// Users the viewer blocked and users who blocked the viewer, read from the database so offline users count too
@@ -246,6 +303,7 @@ namespace GenOnlineService.Realtime
 			{
 				ChatMessageKinds.Channel => Database.Chat.ChannelConversationKey(row.ChannelID ?? -1),
 				ChatMessageKinds.Lobby => RealtimeGroups.Lobby(row.LobbyID ?? -1),
+				ChatMessageKinds.Group => Database.Chat.GroupConversationKey(row.GroupID ?? -1),
 				_ => Database.Chat.DirectConversationKey(row.SenderID == viewer ? row.RecipientID ?? -1 : row.SenderID)
 			};
 		}

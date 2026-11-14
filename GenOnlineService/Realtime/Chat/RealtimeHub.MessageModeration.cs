@@ -41,6 +41,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			ChatMessage row;
+			List<long> groupMembers = new();
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				// staff delete their own messages and those of lower ranked users only, checked before any change
@@ -66,8 +67,13 @@ namespace GenOnlineService.Realtime
 				row = tombstone.Message;
 
 				// ids only, the audit row never holds the chat text
-				object details = new { kind = row.Kind, sender_id = row.SenderID, channel_id = row.ChannelID, lobby_id = row.LobbyID, recipient_id = row.RecipientID };
+				object details = new { kind = row.Kind, sender_id = row.SenderID, channel_id = row.ChannelID, lobby_id = row.LobbyID, recipient_id = row.RecipientID, group_id = row.GroupID };
 				await Database.Moderation.LogAction(db, Actor(), ModerationActions.MessageDelete, AuditTargetKinds.Message, messageID, request.Reason, details);
+
+				if (row.Kind == ChatMessageKinds.Group)
+				{
+					groupMembers = (await Database.Chat.GetGroup(db, row.GroupID ?? -1))?.MemberIDs ?? new List<long>();
+				}
 			}
 
 			string id = messageID.ToString(CultureInfo.InvariantCulture);
@@ -83,6 +89,12 @@ namespace GenOnlineService.Realtime
 				{
 					Int64 lobbyID = row.LobbyID ?? -1;
 					await RealtimeOut.Lobby(lobbyID).MessageDelete(new MessageRefEvent { ChannelId = RealtimeGroups.Lobby(lobbyID), MessageId = id });
+					break;
+				}
+				case ChatMessageKinds.Group:
+				{
+					// the current members, a member who left lost the history with the group
+					await RealtimeOut.Users(groupMembers).MessageDelete(new MessageRefEvent { ChannelId = Database.Chat.GroupConversationKey(row.GroupID ?? -1), MessageId = id });
 					break;
 				}
 				default:
@@ -117,7 +129,10 @@ namespace GenOnlineService.Realtime
 			ChatMessage? row = await Database.Chat.GetMessage(db, messageID);
 
 			// a message the caller never received answers like an unknown one, so reports cannot probe for messages
-			if (row == null || !ReceivedBy(row, me) || (await BlockedEitherWayAsync(db, me)).Contains(row.SenderID))
+			bool received = row != null && (row.Kind == ChatMessageKinds.Group
+				? row.SenderID != me && await Database.Chat.IsGroupMember(db, row.GroupID ?? -1, me)
+				: ReceivedBy(row, me));
+			if (row == null || !received || ((await BlockedEitherWayAsync(db, me)).Contains(row.SenderID) && !(row.Kind == ChatMessageKinds.Direct && IsStaffConversation(me, row.SenderID))))
 			{
 				return Result.NotFound("message");
 			}
@@ -128,7 +143,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// Who counts as having received a message, members who left since still count
-		// Direct: the recipient. Channel: any user, channel history is public through GetHistory
+		// Direct: the recipient. Channel: any user, channel history is public through GetHistory. Group: any other current member, checked by the caller
 		// Lobby: a member when lobby chat was sent (kept 24 h after the lobby's last message), a current member, or a player of its match
 		// The author never reports their own message, and a block between author and caller means it was never delivered, the caller checks blocks
 		private static bool ReceivedBy(ChatMessage row, Int64 userID)

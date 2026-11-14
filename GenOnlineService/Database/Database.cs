@@ -87,6 +87,8 @@ public abstract class AppDbContext : DbContext
 	public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 	public DbSet<ChatReadMarker> ChatReadMarkers => Set<ChatReadMarker>();
 	public DbSet<ChatReport> ChatReports => Set<ChatReport>();
+	public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
+	public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
 
 	// Players and devices
 	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
@@ -157,6 +159,8 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ChatMessageConfiguration());
 		modelBuilder.ApplyConfiguration(new ChatReadMarkerConfiguration());
 		modelBuilder.ApplyConfiguration(new ChatReportConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatGroupConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());

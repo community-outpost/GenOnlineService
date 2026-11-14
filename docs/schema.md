@@ -101,14 +101,19 @@ blocks                    user_id, blocked_user_id, created_at    pk (user_id, b
 ### Chat
 
 ```
-chat_messages             id, kind varchar(16) ('channel' | 'lobby' | 'direct'), channel_id bigint null,
+chat_messages             id, kind varchar(16) ('channel' | 'lobby' | 'direct' | 'group'), channel_id bigint null,
                           lobby_id bigint null, match_id bigint null, sender_id, recipient_id null,
-                          type varchar(16) ('chat' | 'action' | 'announcement'), content varchar(512),
+                          group_id null, type varchar(16) ('chat' | 'action' | 'announcement'), content varchar(512),
                           created_at, deleted_at null
                           index (kind, channel_id, id), (lobby_id, id), (sender_id, recipient_id, id),
-                          (recipient_id, sender_id, id), (created_at)
+                          (recipient_id, sender_id, id), (group_id, id), (created_at)
                           -- retention: 30 days after created_at, tombstones included
-chat_read_markers         user_id, conversation varchar(64) ('dm:<user_id>' | 'channel:<id>'),
+chat_groups               id, name varchar(32) null, owner_id, created_at
+                          -- no retention: deleted when its last member leaves
+chat_group_members        id, group_id, user_id, joined_at
+                          unique (group_id, user_id), index (user_id)
+                          -- id keeps the join order; removed on leave, removal and account deletion
+chat_read_markers         user_id, conversation varchar(64) ('dm:<user_id>' | 'channel:<id>' | 'group:<id>'),
                           last_read_message_id, updated_at   pk (user_id, conversation)
                           -- retention: purged with the messages, 30 days after updated_at
 chat_reports              id, message_id, reporter_id, reason varchar(512) null, snapshot json,
@@ -117,7 +122,7 @@ chat_reports              id, message_id, reporter_id, reason varchar(512) null,
                           -- retention: kept while open, purged 30 days after closed_at
 ```
 
-Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages. A report's `snapshot` is `{message, before: [up to 10, oldest first], after: [up to 10, oldest first], after_filled_at: ISO UTC or null}` for the same conversation: the report stores the message and `before`, and the hourly purge fills `after` and `after_filled_at` for open reports just before the reported message expires. Its `message_id` may therefore point at a purged message, and moderation reads the snapshot instead. Closing a report sets `closed_at`. Account deletion deletes the messages the user sent, their read markers and their closed reports; their open reports stay until closed.
+Messages are stored without encryption. A tombstone keeps `deleted_at` only; who deleted the message and why are in `audit_log`. `channel_id` is the catalog channel id, `lobby_id` and `match_id` are set for lobby messages, `recipient_id` for direct messages, `group_id` for group messages (a group message keeps its `group_id` after the group is deleted and is purged with the other messages). A group has at most `Realtime:group_max_members` members (default 10), the owner included; when the owner leaves, the member with the lowest `chat_group_members.id` (the earliest to join) becomes owner, and leaving removes that member's read marker for the group. A report's `snapshot` is `{message, before: [up to 10, oldest first], after: [up to 10, oldest first], after_filled_at: ISO UTC or null}` for the same conversation: the report stores the message and `before`, and the hourly purge fills `after` and `after_filled_at` for open reports just before the reported message expires. Its `message_id` may therefore point at a purged message, and moderation reads the snapshot instead. Closing a report sets `closed_at`. Account deletion deletes the messages the user sent, their read markers, their closed reports and their group memberships (with the same owner handover, and a group left empty is deleted); their open reports stay until closed. A staff direct message that uses the `chat.message_anyone` bypass (no mutual friendship, or a block either way) writes an `audit_log` row (`action` `staff_message`, target the user, `details` `{message_id}`, never the text).
 
 ### Players and devices
 
