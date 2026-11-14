@@ -1168,6 +1168,8 @@ namespace GenOnlineService
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
+			// Failed policies on /api and /-/ answer with the single error body
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Rest.RestAuthorizationResultHandler>();
 
 			builder.Services.AddAuthorization(options =>
 			{
@@ -1205,6 +1207,10 @@ namespace GenOnlineService
 			{
 				options.JsonSerializerOptions
 				.PropertyNamingPolicy = null;
+			});
+			builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+			{
+				options.InvalidModelStateResponseFactory = GenOnlineService.Rest.RestSetup.InvalidModelState;
 			});
 			// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 			//builder.Services.AddOpenApi();
@@ -1432,6 +1438,7 @@ namespace GenOnlineService
 			}
 
 			app.UseCors();
+			app.Use(GenOnlineService.Rest.RestSetup.StatusBodies);
 			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
 			app.UseRealtimeRegistrationGate();
