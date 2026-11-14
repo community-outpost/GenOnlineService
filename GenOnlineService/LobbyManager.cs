@@ -1248,20 +1248,14 @@ public async Task FinalizeACChecks()
 				}
 			}
 
+			// Lobbies show the name alone; a joiner whose name a member already has shows Name#tag, which is unique
 			string strOriginalDisplayName = strDisplayName;
-			int dupesSeen = 0;
-			string strNameLower = strDisplayName.ToLower();
-			foreach (var memberEntry in Members)
+			string strNormalized = NameNormalizer.Normalize(strDisplayName);
+			bool bShared = Members.Any(memberEntry => memberEntry.IsHuman() && NameNormalizer.Normalize(memberEntry.DisplayNameNotDeduped) == strNormalized);
+			if (bShared)
 			{
-				if (memberEntry.DisplayNameNotDeduped.ToLower() == strNameLower)
-				{
-					++dupesSeen;
-				}
-			}
-
-			if (dupesSeen > 0)
-			{
-				strDisplayName = String.Format("{0} ({1})", strDisplayName, dupesSeen);
+				int tag = WebSocketManager.GetSharedDataForUser(playerSession.m_UserID)?.m_NameTag ?? 0;
+				strDisplayName = tag > 0 ? Database.DisplayNames.Format(strDisplayName, tag) : $"{strDisplayName} ({playerSession.m_UserID})";
 			}
 
 			// only apply lobby prefs if not QM

@@ -87,7 +87,7 @@ Two disjoint sets in one catalogue (`Authorization.cs`):
 
 Machine permissions are further marked **privileged** when they can act on any user's account. Privileged permissions can only be granted, and tokens carrying them minted, through the CLI on the host. The HTTP API refuses them even for admins, so the escalation needs host access, not an admin role.
 
-Existing human permissions (moderation-roles): `moderation.kick`, `moderation.mute`, `moderation.ban`, `chat.staff_badge`, `names.protected`, `social.unblockable`, `roles.manage`, `server.stats`, `announcements.send`.
+Existing human permissions (moderation-roles): `moderation.kick`, `moderation.mute`, `moderation.rename`, `moderation.ban`, `chat.staff_badge`, `names.protected`, `social.unblockable`, `roles.manage`, `server.stats`, `announcements.send`.
 
 Added by this design:
 

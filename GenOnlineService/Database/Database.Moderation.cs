@@ -60,6 +60,7 @@ public static class ModerationActions
 	public const string Unban = "unban";
 	public const string Mute = "mute";
 	public const string Unmute = "unmute";
+	public const string Rename = "rename";
 	public const string RoleGrant = "role_grant";
 	public const string RoleRevoke = "role_revoke";
 }

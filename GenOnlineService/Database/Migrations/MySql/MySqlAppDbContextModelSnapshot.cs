@@ -1306,6 +1306,10 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("datetime(6)")
                         .HasColumnName("lockout_end_at");
 
+                    b.Property<int>("NameTag")
+                        .HasColumnType("int")
+                        .HasColumnName("name_tag");
+
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)")
@@ -1354,9 +1358,9 @@ namespace GenOnlineService.Migrations.MySql
                         .IsUnique()
                         .HasDatabaseName("ux_users_email_normalized");
 
-                    b.HasIndex("UsernameNormalized")
+                    b.HasIndex("UsernameNormalized", "NameTag")
                         .IsUnique()
-                        .HasDatabaseName("ux_users_username_normalized");
+                        .HasDatabaseName("ux_users_username_normalized_name_tag");
 
                     b.ToTable("users", (string)null);
                 });
@@ -1486,6 +1490,10 @@ namespace GenOnlineService.Migrations.MySql
                         .HasMaxLength(64)
                         .HasColumnType("varchar(64)")
                         .HasColumnName("changed_by");
+
+                    b.Property<int?>("NameTag")
+                        .HasColumnType("int")
+                        .HasColumnName("name_tag");
 
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")

@@ -67,7 +67,8 @@ namespace GenOnlineService
 			return new ModerationResult
 			{
 				Result = EModerationResult.Success,
-				TargetDisplayName = target.m_strDisplayName
+				// staff see Name#tag: the name alone may belong to several players
+				TargetDisplayName = Database.DisplayNames.Format(target.m_strDisplayName, target.m_NameTag)
 			};
 		}
 

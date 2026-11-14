@@ -47,6 +47,10 @@ namespace GenOnlineService.Realtime
 	{
 		public long Id { get; init; }
 		public string Name { get; init; } = "";
+
+		// "0042": Name#tag is unique, the name alone is not (section 3.1)
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Tag { get; init; }
 		public IReadOnlyList<string> Badges { get; init; } = [];
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public ClientType? Client { get; init; }
@@ -365,6 +369,15 @@ namespace GenOnlineService.Realtime
 	{
 		public long UserId { get; init; }
 		public string Reason { get; init; } = "";
+	}
+
+	public sealed record ForceRenameRequest
+	{
+		public long UserId { get; init; }
+		public string Reason { get; init; } = "";
+
+		// The new name; empty gives "Player"
+		public string? Name { get; init; }
 	}
 
 	public sealed record MuteRequest

@@ -193,7 +193,7 @@ namespace GenOnlineService.Realtime
 				Id = messageID,
 				ChannelId = request.ChannelId,
 				Type = request.Type,
-				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName),
+				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName, null, authorData.m_NameTag),
 				Content = content
 			};
 			await deliver(message);
@@ -206,10 +206,11 @@ namespace GenOnlineService.Realtime
 			return Result.Success(new SendMessageData { MessageId = messageID });
 		}
 
-		public async Task<Result<Empty>> SetDisplayName(SetDisplayNameRequest request)
+		// The rules every chosen name follows (the Keycloak plugin applies the same ones); reserved words are checked apart
+		private static Failure? CheckNameRules(string name)
 		{
-			string name = request.Name ?? String.Empty;
-			if (name.Any(Char.IsControl) || !String.Equals(TextSanitizer.Clean(name, StoredNameMaxLength), name, StringComparison.Ordinal))
+			// '#' separates the name from its tag
+			if (name.Contains('#') || name.Any(Char.IsControl) || !String.Equals(TextSanitizer.Clean(name, StoredNameMaxLength), name, StringComparison.Ordinal))
 			{
 				return Result.Fail(ErrorCodes.NameInvalidCharacters);
 			}
@@ -224,6 +225,23 @@ namespace GenOnlineService.Realtime
 			if (s_dedupeSuffix.IsMatch(name))
 			{
 				return Result.Fail(ErrorCodes.NameInvalidCharacters);
+			}
+			return null;
+		}
+
+		public async Task<Result<Empty>> SetDisplayName(SetDisplayNameRequest request)
+		{
+			// Where Keycloak owns names, players rename there (kc_action=UPDATE_PROFILE) and the change arrives by copy
+			if (m_accounts.NamesFromUpstream)
+			{
+				return Result.Fail(ErrorCodes.NameManaged);
+			}
+
+			string name = request.Name ?? String.Empty;
+			Failure? invalid = CheckNameRules(name);
+			if (invalid != null)
+			{
+				return invalid.Value;
 			}
 
 			Int64 userID = UserID;
@@ -242,27 +260,21 @@ namespace GenOnlineService.Realtime
 				return Result.NotFound("user");
 			}
 
+			NameChange? change;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
-				if (!await Database.Users.SetDisplayName(db, userID, name))
-				{
-					return Result.Fail(ErrorCodes.NameTaken);
-				}
+				change = await Database.Users.SetDisplayName(db, userID, name);
+			}
+			if (change == null)
+			{
+				// every tag of the name is in use
+				return Result.Fail(ErrorCodes.NameTaken);
 			}
 
-			string oldName = userData.m_strDisplayName;
-			if (String.Equals(oldName, name, StringComparison.Ordinal))
+			if (change.OldName != change.NewName || change.OldTag != change.NewTag)
 			{
-				return Result.Success();
+				await RealtimeNames.PublishOne(change);
 			}
-			userData.m_strDisplayName = name;
-
-			IRealtimeClient audience = RealtimeOut.Connections(NameAudience(userID));
-			foreach (UserSession userSession in WebSocketManager.GetAllDataFromUser(userID))
-			{
-				await audience.MemberUpdate(new MemberUpdateEvent { Member = RealtimeMembers.Of(userSession) });
-			}
-			await audience.Notice(new NoticeEvent { Code = ErrorCodes.NameChanged, Params = new { UserId = userID, OldName = oldName, NewName = name } });
 			return Result.Success();
 		}
 
@@ -370,30 +382,6 @@ namespace GenOnlineService.Realtime
 				}
 			}
 			return excluded;
-		}
-
-		// Everyone who can see the user: their own connections, their rooms, their lobby and their friends
-		private static IReadOnlyList<string> NameAudience(Int64 userID)
-		{
-			List<UserSession> own = WebSocketManager.GetAllDataFromUser(userID);
-			HashSet<Int16> rooms = own.Where(s => s.networkRoomID >= 0).Select(s => s.networkRoomID).ToHashSet();
-			HashSet<Int64> lobbies = own.Where(s => s.currentLobbyID != -1).Select(s => s.currentLobbyID).ToHashSet();
-			HashSet<Int64> friends = SocialState.Snapshot(userID, c => c.Friends).ToHashSet();
-
-			HashSet<string> connections = new(StringComparer.Ordinal);
-			foreach (UserSession session in RealtimeAudience.AllSessions())
-			{
-				bool sees = session.m_UserID == userID
-					|| rooms.Contains(session.networkRoomID)
-					|| (session.GetSessionType() == EUserSessionType.GameClient && lobbies.Contains(session.currentLobbyID))
-					|| friends.Contains(session.m_UserID);
-				string? connectionID = sees ? RealtimeAudience.ConnectionOf(session) : null;
-				if (connectionID != null)
-				{
-					connections.Add(connectionID);
-				}
-			}
-			return connections.ToArray();
 		}
 
 		private static string? ReservedWordIn(string name)

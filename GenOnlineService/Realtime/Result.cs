@@ -70,6 +70,7 @@ namespace GenOnlineService.Realtime
 		public const string NameWhitespace = "name.whitespace";
 		public const string NameReserved = "name.reserved";
 		public const string NameTaken = "name.taken";
+		public const string NameManaged = "name.managed";
 		public const string NameChanged = "name.changed";
 		public const string ServerAnnouncement = "server.announcement";
 		public const string RoomUnavailable = "room.unavailable";

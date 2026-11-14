@@ -125,9 +125,10 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 **Member** (a user as other users see them; used in chat, channels, lobbies, friends)
 
 ```json
-{"id":7,"name":"Ann","badges":["moderator"],"client":"game"}
+{"id":7,"name":"Ann","tag":"0042","badges":["moderator"],"client":"game"}
 ```
 
+- `name` and `tag`: the display name is not unique; `name#tag` is (identity section 5a). Show `Ann#0042` on profiles, friend lists and friend requests, and in staff tools. In channels, lobbies and chat show the name alone, and add `#tag` only when two members there share the name (names compare case-insensitively). `tag` is always four digits and absent only for a user whose tag is not known. Lobby slot names follow the same rule on the server side: a player who joins a lobby where a member already has the name is listed as `Name#tag`.
 - `badges`: badge ids, highest priority first; definitions (text and color) arrive in `Ready` and `BadgesUpdate`. Clients render a user's name in the color of their first badge and never hard-code badge ids, because operators define badges at runtime.
 - `client`: `game`, `launcher` or `chat`. Present in member lists, omitted in chat messages.
 
@@ -220,7 +221,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 | `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship; a message to an offline friend is stored and answers ok. Content 1 to 512 characters |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:` and `dm:` only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id, message_id}` | Result | Sets the read position; the user's other connections get `ReadMarker` |
-| `SetDisplayName` | `{name}` | Result | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
+| `SetDisplayName` | `{name}` | Result | 3 to 16 characters, no `#`. The tag stays for a change of case and is picked anew for any other name. On success everyone who can see the user gets `MemberUpdate`. Where Keycloak owns names (official deployment) the answer is `name.managed`: players rename on Keycloak's profile page (`kc_action=UPDATE_PROFILE`) and the new name arrives at their next sign-in or through the group sync |
 | `ReportMessage` | `{message_id, reason?}` | Result | any user who received the message; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters |
 
 ### 5.2 Lobbies
@@ -283,6 +284,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `Unmute` | `{user_id, reason?}` | Result | `moderation.mute` |
 | `Ban` | `{user_id, duration_s?, reason}` | Result (no `duration_s` means permanent) | `moderation.ban` |
 | `Unban` | `{user_id, reason?}` | Result | `moderation.ban` |
+| `ForceRename` | `{user_id, reason?, name?}` | Result (no `name` means `Player`) | `moderation.rename`; replaces an offensive name, the user gets a free tag for the new name and everyone who can see them gets `MemberUpdate`. The old `name#tag` goes into `audit_log`. Where Keycloak owns names the answer is `name.managed`: staff edit `display_name` in Keycloak and the group sync applies it |
 | `DeleteMessage` | `{message_id, reason?}` | Result | `chat.delete_any`; any channel, lobby or direct message. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 
 ### 5.6 Peer networking (game sessions only)
@@ -316,7 +318,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 | `ChannelHistory` | `{channel_id, messages: [Message], has_more}` (after `ChannelMembers`: the last messages of the channel, oldest first; split into several events when it would exceed 64 KB) |
 | `MemberAdd` | `{channel_id, member: Member}` |
 | `MemberRemove` | `{channel_id, user_id}` |
-| `MemberUpdate` | `{member: Member}` (rename, badge change; sent to everyone who can see the user) |
+| `MemberUpdate` | `{member: Member}` (rename, new tag, badge change; sent to everyone who can see the user) |
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
 | `DirectMessages` | `{conversations: [{user_id, unread, last: Message}]}` (snapshot after `Friends`) |
@@ -419,7 +421,8 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.invalid_characters` | | `SetDisplayName` |
 | `name.whitespace` | | `SetDisplayName` |
 | `name.reserved` | `{word}` | `SetDisplayName` (staff words and badge texts) |
-| `name.taken` | | `SetDisplayName` |
+| `name.taken` | | `SetDisplayName`, `ForceRename`: every tag of the name is in use |
+| `name.managed` | | `SetDisplayName`, `ForceRename`: Keycloak owns names in this environment |
 | `channel.unavailable` | | `JoinChannel` |
 | `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |

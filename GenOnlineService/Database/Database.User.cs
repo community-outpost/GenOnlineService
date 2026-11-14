@@ -57,6 +57,9 @@ public class User
 	public Int64 ID { get; set; }
 	public string Username { get; set; } = String.Empty;
 	public string UsernameNormalized { get; set; } = String.Empty;
+
+	// The display name is not unique; the 4-digit tag makes Name#tag unique (DisplayNames)
+	public int NameTag { get; set; }
 	public string? Email { get; set; }
 	public string? EmailNormalized { get; set; }
 	public DateTime? EmailConfirmedAt { get; set; }
@@ -81,6 +84,9 @@ public class UserUsernameHistory
 	public Int64 ID { get; set; }
 	public Int64 UserID { get; set; }
 	public string Username { get; set; } = String.Empty;
+
+	// The tag the earlier name had; null on rows written before tags existed
+	public int? NameTag { get; set; }
 	public DateTime ChangedAt { get; set; } = DateTime.UnixEpoch;
 
 	// An actor label such as "user:42" or "cli"
@@ -121,12 +127,13 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.ToTable("users");
 
 		builder.HasKey(e => e.ID);
-		builder.HasIndex(e => e.UsernameNormalized).IsUnique().HasDatabaseName("ux_users_username_normalized");
+		builder.HasIndex(e => new { e.UsernameNormalized, e.NameTag }).IsUnique().HasDatabaseName("ux_users_username_normalized_name_tag");
 		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
 		builder.Property(e => e.UsernameNormalized).HasColumnName("username_normalized").HasMaxLength(User.UsernameMaxLength);
+		builder.Property(e => e.NameTag).HasColumnName("name_tag");
 		builder.Property(e => e.Email).HasColumnName("email").HasMaxLength(User.EmailMaxLength);
 		builder.Property(e => e.EmailNormalized).HasColumnName("email_normalized").HasMaxLength(User.EmailMaxLength);
 		builder.Property(e => e.EmailConfirmedAt).HasColumnName("email_confirmed_at");
@@ -155,6 +162,7 @@ public class UserUsernameHistoryConfiguration : IEntityTypeConfiguration<UserUse
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
+		builder.Property(e => e.NameTag).HasColumnName("name_tag");
 		builder.Property(e => e.ChangedAt).HasColumnName("changed_at");
 		builder.Property(e => e.ChangedBy).HasColumnName("changed_by").HasMaxLength(64);
 	}
@@ -235,10 +243,10 @@ namespace Database
 			var user = new User
 			{
 				Username = username,
-				UsernameNormalized = NameNormalizer.Normalize(username),
 				CreatedAt = now,
 				UpdatedAt = now
 			};
+			await DisplayNames.AssignNewUser(db, user);
 
 			if (userId != null)
 			{
@@ -270,30 +278,6 @@ namespace Database
 			}
 		}
 #endif
-
-		public static async Task<Dictionary<long, string>> GetDisplayNameBulk(AppDbContext db, List<long> lstUserIDs)
-		{
-			var dict = new Dictionary<long, string>(lstUserIDs.Count);
-
-			try
-			{
-				var rows = await db.Users.AsNoTracking()
-					.Where(u => lstUserIDs.Contains(u.ID))
-					.Select(u => new { u.ID, u.Username })
-					.ToListAsync();
-
-				foreach (var row in rows)
-				{
-					dict[row.ID] = row.Username;
-				}
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetDisplayNameBulk failed");
-			}
-
-			return dict;
-		}
 
 		// The longest lasting active play ban decides what the player sees
 		public static async Task<UserBanStatus?> GetUserBanStatus(AppDbContext db, long userId)
@@ -470,75 +454,37 @@ namespace Database
 			}
 		}
 
-		public static async Task<bool> SetDisplayName(AppDbContext db, long userId, string newName)
+		// A player's own rename where the environment owns names; null when the name cannot be stored or no tag is free
+		public static async Task<NameChange?> SetDisplayName(AppDbContext db, long userId, string newName)
 		{
+			// Client-supplied: refuse a name that contains NUL (PostgreSQL rejects it) or does not fit instead of rewriting it
+			if (!DisplayNames.IsStorable(newName))
+			{
+				return null;
+			}
+
 			try
 			{
-				// Client-supplied: refuse a name that contains NUL (PostgreSQL rejects it) or does not fit instead of rewriting it
-				if (!String.Equals(TextSanitizer.Clean(newName, User.UsernameMaxLength), newName, StringComparison.Ordinal))
-				{
-					return false;
-				}
-
-				string normalized = NameNormalizer.Normalize(newName);
-				if (normalized.Length > User.UsernameMaxLength)
-				{
-					return false;
-				}
-
-				if (await db.Users.AnyAsync(u => u.ID != userId && u.UsernameNormalized == normalized))
-				{
-					return false;
-				}
-
-				string? previous = await db.Users.Where(u => u.ID == userId).Select(u => u.Username).FirstOrDefaultAsync();
-				if (previous == null)
-				{
-					return false;
-				}
-
-				if (String.Equals(previous, newName, StringComparison.Ordinal))
-				{
-					return true;
-				}
-
-				DateTime now = DateTime.UtcNow;
-
-				await using var transaction = await db.Database.BeginTransactionAsync();
-
-				await db.Users
-					.Where(u => u.ID == userId)
-					.ExecuteUpdateAsync(setters => setters
-						.SetProperty(u => u.Username, newName)
-						.SetProperty(u => u.UsernameNormalized, normalized)
-						.SetProperty(u => u.RenamedAt, now)
-						.SetProperty(u => u.UpdatedAt, now));
-
-				db.UserUsernameHistory.Add(new UserUsernameHistory
-				{
-					UserID = userId,
-					Username = previous,
-					ChangedAt = now,
-					ChangedBy = $"user:{userId}"
-				});
-				await db.SaveChangesAsync();
-
-				await transaction.CommitAsync();
-				return true;
+				return await DisplayNames.Rename(db, userId, newName, $"user:{userId}")
+					?? await CurrentName(db, userId);
+			}
+			catch (NameTagsExhaustedException)
+			{
+				return null;
 			}
 			catch (Exception ex)
 			{
 				db.ChangeTracker.Clear();
-
-				// Two renames to the same name raced; the unique index keeps one
-				if (DbHelpers.IsUniqueViolation(ex))
-				{
-					return false;
-				}
-
 				s_log.LogError(ex, "SetDisplayName failed");
-				return false;
+				return null;
 			}
+		}
+
+		// An unchanged name reads back as a change to itself, so the caller can tell it from a failure
+		private static async Task<NameChange?> CurrentName(AppDbContext db, long userId)
+		{
+			(string Name, int Tag)? current = await DisplayNames.Get(db, userId);
+			return current == null ? null : new NameChange(userId, current.Value.Name, current.Value.Tag, current.Value.Name, current.Value.Tag);
 		}
 
 		public static async Task SaveELOData(AppDbContext db, long userId, EloData newEloData, CancellationToken cancellationToken = default)

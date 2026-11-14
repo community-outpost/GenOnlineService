@@ -130,6 +130,65 @@ namespace GenOnlineService.Realtime
 			return Result.Success();
 		}
 
+		// Staff replace an offensive name; the player keeps the account and gets a free tag for the new name
+		public async Task<Result<Empty>> ForceRename(ForceRenameRequest request)
+		{
+			Failure? failure = await RequirePermissionAsync(Permissions.ModerationRename) ?? CheckModeration(request.UserId, request.Reason);
+			if (failure != null)
+			{
+				return failure.Value;
+			}
+
+			// Keycloak owns the names there: staff edit display_name in Keycloak and the group sync brings it here
+			if (m_accounts.NamesFromUpstream)
+			{
+				return Result.Fail(ErrorCodes.NameManaged);
+			}
+
+			string name = String.IsNullOrEmpty(request.Name) ? ForcedRenameDefault : request.Name;
+			Failure? invalid = CheckNameRules(name);
+			if (invalid != null)
+			{
+				return invalid.Value;
+			}
+
+			NameChange? change;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				(string Name, int Tag)? before = await Database.DisplayNames.Get(db, request.UserId);
+				if (before == null)
+				{
+					return Result.NotFound("user");
+				}
+
+				try
+				{
+					change = await Database.DisplayNames.Rename(db, request.UserId, name, $"user:{UserID}");
+				}
+				catch (NameTagsExhaustedException)
+				{
+					return Result.Fail(ErrorCodes.NameTaken);
+				}
+
+				// renaming to the current name changes nothing and leaves no audit row
+				if (change != null)
+				{
+					string from = Database.DisplayNames.Format(before.Value.Name, before.Value.Tag);
+					await Database.Moderation.LogUserAction(db, Actor(), ModerationActions.Rename, request.UserId,
+						String.IsNullOrEmpty(request.Reason) ? $"was {from}" : $"{request.Reason} (was {from})");
+				}
+			}
+
+			if (change != null)
+			{
+				await RealtimeNames.PublishOne(change);
+			}
+			return Result.Success();
+		}
+
+		// The name a forced rename gives when staff name none
+		private const string ForcedRenameDefault = "Player";
+
 		private Failure? CheckModeration(Int64 target, string? reason)
 		{
 			if (target <= 0 || target == UserID)

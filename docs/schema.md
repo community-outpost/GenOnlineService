@@ -47,8 +47,9 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 ```
 users
   id                      bigint pk              -- the user id; with Keycloak player ids it is the player_id, set explicitly (identity section 3.2)
-  username                varchar(32)            -- display name
-  username_normalized     varchar(32) unique
+  username                varchar(32)            -- display name; not unique on its own
+  username_normalized     varchar(32)
+  name_tag                int                    -- 1 to 9999; unique (username_normalized, name_tag), shown as Name#0042
   email                   varchar(254) null
   email_normalized        varchar(254) null unique
   email_confirmed_at      timestamp null
@@ -60,7 +61,7 @@ users
   failed_sign_in_count    int
   created_at, updated_at, last_sign_in_at, renamed_at null
 
-user_username_history     id, user_id, username, changed_at, changed_by
+user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
 identities                id, user_id, provider varchar(32), extern_uid varchar(128),
                           extern_username varchar(128) null, created_at, last_used_at
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
