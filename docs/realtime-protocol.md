@@ -81,7 +81,7 @@ The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E
 | Ids | User, lobby and channel ids are JSON numbers (all fit in 53 bits). Message ids are strings |
 | Channel ids | Typed strings: `channel:<channel_id>`, `lobby:<lobby_id>`, `dm:<user_id>`, `group:<group_id>` |
 | Durations and times | A duration a person sees or chooses is whole seconds with `_s`; a delay the service computes for a client to wait is milliseconds with `_ms`; a point in time is ISO 8601 UTC with `_at` (`2026-11-13T20:00:00Z`). The measured `latency_ms` stays in milliseconds |
-| Binary data | Base64 strings (signalling, anticheat payloads) |
+| Binary data | Base64 strings (signalling payloads) |
 | Text | The service sends codes and parameters, never display text. The only free text is user content (chat, reasons typed by staff) |
 | Optional and nullable | `field?` may be omitted. A field written as `field: T or null` (for example `password`, `screenshot_url`, `team`) is always sent and is `null` when it has no value |
 | Patch methods | In `UpdateLobby`, `UpdateMySlot` and `UpdateSlots` an omitted field stays unchanged and `null` clears a nullable field (`"team": null` means no team) |
@@ -282,7 +282,6 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `Signal` | `{to, payload}` | Fire | Relayed as `Signal` to a peer in the same lobby |
 | `BeginMeshCheck` | `{}` | Result | Host only, not in quick match lobbies |
 | `MeshCheckResponse` | `{mesh_check_id, attempt, connected: [user_id], connecting: [user_id]}` | Fire | |
-| `AnticheatMessage` | `{to, payload}` | Fire | Relayed as `AnticheatMessage` |
 | `ProbeResponse` | `{probe_id}` | Fire | Answer to `ProbeRequest` |
 | `ModuleScanResponse` | `{scan_id, modules: [{path, size}]}` | Fire | Answer to `ModuleScanRequest` |
 
@@ -396,9 +395,10 @@ Messages are stored in the service database as they are; the protocol and the se
 | `MeshCheckRequest` | `{mesh_check_id, attempt}` |
 | `MeshCheckResult` | `{mesh_check_id, attempt, complete, reason, missing: [{source_user_id, target_user_id}]}` |
 | `AnticheatRegister` / `AnticheatDeregister` | `{user_id, middleware_id}` |
-| `AnticheatMessage` | `{from, payload}` |
 | `ProbeRequest` | `{probe_id, url}` |
 | `ModuleScanRequest` | `{scan_id}` |
+
+Anti-cheat messages travel between the two clients of a pair over their peer connection, never through the service. `AnticheatRegister` and `AnticheatDeregister` only tell a client which peers to register with its anticheat, and a client holds a peer's messages until the pair connects.
 
 **Connection order.** The service connects each pair of members in steps, and every `StartSignalling` names the step. Both peers of a pair get the same `attempt`, `transport`, `relay` and `timeout_s`:
 
@@ -566,7 +566,7 @@ For porting client code only: where the behaviour of each legacy `/ws` message l
 | 5 mark ready | `SetReady` |
 | 6 current lobby dirty | `LobbyState` with content |
 | 7 lobby list dirty | `LobbyListUpsert` / `LobbyListRemove` |
-| 8 anticheat | `AnticheatMessage` both ways |
+| 8 anticheat | Dropped: anti-cheat messages travel over the peer connection |
 | 9 name change, name-change chat text | `PATCH /api/v1/me`, `name.*` codes, `MemberUpdate`, `Notice name.changed` |
 | 12 signal, 19 request signalling, 17 start signalling, 18 disconnect | `Signal`, `RequestSignalling`, `StartSignalling`, `DisconnectPeer` |
 | 13 start game, 23 countdown started, 49 start rejected, 50 lobby event, 51 | `StartGame` result codes, `CountdownStarted` / `Cancelled`, `GameStart` |
