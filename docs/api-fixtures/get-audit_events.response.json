@@ -1,0 +1,30 @@
+{
+  "audit_events": [
+    {
+      "id": 1042,
+      "action": "role_grant",
+      "actor_kind": "user",
+      "actor_name": "user:7",
+      "actor": {"id": 7, "display_name": "Sentinel#0042"},
+      "target_kind": "user",
+      "target_id": 1311,
+      "reason": null,
+      "source": "api",
+      "details": {"role": "moderator", "source": "local"},
+      "created_at": "2026-11-14T09:12:44Z"
+    },
+    {
+      "id": 1041,
+      "action": "token_mint",
+      "actor_kind": "cli",
+      "actor_name": "cli:ops",
+      "actor": null,
+      "target_kind": "token",
+      "target_id": 58,
+      "reason": null,
+      "source": "cli",
+      "details": {"name": "discord-bot", "owner": "service:discord_bot", "scopes": ["moderation.kick"], "expires_at": "2027-11-14T00:00:00Z", "allowed_ips": []},
+      "created_at": "2026-11-14T08:55:02Z"
+    }
+  ]
+}
