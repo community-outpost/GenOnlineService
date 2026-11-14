@@ -112,7 +112,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
 | `server.switching` | true | Planned handover to another service copy (`docs/realtime-failover.md`); `ServerSwitching` came before | Reconnect after its `retry_after_ms`, without backoff or a reconnect screen |
 | `protocol.error` | false | Malformed traffic | Log and return to login (client bug) |
 
-Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat, direct messages and group chat sent during the gap come back through `ChannelHistory`, `Conversations` and `GetHistory` (section 6.2); lobby chat comes back through `ChannelHistory` for `lobby:<id>` after `LobbyState`. A reconnect during lobby setup is safe: the service sends `StartSignalling` again for every pair of members that has not reported connected, and a client treats a repeated `StartSignalling` for a peer as a restart of that pair. `LobbyState.start` carries the start data, so a client that missed `GameStart` still starts. Events are not replayed by sequence number in v1; that can be added later without a breaking change (section 13).
+Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat, direct messages and group chat sent during the gap come back through `ChannelHistory`, `Conversations` and `GetHistory` (section 6.2); lobby chat comes back through `ChannelHistory` for `lobby:<id>` after `LobbyState`. A reconnect during lobby setup is safe: the service sends `StartSignalling` again for every pair of members that has not reported connected (a pair counts as connected once both list each other as `connected` in a `MeshCheckResponse`; before any mesh check that is every pair of the reconnecting member; nothing is resent once the game runs), and a client treats a repeated `StartSignalling` for a peer as a restart of that pair. `LobbyState.start` carries the start data, so a client that missed `GameStart` still starts. Events are not replayed by sequence number in v1; that can be added later without a breaking change (section 13).
 
 ## 4. Shared objects
 
@@ -242,7 +242,7 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 | `WatchLobbyList` | `{}` | Result `{lobbies: [LobbySummary]}` | any game session; subscribes to `LobbyListUpsert` and `LobbyListRemove` |
 | `UnwatchLobbyList` | `{}` | Result | |
 | `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password: string or null, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128 |
-| `JoinLobby` | `{lobby_id, password: string or null, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players |
+| `JoinLobby` | `{lobby_id, password: string or null, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players. Before the Result the joiner gets `LobbyState`, then `ChannelHistory` for `lobby:<id>` |
 | `LeaveLobby` | `{}` | Result | member |
 | `UpdateLobby` | `{map?: {name, path, official, max_players}, settings?: {starting_cash?, limit_superweapons?, max_camera_height?}, visibility?}` | Result | host; only the fields present change. A new `max_players` opens or closes slots |
 | `SetLobbyPassword` | `{password}` | Result | host; `null` removes it. The password is never sent back to anyone |
@@ -317,7 +317,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | | Stored | Replayed |
 |---|---|---|
 | Channel | id, channel id, author id, type, content, `created_at`, `deleted_at` | the last N on join (N from configuration, default 50) |
-| Lobby | the same plus lobby id and match id | on rejoin after a reconnect, as `ChannelHistory` for `lobby:<id>` after `LobbyState`: the messages since the lobby was created, at most 50 |
+| Lobby | the same plus lobby id and match id | on `JoinLobby` and on rejoin after a reconnect, as `ChannelHistory` for `lobby:<id>` after `LobbyState`: the newest 50 messages since the lobby was created, block filtered |
 | Direct | the same with sender and recipient | unread and recent on connect, synced across the user's clients |
 | Group | the same with group id instead of recipient | the same as direct messages |
 
@@ -422,7 +422,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.reserved` | `{word}` | `PATCH /api/v1/me` (staff words and badge texts) |
 | `name.taken` | | `PATCH /api/v1/me` |
 | `channel.unavailable` | | `JoinChannel` |
-| `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods |
+| `lobby.full`, `lobby.wrong_password`, `lobby.not_host`, `lobby.not_member`, `lobby.already_started` | | Lobby methods; `lobby.not_member` also for `GetHistory` on a `lobby:` the caller is not in |
 | `lobby.not_in_setup`, `lobby.already_member`, `lobby.blocked`, `lobby.friends_only`, `lobby.not_matched`, `lobby.anticheat_mismatch`, `lobby.build_mismatch` | | `JoinLobby` |
 | `lobby.slot_occupied` | `{index}` | `SetSlotState` on a player slot |
 | `lobby.not_ready` | `{missing: [user_id]}` | `StartGame` |
@@ -449,7 +449,7 @@ New codes are added freely; clients show a generic message for codes they do not
 | `user:<id>` | Every connection of that user | Social events, moderation notices, `Friends`, direct messages, group chat, `Conversations`, `ReadMarker`, `GroupCreate`, `GroupUpdate`, `GroupRemoved` |
 | `user:<id>:game` | That user's game connection | Peer networking, `LobbyState`, matchmaking |
 | `channel:<id>` | Connections in that channel | `ChannelMembers`, `MemberAdd`/`Remove`, channel chat, `MessageDelete` |
-| `lobby:<id>` | Game connections of lobby members | `LobbyState`, lobby chat, countdown events |
+| `lobby:<id>` | Game connections of lobby members | `LobbyState` until the game starts, lobby chat, countdown events. From the start `LobbyState` goes to each member through `user:<id>:game`, because `start.screenshot_url` is per member |
 | `lobby-list` | Connections that called `WatchLobbyList` | `LobbyListUpsert`, `LobbyListRemove` |
 
 Rules:
