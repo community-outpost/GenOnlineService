@@ -522,6 +522,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | `PATCH /api/v1/me` | `{name}` | 204 | 3 to 16 characters. On success everyone who can see the user gets `MemberUpdate` |
 | `PUT /api/v1/matches/:id/results/me` | the match result: `{won, desynced, side, duration_s, stats: {buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money}}` | `{screenshot_url, replay_url}` | a player of that match; the URLs are presigned upload targets. Idempotent: repeating the same body returns the same answer, so a client retries freely after a lost connection |
 | `GET /api/v1/matchmaking/playlists` | | `{playlists: [Playlist]}` | cacheable with `ETag` |
+| `POST /api/v1/lobbies/:id/connection_reports` | `{target_user_id, outcome, transport, ip_version}` | 204 | the final result of one peer connection, for metrics only (replaces `ConnectionOutcome`). `outcome` is `connected_direct`, `connected_relay`, `failed` or `disconnected`; `transport` is `gns` or `eos`; `ip_version` is 4 or 6. The caller must be a member of that lobby (`lobby.not_member`); nothing is stored per player, the service only counts by outcome, transport and IP version |
 
 ### 10.4 Other REST
 
