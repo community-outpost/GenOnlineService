@@ -47,16 +47,21 @@ namespace GenOnlineService.Identity
 
 		private readonly UpstreamProviderSettings m_provider;
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly HttpClient m_http;
+		private readonly ILogger m_log;
 
 		// one apply, pull or resync at a time on this copy; the locked last_seq row orders the copies among themselves
 		private readonly SemaphoreSlim m_gate = new(1, 1);
 		private string? m_token;
 		private DateTime m_tokenExpires;
 
-		public KeycloakChangeLog(UpstreamProviderSettings provider, IDbContextFactory<AppDbContext> dbFactory)
+		// handler and log replace the shared HTTP client and the AppLog logger in tests
+		public KeycloakChangeLog(UpstreamProviderSettings provider, IDbContextFactory<AppDbContext> dbFactory, HttpMessageHandler? handler = null, ILogger? log = null)
 		{
 			m_provider = provider;
 			m_dbFactory = dbFactory;
+			m_http = handler == null ? s_http : new HttpClient(handler, disposeHandler: false) { Timeout = s_http.Timeout };
+			m_log = log ?? s_log;
 		}
 
 		public string LastSeqKey => $"keycloak.{m_provider.Name}.change_log.last_seq";
@@ -172,7 +177,7 @@ namespace GenOnlineService.Identity
 			await m_gate.WaitAsync();
 			try
 			{
-				(_, gap) = await ApplyInOrder(new[] { entry });
+				(_, gap) = await ApplyInOrder(new[] { entry }, "push");
 			}
 			finally
 			{
@@ -181,19 +186,32 @@ namespace GenOnlineService.Identity
 
 			if (gap)
 			{
-				s_log.LogInformation("Change log push {Seq} arrived after a gap; pulling", entry.Seq);
+				m_log.LogInformation("Change log push {Seq} arrived after a gap; pulling", entry.Seq);
 				_ = Task.Run(async () =>
 				{
 					try
 					{
 						await Sync();
 					}
+					catch (UpstreamUnavailableException ex)
+					{
+						m_log.LogWarning("Change log pull after a gap failed: {Reason}; the minute check retries", ex.Message);
+					}
 					catch (Exception ex)
 					{
-						s_log.LogWarning(ex, "Change log pull after a gap failed; the minute check retries");
+						m_log.LogWarning(ex, "Change log pull after a gap failed; the minute check retries");
 					}
 				});
 			}
+		}
+
+		// The plugin's answer to a rename, applied at once under the last_seq row lock: a push of the same seq waits for it
+		// and then finds the name current, or it ran first and this finds it current. last_seq stays for the push or pull.
+		public async Task<IReadOnlyList<NameChange>> ApplyAnswer(Int64 userID, string? name, string? tag, string changedBy)
+		{
+			IReadOnlyList<NameChange> applied = Array.Empty<NameChange>();
+			await WithLockedLastSeq(async (db, row) => applied = await Database.DisplayNames.ApplyUpstreamInTransaction(db, userID, name, tag, changedBy), touch: false);
+			return applied;
 		}
 
 		// The minute check and the startup catch-up: pull when the log is ahead, resync when it no longer reaches last_seq
@@ -209,7 +227,7 @@ namespace GenOnlineService.Identity
 
 				if (latestSeq < last)
 				{
-					s_log.LogWarning("The Keycloak change log ends at {Latest}, behind this environment's {Last}; nothing to apply", latestSeq, last);
+					m_log.LogWarning("The Keycloak change log ends at {Latest}, behind this environment's {Last}; nothing to apply", latestSeq, last);
 					return;
 				}
 
@@ -249,7 +267,7 @@ namespace GenOnlineService.Identity
 					entries.Add(entry);
 				}
 
-				(long applied, bool gap) = await ApplyInOrder(entries);
+				(long applied, bool gap) = await ApplyInOrder(entries, "pull");
 				if (gap)
 				{
 					// the plugin never shows a hole; stop rather than loop, the next check tries again
@@ -269,7 +287,7 @@ namespace GenOnlineService.Identity
 		// Every player's current name and tag, then the changes after the first page's as_of_seq
 		private async Task Resync()
 		{
-			s_log.LogWarning("The Keycloak change log no longer reaches this environment's last_seq; resyncing every name");
+			m_log.LogWarning("The Keycloak change log no longer reaches this environment's last_seq; resyncing every name");
 			long? asOf = null;
 			long afterID = 0;
 			int pages = 0;
@@ -301,7 +319,7 @@ namespace GenOnlineService.Identity
 				await Task.CompletedTask;
 				return Array.Empty<NameChange>();
 			});
-			s_log.LogInformation("Resynced {Pages} page(s) of names as of seq {Seq}", pages, asOf);
+			m_log.LogInformation("Resynced {Pages} page(s) of names as of seq {Seq}", pages, asOf);
 
 			JsonElement latest = await Get($"{LogUrl}/changes/latest");
 			await PullFromAfterResync(asOf!.Value, latest.GetProperty("oldest_seq").GetInt64());
@@ -312,7 +330,7 @@ namespace GenOnlineService.Identity
 		{
 			if (last + 1 < oldestSeq)
 			{
-				s_log.LogWarning("The Keycloak change log was pruned past {Seq} during the resync; the next check continues", last);
+				m_log.LogWarning("The Keycloak change log was pruned past {Seq} during the resync; the next check continues", last);
 				return;
 			}
 
@@ -333,15 +351,17 @@ namespace GenOnlineService.Identity
 		}
 
 		// Applies the entries that continue last_seq in one transaction; returns the new last_seq and whether a gap stopped it
-		private async Task<(long LastSeq, bool Gap)> ApplyInOrder(IReadOnlyList<ChangeLogEntry> entries)
+		private async Task<(long LastSeq, bool Gap)> ApplyInOrder(IReadOnlyList<ChangeLogEntry> entries, string via)
 		{
 			long last = 0;
 			bool gap = false;
+			List<ChangeLogEntry> applied = new();
 			await WithLockedLastSeq(async (db, row) =>
 			{
 				List<NameChange> changes = new();
 				last = ValueOf(row);
 				gap = false;
+				applied.Clear();
 				foreach (ChangeLogEntry entry in entries.OrderBy(e => e.Seq))
 				{
 					if (entry.Seq <= last)
@@ -362,11 +382,17 @@ namespace GenOnlineService.Identity
 					}
 
 					last = entry.Seq;
+					applied.Add(entry);
 				}
 
 				SetValue(row, last);
 				return changes;
 			});
+
+			foreach (ChangeLogEntry entry in applied)
+			{
+				m_log.LogInformation("Applied change log {Via} seq {Seq} for player {PlayerId}", via, entry.Seq, entry.PlayerID);
+			}
 			return (last, gap);
 		}
 
@@ -376,8 +402,9 @@ namespace GenOnlineService.Identity
 			return changedBy.Length <= 64 ? changedBy : changedBy.Substring(0, 64);
 		}
 
-		// Runs work inside one transaction holding the last_seq row lock, so two copies never apply out of order; publishes after commit
-		private async Task WithLockedLastSeq(Func<AppDbContext, ApplicationSetting, Task<IReadOnlyList<NameChange>>> work)
+		// Runs work inside one transaction holding the last_seq row lock, so two copies never apply out of order; publishes after commit.
+		// Without touch the row is only locked, never written.
+		private async Task WithLockedLastSeq(Func<AppDbContext, ApplicationSetting, Task<IReadOnlyList<NameChange>>> work, bool touch = true)
 		{
 			for (int attempt = 1; ; attempt++)
 			{
@@ -392,8 +419,11 @@ namespace GenOnlineService.Identity
 					ApplicationSetting row = await db.ApplicationSettings.FromSqlRaw(sql, LastSeqKey).AsTracking().SingleAsync();
 
 					IReadOnlyList<NameChange> changes = await work(db, row);
-					row.UpdatedBy = m_provider.Source;
-					row.UpdatedAt = DateTime.UtcNow;
+					if (touch)
+					{
+						row.UpdatedBy = m_provider.Source;
+						row.UpdatedAt = DateTime.UtcNow;
+					}
 					await db.SaveChangesAsync();
 					await tx.CommitAsync();
 
@@ -453,7 +483,7 @@ namespace GenOnlineService.Identity
 		{
 			using var request = new HttpRequestMessage(HttpMethod.Get, url);
 			request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await AccessToken());
-			using HttpResponseMessage response = await s_http.SendAsync(request);
+			using HttpResponseMessage response = await Send(request);
 
 			if (response.StatusCode == HttpStatusCode.Unauthorized)
 			{
@@ -473,11 +503,33 @@ namespace GenOnlineService.Identity
 				{
 				}
 
-				throw new HttpRequestException($"The Keycloak change log answered {(int)response.StatusCode}{error} for {url}", null, response.StatusCode);
+				string message = $"The Keycloak change log answered {(int)response.StatusCode}{error} for {url}";
+				if ((int)response.StatusCode >= 500)
+				{
+					throw new UpstreamUnavailableException(message);
+				}
+				throw new HttpRequestException(message, null, response.StatusCode);
 			}
 
 			using JsonDocument doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
 			return (response.StatusCode, doc.RootElement.Clone());
+		}
+
+		// A connection that fails or a request that times out is an outage the next check retries, not a bug
+		private async Task<HttpResponseMessage> Send(HttpRequestMessage request)
+		{
+			try
+			{
+				return await m_http.SendAsync(request);
+			}
+			catch (HttpRequestException ex) when (ex.StatusCode == null)
+			{
+				throw new UpstreamUnavailableException($"Keycloak is unreachable at {request.RequestUri}: {ex.GetBaseException().Message}", ex);
+			}
+			catch (TaskCanceledException ex)
+			{
+				throw new UpstreamUnavailableException($"Keycloak did not answer {request.RequestUri} within {m_http.Timeout.TotalSeconds:0} seconds", ex);
+			}
 		}
 
 		// Client credentials of the genonline-sync client, cached until shortly before they expire
@@ -494,10 +546,16 @@ namespace GenOnlineService.Identity
 				["client_id"] = m_provider.ChangeLog.ClientID,
 				["client_secret"] = m_provider.ChangeLog.ClientSecret
 			});
-			using HttpResponseMessage response = await s_http.PostAsync($"{BaseUrl}/realms/{Uri.EscapeDataString(Realm)}/protocol/openid-connect/token", content);
+			using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/realms/{Uri.EscapeDataString(Realm)}/protocol/openid-connect/token") { Content = content };
+			using HttpResponseMessage response = await Send(request);
 			if (!response.IsSuccessStatusCode)
 			{
-				throw new HttpRequestException($"The change log client could not get a token: {(int)response.StatusCode}", null, response.StatusCode);
+				string message = $"The change log client could not get a token: {(int)response.StatusCode}";
+				if ((int)response.StatusCode >= 500)
+				{
+					throw new UpstreamUnavailableException(message);
+				}
+				throw new HttpRequestException(message, null, response.StatusCode);
 			}
 
 			using JsonDocument doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());

@@ -138,6 +138,10 @@ namespace GenOnlineService.Identity
 
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
+		// Core:enforce_https, true when missing: https-only cookies and OpenIddict transport security here, HSTS and the
+		// http to https redirect in Program.UseHttpsEnforcement. A local plain http run sets it to false.
+		public static bool EnforceHttps(IConfiguration config) => config.GetSection("Core").GetValue<bool?>("enforce_https") ?? true;
+
 		// Keycloak with player ids owns display names and tags; the environment only copies them (identity section 5a)
 		public UpstreamProviderSettings? NameProvider => EnabledProviders.FirstOrDefault(p => p.PlayerIDs && p.Trusted);
 
@@ -260,7 +264,7 @@ namespace GenOnlineService.Identity
 				EncryptionCertificates = section.GetSection("encryption_certificates").Get<List<string>>() ?? new(),
 				CertificatePassword = section.GetValue<string>("certificate_password"),
 				EphemeralKeys = section.GetValue<bool>("ephemeral_keys"),
-				RequireHttps = config.GetSection("Core").GetValue<bool?>("enforce_https") ?? true,
+				RequireHttps = EnforceHttps(config),
 				Clients = clients,
 				Providers = providers
 			};

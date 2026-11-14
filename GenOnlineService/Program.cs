@@ -881,7 +881,8 @@ namespace GenOnlineService
 			return true;
 		}
 
-		private static async Task RunObservedBackgroundJobAsync(
+		// An UpstreamUnavailableException is an expected outage: one Warning line without the stack trace, the next run retries
+		internal static async Task RunObservedBackgroundJobAsync(
 			string jobName,
 			ILogger logger,
 			Func<Task> operation)
@@ -896,6 +897,12 @@ namespace GenOnlineService
 			{
 				await operation();
 			}
+			catch (UpstreamUnavailableException ex)
+			{
+				succeeded = false;
+				AppMetrics.RecordException(activity, ex);
+				logger.LogWarning("Background job {JobName} could not reach its upstream: {Reason}", jobName, ex.Message);
+			}
 			catch (Exception ex)
 			{
 				succeeded = false;
@@ -904,6 +911,26 @@ namespace GenOnlineService
 			}
 
 			AppMetrics.RecordBackgroundJob(jobName, succeeded);
+		}
+
+		// HTTPS enforcement (AccountsSettings.EnforceHttps, on unless Core:enforce_https is false): HSTS and the http to https
+		// redirect. A local plain http run sets it to false, which also lets sign-in and its cookies work over http.
+		internal static void UseHttpsEnforcement(IApplicationBuilder app, IConfiguration config, ILogger logger)
+		{
+			if (AccountsSettings.EnforceHttps(config))
+			{
+				app.UseHsts();
+
+				// WebSocket upgrades are exempt because redirecting an upgrade request breaks the handshake.
+				app.UseWhen(context => !context.WebSockets.IsWebSocketRequest, branch =>
+				{
+					branch.UseHttpsRedirection();
+				});
+			}
+			else
+			{
+				logger.LogWarning("Core:enforce_https is disabled. Bearer tokens will be sent in clear text over any plain-HTTP listener.");
+			}
 		}
 
 		public static async Task Main(string[] args)
@@ -1440,23 +1467,7 @@ namespace GenOnlineService
 				return next();
 			});
 
-			// HTTPS enforcement. Gated because TLS may be terminated upstream (or a plain-HTTP
-			// listener may be deliberately in use), in which case redirecting would break clients.
-			bool bEnforceHttps = builder.Configuration.GetSection("Core").GetValue<bool>("enforce_https");
-			if (bEnforceHttps)
-			{
-				app.UseHsts();
-
-				// WebSocket upgrades are exempt because redirecting an upgrade request breaks the handshake.
-				app.UseWhen(context => !context.WebSockets.IsWebSocketRequest, branch =>
-				{
-					branch.UseHttpsRedirection();
-				});
-			}
-			else
-			{
-				app.Logger.LogWarning("Core:enforce_https is disabled. Bearer tokens will be sent in clear text over any plain-HTTP listener.");
-			}
+			UseHttpsEnforcement(app, builder.Configuration, app.Logger);
 
 			app.UseCors();
 			app.Use(GenOnlineService.Rest.RestSetup.StatusBodies);
