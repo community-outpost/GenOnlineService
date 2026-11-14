@@ -181,8 +181,8 @@ namespace GenOnlineService.Realtime
 				return mute.ExpiresAt == null ? Result.Fail(ErrorCodes.ChatMuted) : Result.Fail(ErrorCodes.ChatMuted, new { Until = mute.ExpiresAt.Value });
 			}
 
-			// lobby chat is never rate limited because the host can kick, room and direct chat are
-			if (kind != "lobby" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
+			// only the public room chat is rate limited, lobby hosts can kick and direct messages go to friends
+			if (kind == "room" && !ChatRateLimiter.TryConsume(authorData, out long retryAfterMs))
 			{
 				return Result.Fail(ErrorCodes.ChatRateLimited, new { RetryAfterMs = retryAfterMs });
 			}
