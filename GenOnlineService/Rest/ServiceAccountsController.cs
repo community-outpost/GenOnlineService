@@ -1,0 +1,181 @@
+/*
+**    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
+**    Copyright (C) 2025  GeneralsOnline Development Team
+**
+**    This program is free software: you can redistribute it and/or modify
+**    it under the terms of the GNU Affero General Public License as
+**    published by the Free Software Foundation, either version 3 of the
+**    License, or (at your option) any later version.
+**
+**    This program is distributed in the hope that it will be useful,
+**    but WITHOUT ANY WARRANTY; without even the implied warranty of
+**    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**    GNU Affero General Public License for more details.
+**
+**    You should have received a copy of the GNU Affero General Public License
+**    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+using GenOnlineService.Realtime;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace GenOnlineService.Rest
+{
+	// Service accounts and their tokens for holders of tokens.manage; privileged grants and tokens stay CLI only
+	[Authorize(Policy = PermissionPolicies.Prefix + Permissions.TokensManage)]
+	public sealed class ServiceAccountsController : ApiTokenAdminControllerBase
+	{
+		public ServiceAccountsController(IDbContextFactory<AppDbContext> dbFactory, IConfiguration configuration) : base(dbFactory, configuration)
+		{
+		}
+
+		[HttpGet("~/api/v1/service_accounts")]
+		public async Task<IActionResult> List()
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			(OffsetPage page, Failure? badPage) = Paging.ReadOffset(Request);
+			if (badPage != null)
+			{
+				return RestResults.Fail(badPage.Value);
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			int total = await db.ServiceAccounts.CountAsync();
+			List<ServiceAccount> accounts = await db.ServiceAccounts.AsNoTracking().OrderBy(a => a.Name).Skip(page.Skip).Take(page.PerPage).ToListAsync();
+			List<Int64> ids = accounts.Select(a => a.ID).ToList();
+			ILookup<Int64, string> grants = (await db.ServiceAccountPermissions.AsNoTracking().Where(p => ids.Contains(p.ServiceAccountID)).ToListAsync())
+				.ToLookup(p => p.ServiceAccountID, p => p.Permission);
+
+			Paging.WriteOffsetHeaders(HttpContext, page, total);
+			return RestResults.Ok(new ServiceAccountsResponse { ServiceAccounts = accounts.Select(a => InfoOf(a, grants[a.ID])).ToList() });
+		}
+
+		[HttpPost("~/api/v1/service_accounts")]
+		public async Task<IActionResult> Create()
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			(CreateServiceAccountRequest? body, Failure? malformed) = await ReadBodyAsync<CreateServiceAccountRequest>();
+			if (malformed != null)
+			{
+				return RestResults.Fail(malformed.Value);
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			return await Answer(async () =>
+			{
+				try
+				{
+					ServiceAccount account = await ApiTokenAdmin.CreateServiceAccount(db, Actor, body?.Name ?? String.Empty, (body?.Description ?? String.Empty).Trim());
+					return RestResults.Created(InfoOf(account, []));
+				}
+				catch (DbUpdateException)
+				{
+					// a concurrent create of the same name hits the unique index
+					return RestResults.Fail(RestCodes.Conflict);
+				}
+			});
+		}
+
+		// Checks every change first, then writes the grants, removals, the disable or enable and their audit entries in one save
+		[HttpPatch("~/api/v1/service_accounts/{accountID:long}")]
+		public async Task<IActionResult> Update(long accountID)
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			(UpdateServiceAccountRequest? body, Failure? malformed) = await ReadBodyAsync<UpdateServiceAccountRequest>();
+			if (malformed != null)
+			{
+				return RestResults.Fail(malformed.Value);
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			ServiceAccount? account = await db.ServiceAccounts.AsTracking().FirstOrDefaultAsync(a => a.ID == accountID);
+			if (account == null)
+			{
+				return RestResults.NotFound("service_account");
+			}
+
+			List<string> add = (body?.Grants?.Add ?? []).Distinct(StringComparer.Ordinal).ToList();
+			List<string> remove = (body?.Grants?.Remove ?? []).Distinct(StringComparer.Ordinal).ToList();
+
+			return await Answer(async () =>
+			{
+				IReadOnlyCollection<string> mine = StaffRoles.PermissionsOf(Me);
+				add.ForEach(p => ApiTokenAdmin.CheckHttpGrant(p, mine));
+				remove.ForEach(p => ApiTokenAdmin.RequirePermission(p, "grants"));
+				if (add.Intersect(remove, StringComparer.Ordinal).Any())
+				{
+					return RestResults.Invalid("grants");
+				}
+
+				foreach (string permission in add)
+				{
+					await ApiTokenAdmin.StageGrant(db, Actor, account, permission);
+				}
+				foreach (string permission in remove)
+				{
+					await ApiTokenAdmin.StageRevokeGrant(db, Actor, account, permission);
+				}
+				if (body?.Disabled is bool bDisabled)
+				{
+					ApiTokenAdmin.StageSetDisabled(db, Actor, account, bDisabled);
+				}
+
+				await db.SaveChangesAsync();
+				// The change takes effect at once in this instance; other instances follow on the reconcile tick
+				await ApiTokenCache.Reload(db);
+				List<string> grants = await db.ServiceAccountPermissions.AsNoTracking().Where(p => p.ServiceAccountID == account.ID).Select(p => p.Permission).ToListAsync();
+				return RestResults.Ok(InfoOf(account, grants));
+			});
+		}
+
+		[HttpGet("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens")]
+		public async Task<IActionResult> ListAccountTokens(long accountID)
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			ServiceAccount? account = await db.ServiceAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.ID == accountID);
+			return account == null ? RestResults.NotFound("service_account") : await ListTokens(db, ApiTokenOwner.Service(account));
+		}
+
+		[HttpPost("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens")]
+		public async Task<IActionResult> CreateToken(long accountID)
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			ServiceAccount? account = await db.ServiceAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.ID == accountID);
+			return account == null ? RestResults.NotFound("service_account") : await MintToken(db, ApiTokenOwner.Service(account));
+		}
+
+		private static ServiceAccountInfo InfoOf(ServiceAccount account, IEnumerable<string> grants) => new ServiceAccountInfo
+		{
+			Id = account.ID,
+			Name = account.Name,
+			Description = String.IsNullOrEmpty(account.Description) ? null : account.Description,
+			CreatedAt = account.CreatedAt,
+			DisabledAt = account.DisabledAt,
+			Permissions = grants.OrderBy(p => p, StringComparer.Ordinal).ToList()
+		};
+	}
+}
