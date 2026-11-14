@@ -284,7 +284,7 @@ Each method is a `perm:<permission>` policy, so the service decides from the cal
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}`; a room whose `parent_id` is null is top level |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], badges: {id: {text, color}}, rooms: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_ms}, name_min_length, name_max_length}}`; a room whose `parent_id` is null is top level; `chat_rate` applies to room chat only |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
 | `ModerationNotice` | `{action: "kick"|"ban"|"mute", reason, until?}`; a close record follows for kick and ban |
@@ -371,7 +371,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `invalid_argument` | `{field}` | Malformed or missing fields |
 | `not_found` | `{what}` | Unknown user, lobby, room or channel |
 | `rate_limited` | `{retry_after_ms}` | Any method over its rate limit |
-| `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` (3 messages per 9 s today) |
+| `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `room:` channel only (3 messages per 9 s today); lobby chat during game setup is not limited, the host can kick instead |
 | `chat.too_long` | `{max}` | `SendMessage` |
 | `chat.muted` | `{until?}` | `SendMessage` |
 | `chat.not_friends` | | `SendMessage` to `dm:` |
