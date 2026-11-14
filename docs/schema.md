@@ -84,7 +84,7 @@ bans
 
 audit_log                 -- append-only, no retention purge
   id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account' | 'upstream'; upstream rows: actor = provider name),
-  actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token'),
+  actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token' | 'client'),
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
 ```
 
@@ -155,6 +155,16 @@ anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
 ```
 service_accounts, service_account_permissions, api_tokens      -- api-tokens-design.md
 application_settings      key varchar(64) pk, value json, updated_by varchar(64), updated_at
+```
+
+### OAuth clients
+
+```
+clients                   -- one per OAuth client; name, redirects, type, secret hash and scopes live in oauth_applications (same client_id)
+  id bigint pk, client_id varchar(32) unique, kind varchar(16) ('game' | 'launcher' | 'chat' | 'app'),
+  game varchar(16) ('zerohour' | 'generals' | 'none'), first_party bool, enabled bool, min_version varchar(32) null, created_at, updated_at
+client_builds             -- optional accepted builds of a game client; CRCs widened to bigint for the unsigned range
+  client_id bigint fk clients.id (cascade), exe_crc bigint, ini_crc bigint, pk (client_id, exe_crc, ini_crc)
 ```
 
 Dropped with no successor: `web_sessions` (OpenIddict), `user_token_state` (OpenIddict authorizations), the old `admin`, `permissionslevel`, `banned` and `ban_*` columns.

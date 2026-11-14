@@ -47,7 +47,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 		public string user_id { get; set; } = null; // string provides max compat
 		public string display_name { get; set; } = null;
 		public List<string> roles { get; set; } = new();
-		public KnownClients.EKnownClients client_id { get; set; } = KnownClients.EKnownClients.unknown;
+		public string client_id { get; set; } = String.Empty;
 	}
 
 	[ApiController]
@@ -71,7 +71,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 			if (user_id != -1)
 			{
 				string strDisplayName = TokenHelper.GetDisplayName(this);
-				KnownClients.EKnownClients client_id = TokenHelper.GetClientID(this);
+				string client_id = TokenHelper.GetClientID(this);
 
 				result.user_id = user_id.ToString();
 				result.display_name = strDisplayName;

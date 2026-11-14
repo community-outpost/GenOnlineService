@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Identity;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Text;
@@ -212,10 +213,6 @@ namespace GenOnlineService.Controllers
 			}
 		}
 
-		private static readonly string[] s_KnownGames = { "generals", "zerohour" };
-
-		private const string DefaultMinClientVersion = "0.0.0";
-
 		// Reads the leading YYYY.MM.PATCH numbers from a CalVer or git describe version string.
 		private static bool TryParseClientVersion(string? strVersion, out (int, int, int) version)
 		{
@@ -240,17 +237,16 @@ namespace GenOnlineService.Controllers
 			return true;
 		}
 
-		// Returns the configured minimum client version for a game or the default when it is missing or invalid.
-		private static (int, int, int) GetMinClientVersion(string strGame)
+		// A client without a valid min_version accepts every version
+		private static (int, int, int) GetMinClientVersion(RegisteredClient client)
 		{
-			string? strMin = Program.g_Config?.GetSection("VersionCheck").GetSection("MinClientVersion").GetValue<string>(strGame);
-			if (TryParseClientVersion(strMin, out (int, int, int) minVersion))
-			{
-				return minVersion;
-			}
+			return TryParseClientVersion(client.MinVersion, out (int, int, int) minVersion) ? minVersion : (0, 0, 0);
+		}
 
-			TryParseClientVersion(DefaultMinClientVersion, out minVersion);
-			return minVersion;
+		// A client that lists its builds accepts those executables; otherwise the game's crcfiles decide
+		private static bool AcceptsExe(RegisteredClient client, UInt32 exeCRC)
+		{
+			return client.Builds.Count > 0 ? client.Builds.Any(b => b.ExeCrc == exeCRC) : GetExeCRCs(client.Game).Contains(exeCRC);
 		}
 
 		// Returns the CRC of every executable under crcfiles/<game>.
@@ -278,10 +274,15 @@ namespace GenOnlineService.Controllers
 
 			string? strClientVersion = data["client_version"].ValueKind == JsonValueKind.String ? data["client_version"].GetString() : null;
 			string? strGame = data.TryGetValue("game", out JsonElement gameElement) && gameElement.ValueKind == JsonValueKind.String ? gameElement.GetString() : null;
+			string? strClientID = data.TryGetValue("client_id", out JsonElement clientElement) && clientElement.ValueKind == JsonValueKind.String ? clientElement.GetString() : null;
+
+			// the enabled game clients of this game, or the one named by client_id
+			List<RegisteredClient> candidates = ClientRegistry.All
+				.Where(c => c.Enabled && c.Kind == ClientKinds.Game && strGame != null && c.Game == strGame && (strClientID == null || c.ClientID == strClientID))
+				.ToList();
 
 			if (!TryParseClientVersion(strClientVersion, out (int, int, int) clientVersion)
-				|| strGame == null
-				|| !s_KnownGames.Contains(strGame)
+				|| candidates.Count == 0
 				|| !data.TryGetValue("exe_crc", out JsonElement exeCRCElement)
 				|| !UInt32.TryParse(exeCRCElement.ToString(), out UInt32 exeCRC))
 			{
@@ -299,10 +300,9 @@ namespace GenOnlineService.Controllers
 			const bool bDoCRCChecks = true;
 #endif
 
-			bool bVersionAllowed = clientVersion.CompareTo(GetMinClientVersion(strGame)) >= 0;
-			bool bExeCRCMatches = GetExeCRCs(strGame).Contains(exeCRC);
+			bool bAccepted = candidates.Any(c => clientVersion.CompareTo(GetMinClientVersion(c)) >= 0 && AcceptsExe(c, exeCRC));
 
-			if (!bDoCRCChecks || (bVersionAllowed && bExeCRCMatches))
+			if (!bDoCRCChecks || bAccepted)
 			{
 				result.result = EVersionCheckResult.OK;
 			}

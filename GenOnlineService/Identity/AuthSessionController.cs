@@ -62,10 +62,10 @@ namespace GenOnlineService.Identity
 		{
 			Int64 userID = TokenHelper.GetUserID(this);
 			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
-			KnownClients.EKnownClients clientID = TokenHelper.GetClientID(this);
+			RegisteredClient? client = ClientRegistry.FindEnabled(TokenHelper.GetClientID(this));
 			string authorizationID = User.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value ?? String.Empty;
 
-			if (userID <= 0 || sessionType == EUserSessionType.None || clientID == KnownClients.EKnownClients.unknown || authorizationID.Length == 0)
+			if (userID <= 0 || sessionType == EUserSessionType.None || client == null || client.SessionType != sessionType || authorizationID.Length == 0)
 			{
 				return StatusCode(StatusCodes.Status403Forbidden, Problem("session.forbidden", "This token cannot register a game session."));
 			}
@@ -89,6 +89,13 @@ namespace GenOnlineService.Identity
 				return BadRequest(Problem("invalid_argument", "A game session needs exe_crc, ini_crc and anticheat_id."));
 			}
 
+			// a client that lists its builds only plays with one of them; an unlisted build is left to anti-cheat
+			if (sessionType == EUserSessionType.GameClient && !client.AcceptsBuild(body.ExeCrc!.Value, body.IniCrc!.Value))
+			{
+				AppMetrics.RecordAuthentication("session", client.ClientID, "build_not_accepted");
+				return StatusCode(StatusCodes.Status403Forbidden, Problem("session.build_not_accepted", "This build of the game is not accepted. Please update."));
+			}
+
 			string ipAddress = IPHelpers.NormalizeIP(HttpContext.Connection.RemoteIpAddress?.ToString());
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 
@@ -100,10 +107,10 @@ namespace GenOnlineService.Identity
 			string displayName = await Database.Users.GetDisplayName(db, userID);
 
 			// a new session replaces the previous one of this type: its lobby, matchmaking and socket state go
-			await SessionHelpers.SetUsedLoggedIn(userID, clientID, sessionType);
+			await SessionHelpers.SetUsedLoggedIn(userID, client.ClientID, sessionType);
 			await WebSocketManager.ClearDataFromUser(userID, sessionType);
-			GameSessions.Register(userID, sessionType, new GameSessionRegistration(authorizationID, clientID.ToString(), DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
-			AppMetrics.RecordAuthentication("session", clientID.ToString(), "success");
+			GameSessions.Register(userID, sessionType, new GameSessionRegistration(authorizationID, client.ClientID, client.Game, DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
+			AppMetrics.RecordAuthentication("session", client.ClientID, "success");
 
 			return Ok(new
 			{

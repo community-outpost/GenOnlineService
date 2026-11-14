@@ -50,6 +50,7 @@ public static class AuditTargetKinds
 	public const string User = "user";
 	public const string ServiceAccount = "service_account";
 	public const string Token = "token";
+	public const string Client = "client";
 }
 
 public static class ModerationActions

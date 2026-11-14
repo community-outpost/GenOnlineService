@@ -249,7 +249,8 @@ namespace GenOnlineService.Identity
 		}
 	}
 
-	public sealed record GameSessionRegistration(string AuthorizationID, string ClientID, DateTime RegisteredAt, uint? ExeCrc, uint? IniCrc, int AnticheatID);
+	// Game is the client's registered game (zerohour, generals or none), so build isolation keys on the game rather than the client id
+	public sealed record GameSessionRegistration(string AuthorizationID, string ClientID, string Game, DateTime RegisteredAt, uint? ExeCrc, uint? IniCrc, int AnticheatID);
 
 	// Game sessions registered through POST /api/v1/auth/session; in memory, so a restart asks clients to register again
 	public static class GameSessions
@@ -297,20 +298,11 @@ namespace GenOnlineService.Identity
 
 		public const string AuthRevokedCode = "auth.revoked";
 
-		// A client that registers a game, chat or launcher session is a game client; anything else (the website) is not
+		// A client whose kind opens a game, chat or launcher session is a game client; an app or the website is not
 		public static bool IsGameClient(string? clientID)
 		{
-			return TryParseKnownClient(clientID, out KnownClients.EKnownClients known) && KnownClients.KnownClientSessionTypes.ContainsKey(known);
-		}
-
-		// Client ids are names; a numeric string never maps onto an enum value
-		public static bool TryParseKnownClient(string? clientID, out KnownClients.EKnownClients known)
-		{
-			known = KnownClients.EKnownClients.unknown;
-			return !String.IsNullOrEmpty(clientID)
-				&& !Char.IsDigit(clientID[0]) && clientID[0] != '-'
-				&& Enum.TryParse(clientID, false, out known)
-				&& known != KnownClients.EKnownClients.unknown;
+			RegisteredClient? client = ClientRegistry.Find(clientID);
+			return client != null && client.SessionType != EUserSessionType.None;
 		}
 
 		// Revokes the user's authorizations and their tokens, drops registered sessions and closes realtime
@@ -437,6 +429,15 @@ namespace GenOnlineService.Identity
 			}
 
 			string clientID = token.GetClaim(OpenIddictConstants.Claims.ClientId) ?? token.GetClaim(OpenIddictConstants.Claims.AuthorizedParty) ?? String.Empty;
+
+			// a disabled or removed client's tokens stop at once, before their authorizations are revoked
+			RegisteredClient? client = ClientRegistry.FindEnabled(clientID);
+			if (client == null)
+			{
+				s_log.LogInformation("Refused access token of unregistered or disabled client {ClientId}", clientID);
+				return AuthenticateResult.Fail("client disabled");
+			}
+
 			var claims = new List<Claim>
 			{
 				new Claim(ClaimTypes.NameIdentifier, userID.ToString()),
@@ -446,10 +447,9 @@ namespace GenOnlineService.Identity
 				new Claim(AuthorizationIDClaim, token.GetClaim(OpenIddictConstants.Claims.Private.AuthorizationId) ?? String.Empty)
 			};
 
-			// game roles come from a first-party client and the game scope, never from the token itself
-			if (token.HasScope(AccountsSettings.GameScope)
-				&& SessionRevocation.TryParseKnownClient(clientID, out KnownClients.EKnownClients known)
-				&& KnownClients.KnownClientSessionTypes.TryGetValue(known, out EUserSessionType sessionType))
+			// game roles come from the registered client's kind and the game scope, never from the token itself
+			EUserSessionType sessionType = client.SessionType;
+			if (token.HasScope(AccountsSettings.GameScope) && sessionType != EUserSessionType.None)
 			{
 				claims.Add(new Claim(SessionTypeClaim, ((int)sessionType).ToString()));
 				claims.Add(new Claim(ClaimTypes.Role, "Player"));

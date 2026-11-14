@@ -451,7 +451,7 @@ namespace Database
 		}
 
 		// Records the sign-in on the account and as a session event
-		public static async Task UpdateLastLoginData(AppDbContext db, long userId, string ipAddr, KnownClients.EKnownClients client, string? country, bool isReconnect)
+		public static async Task UpdateLastLoginData(AppDbContext db, long userId, string ipAddr, string client, string? country, bool isReconnect)
 		{
 			try
 			{

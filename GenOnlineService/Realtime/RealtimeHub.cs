@@ -59,9 +59,9 @@ namespace GenOnlineService.Realtime
 			ClaimsPrincipal user = Context.User!;
 			Int64 userID = RealtimeClaims.UserID(user);
 			EUserSessionType sessionType = RealtimeClaims.SessionType(user);
-			KnownClients.EKnownClients clientID = RealtimeClaims.ClientID(user);
+			string clientID = RealtimeClaims.ClientID(user);
 			HubConnectionContext? transport = RealtimeLifetimeManager.Get(Context.ConnectionId);
-			if (userID <= 0 || sessionType == EUserSessionType.None || clientID == KnownClients.EKnownClients.unknown || transport == null)
+			if (userID <= 0 || sessionType == EUserSessionType.None || clientID.Length == 0 || transport == null)
 			{
 				Context.Abort();
 				return;
@@ -258,10 +258,10 @@ namespace GenOnlineService.Realtime
 				: EUserSessionType.None;
 		}
 
-		public static KnownClients.EKnownClients ClientID(ClaimsPrincipal user)
+		// Empty unless the token's client is registered and enabled
+		public static string ClientID(ClaimsPrincipal user)
 		{
-			string? clientID = user.FindFirst(SessionTokenHandler.ClientIDClaim)?.Value;
-			return SessionRevocation.TryParseKnownClient(clientID, out KnownClients.EKnownClients known) ? known : KnownClients.EKnownClients.unknown;
+			return Identity.ClientRegistry.FindEnabled(user.FindFirst(SessionTokenHandler.ClientIDClaim)?.Value)?.ClientID ?? String.Empty;
 		}
 
 		public static string? AuthorizationID(ClaimsPrincipal user) => user.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value;
