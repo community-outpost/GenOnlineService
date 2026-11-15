@@ -275,6 +275,8 @@ Startup refuses to run outside Development:
 
 The error names the setting and entry index and never echoes the entry.
 
+In the official deployment every key (signing, encryption, data protection and the device HMAC key) is created once by OpenTofu and kept in OpenBao. External Secrets delivers them to one Secret that every copy mounts read-only at `/keys`, so all copies share them and they survive the loss of the cluster. A rotation step below is then an OpenTofu change.
+
 Rotation runbook (signing certificate). Every step is a Secret change followed by a rolling restart of every copy:
 
 1. **Add.** Create the next certificate, for example `openssl req -x509 -newkey rsa:3072 -nodes -days 400 -subj "/CN=genonline-<env>-signing-<n>" -addext keyUsage=digitalSignature -keyout next.key -out next.crt`. List it second. The current certificate still signs, and both are published. Wait until every copy runs with it and any remote validator (an `application` profile with `Accounts:enabled` false) has reloaded the JWKS: restart it, or give it a day.
