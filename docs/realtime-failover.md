@@ -1,6 +1,6 @@
 # Realtime failover and graceful handover
 
-Status: build order step 1 is built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`, behind `Realtime:failover:enabled`); steps 2 to 5 are design. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
+Status: build order steps 1 to 3 are built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`; reconnect-safe lobby rejoins; live state in Redis and the hot standby, behind `Realtime:failover:enabled`); steps 4 and 5 are design. A planned handover still drops lobbies until step 4. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
 
 ## Goals
 
@@ -120,6 +120,8 @@ During the overlap, version N and N+1 run together:
 - Counters that restart per process (mesh check ids, probe ids) must not let a handed-over lobby accept a stale answer: start them at a random or time-based value, or reset the lobby's pending checks on handover.
 - The lobby state handed over must include the former member set, which connection reports use to check their target, and each pair's connection order state (step, attempt, reported failures).
 - Lobby ids come from a database block allocator (blocks of 100 per copy). The allocator relies on synchronous database replication: an asynchronous replica can lose the last reserved block on failover and hand out ids again. Production runs a synchronous CloudNativePG replica; keep it that way.
+- Redis holds lobby passwords, host coordinates and match start data, so it must be trusted like the service: same network boundary, authentication and no shared tenants.
+- A copy that loses the lease and takes it back within the reconnect grace can keep stale lobbies. Step 4's ownership epochs must close this.
 - Handover limit and batch size: start with 120 s and 5 percent every 200 ms, then tune from metrics.
 - Metrics to add: handover duration, connections moved per batch, lobbies moved, lobbies lost on an unplanned failover, reconnect time seen by clients.
 
