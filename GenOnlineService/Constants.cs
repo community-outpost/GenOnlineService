@@ -315,6 +315,8 @@ namespace GenOnlineService
 
 		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
+			// taken before the block lists load, see the reload below
+			long blockSequence = RealtimeBlocks.Sequence;
 			(string Name, int Tag) name = await Database.DisplayNames.Get(_db, ownerID) ?? (String.Empty, 0);
 			string strDisplayName = name.Name;
 			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
@@ -391,6 +393,12 @@ namespace GenOnlineService
 				{
 					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 				}
+			}
+
+			// a block change that arrived while the lists loaded found no cache to update, so the list is read again
+			if (RealtimeBlocks.Sequence != blockSequence)
+			{
+				await RealtimeBlocks.ReloadAsync(ownerID);
 			}
 
 			// the sign-in is recorded before the connection is published, so a revocation can always find it

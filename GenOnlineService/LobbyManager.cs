@@ -1391,7 +1391,7 @@ public async Task FinalizeACChecks()
 		}
 
 		internal static async Task<LobbyMembershipStatus> TransferMemberAsync(Lobby destination, IReadOnlyCollection<Lobby> sources,
-			JoinLobbyCommand command, UserSession session, string displayName, int nameTag, UserLobbyPreferences preferences)
+			JoinLobbyCommand command, UserSession session, string displayName, int nameTag, UserLobbyPreferences preferences, IReadOnlySet<long>? blockers = null)
 		{
 			var locked = sources.Append(destination).Distinct().OrderBy(lobby => lobby.LobbyID).ToArray();
 			int acquired = 0;
@@ -1406,7 +1406,7 @@ public async Task FinalizeACChecks()
 				}
 				var admission = destination.ValidateJoin(command);
 				if (admission != LobbyMembershipStatus.Success) return admission;
-				var added = destination.AddMemberLocked(session, displayName, nameTag, command.PreferredPort, command.HasMap, preferences);
+				var added = destination.AddMemberLocked(session, displayName, nameTag, command.PreferredPort, command.HasMap, preferences, blockers);
 				if (added.Member == null) return added.Status;
 				// Destination admission and insertion must succeed before releasing old membership.
 				foreach (var source in sources)
@@ -1442,7 +1442,7 @@ public async Task FinalizeACChecks()
 				return Task.FromResult(added.Status);
 			});
 
-		private (LobbyMembershipStatus Status, LobbyMember? Member) AddMemberLocked(UserSession playerSession, string strDisplayName, int nameTag, UInt16 userPreferredPort, bool bHasMap, UserLobbyPreferences lobbyPrefs)
+		private (LobbyMembershipStatus Status, LobbyMember? Member) AddMemberLocked(UserSession playerSession, string strDisplayName, int nameTag, UInt16 userPreferredPort, bool bHasMap, UserLobbyPreferences lobbyPrefs, IReadOnlySet<long>? blockers = null)
 		{
 			if (State != ELobbyState.GAME_SETUP) return (LobbyMembershipStatus.NotInSetup, null);
 			if (GetMemberFromUserID(playerSession.m_UserID) != null) return (LobbyMembershipStatus.AlreadyMember, null);
@@ -1454,11 +1454,16 @@ public async Task FinalizeACChecks()
 			// QuickMatch applies social eligibility during matchmaking.
 			if (LobbyType == ELobbyType.CustomGame)
 			{
+				// the stored blocks read before the gate count with the cache, so a change another copy made and this one missed opens no hole
+				bool cached = RealtimeBlocks.Local.HasBlocked(Owner, playerSession.m_UserID);
+				bool stored = blockers?.Contains(Owner) == true;
+				if (blockers != null && cached != stored) RealtimeBlocks.Resync(Owner);
+				if (cached || stored) return (LobbyMembershipStatus.BlockedByOwner, null);
+
 				var ownerData = WebSocketManager.GetSharedDataForUser(Owner);
 				if (ownerData != null)
 				{
 					var social = ownerData.GetSocialContainer();
-					if (social.Blocked.Contains(playerSession.m_UserID)) return (LobbyMembershipStatus.BlockedByOwner, null);
 					if (LobbyJoinability == ELobbyJoinability.FriendsOnly && !social.Friends.Contains(playerSession.m_UserID))
 						return (LobbyMembershipStatus.FriendshipRequired, null);
 				}

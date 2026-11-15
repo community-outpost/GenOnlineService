@@ -84,7 +84,10 @@ public partial class LobbyManager
 		var preferences = await Users.GetUserLobbyPreferences(db, command.UserID);
 		if (preferences == null) return new(LobbyMembershipStatus.PreferencesUnavailable);
 		var sources = m_dictLobbies.Values.Where(source => source.GetMemberFromUserID(command.UserID) != null).ToArray();
-		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, name.Name, name.Tag, preferences);
+		// the stored blocks of the members decide with the cache, so a block made through another copy refuses the join at once
+		long[] members = lobby.Members.Where(member => member.IsHuman()).Select(member => member.UserID).Append(lobby.Owner).Distinct().ToArray();
+		var blockers = await RealtimeBlocks.BlockersAsync(db, command.UserID, members);
+		var status = await Lobby.TransferMemberAsync(lobby, sources, command, session, name.Name, name.Tag, preferences, blockers);
 		if (status != LobbyMembershipStatus.Success) return new(status);
 		RealtimeHub.PublishPresence(command.UserID);
 
