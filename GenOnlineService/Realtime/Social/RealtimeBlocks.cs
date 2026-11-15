@@ -30,7 +30,13 @@ namespace GenOnlineService.Realtime
 		public bool Blocked { get; init; }
 	}
 
-	// The cached social sets of the users online on one copy, kept current by the block changes of every copy
+	// Users whose friends, friend requests or blocks changed, every copy reads their cached social sets again
+	internal sealed record SocialChange
+	{
+		public long[] UserIds { get; init; } = Array.Empty<long>();
+	}
+
+	// The cached social sets of the users online on one copy and of the lobby hosts it keeps, kept current by the social changes of every copy
 	internal sealed class BlockCaches
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(BlockCaches));
@@ -51,16 +57,24 @@ namespace GenOnlineService.Realtime
 
 		public UserSocialContainer? Of(long userID) => m_of(userID);
 
-		public bool HasBlocked(long userID, long otherID)
+		public bool HasBlocked(long userID, long otherID) => Read(userID, container => container.Blocked.Contains(otherID)) == true;
+
+		// Null when the user has no cached sets here
+		public bool? HasFriend(long userID, long otherID) => Read(userID, container => container.Friends.Contains(otherID));
+
+		// Marks a change of a cached set made outside Apply, so a database read that raced it reads again
+		public void Touch() => Interlocked.Increment(ref m_sequence);
+
+		private bool? Read(long userID, Func<UserSocialContainer, bool> read)
 		{
 			UserSocialContainer? container = m_of(userID);
 			if (container == null)
 			{
-				return false;
+				return null;
 			}
 			lock (container)
 			{
-				return container.Blocked.Contains(otherID);
+				return read(container);
 			}
 		}
 
@@ -89,7 +103,7 @@ namespace GenOnlineService.Realtime
 			}
 		}
 
-		// Replaces the user's cached block list with the stored one, so the last change any copy made wins whatever order the messages took
+		// Replaces the user's cached blocks, friends and incoming requests with the stored ones, so the last change any copy made wins whatever order the messages took
 		public async Task ReloadAsync(IDbContextFactory<AppDbContext> dbFactory, long userID)
 		{
 			if (m_of(userID) == null)
@@ -103,7 +117,7 @@ namespace GenOnlineService.Realtime
 				for (int attempt = 0; attempt < ReloadAttempts; attempt++)
 				{
 					long before = Sequence;
-					HashSet<long> stored = (await db.Blocks.AsNoTracking().Where(b => b.UserId == userID).Select(b => b.BlockedUserId).ToListAsync()).ToHashSet();
+					UserSocialContainer stored = await ReadAsync(db, userID);
 					UserSocialContainer? container = m_of(userID);
 					if (container == null)
 					{
@@ -114,18 +128,29 @@ namespace GenOnlineService.Realtime
 						// a set swapped whole keeps readers outside the lock on a consistent set
 						if (Sequence == before)
 						{
-							container.Blocked = stored;
+							container.Blocked = stored.Blocked;
+							container.Friends = stored.Friends;
+							container.PendingRequests = stored.PendingRequests;
 							return;
 						}
 					}
 				}
-				s_log.LogWarning("The cached block list of user {UserId} stayed as it was, other changes kept arriving during {Attempts} reloads", userID, ReloadAttempts);
+				s_log.LogWarning("The cached social sets of user {UserId} stayed as they were, other changes kept arriving during {Attempts} reloads", userID, ReloadAttempts);
 			}
 			catch (Exception ex)
 			{
-				s_log.LogError(ex, "Reloading the cached block list of user {UserId} failed", userID);
+				s_log.LogError(ex, "Reloading the cached social sets of user {UserId} failed", userID);
 			}
 		}
+
+		// The stored blocks, friends and incoming friend requests of the user, a failed read throws
+		public static async Task<UserSocialContainer> ReadAsync(AppDbContext db, long userID) => new UserSocialContainer
+		{
+			Blocked = (await db.Blocks.AsNoTracking().Where(b => b.UserId == userID).Select(b => b.BlockedUserId).ToListAsync()).ToHashSet(),
+			Friends = (await db.Friendships.AsNoTracking().Where(f => f.UserIdLow == userID || f.UserIdHigh == userID)
+				.Select(f => f.UserIdLow == userID ? f.UserIdHigh : f.UserIdLow).ToListAsync()).ToHashSet(),
+			PendingRequests = (await db.FriendRequests.AsNoTracking().Where(r => r.ToUserId == userID).Select(r => r.FromUserId).ToListAsync()).ToHashSet()
+		};
 
 		private void Update(long userID, Action<UserSocialContainer> update)
 		{
@@ -141,7 +166,7 @@ namespace GenOnlineService.Realtime
 		}
 	}
 
-	// Carries block changes between copies on one Redis channel, every copy including the sender applies them and reloads the blocker's list
+	// Carries block changes between copies on one Redis channel, every copy including the sender applies them and reloads both users' sets
 	internal sealed class BlockFanout
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(BlockFanout));
@@ -186,7 +211,9 @@ namespace GenOnlineService.Realtime
 				m_caches.Apply(change);
 				if (m_dbFactory != null)
 				{
+					// the reload of both users also restores a friendship made again after a late block message removed it
 					await m_caches.ReloadAsync(m_dbFactory, change.UserId);
+					await m_caches.ReloadAsync(m_dbFactory, change.OtherId);
 				}
 			}
 			catch (Exception ex)
@@ -196,14 +223,69 @@ namespace GenOnlineService.Realtime
 		}
 	}
 
+	// Carries friend and friend request changes between copies on one Redis channel, every copy including the sender reloads the named users' sets
+	internal sealed class SocialFanout
+	{
+		private static readonly ILogger s_log = AppLog.For(typeof(SocialFanout));
+		private static readonly JsonSerializerOptions s_json = RealtimeJson.Create();
+
+		private readonly ISubscriber m_subscriber;
+		private readonly RedisChannel m_channel;
+		private readonly BlockCaches m_caches;
+		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+
+		private SocialFanout(ISubscriber subscriber, RedisChannel channel, BlockCaches caches, IDbContextFactory<AppDbContext> dbFactory)
+		{
+			m_subscriber = subscriber;
+			m_channel = channel;
+			m_caches = caches;
+			m_dbFactory = dbFactory;
+		}
+
+		public static async Task<SocialFanout> StartAsync(ISubscriber subscriber, RedisChannel channel, BlockCaches caches, IDbContextFactory<AppDbContext> dbFactory)
+		{
+			SocialFanout fanout = new SocialFanout(subscriber, channel, caches, dbFactory);
+			ChannelMessageQueue queue = await subscriber.SubscribeAsync(channel);
+			queue.OnMessage(message => fanout.HandleAsync(message.Message));
+			return fanout;
+		}
+
+		public static string Serialize(SocialChange change) => JsonSerializer.Serialize(change, s_json);
+		public static SocialChange? Deserialize(string payload) => JsonSerializer.Deserialize<SocialChange>(payload, s_json);
+
+		public Task PublishAsync(SocialChange change) => m_subscriber.PublishAsync(m_channel, Serialize(change));
+
+		private async Task HandleAsync(RedisValue payload)
+		{
+			try
+			{
+				SocialChange? change = Deserialize(payload.ToString());
+
+				// the change moves the sequence, so a session or lobby host loading its sets meanwhile reads again
+				m_caches.Touch();
+				foreach (long userID in change?.UserIds ?? Array.Empty<long>())
+				{
+					await m_caches.ReloadAsync(m_dbFactory, userID);
+				}
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Applying a social change from another copy failed");
+			}
+		}
+	}
+
 	// Block decisions that stay current across copies: cached lists for the lobby list and matchmaking pairing, the database for joins and formed matches
 	public static class RealtimeBlocks
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(RealtimeBlocks));
 		private static readonly RedisChannel s_channel = RedisChannel.Literal("realtime.blocks");
+		private static readonly RedisChannel s_socialChannel = RedisChannel.Literal("realtime.social");
 		private static BlockFanout? s_fanout;
+		private static SocialFanout? s_socialFanout;
 
-		internal static BlockCaches Local { get; } = new BlockCaches(SocialState.Of);
+		// The sets of a user online here, otherwise those this copy keeps for a lobby host without a session here
+		internal static BlockCaches Local { get; } = new BlockCaches(userID => SocialState.Of(userID) ?? LobbyHosts.Of(userID));
 
 		public static long Sequence => Local.Sequence;
 
@@ -212,7 +294,27 @@ namespace GenOnlineService.Realtime
 		internal static async Task StartAsync(ISubscriber subscriber)
 		{
 			BlockFanout fanout = await BlockFanout.StartAsync(subscriber, s_channel, Local, DbFactory);
+			SocialFanout social = await SocialFanout.StartAsync(subscriber, s_socialChannel, Local, DbFactory);
 			Volatile.Write(ref s_fanout, fanout);
+			Volatile.Write(ref s_socialFanout, social);
+		}
+
+		// Called after the database write and the local cache update of a friend or friend request change, with the Redis backplane every copy reads both users' sets again
+		public static async Task SocialChangedAsync(long userID, long otherID)
+		{
+			SocialFanout? fanout = Volatile.Read(ref s_socialFanout);
+			if (fanout == null)
+			{
+				return;
+			}
+			try
+			{
+				await fanout.PublishAsync(new SocialChange { UserIds = new[] { userID, otherID } });
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Publishing a social change of user {UserId} failed, other copies correct it at the next decision that reads the database", userID);
+			}
 		}
 
 		// Called after the database write: applies the change here at once and, with the Redis backplane, on every copy
@@ -236,7 +338,8 @@ namespace GenOnlineService.Realtime
 			}
 		}
 
-		public static Task ReloadAsync(long userID) => Local.ReloadAsync(DbFactory, userID);
+		// Nothing to read before the service started, as in tests
+		public static Task ReloadAsync(long userID) => ServiceLocator.Services == null ? Task.CompletedTask : Local.ReloadAsync(DbFactory, userID);
 
 		// The users among the given ones who blocked the target, from the database, null when the read failed and the caches decide alone
 		public static async Task<HashSet<long>?> BlockersAsync(AppDbContext db, long targetID, IReadOnlyCollection<long> userIDs)
@@ -249,6 +352,23 @@ namespace GenOnlineService.Realtime
 			catch (Exception ex)
 			{
 				s_log.LogError(ex, "Reading the blockers of user {UserId} failed, the cached block lists decide", targetID);
+				return null;
+			}
+		}
+
+		// The users among the given ones who are friends of the user, from the database, null when the read failed and the caches decide alone
+		public static async Task<HashSet<long>?> FriendsAmongAsync(AppDbContext db, long userID, IReadOnlyCollection<long> userIDs)
+		{
+			try
+			{
+				List<long> friends = await db.Friendships.AsNoTracking()
+					.Where(f => (f.UserIdLow == userID && userIDs.Contains(f.UserIdHigh)) || (f.UserIdHigh == userID && userIDs.Contains(f.UserIdLow)))
+					.Select(f => f.UserIdLow == userID ? f.UserIdHigh : f.UserIdLow).ToListAsync();
+				return friends.ToHashSet();
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Reading the friends of user {UserId} failed, the cached friend lists decide", userID);
 				return null;
 			}
 		}
