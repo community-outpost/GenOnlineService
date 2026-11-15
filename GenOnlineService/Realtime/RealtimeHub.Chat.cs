@@ -96,9 +96,17 @@ namespace GenOnlineService.Realtime
 						return Result.NotFound("channel");
 					}
 
-					List<string> excluded = BlockedConnections(author, RealtimeAudience.AllSessions().Where(s => s.networkRoomID == channelID));
 					store = db => Database.Chat.InsertChannelMessage(db, channelID, author, storedType, content);
-					deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Channel(channelID), excluded).MessageCreate(message);
+					if (RealtimeFanout.IsShared)
+					{
+						long[] skipped = await BlockedEitherWayOfAsync(author);
+						deliver = message => RealtimeFanout.SendAsync(RealtimeGroups.Channel(channelID), message, skipped);
+					}
+					else
+					{
+						List<string> excluded = BlockedConnections(author, RealtimeAudience.AllSessions().Where(s => s.networkRoomID == channelID));
+						deliver = message => RealtimeOut.GroupExcept(RealtimeGroups.Channel(channelID), excluded).MessageCreate(message);
+					}
 					break;
 				}
 				case "lobby":
@@ -131,14 +139,24 @@ namespace GenOnlineService.Realtime
 						}
 					}
 
-					List<string> excluded = BlockedConnections(author, memberSessions);
 					Int64? matchID = lobby.MatchID == 0 ? null : (Int64)lobby.MatchID;
 					store = db => Database.Chat.InsertLobbyMessage(db, targetID, matchID, author, storedType, content);
+					Func<Message, Task> send;
+					if (RealtimeFanout.IsShared)
+					{
+						long[] skipped = await BlockedEitherWayOfAsync(author);
+						send = message => RealtimeFanout.SendAsync(RealtimeGroups.Lobby(targetID), message, skipped);
+					}
+					else
+					{
+						List<string> excluded = BlockedConnections(author, memberSessions);
+						send = message => RealtimeOut.GroupExcept(RealtimeGroups.Lobby(targetID), excluded).MessageCreate(message);
+					}
 					deliver = message =>
 					{
 						// lets members who leave later still report what they received
 						LobbyChatAudience.Record(targetID, memberIDs);
-						return RealtimeOut.GroupExcept(RealtimeGroups.Lobby(targetID), excluded).MessageCreate(message);
+						return send(message);
 					};
 					break;
 				}
@@ -364,7 +382,14 @@ namespace GenOnlineService.Realtime
 			return DirectAccess.Denied;
 		}
 
-		// Connections of the given sessions whose user blocked the author or was blocked by them
+		// Users blocked either way with the author, read from the database so a block made through any copy counts on every copy
+		private async Task<long[]> BlockedEitherWayOfAsync(Int64 author)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			return (await BlockedEitherWayAsync(db, author)).ToArray();
+		}
+
+		// Connections of the given sessions whose user blocked the author or was blocked by them, exact for one copy only
 		private static List<string> BlockedConnections(Int64 author, IEnumerable<UserSession> sessions)
 		{
 			List<string> excluded = new();

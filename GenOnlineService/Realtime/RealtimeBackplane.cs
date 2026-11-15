@@ -26,7 +26,7 @@ using System.Text.Json;
 
 namespace GenOnlineService.Realtime
 {
-	// Realtime:backplane none (one copy, the default) or redis, which carries hub messages and close requests between copies
+	// Realtime:backplane none (one copy, the default) or redis, which carries hub messages, chat fan-out and close requests between copies
 	public sealed class RealtimeBackplaneSettings
 	{
 		public const string None = "none";
@@ -200,6 +200,8 @@ namespace GenOnlineService.Realtime
 					pending.TrySetResult(true);
 				}
 			});
+
+			await RealtimeFanout.StartAsync(subscriber);
 
 			Volatile.Write(ref s_subscriber, subscriber);
 			s_log.LogInformation("Realtime backplane redis started on copy {CopyId}", s_copyID);

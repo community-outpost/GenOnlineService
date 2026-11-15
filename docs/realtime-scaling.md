@@ -32,7 +32,7 @@ With failover and the Redis backplane both on, the copies keep the live state in
 | `Realtime:redis` | StackExchange.Redis connection string, required with `redis`; the service refuses to start without it or when Redis cannot be reached |
 | `Realtime:redis_channel_prefix` | optional prefix of every Redis channel, so environments sharing one Redis never mix |
 
-Redis is the documented option because `Microsoft.AspNetCore.SignalR.StackExchangeRedis` is the only backplane Microsoft maintains. It is used with PostgreSQL only, see above. The community Postgres backplanes are deferred until they mature. One Redis connection per copy carries both the SignalR backplane and the close requests (`realtime.close`, `realtime.close.ack`). Redis pub/sub is not durable: a close request published while Redis is down is lost (the copy that handles the kick or revocation still closes its own connections), and a publish during an outage can stall that call until the StackExchange.Redis timeout (5 s by default) before it fails.
+Redis is the documented option because `Microsoft.AspNetCore.SignalR.StackExchangeRedis` is the only backplane Microsoft maintains. It is used with PostgreSQL only, see above. The community Postgres backplanes are deferred until they mature. One Redis connection per copy carries the SignalR backplane, the chat fan-out (`realtime.chat`, see below) and the close requests (`realtime.close`, `realtime.close.ack`). Redis pub/sub is not durable: a close request published while Redis is down is lost (the copy that handles the kick or revocation still closes its own connections), and a publish during an outage can stall that call until the StackExchange.Redis timeout (5 s by default) before it fails.
 
 ## Why two copies are not supported yet
 
@@ -44,7 +44,7 @@ Even then, this state is still kept per copy in memory and is not shared:
 - lobbies, the lobby list and matchmaking, including the connection order of each pair of lobby members (attempt and step, section 6.6 of `realtime-protocol.md`)
 - the transports each session sent with `SetPeerTransports`: a lobby reads them from the member sessions on its own copy, and a pair whose member session is on another copy gets `StartSignalling` without the four connection order fields
 - channel membership lists (`ChannelMembers`), presence of users on other copies, name change audiences beyond the user and their friends
-- the block filter of channel and lobby chat: blocked users are left out by connection id, which works only for connections on the copy that sends
+- the cached block lists of online users that lobby joins, the lobby list and matchmaking check: they are loaded when a session starts and updated only by blocks made through the same copy (chat does not use them with Redis, see below)
 - game session registrations, the chat rate limit and the report rate limit
 
 Moving that state to a shared store is later work. Until then two copies are not supported.
@@ -53,4 +53,8 @@ Moving that state to a shared store is later work. Until then two copies are not
 
 Covered: every event sent to a user, a session type of a user, a channel or a lobby group, `All` notices, and close requests with their notice and close record.
 
-Not covered: anything decided from the per copy state above, for example whether a user is online, who is in a lobby, or which connections the block filter leaves out.
+Not covered: anything decided from the per copy state above, for example whether a user is online or who is in a lobby.
+
+## Block filter of channel and lobby chat
+
+With `none` the copy that sends leaves blocked users out by connection id, as before. With `redis` a channel or lobby `MessageCreate` does not go through a SignalR group send. The sending copy reads the users blocked either way with the author from the database, so a block or unblock made through any copy counts from the next message on, and publishes the message with those user ids on `realtime.chat`. Every copy, the sender included, takes the messages from that channel one at a time in publish order and queues each for its own connections in the channel or lobby group, except those users. Each connection has its own ordered queue of chat writes, so a client that stops reading holds up only itself; a connection with more than 256 chat messages waiting is aborted, and the client reconnects and reads the history. A copy knows its own group members because it mirrors the group calls of its own connections. The messages of a channel therefore keep one order on every copy; the order against other events of that channel (`MemberAdd`, `MemberRemove`, `MessageDelete`), which travel on the SignalR backplane channels, is not guaranteed across copies. Direct and group messages go to user groups after a check against the database and are unchanged.
