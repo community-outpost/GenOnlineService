@@ -2,6 +2,10 @@
 
 The realtime hub (`/realtime`, see `realtime-protocol.md`) is built so an environment can later run more than one service copy, for deploys without downtime. Today one copy per environment is the supported setup.
 
+## PostgreSQL only
+
+Every multi copy feature (the Redis backplane, failover and handover) needs `Database:db_provider` `postgres`. With `mysql` or `mariadb` the service runs one copy: it refuses to start with `Realtime:backplane` `redis` or `Realtime:failover:enabled` `true`, and the error names the setting and PostgreSQL.
+
 ## One copy
 
 Nothing extra. `Realtime:backplane` defaults to `none`: hub messages and close requests stay inside the process.
@@ -14,15 +18,19 @@ Nothing extra. `Realtime:backplane` defaults to `none`: hub messages and close r
 - A kick of a user this copy does not hold waits up to 2 seconds for another copy to confirm it closed a session, otherwise it answers `moderation.target_offline` as before.
 - Lobby ids come from the `lobby_ids` counter row in the database. Each copy reserves a block of 100 ids with one atomic update and reserves the next block in the background when 20 are left, so no restart and no other copy ever hands out the same lobby id again. The ids left in a block when a copy stops are skipped. A database outage fails only the `CreateLobby` that needs a new block.
 
+## Active and standby copies
+
+`Realtime:failover:enabled` (default `false`) runs two copies as active and hot standby, see `realtime-failover.md`. Running more than one copy is supported on PostgreSQL only. Only the copy that holds the `realtime_lease` row serves players: `/-/readiness` is ready only there, and a standby refuses the hub upgrade and `/api` calls with a retryable 503. A planned switch (`GenOnlineService realtime handover` or the shutdown signal) hands the lease to the standby, then sends every connection `ServerSwitching` and closes it with `server.switching`, so the clients reconnect to the standby and rebuild their state from snapshots. Lobbies, the matchmaking queue and per copy session state are not carried over yet: lobbies end as on a restart. Both copies still need Redis and the same `Accounts` issuer and certificates.
+
 ## The Redis backplane
 
 | Key | Meaning |
 |---|---|
-| `Realtime:backplane` | `none` (default) or `redis` |
+| `Realtime:backplane` | `none` (default) or `redis`; `redis` needs PostgreSQL |
 | `Realtime:redis` | StackExchange.Redis connection string, required with `redis`; the service refuses to start without it or when Redis cannot be reached |
 | `Realtime:redis_channel_prefix` | optional prefix of every Redis channel, so environments sharing one Redis never mix |
 
-Redis is the documented option because `Microsoft.AspNetCore.SignalR.StackExchangeRedis` is the only backplane Microsoft maintains, and it works the same with MySQL, MariaDB and Postgres. The community Postgres backplanes are deferred until they mature. One Redis connection per copy carries both the SignalR backplane and the close requests (`realtime.close`, `realtime.close.ack`). Redis pub/sub is not durable: a close request published while Redis is down is lost (the copy that handles the kick or revocation still closes its own connections), and a publish during an outage can stall that call until the StackExchange.Redis timeout (5 s by default) before it fails.
+Redis is the documented option because `Microsoft.AspNetCore.SignalR.StackExchangeRedis` is the only backplane Microsoft maintains. It is used with PostgreSQL only, see above. The community Postgres backplanes are deferred until they mature. One Redis connection per copy carries both the SignalR backplane and the close requests (`realtime.close`, `realtime.close.ack`). Redis pub/sub is not durable: a close request published while Redis is down is lost (the copy that handles the kick or revocation still closes its own connections), and a publish during an outage can stall that call until the StackExchange.Redis timeout (5 s by default) before it fails.
 
 ## Why two copies are not supported yet
 

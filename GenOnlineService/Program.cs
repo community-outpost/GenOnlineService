@@ -429,6 +429,8 @@ namespace GenOnlineService
 			}
 		}
 
+		internal static bool UsesPostgres(IConfiguration config) => GetDbProvider(config) == DbProvider.Postgres;
+
 		private static string BuildDbConnectionString(IConfiguration config, DbProvider provider)
 		{
 			IConfiguration? dbSettings = config.GetSection("Database");
@@ -977,6 +979,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("realtime", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunRealtime(args);
+				return;
+			}
+
 			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);
@@ -1152,12 +1160,25 @@ namespace GenOnlineService
 
 			// realtime protocol v1, see docs/realtime-protocol.md; Realtime:backplane redis carries it between copies, see docs/realtime-scaling.md
 			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);
+
+			// Realtime:failover holds the lease of docs/realtime-failover.md. The host waits the handover budget plus 10 s on shutdown:
+			// handover_limit_s, three lease periods for the bounded statements and waits, the switch delay and 5 s for the last batch
+			// (133.5 s with the defaults). A handover cancelled during the shutdown and started again can exceed it, the host then aborts what is left.
+			GenOnlineService.Failover.FailoverSettings failoverSettings = GenOnlineService.Failover.FailoverSettings.Read(builder.Configuration);
+			if (failoverSettings.Enabled)
+			{
+				builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMilliseconds(failoverSettings.HandoverBudgetMs + 10_000));
+			}
 			Microsoft.AspNetCore.SignalR.ISignalRServerBuilder signalR = builder.Services.AddSignalR(options =>
 			{
 				options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 				options.MaximumReceiveMessageSize = 64 * 1024;
 				options.EnableDetailedErrors = false;
+				if (failoverSettings.Enabled)
+				{
+					Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Failover.RealtimeFenceFilter());
+				}
 			}).AddJsonProtocol(options => GenOnlineService.Realtime.RealtimeJson.Configure(options.PayloadSerializerOptions));
 			if (realtimeBackplane.UsesRedis)
 			{
@@ -1377,6 +1398,18 @@ namespace GenOnlineService
 			ServiceLocator.Services = app.Services;
 			GenOnlineService.Realtime.RealtimeOut.Initialize(app.Services.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<GenOnlineService.Realtime.RealtimeHub, GenOnlineService.Realtime.IRealtimeClient>>());
 			await GenOnlineService.Realtime.RealtimeControl.StartAsync(realtimeBackplane);
+			app.Logger.LogInformation("Service copy {CopyId} starting", GenOnlineService.Failover.CopyIdentity.ID);
+			GenOnlineService.Failover.FailoverCoordinator? failover = null;
+			if (failoverSettings.Enabled)
+			{
+				failover = new GenOnlineService.Failover.FailoverCoordinator(failoverSettings, GenOnlineService.Failover.CopyIdentity.ID,
+					new GenOnlineService.Failover.DatabaseLeaseStore(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>()), new GenOnlineService.Failover.RealtimeConnectionDrain());
+				GenOnlineService.Failover.RealtimeFailover.Install(failover);
+				if (!realtimeBackplane.UsesRedis)
+				{
+					app.Logger.LogWarning("Realtime:failover is on without the Redis backplane: during a handover chat between the two copies does not cross.");
+				}
+			}
 
 			// These log through AppLog, which only has a logger factory once ServiceLocator.Services is set, so they run after Build
 			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();
@@ -1471,6 +1504,7 @@ namespace GenOnlineService
 
 			app.UseCors();
 			app.Use(GenOnlineService.Rest.RestSetup.StatusBodies);
+			GenOnlineService.Failover.RealtimeFailover.UseRealtimeStandbyGate(app);
 			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
 			app.UseRealtimeRegistrationGate();
@@ -1770,6 +1804,18 @@ namespace GenOnlineService
 			{
 				await AccountsSetup.SeedClients(app.Services, accountsSettings);
 				await ClientRegistry.SweepDisabledClients(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>());
+			}
+
+			if (failover != null)
+			{
+				// the stopping callback blocks the shutdown until the handover ends, the server still serves the connections meanwhile
+				CancellationTokenSource leaseLoopStop = new();
+				_ = Task.Run(() => failover.RunAsync(app.Lifetime.StopApplication, leaseLoopStop.Token));
+				app.Lifetime.ApplicationStopping.Register(() =>
+				{
+					failover.ShutdownAsync().GetAwaiter().GetResult();
+					leaseLoopStop.Cancel();
+				});
 			}
 
 			app.Run();

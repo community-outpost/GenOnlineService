@@ -54,6 +54,12 @@ namespace GenOnlineService
             s_meter.CreateCounter<long>("genonline.api_token.auth_failures", "{request}", "gopat- requests refused, by reason");
         private static readonly Counter<long> s_apiTokenRequests =
             s_meter.CreateCounter<long>("genonline.api_token.requests", "{request}", "gopat- requests accepted, by token owner");
+        private static readonly Counter<long> s_failoverLeaseEvents =
+            s_meter.CreateCounter<long>("genonline.failover.lease.events", "{event}", "Realtime lease acquired, lost, renewed late or handed over by this copy");
+        private static readonly Histogram<double> s_failoverHandoverDuration =
+            s_meter.CreateHistogram<double>("genonline.failover.handover.duration", "s", "Planned handovers from the lease handover to the last switched connection");
+        private static readonly Histogram<long> s_failoverConnectionsMoved =
+            s_meter.CreateHistogram<long>("genonline.failover.connections.moved", "{connection}", "Connections switched to the new copy per handover batch");
 
         static AppMetrics()
         {
@@ -85,6 +91,21 @@ namespace GenOnlineService
         public static void RecordApiTokenAuthFailure(string reason)
         {
             s_apiTokenAuthFailures.Add(1, new TagList { { "reason", reason } });
+        }
+
+        public static void RecordFailoverLease(string leaseEvent)
+        {
+            s_failoverLeaseEvents.Add(1, new TagList { { "event", leaseEvent } });
+        }
+
+        public static void RecordFailoverHandover(TimeSpan duration)
+        {
+            s_failoverHandoverDuration.Record(duration.TotalSeconds);
+        }
+
+        public static void RecordFailoverConnectionsMoved(int connections)
+        {
+            s_failoverConnectionsMoved.Record(connections);
         }
 
         public static void RecordApiTokenRequest(string owner)

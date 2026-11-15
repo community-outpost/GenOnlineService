@@ -97,6 +97,7 @@ public abstract class AppDbContext : DbContext
 	// Lobbies
 	public DbSet<ConnectionReport> ConnectionReports => Set<ConnectionReport>();
 	public DbSet<LobbyIdCounter> LobbyIdCounters => Set<LobbyIdCounter>();
+	public DbSet<RealtimeLease> RealtimeLeases => Set<RealtimeLease>();
 
 	// Players and devices
 	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
@@ -206,6 +207,7 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
 		modelBuilder.ApplyConfiguration(new ConnectionReportConfiguration());
 		modelBuilder.ApplyConfiguration(new LobbyIdCounterConfiguration());
+		modelBuilder.ApplyConfiguration(new RealtimeLeaseConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());

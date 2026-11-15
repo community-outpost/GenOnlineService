@@ -38,7 +38,7 @@ namespace GenOnlineService.Realtime
 		public const int NameMaxLength = 16;
 		public const int DefaultGroupMaxMembers = 10;
 
-		private const string ConnectionItem = "realtime.connection";
+		internal const string ConnectionItem = "realtime.connection";
 
 		// Realtime:group_max_members, the most members of one group chat with the owner included
 		public static int GroupMaxMembers
@@ -189,7 +189,7 @@ namespace GenOnlineService.Realtime
 			};
 		}
 
-		private static async Task RealtimeConnectionClose(HubConnectionContext transport, string code, bool allowReconnect)
+		internal static async Task RealtimeConnectionClose(HubConnectionContext transport, string code, bool allowReconnect)
 		{
 			try
 			{
