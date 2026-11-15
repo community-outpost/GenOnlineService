@@ -57,17 +57,21 @@ namespace GenOnlineService.Realtime
 			}
 		}
 
+		// Also updates the sets kept for the user as a lobby host, and moves the sequence so a database read that raced the change reads again
 		public static void Update(Int64 userID, Action<UserSocialContainer> update)
 		{
-			UserSocialContainer? container = Of(userID);
-			if (container == null)
+			RealtimeBlocks.Local.Touch();
+			foreach (UserSocialContainer? container in new[] { Of(userID), LobbyHosts.Of(userID) })
 			{
-				return;
-			}
+				if (container == null)
+				{
+					continue;
+				}
 
-			lock (container)
-			{
-				update(container);
+				lock (container)
+				{
+					update(container);
+				}
 			}
 		}
 

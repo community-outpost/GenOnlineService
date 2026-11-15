@@ -163,19 +163,27 @@ namespace GenOnlineService.Realtime
 				return false;
 			}
 
-			SharedUserData? host = WebSocketManager.GetSharedDataForUser(lobby.Owner);
-			if (host == null || viewerID == lobby.Owner)
+			if (viewerID == lobby.Owner)
 			{
 				return true;
 			}
 
-			UserSocialContainer social = host.GetSocialContainer();
-			if (social.Blocked.Contains(viewerID))
+			// a host without a session here has its sets loaded for the lobby, the lobby stays out until they are read and is listed again then
+			UserSocialContainer? social = LobbyHosts.For(lobby);
+			if (social == null)
 			{
 				return false;
 			}
 
-			return lobby.LobbyJoinability != ELobbyJoinability.FriendsOnly || social.Friends.Contains(viewerID);
+			lock (social)
+			{
+				if (social.Blocked.Contains(viewerID))
+				{
+					return false;
+				}
+
+				return lobby.LobbyJoinability != ELobbyJoinability.FriendsOnly || social.Friends.Contains(viewerID);
+			}
 		}
 
 		// A game client sees only lobbies of its registered build, a launcher or chat session has no build and cannot join, so it browses every build
