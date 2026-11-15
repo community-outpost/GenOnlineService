@@ -99,13 +99,6 @@ namespace Database
 				  .Where(f => f.UserIdLow == userId || f.UserIdHigh == userId)
 		);
 
-		private static readonly Func<AppDbContext, long, Task<int>> _countFriends =
-		EF.CompileAsyncQuery(
-			(AppDbContext db, long userId) =>
-				db.Friendships
-				  .Count(f => f.UserIdLow == userId || f.UserIdHigh == userId)
-		);
-
 		private static readonly Func<AppDbContext, long, IAsyncEnumerable<long>> _getBlocked =
 		EF.CompileAsyncQuery(
 			(AppDbContext db, long userId) =>
@@ -148,7 +141,8 @@ namespace Database
 		{
 			try
 			{
-				return await _countFriends(db, userId);
+				// a plain query, the friend limit now always reads the count from the database
+				return await db.Friendships.AsNoTracking().CountAsync(f => f.UserIdLow == userId || f.UserIdHigh == userId);
 			}
 			catch (Exception ex)
 			{
@@ -333,6 +327,13 @@ namespace Database
 		public static async Task<bool> IsBlocked(AppDbContext db, long userId, long blockedUserId)
 		{
 			return await db.Blocks.AsNoTracking().AnyAsync(b => b.UserId == userId && b.BlockedUserId == blockedUserId);
+		}
+
+		public static async Task<bool> AreFriends(AppDbContext db, long userId, long otherUserId)
+		{
+			long low = Math.Min(userId, otherUserId);
+			long high = Math.Max(userId, otherUserId);
+			return await db.Friendships.AsNoTracking().AnyAsync(f => f.UserIdLow == low && f.UserIdHigh == high);
 		}
 
 		public static async Task AddPendingFriendRequest(AppDbContext db, long sourceUserId, long targetUserId)

@@ -91,6 +91,9 @@ namespace GenOnlineService
 				}
 			}
 			Interlocked.Exchange(ref m_restoredDeadline, Environment.TickCount64 + graceMs);
+
+			// the host of a restored or moved lobby has no session here yet, the list filter reads the sets kept for the lobby
+			LobbyHosts.Prefetch(lobby.Owner, lobby.LobbyID);
 			return true;
 		}
 
