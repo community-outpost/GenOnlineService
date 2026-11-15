@@ -275,7 +275,7 @@ Startup refuses to run outside Development:
 
 The error names the setting and entry index and never echoes the entry.
 
-In the official deployment every key (signing, encryption, data protection and the device HMAC key) is created once by OpenTofu and kept in OpenBao. External Secrets delivers them to one Secret that every copy mounts read-only at `/keys`, so all copies share them and they survive the loss of the cluster. A rotation step below is then an OpenTofu change.
+In the official deployment every key (signing, encryption, data protection and the device HMAC key) is created once by OpenTofu and kept in OpenBao. External Secrets delivers them to one Secret that every copy mounts read-only at `/keys`, so all copies share them and they survive the loss of the cluster. The keys come from outpost-infra `opentofu/genonline` (certificate then PKCS#1 key, RSA 3072, self-signed, 10 years); OpenTofu never replaces one on its own. A rotation step below is then a new key name in that root's `config/genonline.yaml` and in the chart's values, ordered as described here.
 
 Rotation runbook (signing certificate). Every step is a Secret change followed by a rolling restart of every copy:
 
