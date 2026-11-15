@@ -510,6 +510,10 @@ public class LiveHandoverTests
 		(Lobby lobby, UserSession[] sessions) = await Live(a, Stored(14, ELobbyState.INGAME, 141, 142));
 		LobbyManager.MovingLeave = a.Handover.OnMovingLeave;
 
+		// b follows the stream before the move, as a planned switch needs an in-sync standby; its loop starts after the leave
+		await b.Follower.StepAsync();
+		Assert.True(b.Follower.InSync);
+
 		using CancellationTokenSource stop = new();
 		Task writer = a.PumpWriterAsync(stop.Token);
 		Task<bool> moving = a.Handover.MoveAsync("b", long.MaxValue, () => 0, () => Task.FromResult(true));

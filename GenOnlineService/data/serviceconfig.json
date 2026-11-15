@@ -1,27 +1,55 @@
 {
-	"retry_signalling": true,
-	"use_mapped_port": true,
-	"min_run_ahead_frames": 4,
-	"ra_update_frequency_frames": 10,
-	"relay_all_traffic": false,
-	"ra_slack_percent": 30,
-	"frame_grouping_frames": 2,
-	"enable_host_migration": false,
-	"network_do_immediate_flush_per_frame": true,
-	"network_send_flags": -1,
-	"network_latency_logic_model": 2,
-	"use_default_config": true,
-	"ra_slack_override_percent_in_default": 30,
-	"do_probes": true,
-	"do_replay_upload": true,
-	"network_mesh_histogram_duration": 20000,
-	"ibra_ra_tweaks": false,
-	"ibra_minslack_default": 0.35,
-	"ibra_maxslack_default": 1.0,
-	"ibra_minslack_greaterthan300ms": 0.4,
-	"ibra_maxslack_greaterthan300ms": 1.0,
-	"ibra_minslack_greaterthan200ms": 0.4,
-	"ibra_maxslack_greaterthan200ms": 1.0,
-	"screenshot_width": 1440,
-	"screenshot_height": 700
+	"connection": {
+		"relay_only": false,
+		"ice_engine": "webrtc",
+		"use_mapped_port": true,
+		"retry_signalling": true,
+		"reconnect_timeout_ms": 30000,
+		"anticheat_transport": false,
+		"probe_lobby_interval_ms": 250,
+		"probe_match_interval_ms": 1000,
+		"wifi_low_latency": true
+	},
+	"send": {
+		"mode": "datagram",
+		"direct": true,
+		"frames_per_packet": 2,
+		"frames_per_packet_lossy": 1,
+		"flush_every_frame": true,
+		"redundancy": true,
+		"redundancy_window_ms": 0,
+		"redundancy_burst_ms": 150,
+		"fast_resend": true
+	},
+	"input_delay": {
+		"controller": true,
+		"margin_frames": 1,
+		"min_frames": 0,
+		"max_frames": 64,
+		"fast_recovery": true,
+		"decision_interval_ms": 1000,
+		"fps_history_samples": 30,
+		"catch_up_frames": 1,
+		"slack_percent": 30,
+		"formula": {
+			"latency_window_ms": 0,
+			"decrease_after_decisions": 20,
+			"repair_budget": true
+		}
+	},
+	"disconnect": {
+		"freeze_before_screen_ms": 5000,
+		"remove_after_ms": 60000
+	},
+	"lobby": {
+		"host_migration": false
+	},
+	"telemetry": {
+		"screenshot_probes": true,
+		"replay_upload": true,
+		"screenshot_width": 1440,
+		"screenshot_height": 700,
+		"screenshot_upload_bytes_per_sec": 131072,
+		"screenshot_slot_offset_ms": 2000
+	}
 }
