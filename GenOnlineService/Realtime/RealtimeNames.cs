@@ -18,8 +18,7 @@
 
 namespace GenOnlineService.Realtime
 {
-	// Tells everyone who can see a user that the user's name or tag changed: a player's own rename, a copy from
-	// Keycloak at sign-in or through the group sync, or a staff rename
+	// Tells everyone who can see a user that the user's name or tag changed: a player's own rename or a staff rename
 	public static class RealtimeNames
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(RealtimeNames));

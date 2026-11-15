@@ -5,17 +5,6 @@
   "adminEventsDetailsEnabled": false,
   "eventsEnabled": false,
   "sslRequired": "none",
-  "groups": [
-    {
-      "name": "genonline-admin"
-    },
-    {
-      "name": "genonline-moderator"
-    },
-    {
-      "name": "genonline-banned"
-    }
-  ],
   "clients": [
     {
       "clientId": "genonline-dev",
@@ -25,75 +14,14 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://127.0.0.1:@SERVICE_PORT@/users/auth/keycloak/callback"
+        "http://127.0.0.1:@SERVICE_PORT@/users/auth/idp/callback"
       ],
       "webOrigins": [
         "+"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
-      },
-      "protocolMappers": [
-        {
-          "name": "groups",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-group-membership-mapper",
-          "config": {
-            "full.path": "false",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "userinfo.token.claim": "true",
-            "claim.name": "groups"
-          }
-        },
-        {
-          "name": "player_id",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "config": {
-            "user.attribute": "player_id",
-            "claim.name": "player_id",
-            "jsonType.label": "String",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "userinfo.token.claim": "true"
-          }
-        },
-        {
-          "name": "name",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "config": {
-            "user.attribute": "display_name",
-            "claim.name": "name",
-            "jsonType.label": "String",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "userinfo.token.claim": "true"
-          }
-        },
-        {
-          "name": "name_tag",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "config": {
-            "user.attribute": "name_tag",
-            "claim.name": "name_tag",
-            "jsonType.label": "String",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "userinfo.token.claim": "true"
-          }
-        }
-      ]
-    },
-    {
-      "clientId": "genonline-sync",
-      "enabled": true,
-      "publicClient": false,
-      "secret": "probe-sync-secret",
-      "standardFlowEnabled": false,
-      "serviceAccountsEnabled": true
+      }
     }
   ],
   "users": [
@@ -110,9 +38,6 @@
           "value": "alice-pw",
           "temporary": false
         }
-      ],
-      "groups": [
-        "/genonline-admin"
       ]
     },
     {
@@ -137,11 +62,6 @@
       "emailVerified": true,
       "firstName": "Carol",
       "lastName": "C",
-      "attributes": {
-        "player_id": [
-          "7001"
-        ]
-      },
       "credentials": [
         {
           "type": "password",
@@ -149,17 +69,6 @@
           "temporary": false
         }
       ]
-    },
-    {
-      "username": "service-account-genonline-sync",
-      "enabled": true,
-      "serviceAccountClientId": "genonline-sync",
-      "clientRoles": {
-        "realm-management": [
-          "view-events",
-          "view-users"
-        ]
-      }
     }
   ]
 }

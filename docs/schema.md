@@ -7,7 +7,7 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 ## 0. Decisions
 
 - **Both providers stay:** MySQL/MariaDB and PostgreSQL, one EF model, one migration set per provider.
-- **One database per environment**, holding account tables and game tables. Environments share nothing; the official deployment ties them together only through Keycloak sign-in.
+- **One database per environment**, holding account tables and game tables. Environments share nothing but the sign-in: test signs in through prod, and its copy of prod's players follows prod (`docs/identity.md`).
 - **Ids kept** on import into prod: `users.id` is today's `user_id`, match ids are kept.
 - **The old schema is only read**, by the import tool. No compatibility views, no `_v2` tables.
 
@@ -46,7 +46,7 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 
 ```
 users
-  id                      bigint pk              -- the user id; with Keycloak player ids it is the player_id, set explicitly (identity section 3.2)
+  id                      bigint pk              -- the user id; the import keeps the old ids
   username                varchar(32)            -- display name; not unique on its own
   username_normalized     varchar(32)            -- NFKC, upper case: exact name lookups (Name#0042 sign-in)
   name_tag                int                    -- 1 to 9999; unique (username_normalized, name_tag), shown as Name#0042
@@ -74,7 +74,7 @@ oauth_applications, oauth_authorizations, oauth_scopes, oauth_tokens   -- OpenId
 
 ```
 user_roles
-  user_id, role varchar(32), source varchar(32) ('local' | 'upstream:keycloak' | ...),
+  user_id, role varchar(32), source varchar(32) ('local' | 'upstream:<environment>'),
   granted_by varchar(64) null, granted_at, reason varchar(512) null
   pk (user_id, role, source)
 
@@ -243,7 +243,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 | `users.discord_id, discord_username` | `identities(provider='discord')` |
 | `users.google_id, google_email` | `identities(provider='google')`; email not trusted as verified |
 | `users.gamereplays_id, gamereplays_username` | `identities(provider='gamereplays')` |
-| `users.admin, permissionslevel` | **not imported**: printed in the validation report; staff re-granted by hand or via Keycloak groups |
+| `users.admin, permissionslevel` | **not imported**: printed in the validation report; staff re-granted by hand (`roles grant`) |
 | `users.banned, ban_reason, banned_by, ban_verified_by, ban_aliases` | `sanctions(type='ban', source='local', created_by_kind='cli', created_by_id=null, reason=ban_reason)`; the rest into one `audit_log` entry |
 | `users.elo_rating, elo_num_matches` | `player_ratings(kind='all_time')` |
 | `users.monthly_elo_rating` | `player_ratings(kind='monthly')` |
@@ -270,7 +270,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 - **Dropped users (`account_type` Ghost or DevAccount):** their `users`, identities, devices, ratings, stats, preferences, network, friendships, friend requests, blocks, leaderboard and anti-cheat rows are not imported. Matches they took part in are kept: their `match_players` rows keep the slot with `user_id = null`, and a match they owned gets `owner_user_id = null`. Their ids are never reused. Exits non-zero until findings are resolved or waived in an import config file.
 - **Phase 2, convert:** table by table in dependency order, batched, through the EF models of both sides.
 - **Phase 3, verify:** row counts and checksums per mapping line, printed and written to a report; identity sequences set to max(id) + 1.
-- **Keycloak file (official deployment, optional, `Import:keycloak_file`):** a Keycloak partial import with federated identity links (Steam, Discord, Google, GameReplays), `player_id` = the old user id and `display_name` = the imported name, so a person's first Keycloak sign-in lands on their prod user with their name; `<path>.counter.json` holds `genonlinePlayerIdStart` (highest imported id + 1), the realm attribute that starts the GenOnline Keycloak plugin's counter. Written only after a committed real run.
+- **Sign-in after the import:** imported identities (Steam, Discord, Google, GameReplays) sign in to their imported user directly; there is no Keycloak file.
 - **Config switches:** legacy bans as local bans (default) or skipped; HMAC key path.
 - **Modes:** `--dry-run` into a scratch database; refuses a non-empty target.
 - **Cutover:** stop the old service, import, start the new deploy. No dual writes.

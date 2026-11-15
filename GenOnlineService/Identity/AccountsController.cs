@@ -144,8 +144,7 @@ namespace GenOnlineService.Identity
 					UpstreamAccounts.ErrorBlocked => "This account is blocked.",
 					UpstreamAccounts.ErrorDeactivated => "This account is deactivated.",
 					UpstreamAccounts.ErrorSignUpDisabled => "No account is linked to this sign-in, and sign-up is closed.",
-					UpstreamAccounts.ErrorNoPlayerID => "This sign-in carries no player id. Please contact support.",
-					UpstreamAccounts.ErrorPlayerIDMismatch => "This sign-in does not match its player id. Please contact support.",
+					UpstreamAccounts.ErrorIdentityConflict => "Another sign-in of this provider is already linked to the account. Please contact support.",
 					_ => "The sign-in could not be completed."
 				};
 				return Page(403, "Sign-in refused", $"<p>{WebUtility.HtmlEncode(message)}</p>");

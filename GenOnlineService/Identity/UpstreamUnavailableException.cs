@@ -18,7 +18,7 @@
 
 namespace GenOnlineService.Identity
 {
-	// An expected outage of an upstream service (Keycloak down or not answering): background jobs log one Warning line
+	// An expected outage of an upstream service (down or not answering): background jobs log one Warning line
 	// with the message and no stack trace, and the next run retries
 	public sealed class UpstreamUnavailableException : Exception
 	{

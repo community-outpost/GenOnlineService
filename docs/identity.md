@@ -1,6 +1,6 @@
 # Identity: every environment is its own identity provider (OpenIddict)
 
-Status: **draft, topology decided by the user** (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
+Status: **being replaced.** Keycloak is gone (the identity hub, decided 2026-11-15): prod's service is the identity provider, and the sections below on Keycloak, player ids, trusted claims, group sync and the plugin's change log no longer describe the service. A full rewrite follows. Earlier status: draft, topology decided by the user (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
 
 Each GenOnline environment owns its accounts and issues every token itself, like a GitLab instance. Upstream sign-in providers (Keycloak, Discord, Steam, Google, any OIDC) are linked to a local account, like GitLab's OmniAuth providers. The official deployment ties its environments together through one Keycloak; a self-hoster runs the same thing with or without one.
 

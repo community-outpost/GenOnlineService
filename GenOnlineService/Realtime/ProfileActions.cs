@@ -27,8 +27,8 @@ namespace GenOnlineService.Realtime
 	{
 		private const int StoredNameMaxLength = 32;
 
-		// Words only staff may use in a display name: the Keycloak plugin's default list (NameRules.DEFAULT_RESERVED_WORDS),
-		// which a realm can replace with the reserved-words option of its genonline-display-name validator
+		// Words only staff may use in a display name, matched case-insensitively anywhere in the name; the list started as the
+		// retired GenOnline Keycloak plugin's default (NameRules.DEFAULT_RESERVED_WORDS)
 		public static readonly IReadOnlyList<string> ReservedNameWords = new[]
 		{
 			"admin", "staff", "mass^", "mas^", "m4ss^", "m4s^", "moderator",
@@ -39,7 +39,7 @@ namespace GenOnlineService.Realtime
 		// Lobbies add (N) to tell duplicate names apart, so a name never ends with one
 		private static readonly Regex s_dedupeSuffix = new(@"\((1[0-9]|20|[0-9])\)$", RegexOptions.Compiled);
 
-		// The rules every chosen name follows (the Keycloak plugin applies the same ones); reserved words are checked apart
+		// The rules every chosen name follows; reserved words are checked apart
 		public static Failure? CheckNameRules(string name)
 		{
 			// '#' separates the name from its tag

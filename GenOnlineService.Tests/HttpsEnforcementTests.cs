@@ -128,18 +128,35 @@ public class HttpsEnforcementTests
 	public async Task BackgroundJobLogsAnOutageAsOneWarning()
 	{
 		ListLogger logger = new();
-		await Program.RunObservedBackgroundJobAsync("keycloak_change_log", logger, () => throw new UpstreamUnavailableException("Keycloak is unreachable at http://kc.test/: The response ended prematurely. (ResponseEnded)", new HttpRequestException("inner")));
+		await Program.RunObservedBackgroundJobAsync("upstream_sync", logger, () => throw new UpstreamUnavailableException("The upstream is unreachable at http://upstream.test/: The response ended prematurely. (ResponseEnded)", new HttpRequestException("inner")));
 		var outage = Assert.Single(logger.Entries);
 		Assert.Equal(LogLevel.Warning, outage.Level);
 		Assert.Null(outage.Exception);
-		Assert.Equal("Background job keycloak_change_log could not reach its upstream: Keycloak is unreachable at http://kc.test/: The response ended prematurely. (ResponseEnded)", outage.Message);
+		Assert.Equal("Background job upstream_sync could not reach its upstream: The upstream is unreachable at http://upstream.test/: The response ended prematurely. (ResponseEnded)", outage.Message);
 
 		logger.Entries.Clear();
-		InvalidOperationException bug = new("The Keycloak change log skipped a seq after 4");
-		await Program.RunObservedBackgroundJobAsync("keycloak_change_log", logger, () => throw bug);
+		InvalidOperationException bug = new("The sync skipped an entry after 4");
+		await Program.RunObservedBackgroundJobAsync("upstream_sync", logger, () => throw bug);
 		var failure = Assert.Single(logger.Entries);
 		Assert.Equal(LogLevel.Error, failure.Level);
 		Assert.Same(bug, failure.Exception);
-		Assert.Equal("Background job keycloak_change_log failed", failure.Message);
+		Assert.Equal("Background job upstream_sync failed", failure.Message);
+	}
+}
+
+internal sealed class ListLogger : ILogger
+{
+	public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = new();
+
+	public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+	public bool IsEnabled(LogLevel logLevel) => true;
+
+	public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+	{
+		lock (Entries)
+		{
+			Entries.Add((logLevel, formatter(state, exception), exception));
+		}
 	}
 }

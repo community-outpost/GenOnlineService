@@ -33,7 +33,6 @@ public static class UserStates
 // Sign-in providers an identity row can come from
 public static class IdentityProviders
 {
-	public const string Keycloak = "keycloak";
 	public const string Steam = "steam";
 	public const string Discord = "discord";
 	public const string Google = "google";

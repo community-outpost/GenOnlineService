@@ -5,7 +5,7 @@ Status: **draft, greenfield**. Reviewed by the release session (owner of permiss
 ## 0. Assumptions
 
 - **Greenfield deploy.** No existing game clients, no existing consumers of the old keys. User accounts may be imported, credentials are not.
-- **Humans** sign in through Keycloak only: native PKCE in the game client, then `POST /v1/auth/login-with-idp` for service session tokens (`docs/identity-keycloak.md`). There is no LoginCode/CheckLogin flow and no website login callback.
+- **Humans** (superseded: Keycloak is gone, see `docs/identity.md`) sign in through Keycloak only: native PKCE in the game client, then `POST /v1/auth/login-with-idp` for service session tokens (`docs/identity-keycloak.md`). There is no LoginCode/CheckLogin flow and no website login callback.
 - **Machines** (website backend, Discord bot, partners, monitoring) use `gopat-` tokens, the only machine credential.
 - **One `application` instance per environment**, which holds the in-memory websocket hub. The design notes what changes past one instance.
 - **Volume:** tens of service accounts, at most a few hundred tokens, machine traffic in the low hundreds of requests per second. The full active token set fits in memory.

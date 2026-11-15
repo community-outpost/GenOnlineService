@@ -21,9 +21,8 @@ export Core__enforce_https=false Core__use_os_cert_store=true Core__reconnect_gr
 export Devices__hmac_key_path=$SP/device_hmac.key
 export RateLimiting__auth_limits_enabled=false
 export Accounts__ephemeral_keys=true Accounts__refresh_reuse_leeway_seconds=0
-export Accounts__providers__keycloak__enabled=true Accounts__providers__keycloak__issuer=http://127.0.0.1:$KC_PORT/realms/genonline
-export Accounts__providers__keycloak__client_id=genonline-dev Accounts__providers__keycloak__client_secret=probe-client-secret
-export Accounts__providers__keycloak__group_sync__enabled=true Accounts__providers__keycloak__group_sync__interval_seconds=5
-export Accounts__providers__keycloak__group_sync__client_id=genonline-sync Accounts__providers__keycloak__group_sync__client_secret=probe-sync-secret
-export Accounts__providers__keycloak__player_ids=false
+# the throwaway Keycloak is only a generic OpenID Connect sign-in here, like any upstream provider
+export Accounts__providers__idp__enabled=true Accounts__providers__idp__issuer=http://127.0.0.1:$KC_PORT/realms/genonline
+export Accounts__providers__idp__client_id=genonline-dev Accounts__providers__idp__client_secret=probe-client-secret
+export Accounts__providers__idp__only_provider=true
 export TURN__key=probe-turn-key TURN__token=probe-turn-token TURN__token_ttl=3600 TURN__automatic_token_invalidate=false

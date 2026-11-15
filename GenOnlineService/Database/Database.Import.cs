@@ -47,8 +47,7 @@ namespace Database
 		MySqlSslMode SslMode,
 		bool LegacyBansAsLocal,
 		IReadOnlySet<string> Waivers,
-		string ReportPath,
-		string? KeycloakFile = null);
+		string ReportPath);
 
 	public sealed class ImportOptions
 	{
@@ -131,6 +130,12 @@ namespace Database
 				waivers.Add(key);
 			}
 
+			// the Keycloak user file is gone: imported identities sign in to this environment directly
+			if (!string.IsNullOrWhiteSpace(section.GetValue<string>("keycloak_file")))
+			{
+				throw new ImportException("Import:keycloak_file belonged to the Keycloak setup, which is gone: imported players sign in with their linked Discord, Steam, Google or GameReplays accounts. Remove the setting.");
+			}
+
 			string? reportPath = section.GetValue<string>("report_path");
 			if (string.IsNullOrWhiteSpace(reportPath))
 			{
@@ -146,8 +151,7 @@ namespace Database
 				sslMode,
 				legacyBans == "local",
 				waivers,
-				reportPath,
-				string.IsNullOrWhiteSpace(section.GetValue<string>("keycloak_file")) ? null : section.GetValue<string>("keycloak_file")!.Trim());
+				reportPath);
 		}
 
 		public static async Task<int> Execute(AppDbContext target, ImportSettings settings, ImportOptions options)
@@ -159,7 +163,6 @@ namespace Database
 			report.Line($"Target: {(target.Database.IsNpgsql() ? "PostgreSQL" : "MySQL/MariaDB")}");
 			report.Line($"Legacy bans: {(settings.LegacyBansAsLocal ? "imported as local play bans" : "skipped")}");
 			report.Line($"Waived findings: {(settings.Waivers.Count == 0 ? "none" : string.Join(", ", settings.Waivers.OrderBy(w => w)))}");
-			report.Line($"Keycloak file: {settings.KeycloakFile ?? "not requested (Import:keycloak_file)"}");
 
 			await CheckTarget(target);
 
@@ -222,33 +225,8 @@ namespace Database
 				report.Line("Import complete: verification passed and the transaction was committed.");
 			}
 
-			// written only after the commit, so Keycloak never holds player ids the database does not
-			List<KeycloakImportUser> keycloakUsers = KeycloakUsers(plan);
-			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)[KeycloakImportFile.CounterStartAttribute]!.GetValue<long>();
-			if (settings.KeycloakFile != null && !options.DryRun)
-			{
-				(string usersPath, string counterPath) = KeycloakImportFile.Write(settings.KeycloakFile, keycloakUsers);
-				report.Line($"Keycloak file: {keycloakUsers.Count} users with player_id written to {Path.GetFullPath(usersPath)}");
-				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart}: set the realm attribute {KeycloakImportFile.CounterStartAttribute} to it before anyone signs up ({Path.GetFullPath(counterPath)})");
-				report.Line("Keycloak name tags: after the partial import, call POST /realms/<realm>/genonline/players/assign-tags once with a client holding genonline-rename; it gives every imported account its static tag and lists name conflicts");
-			}
-			else if (settings.KeycloakFile != null)
-			{
-				report.Line($"Keycloak file: not written in a dry run; it would hold {keycloakUsers.Count} users, counter start {counterStart}");
-			}
-
 			report.Save(settings.ReportPath);
 			return 0;
-		}
-
-		// Each kept user with its kept identities; the player id is the user id the import keeps
-		private static List<KeycloakImportUser> KeycloakUsers(Plan plan)
-		{
-			return plan.Kept.OrderBy(k => k.Key)
-				.Select(k => new KeycloakImportUser(k.Key,
-					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList(),
-					k.Value.Username))
-				.ToList();
 		}
 
 		private static string QuoteTable(AppDbContext db, string table)
@@ -680,7 +658,7 @@ namespace Database
 						ID = old.Id,
 						Username = kept.Username,
 						UsernameNormalized = NameNormalizer.Normalize(kept.Username),
-						// imported names are unique already (AssignUsernames), so tag 1 keeps name#tag unique; Keycloak's tag replaces it at sign-in
+						// imported names are unique already (AssignUsernames), so tag 1 keeps name#tag unique; renames keep it
 						NameTag = 1,
 						Email = kept.Email,
 						EmailNormalized = kept.Email == null ? null : NameNormalizer.Normalize(kept.Email),
@@ -1482,7 +1460,7 @@ namespace Database
 			var droppedStaff = AllUsers.Where(u => Dropped.Contains(u.Id) && (u.Admin || u.PermissionsLevel > 0)).OrderBy(u => u.Id).ToList();
 
 			report.Line();
-			report.Line($"Staff remap report: admin and permissionslevel are NOT imported. Grant roles again with \"GenOnlineService roles grant\" or Keycloak groups ({staff.Count} users):");
+			report.Line($"Staff remap report: admin and permissionslevel are NOT imported. Grant roles again with \"GenOnlineService roles grant\" ({staff.Count} users):");
 			foreach (OldUser user in staff)
 			{
 				report.Line($"  user {user.Id,-10} {Kept[user.Id].Username,-32} admin={(user.Admin ? 1 : 0)} permissionslevel={user.PermissionsLevel?.ToString(CultureInfo.InvariantCulture) ?? "null"}");

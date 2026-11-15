@@ -5,20 +5,6 @@
   "adminEventsDetailsEnabled": false,
   "eventsEnabled": false,
   "sslRequired": "none",
-  "groups": [
-    {
-      "name": "genonline-admin"
-    },
-    {
-      "name": "genonline-moderator"
-    },
-    {
-      "name": "genonline-banned"
-    },
-    {
-      "name": "genonline-streamer"
-    }
-  ],
   "clients": [
     {
       "clientId": "genonline-dev",
@@ -28,49 +14,14 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://127.0.0.1:@SERVICE_PORT@/users/auth/keycloak/callback"
+        "http://127.0.0.1:@SERVICE_PORT@/users/auth/idp/callback"
       ],
       "webOrigins": [
         "+"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
-      },
-      "protocolMappers": [
-        {
-          "name": "groups",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-group-membership-mapper",
-          "config": {
-            "full.path": "false",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "userinfo.token.claim": "true",
-            "claim.name": "groups"
-          }
-        },
-        {
-          "name": "go_user_id",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "config": {
-            "user.attribute": "go_user_id",
-            "claim.name": "go_user_id",
-            "jsonType.label": "String",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "userinfo.token.claim": "true"
-          }
-        }
-      ]
-    },
-    {
-      "clientId": "genonline-sync",
-      "enabled": true,
-      "publicClient": false,
-      "secret": "probe-sync-secret",
-      "standardFlowEnabled": false,
-      "serviceAccountsEnabled": true
+      }
     }
   ],
   "users": [
@@ -87,9 +38,6 @@
           "value": "alice-pw",
           "temporary": false
         }
-      ],
-      "groups": [
-        "/genonline-admin"
       ]
     },
     {
@@ -114,11 +62,6 @@
       "emailVerified": true,
       "firstName": "Carol",
       "lastName": "C",
-      "attributes": {
-        "go_user_id": [
-          "7001"
-        ]
-      },
       "credentials": [
         {
           "type": "password",
@@ -126,17 +69,6 @@
           "temporary": false
         }
       ]
-    },
-    {
-      "username": "service-account-genonline-sync",
-      "enabled": true,
-      "serviceAccountClientId": "genonline-sync",
-      "clientRoles": {
-        "realm-management": [
-          "view-events",
-          "view-users"
-        ]
-      }
     },
     {
       "username": "dave",
@@ -151,9 +83,6 @@
           "value": "dave-pw",
           "temporary": false
         }
-      ],
-      "groups": [
-        "/genonline-moderator"
       ]
     },
     {
@@ -169,8 +98,7 @@
           "value": "erin-pw",
           "temporary": false
         }
-      ],
-      "groups": []
+      ]
     },
     {
       "username": "frank",
@@ -185,9 +113,6 @@
           "value": "frank-pw",
           "temporary": false
         }
-      ],
-      "groups": [
-        "/genonline-moderator"
       ]
     }
   ]

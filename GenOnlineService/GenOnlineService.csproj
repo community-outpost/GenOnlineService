@@ -19,7 +19,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!-- The Keycloak plugin's UTS #39 confusables table, so local names share its uniqueness key -->
+		<!-- The UTS #39 confusables table behind the look-alike key of display names (NameKey) -->
 		<EmbeddedResource Include="Resources\confusables.txt" LogicalName="GenOnlineService.Resources.confusables.txt" />
 	</ItemGroup>
 
