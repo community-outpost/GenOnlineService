@@ -1,6 +1,6 @@
 # Realtime failover and graceful handover
 
-Status: build order step 1 is being built on the hub branch (lease, readiness, `ServerSwitching` and `server.switching`, behind `Realtime:failover:enabled`); steps 2 to 5 are design. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
+Status: build order step 1 is built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`, behind `Realtime:failover:enabled`); steps 2 to 5 are design. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
 
 ## Goals
 
