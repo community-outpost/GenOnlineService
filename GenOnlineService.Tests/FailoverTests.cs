@@ -846,4 +846,62 @@ public class FailoverTests
 		Assert.False(RealtimeFailover.Enabled);
 		Assert.True(RealtimeFailover.Serving);
 	}
+
+	[Fact]
+	public async Task AStandbyThatIsNotInSyncNeverAnnouncesItselfSoNoHandoverGoesToIt()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FailoverCoordinator a = Copy("a", store, new FakeDrain(2), clock);
+		FailoverCoordinator b = Copy("b", store, new FakeDrain(0), clock);
+		bool inSync = false;
+		b.StandbyReady = () => inSync;
+		await a.TickAsync();
+		await b.TickAsync();
+
+		Assert.Null(store.Standby);
+		Assert.False(await a.HandOverAsync(closeWithoutStandby: false));
+		Assert.Equal(FailoverRole.Active, a.Role);
+
+		inSync = true;
+		clock.Advance(500);
+		await a.TickAsync();
+		await b.TickAsync();
+		Assert.Equal("b", store.Standby);
+
+		// an entry that lapses after the standby fell out of sync takes no handover either
+		inSync = false;
+		clock.Advance(3000);
+		await a.TickAsync();
+		await b.TickAsync();
+		Assert.False(await a.HandOverAsync(closeWithoutStandby: false));
+	}
+
+	[Fact]
+	public async Task TheActivationHookRunsBeforeTheCopyReportsReadyAndNamesHowItGotTheLease()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FailoverCoordinator a = Copy("a", store, new FakeDrain(0), clock);
+		FailoverCoordinator b = Copy("b", store, new FakeDrain(0), clock);
+		List<(FailoverActivation Activation, long Epoch, bool ReadyDuringHook)> calls = new();
+		a.Activating = (activation, epoch) => calls.Add((activation, epoch, a.IsReady));
+		b.Activating = (activation, epoch) => calls.Add((activation, epoch, b.IsReady));
+
+		await a.TickAsync();
+		await b.TickAsync();
+		Assert.Equal(new[] { (FailoverActivation.FirstTake, 1L, false) }, calls);
+
+		// a stops renewing, b takes the expired lease after an unplanned failure
+		clock.Advance(2600);
+		await b.TickAsync();
+		Assert.Equal((FailoverActivation.AfterExpiry, 2L, false), calls.Last());
+		Assert.True(b.IsReady);
+
+		// a hook that throws still lets the copy serve
+		FailoverCoordinator c = Copy("c", new FakeStore(clock), new FakeDrain(0), clock);
+		c.Activating = (_, _) => throw new InvalidOperationException("restore failed");
+		await c.TickAsync();
+		Assert.True(c.IsReady);
+	}
 }

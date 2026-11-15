@@ -148,6 +148,12 @@ namespace GenOnlineService.Realtime
 			return state;
 		}
 
+		// Every stored pair, the live state of the lobby carries them
+		public IEnumerable<(long Low, long High, PeerPairState State)> All() => m_pairs.Select(entry => (entry.Key.Low, entry.Key.High, entry.Value)).ToList();
+
+		// A pair restored from the live state of another copy
+		public void Restore(long userA, long userB, PeerPairState state) => m_pairs[Key(userA, userB)] = state;
+
 		// A member who leaves or joins starts each of its pairs over
 		public void Forget(long userID)
 		{

@@ -73,7 +73,7 @@ namespace GenOnlineService
 		}
 	}
 
-	public class Lobby
+	public partial class Lobby
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Lobby));
 
@@ -200,7 +200,7 @@ namespace GenOnlineService
 		[JsonIgnore]
 		private Dictionary<Int64, HashSet<Int64>> m_FullMeshConnecting = new();
 
-		private static Int64 s_NextFullMeshCheckID = 0;
+		private static Int64 s_NextFullMeshCheckID = ProcessCounterStart();
 
 		[JsonIgnore]
 		public ConcurrentDictionary<Int64, ConcurrentList<Int64>> FullMeshConnectivityChecks { get; set; } = new();
@@ -247,7 +247,7 @@ namespace GenOnlineService
 		[JsonIgnore]
 		private readonly ConcurrentDictionary<string, Int64> m_PendingScans = new(StringComparer.Ordinal);
 
-		private static Int64 s_NextProbeID = 0;
+		private static Int64 s_NextProbeID = ProcessCounterStart();
 
 		private static string NextProbeID(string prefix) => $"{prefix}-{Interlocked.Increment(ref s_NextProbeID)}";
 
@@ -367,6 +367,7 @@ namespace GenOnlineService
 		{
 			m_StartPhase = EStartPhase.None;
 			m_TimeCountdownEnds = -1;
+			m_RestoredCountdown = false;
 			PendingFullMeshConnectivityChecks = false;
 			TimeStartFullMeshChecks = -1;
 			m_TimeToRetryFullMeshChecks = -1;
@@ -395,6 +396,7 @@ namespace GenOnlineService
 		{
 			m_StartPhase = EStartPhase.Countdown;
 			m_TimeCountdownEnds = Environment.TickCount64 + StartCountdownMs;
+			MarkLiveDirty();
 			m_TimeNextFullMeshSnapshotRequest = Environment.TickCount64 + FullMeshCheckSettings.SnapshotIntervalMs;
 			s_log.LogInformation("Lobby {LobbyId}: mesh check complete, countdown started", LobbyID);
 			RealtimeOut.Fire(RealtimeOut.Lobby(LobbyID).CountdownStarted(new CountdownStartedEvent { LobbyId = LobbyID, DurationS = (StartCountdownMs + 999) / 1000 }));
@@ -413,16 +415,18 @@ namespace GenOnlineService
 
 			bool bStart = await RunExclusiveAsync(() =>
 			{
-				if (m_StartPhase != EStartPhase.Countdown || !EnsureMeshCheckIsCurrentLocked()) return Task.FromResult(false);
+				// a countdown restored after a failover has no mesh check to watch, it only runs to its deadline
+				if (m_StartPhase != EStartPhase.Countdown || (!m_RestoredCountdown && !EnsureMeshCheckIsCurrentLocked())) return Task.FromResult(false);
 				if (Environment.TickCount64 >= m_TimeCountdownEnds)
 				{
 					m_StartPhase = EStartPhase.None;
 					m_TimeCountdownEnds = -1;
+					m_RestoredCountdown = false;
 					State = ELobbyState.INGAME;
 					DirtyRetransmitLobbyList();
 					return Task.FromResult(true);
 				}
-				if (Environment.TickCount64 >= m_TimeNextFullMeshSnapshotRequest)
+				if (!m_RestoredCountdown && Environment.TickCount64 >= m_TimeNextFullMeshSnapshotRequest)
 				{
 					m_TimeNextFullMeshSnapshotRequest = Environment.TickCount64 + FullMeshCheckSettings.SnapshotIntervalMs;
 					SendFullMeshConnectivityCheckRequestToMembers();
@@ -638,6 +642,7 @@ namespace GenOnlineService
 			IReadOnlyList<string>? transportsA = TransportsOf(a);
 			IReadOnlyList<string>? transportsB = TransportsOf(b);
 			m_PeerPairs.Restart(a.UserID, b.UserID, advance, ConnectionOrder.BothListEos(transportsA, transportsB));
+			MarkLiveDirty();
 			PeerStepValues? values = PairValuesLocked(a, b, transportsA, transportsB);
 			SendStartSignallingToMember(a, b, values);
 			SendStartSignallingToMember(b, a, values);
@@ -661,6 +666,7 @@ namespace GenOnlineService
 			}
 
 			// both peers restart the handshake towards each other with the same values
+			MarkLiveDirty();
 			PeerStepValues? values = PairValuesLocked(source, target, transportsSource, transportsTarget);
 			ForgetConnection(sourceUserID, targetUserID);
 			RealtimeOut.Fire(caller.StartSignalling(StartSignallingFor(source, target, values)));
@@ -677,6 +683,7 @@ namespace GenOnlineService
 		{
 			m_ReportedConnections.TryRemove((userA, userB), out _);
 			m_ReportedConnections.TryRemove((userB, userA), out _);
+			MarkLiveDirty();
 		}
 
 		// A member joining or leaving starts its pairs over, including their connection order
@@ -696,6 +703,7 @@ namespace GenOnlineService
 		// The latest response of a member replaces its earlier reports towards the other members
 		private void RecordReportedConnections(Int64 reporter, IReadOnlyList<Int64> connected)
 		{
+			MarkLiveDirty();
 			foreach (LobbyMember peer in Members)
 			{
 				if (!peer.IsHuman() || peer.UserID == reporter)
@@ -746,6 +754,7 @@ namespace GenOnlineService
 			}
 			bool bothEos = ConnectionOrder.BothListEos(transportsA, transportsB);
 			PeerPairState state = m_PeerPairs.Settle(a.UserID, b.UserID, bothEos);
+			MarkLiveDirty();
 
 			// eos reaches a peer by its middleware id, so without both ids this send uses the next step and the stored step stays
 			bool idsKnown = !String.IsNullOrEmpty(a.MiddlewareUserID) && !String.IsNullOrEmpty(b.MiddlewareUserID);
@@ -1371,6 +1380,8 @@ public async Task FinalizeACChecks()
 					}
 				}
 			}
+
+			await PublishLiveStateAsync();
 		}
 
 		internal static async Task<LobbyMembershipStatus> TransferMemberAsync(Lobby destination, IReadOnlyCollection<Lobby> sources,
@@ -1777,6 +1788,7 @@ public async Task FinalizeACChecks()
 		public void DirtyRetransmit()
 		{
 			Interlocked.Exchange(ref m_lobbyUpdatePending, 1);
+			MarkLiveDirty();
 		}
 
 		public void DirtyRetransmitLobbyList()
@@ -2023,7 +2035,7 @@ public async Task FinalizeACChecks()
 		}
 
 	}
-	public class LobbyMember
+	public partial class LobbyMember
 	{
 		public Int64 UserID { get; private set; } = -999999;
 		// The name this lobby shows: the display name, or Name#tag while another member has the same name
@@ -2370,6 +2382,8 @@ public async Task FinalizeACChecks()
 			{
 				await kvPair.Value.Tick();
 			}
+
+			await DropUnclaimedRestoredMembersAsync();
 		}
 
 		public int GetNumLobbies()
@@ -2484,6 +2498,7 @@ public async Task FinalizeACChecks()
 
 				if (bRemoved)
 				{
+					lobby.PublishLiveRemoval();
 					lobby.PublishClosed();
 					LobbyListPublisher.MarkDirty(lobby.LobbyID);
 

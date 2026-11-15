@@ -182,7 +182,7 @@ public class Playlist
 	}
 }
 
-static class MatchmakingManager
+static partial class MatchmakingManager
 {
 	private static readonly ILogger s_log = AppLog.For(typeof(MatchmakingManager));
 	// World Series 2026 Qualification in September requires the matchmaking to be
@@ -332,7 +332,7 @@ static class MatchmakingManager
 		}
 	}
 
-	public class MatchmakingBucket
+	public partial class MatchmakingBucket
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(MatchmakingBucket));
 		private ConcurrentList<MatchmakingBucketMember> m_lstMembers = new();
@@ -1707,6 +1707,8 @@ static class MatchmakingManager
 		{
 			AppMetrics.RecordMatchmakingQueue(playlistID.ToString(CultureInfo.InvariantCulture), GetTotalQueuedPlayersInPlaylist(playlistID));
 		}
+
+		PublishLiveState();
 	}
 
 	// TODO_MATCHMAKING: Deregister player if they disconnect or leave quickmatch

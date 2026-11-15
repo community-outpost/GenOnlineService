@@ -121,6 +121,9 @@ namespace GenOnlineService.Realtime
 			await Clients.Caller.Ready(BuildReady(session));
 			await SendFriendsSnapshotAsync(session);
 			await SendConversationsSnapshotAsync(session);
+
+			// after an unplanned failover a member takes its seat in its restored lobby and a queued player gets its ticket back
+			await m_lobbyManager.AttachRestoredAsync(session);
 			await RestoreChannelAsync(session);
 			await RestoreLobbyAsync(session);
 			await OnConnectionOpenedAsync(session);

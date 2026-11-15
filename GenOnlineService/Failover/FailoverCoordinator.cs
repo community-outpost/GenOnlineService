@@ -29,6 +29,15 @@ namespace GenOnlineService.Failover
 		Stopped
 	}
 
+	// How a copy became the lease holder: a first take finds no holder it watched, after expiry takes over from a holder that failed
+	public enum FailoverActivation
+	{
+		FirstTake,
+		HandedOver,
+		AfterExpiry,
+		TakenBack
+	}
+
 	// The lease statements of Database.Lease, behind an interface so the coordinator runs without a database in tests
 	public interface ILeaseStore
 	{
@@ -74,6 +83,9 @@ namespace GenOnlineService.Failover
 		private long m_lastRenewStart;
 		private long m_lastStoreWarning = long.MinValue;
 		private int m_handoverRequested;
+
+		// Set once a take failed because another copy held the lease, so a later take follows a failure of that holder
+		private bool m_watchedHolder;
 		private Task m_closing = Task.CompletedTask;
 		private Task<bool>? m_handover;
 
@@ -89,6 +101,12 @@ namespace GenOnlineService.Failover
 		public string CopyID { get; }
 		public FailoverRole Role => (FailoverRole)Volatile.Read(ref m_role);
 		public long Epoch => Interlocked.Read(ref m_epoch);
+
+		// Runs before a copy that took the lease reports ready, build step 3 restores the live state here
+		public Action<FailoverActivation, long>? Activating { get; set; }
+
+		// A standby announces itself only while this holds, build step 3 makes it the in sync check of the live state
+		public Func<bool> StandbyReady { get; set; } = () => true;
 
 		// The connections closed after a lost lease, tests wait on it
 		internal Task Closing => Volatile.Read(ref m_closing);
@@ -232,13 +250,15 @@ namespace GenOnlineService.Failover
 					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken);
 					if (await m_store.RenewAsync(CopyID, lease.Epoch, m_settings.LeaseMs, timeout.Token))
 					{
-						BecomeActive(lease.Epoch, start, "handed over");
+						BecomeActive(lease.Epoch, start, "handed over", FailoverActivation.HandedOver);
 					}
 					return;
 				}
 
-				using (CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken))
+				// a standby that is not ready lets its entry lapse, so no handover goes to it
+				if (StandbyReady())
 				{
+					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken);
 					await m_store.AnnounceStandbyAsync(CopyID, m_settings.LeaseMs, timeout.Token);
 				}
 
@@ -250,7 +270,11 @@ namespace GenOnlineService.Failover
 				}
 				if (epoch != null)
 				{
-					BecomeActive(epoch.Value, takeStart, "taken after expiry");
+					BecomeActive(epoch.Value, takeStart, m_watchedHolder ? "taken after expiry" : "first take", m_watchedHolder ? FailoverActivation.AfterExpiry : FailoverActivation.FirstTake);
+				}
+				else
+				{
+					m_watchedHolder = true;
 				}
 			}
 			catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -259,11 +283,20 @@ namespace GenOnlineService.Failover
 			}
 		}
 
-		private void BecomeActive(long epoch, long start, string how)
+		private void BecomeActive(long epoch, long start, string how, FailoverActivation activation)
 		{
 			Interlocked.Exchange(ref m_epoch, epoch);
 			Interlocked.Exchange(ref m_deadline, start + m_settings.LeaseMs);
 			m_lastRenewStart = start;
+			m_watchedHolder = false;
+			try
+			{
+				Activating?.Invoke(activation, epoch);
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Preparing copy {CopyId} to serve with epoch {Epoch} failed, it serves without the restored state", CopyID, epoch);
+			}
 			SetRole(FailoverRole.Active);
 			s_log.LogInformation("Realtime lease acquired by copy {CopyId} with epoch {Epoch} ({How})", CopyID, epoch, how);
 			AppMetrics.RecordFailoverLease("acquired");
@@ -562,7 +595,7 @@ namespace GenOnlineService.Failover
 
 			s_log.LogWarning("Handover from copy {CopyId} to {Target} cancelled: {Why}. The copy took the lease back and serves its open connections again.", CopyID, handover.Target, why);
 			AppMetrics.RecordFailoverLease("handover_cancelled");
-			BecomeActive(epoch.Value, start, "taken back from " + handover.Target);
+			BecomeActive(epoch.Value, start, "taken back from " + handover.Target, FailoverActivation.TakenBack);
 			return true;
 		}
 

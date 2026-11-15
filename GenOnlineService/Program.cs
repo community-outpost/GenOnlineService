@@ -1407,7 +1407,25 @@ namespace GenOnlineService
 				GenOnlineService.Failover.RealtimeFailover.Install(failover);
 				if (!realtimeBackplane.UsesRedis)
 				{
-					app.Logger.LogWarning("Realtime:failover is on without the Redis backplane: during a handover chat between the two copies does not cross.");
+					app.Logger.LogWarning("Realtime:failover is on without the Redis backplane: during a handover chat between the two copies does not cross, and lobbies and the queue do not survive a failover.");
+				}
+				else
+				{
+					// build step 3: the owner writes lobbies and the queue to Redis, the standby follows them and takes them over after an unplanned failover
+					GenOnlineService.Failover.LiveStateSettings liveStateSettings = GenOnlineService.Failover.LiveStateSettings.Read(builder.Configuration);
+					GenOnlineService.Failover.RedisLiveStateStore liveStore = new(() => GenOnlineService.Realtime.RealtimeRedis.ConnectAsync(realtimeBackplane), realtimeBackplane.ChannelPrefix, liveStateSettings.StreamMaxLength);
+					GenOnlineService.Failover.FailoverCoordinator coordinator = failover;
+					GenOnlineService.Failover.LiveStateWriter liveWriter = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID,
+						() => coordinator.Role == GenOnlineService.Failover.FailoverRole.Active && !coordinator.IsFenced ? coordinator.Epoch : null);
+					GenOnlineService.Failover.LiveStateFollower liveFollower = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID,
+						() => coordinator.Role == GenOnlineService.Failover.FailoverRole.Standby, liveStateSettings.PollIntervalMs, failoverSettings.LeaseMs);
+					GenOnlineService.Failover.RealtimeLiveState.Install(liveWriter, liveFollower, liveStateSettings.RefreshMs, liveStateSettings.RewriteMs);
+					LobbyManager liveLobbies = app.Services.GetRequiredService<LobbyManager>();
+					failover.Activating = (activation, epoch) => GenOnlineService.Failover.LiveStateTakeover.OnActivating(activation, epoch, liveLobbies);
+					failover.StandbyReady = () => liveFollower.InSync;
+					_ = Task.Run(() => liveWriter.RunAsync(app.Lifetime.ApplicationStopping));
+					_ = Task.Run(() => liveFollower.RunAsync(app.Lifetime.ApplicationStopping));
+					app.Logger.LogInformation("Realtime live state on: lobbies and the queue go to Redis, a standby announces itself only while in sync");
 				}
 			}
 
