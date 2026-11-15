@@ -26,7 +26,7 @@ Not goals:
 | Lease | holds it | waits for it |
 | Live state | owns it, writes every change to Redis | follows the changes, same state in memory |
 
-Production: the active copy prefers `k8swk01`, the standby runs on `k8swk02` (one k3s cluster). Both share Postgres (CloudNativePG, synchronous replica on `k8swk02`) and Redis or Valkey (replica on `k8swk02`).
+Production: the active copy prefers `k8swk01`, the standby runs on `k8swk02` (one k3s cluster). Both share Postgres (CloudNativePG, three instances with required synchronous durability) and Redis or Valkey (replica on `k8swk02`).
 
 Two copies need Postgres as the shared database. With MySQL or MariaDB the service refuses to start when `Realtime:failover:enabled` is on or `Realtime:backplane` is `redis`. A single copy still runs on MySQL or MariaDB and needs no Redis backplane.
 
@@ -119,7 +119,7 @@ During the overlap, version N and N+1 run together:
 
 - Counters that restart per process (mesh check ids, probe ids) must not let a handed-over lobby accept a stale answer: start them at a random or time-based value, or reset the lobby's pending checks on handover.
 - The lobby state handed over must include the former member set, which connection reports use to check their target, and each pair's connection order state (step, attempt, reported failures).
-- Lobby ids come from a database block allocator (blocks of 100 per copy). The allocator relies on synchronous database replication: an asynchronous replica can lose the last reserved block on failover and hand out ids again. Production runs a synchronous CloudNativePG replica; keep it that way.
+- The lease and the lobby id allocator rely on synchronous database replication. With durability `preferred`, a database failover can lose the last commits: a lost lease change reuses an epoch, so two copies can both believe they hold the lease, and a lost lobby id block (blocks of 100 per copy) hands out ids again. Production runs three CloudNativePG instances with durability `required`, and the chart refuses more than one copy with any other setting; keep it that way.
 - Redis holds lobby passwords, host coordinates and match start data, so it must be trusted like the service: same network boundary, authentication and no shared tenants.
 - A copy that loses the lease and takes it back within the reconnect grace can keep stale lobbies. Step 4's ownership epochs must close this.
 - Handover limit and batch size: start with 120 s and 5 percent every 200 ms, then tune from metrics.
