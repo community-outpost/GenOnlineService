@@ -1,6 +1,6 @@
 # Realtime failover and graceful handover
 
-Status: build order steps 1 to 3 are built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`; reconnect-safe lobby rejoins; live state in Redis and the hot standby, behind `Realtime:failover:enabled`); steps 4 and 5 are design. A planned handover still drops lobbies until step 4. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
+Status: build order steps 1 to 4 are built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`; reconnect-safe lobby rejoins; live state in Redis and the hot standby; ownership epochs and the planned handover, behind `Realtime:failover:enabled`); step 5 is design. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
 
 ## Goals
 
@@ -59,9 +59,9 @@ Two copies need Postgres as the shared database. With MySQL or MariaDB the servi
 2. A starts the handover when it receives the shutdown signal and a standby reports in sync, or on the operator command `GenOnlineService realtime handover`. It prefers a standby running the newer version. Without an in-sync standby, A closes every connection with `server.restarting`, as a restart does.
 3. **Overlap begins.** B becomes ready, then A reports not ready, so new connections go to B while existing ones stay on A. The Redis backplane carries chat, presence, friends, direct messages and groups between both copies. New lobbies are created on B.
 4. **The queue moves first.** A stops forming matches and passes the queue to B (owner epoch plus one); B starts forming matches. A then moves the players who are in the queue: their tickets stay in the queue while they reconnect.
-5. **Lobbies move one by one, when quiet.** Quiet means `setup` with no countdown, mesh check or start in progress, or `in_game` (game traffic is peer to peer). For each lobby A writes its final state with owner B (owner epoch plus one), B takes it from its mirror, and A sends `ServerSwitching` and closes **only that lobby's members** with `server.switching`. The members reconnect to B together and get `LobbyState`, the lobby's `ChannelHistory`, and `StartSignalling` for every pair that has not reported connected. A lobby's members are never split across copies, so no command forwarding is needed.
+5. **Lobbies move one by one, when quiet.** Quiet means `setup` with no countdown, mesh check or start in progress, or `in_game` (game traffic is peer to peer). For each lobby A writes its final state with owner B (owner epoch plus one), B takes it from its mirror, and A sends `ServerSwitching` and closes **only that lobby's members** with `server.switching`. The members reconnect to B together and get `LobbyState`, the lobby's `ChannelHistory`, and `StartSignalling` for every pair that has not reported connected. A lobby's members are never split across copies, so no command forwarding is needed. From its final state until its members are switched the lobby is frozen: A refuses its lobby commands with `service.unavailable {what: standby}` and stops its countdown, B resumes the countdown from the stored deadline, and a cancelled move unfreezes the lobby. A member cannot join another lobby meanwhile, and a kick, ban or sign-out during the move is applied by B when it takes the lobby, or by A when the move is cancelled.
 6. **Everyone else moves in batches:** players in menus, channels and chat, about 5 percent every 200 ms, each with its own `retry_after_ms`, so B builds snapshots gradually instead of all at once.
-7. A lobby that stays busy past the handover limit (default 120 s) is moved anyway.
+7. A lobby that stays busy past the handover limit (default 120 s) is moved anyway, 8 lobbies at a time. The whole handover has a budget of about 159 s, and a shutdown waits that budget plus 10 s.
 8. When A holds no connections and owns nothing, it hands the lease to B (epoch plus one) and exits.
 
 If A dies during the handover, B takes the lease after expiry and takes ownership of everything, as in an unplanned failover. If B dies, A cancels the handover, takes back what B owned (owner epoch plus one) and reports ready again.
@@ -102,7 +102,7 @@ During the overlap, version N and N+1 run together:
 
 ## Infra
 
-- Two pods with required anti-affinity across `k8swk01` and `k8swk02`. A rollout replaces the standby first, then the active, which hands over to the new in-sync standby. `terminationGracePeriodSeconds` covers the handover limit (150 s).
+- Two pods with required anti-affinity across `k8swk01` and `k8swk02`. A rollout replaces the standby first, then the active, which hands over to the new in-sync standby. `terminationGracePeriodSeconds` covers the handover budget plus 10 s (180 s).
 - Envoy, on the GenOnline route: active health check on `/-/readiness` every second, request timeout 0 and stream idle timeout 1 h for the websocket.
 - Redis or Valkey with a replica on `k8swk02`.
 - Self-hosters: two processes, one shared Postgres database and Redis, a proxy that health-checks `/-/readiness`.
