@@ -32,7 +32,7 @@ With failover and the Redis backplane both on, the copies keep the live state in
 | `Realtime:redis` | StackExchange.Redis connection string, required with `redis`; the service refuses to start without it or when Redis cannot be reached |
 | `Realtime:redis_channel_prefix` | optional prefix of every Redis channel, so environments sharing one Redis never mix |
 
-Redis is the documented option because `Microsoft.AspNetCore.SignalR.StackExchangeRedis` is the only backplane Microsoft maintains. It is used with PostgreSQL only, see above. The community Postgres backplanes are deferred until they mature. One Redis connection per copy carries the SignalR backplane, the chat fan-out (`realtime.chat`, see below) and the close requests (`realtime.close`, `realtime.close.ack`). Redis pub/sub is not durable: a close request published while Redis is down is lost (the copy that handles the kick or revocation still closes its own connections), and a publish during an outage can stall that call until the StackExchange.Redis timeout (5 s by default) before it fails.
+Redis is the documented option because `Microsoft.AspNetCore.SignalR.StackExchangeRedis` is the only backplane Microsoft maintains. It is used with PostgreSQL only, see above. The community Postgres backplanes are deferred until they mature. One Redis connection per copy carries the SignalR backplane, the chat fan-out (`realtime.chat`, see below), the block changes (`realtime.blocks`, see below) and the close requests (`realtime.close`, `realtime.close.ack`). Redis pub/sub is not durable: a close request published while Redis is down is lost (the copy that handles the kick or revocation still closes its own connections), and a publish during an outage can stall that call until the StackExchange.Redis timeout (5 s by default) before it fails.
 
 ## Why two copies are not supported yet
 
@@ -44,17 +44,25 @@ Even then, this state is still kept per copy in memory and is not shared:
 - lobbies, the lobby list and matchmaking, including the connection order of each pair of lobby members (attempt and step, section 6.6 of `realtime-protocol.md`)
 - the transports each session sent with `SetPeerTransports`: a lobby reads them from the member sessions on its own copy, and a pair whose member session is on another copy gets `StartSignalling` without the four connection order fields
 - channel membership lists (`ChannelMembers`), presence of users on other copies, name change audiences beyond the user and their friends
-- the cached block lists of online users that lobby joins, the lobby list and matchmaking check: they are loaded when a session starts and updated only by blocks made through the same copy (chat does not use them with Redis, see below)
+- the cached friend lists and friend requests of online users that the friends-only lobby check and the lobby list read: they are loaded when a session starts and updated only by friend changes made through the same copy (a block ends them on every copy, see below)
 - game session registrations, the chat rate limit and the report rate limit
 
 Moving that state to a shared store is later work. Until then two copies are not supported.
 
 ## What the backplane covers
 
-Covered: every event sent to a user, a session type of a user, a channel or a lobby group, `All` notices, and close requests with their notice and close record.
+Covered: every event sent to a user, a session type of a user, a channel or a lobby group, `All` notices, close requests with their notice and close record, and block changes.
 
 Not covered: anything decided from the per copy state above, for example whether a user is online or who is in a lobby.
 
 ## Block filter of channel and lobby chat
 
 With `none` the copy that sends leaves blocked users out by connection id, as before. With `redis` a channel or lobby `MessageCreate` does not go through a SignalR group send. The sending copy reads the users blocked either way with the author from the database, so a block or unblock made through any copy counts from the next message on, and publishes the message with those user ids on `realtime.chat`. Every copy, the sender included, takes the messages from that channel one at a time in publish order and queues each for its own connections in the channel or lobby group, except those users. Each connection has its own ordered queue of chat writes, so a client that stops reading holds up only itself; a connection with more than 256 chat messages waiting is aborted, and the client reconnects and reads the history. A copy knows its own group members because it mirrors the group calls of its own connections. The messages of a channel therefore keep one order on every copy; the order against other events of that channel (`MemberAdd`, `MemberRemove`, `MessageDelete`), which travel on the SignalR backplane channels, is not guaranteed across copies. Direct and group messages go to user groups after a check against the database and are unchanged.
+
+## Blocks outside chat
+
+Each copy keeps the block list of every user online on it, loaded when the session starts. A block or unblock (`PUT` and `DELETE /api/v1/me/blocks/:user_id`, and the block a friend request lifts) is written to the database first and then applied to the lists of this copy. With `redis` the copy also publishes `{"user_id", "other_id", "blocked"}` on `realtime.blocks`. Every copy, the sender included, takes these one at a time in publish order, applies the change to the lists of both users (a block also ends their friendship and pending requests there) and then reads the blocker's list again from the database, so the last stored change wins in whatever order the messages arrive. A change that arrives while a session loads its lists makes that session read its block list once more. No path deletes users or blocks outside these endpoints, and the CLI changes no blocks.
+
+Checks that run for many lobbies or tickets at once read the lists: the lobby list filter (`WatchLobbyList`, the list updates and `GET /api/v1/lobbies`) and the matchmaking pairing of tickets and buckets. Rare decisions also read the database when they are made, so a lost message never lets a blocked player through. `JoinLobby` reads which members blocked the joiner and answers `lobby.blocked` when the host did, at the same place in the order of checks as before. A quick match reads every block among its players before it forms; when one exists it drops the setup with `MatchRequeue setup_failed` and reloads the blockers' lists, so the same pairing does not form again. The social endpoints (friend requests, block and unblock) read blocks from the database. A decision whose database answer contradicts a list reloads that list. As with one copy, a lobby a watcher already sees leaves that watcher's list at the lobby's next update, not at the block. With `none` nothing is published, the lists stay exact as before and the database reads give the same answers.
+
+Redis pub/sub is not durable: a change lost while Redis is down leaves another copy's list stale until the next change of that user, a join or quick match that reads the database, or a reconnect. Until then the lobby list on that copy may still show a lobby whose host blocked the viewer, or hide one after an unblock. During a mixed-version rollout the old copies do not read `realtime.blocks`.

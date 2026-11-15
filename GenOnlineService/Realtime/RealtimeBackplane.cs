@@ -202,6 +202,7 @@ namespace GenOnlineService.Realtime
 			});
 
 			await RealtimeFanout.StartAsync(subscriber);
+			await RealtimeBlocks.StartAsync(subscriber);
 
 			Volatile.Write(ref s_subscriber, subscriber);
 			s_log.LogInformation("Realtime backplane redis started on copy {CopyId}", s_copyID);

@@ -467,6 +467,18 @@ static partial class MatchmakingManager
 				using var scope = ServiceLocator.Services.CreateScope();
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
+
+				// the stored blocks decide before the match forms, so a block another copy made and this one missed never pairs the two
+				var blocks = await RealtimeBlocks.BlocksAmongAsync(db, formation.Players.Select(player => player.m_UserID).ToArray());
+				if (blocks is { Count: > 0 })
+				{
+					foreach (long blocker in blocks.Select(block => block.UserId).Distinct())
+						await RealtimeBlocks.ReloadAsync(blocker);
+					s_log.LogInformation("QuickMatch formation of bucket {BucketId} dropped for {Count} stored blocks among its players", m_BucketID, blocks.Count);
+					await AbortQuickMatchAutoStartAsync(MatchRequeueReason.SetupFailed);
+					return;
+				}
+
 				foreach (var player in formation.Players)
 				{
 					await Database.Leaderboards.CreateUserEntriesIfNotExists(db, player.m_UserID);
