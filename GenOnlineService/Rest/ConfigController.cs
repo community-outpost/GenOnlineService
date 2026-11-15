@@ -24,7 +24,7 @@ using System.Text.Json;
 
 namespace GenOnlineService.Rest
 {
-	// Replaces ServiceConfig, AnticheatConfig and MOTD; any signed-in session reads it
+	// Replaces ServiceConfig and MOTD; any signed-in session reads it
 	public sealed class ConfigController : ApiControllerBase
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
@@ -38,8 +38,7 @@ namespace GenOnlineService.Rest
 		public async Task<IActionResult> Get()
 		{
 			JsonElement? serviceConfig = await ConfigSources.ReadServiceConfigAsync();
-			int? anticheatLevel = await ConfigSources.ReadAnticheatLevelAsync();
-			if (serviceConfig == null || anticheatLevel == null)
+			if (serviceConfig == null)
 			{
 				return RestResults.Fail(RestCodes.ServiceUnavailable, new { What = "config" });
 			}
@@ -47,7 +46,6 @@ namespace GenOnlineService.Rest
 			return RestResults.Ok(new ConfigResponse
 			{
 				ServiceConfig = serviceConfig.Value,
-				AnticheatLevel = anticheatLevel.Value,
 				Motd = await ConfigSources.ReadMotdAsync(m_dbFactory)
 			});
 		}

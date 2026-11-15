@@ -157,17 +157,6 @@ namespace GenOnlineService.Tests
 		}
 
 		[Theory]
-		[InlineData("0", 0)]
-		[InlineData("2\r\n", 2)]
-		[InlineData(" 1 ", 1)]
-		[InlineData("eac", null)]
-		[InlineData("", null)]
-		public void AnticheatLevelIsANumber(string text, int? level)
-		{
-			Assert.Equal(level, ConfigSources.ParseAnticheatLevel(text));
-		}
-
-		[Theory]
 		[InlineData("{\"use_mapped_port\":true,\"min_run_ahead_frames\":4}", true)]
 		[InlineData("[1,2]", false)]
 		[InlineData("not json", false)]

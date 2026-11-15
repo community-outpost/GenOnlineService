@@ -27,7 +27,7 @@ Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention d
 | Route | Auth | Answer and errors |
 |---|---|---|
 | `GET /api/v1/compatibility?client=&version=` | anonymous | `{compatible, min_version, service_version, update: {patcher_name, patcher_path, patcher_size}\|null}`; `client` is a registry client id, `version` is `YYYY.MM.PATCH`. The executable check is part of `POST /api/v1/auth/session`; executable CRCs for the launcher are in the CDN release manifest |
-| `GET /api/v1/config` | session | `{service_config, anticheat_level, motd}`; the MOTD is the `motd` application setting, else `data/motd.txt`, with `{0}` replaced by the players online; `service.unavailable {what: config}` when a data file is missing |
+| `GET /api/v1/config` | session | `{service_config, motd}`; the MOTD is the `motd` application setting, else `data/motd.txt`, with `{0}` replaced by the players online; `service.unavailable {what: config}` when `data/serviceconfig.json` is missing or invalid |
 | `GET /api/v1/stats/global` | anonymous | `{players, lobbies, factions: [{side, matches, wins}]}` |
 | `GET /api/v1/leaderboards/:id` | anonymous | `elo` only: `{id, entries: [{rank, user_id, name, tag, rating, matches}]}`, offset paged |
 
@@ -76,7 +76,7 @@ Sign-out everywhere for another user is `POST /api/v1/users/:id/revoke_sessions`
 |---|---|---|
 | `GET\|HEAD /-/health` | anonymous | `{status, version, started_at, uptime_s}` |
 | `GET /-/liveness` | anonymous | `{status: "ok"}` |
-| `GET /-/readiness` | anonymous | `{status: "ok"}`, or 503 `service.unavailable {what: database}` |
+| `GET /-/readiness` | anonymous | `{status: "ok"}`, or 503 `service.unavailable {what: database}`, or with failover on `{what: standby}` on a copy that is not serving |
 | `GET /-/database` | `ops.database` | `{ok}` |
 | `GET /-/self_check/version` | `server.stats` | `{ok, clients: [{client_id, ok}]}` |
 | `GET /.well-known/jwks.json` | anonymous | the EOS token keys |

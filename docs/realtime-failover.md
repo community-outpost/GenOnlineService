@@ -1,6 +1,6 @@
 # Realtime failover and graceful handover
 
-Status: design, not built. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
+Status: build order step 1 is being built on the hub branch (lease, readiness, `ServerSwitching` and `server.switching`, behind `Realtime:failover:enabled`); steps 2 to 5 are design. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
 
 ## Goals
 
@@ -54,7 +54,7 @@ Production: the active copy prefers `k8swk01`, the standby runs on `k8swk02` (on
 ## Planned handover from A to B
 
 1. B runs as an in-sync hot standby.
-2. A starts the handover when it receives the shutdown signal and a standby reports in sync, or on the operator command `GenOnlineService realtime handover`. It prefers a standby running the newer version. Without an in-sync standby, A closes every connection with `server.restarting` as today.
+2. A starts the handover when it receives the shutdown signal and a standby reports in sync, or on the operator command `GenOnlineService realtime handover`. It prefers a standby running the newer version. Without an in-sync standby, A closes every connection with `server.restarting`, as a restart does.
 3. **Overlap begins.** B becomes ready, then A reports not ready, so new connections go to B while existing ones stay on A. The Redis backplane carries chat, presence, friends, direct messages and groups between both copies. New lobbies are created on B.
 4. **The queue moves first.** A stops forming matches and passes the queue to B (owner epoch plus one); B starts forming matches. A then moves the players who are in the queue: their tickets stay in the queue while they reconnect.
 5. **Lobbies move one by one, when quiet.** Quiet means `setup` with no countdown, mesh check or start in progress, or `in_game` (game traffic is peer to peer). For each lobby A writes its final state with owner B (owner epoch plus one), B takes it from its mirror, and A sends `ServerSwitching` and closes **only that lobby's members** with `server.switching`. The members reconnect to B together and get `LobbyState`, the lobby's `ChannelHistory`, and `StartSignalling` for every pair that has not reported connected. A lobby's members are never split across copies, so no command forwarding is needed.
@@ -120,3 +120,11 @@ During the overlap, version N and N+1 run together:
 - Lobby ids come from a database block allocator (blocks of 100 per copy). The allocator relies on synchronous database replication: an asynchronous replica can lose the last reserved block on failover and hand out ids again. Production runs a synchronous CloudNativePG replica; keep it that way.
 - Handover limit and batch size: start with 120 s and 5 percent every 200 ms, then tune from metrics.
 - Metrics to add: handover duration, connections moved per batch, lobbies moved, lobbies lost on an unplanned failover, reconnect time seen by clients.
+
+## Implementation notes (step 1)
+
+- `realtime_lease` holds one row (`id` 1) with `holder`, `epoch`, `expires_at`, plus `standby` and `standby_expires_at` (the standby renews its own entry each interval, so the holder knows whom to hand over to) and `handover_requested_at` (set by `GenOnlineService realtime handover`). Every change is one conditional `UPDATE` against `now()` or `UTC_TIMESTAMP(6)`.
+- The holder counts its own deadline from before it sent the renewal, so it stops serving no later than the database expiry. Readiness compares with that deadline on every request, so a stalled lease loop stops serving too.
+- A standby refuses the hub upgrade and `/api` calls with `503 service.unavailable {what: standby}` and `Retry-After: 1`; `/-/` routes and sign-in stay served.
+- Without step 3 there is no in-sync check: a live standby entry is enough to hand over. Lobbies and the queue end on the old copy as on a restart, members reconnect to the new copy and get snapshots.
+- If the target dies during the handover, the old copy does not take the lease back yet (step 4).
