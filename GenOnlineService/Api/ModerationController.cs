@@ -51,7 +51,7 @@ namespace GenOnlineService.Api
 			{
 				return ApiResults.Fail(malformed.Value);
 			}
-			return ApiResults.NoContent(await m_names.RenameByStaffAsync(SanctionActions.ActorOf(Me), userID, body?.Name, body?.Reason));
+			return ApiResults.NoContent(await m_names.RenameByStaffAsync(SanctionActions.ApiActorOf(Me), userID, body?.Name, body?.Reason));
 		}
 
 		[HttpPost("~/api/v1/players/{userID:long}/sanctions")]

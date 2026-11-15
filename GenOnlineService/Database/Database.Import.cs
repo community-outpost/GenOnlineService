@@ -1319,35 +1319,44 @@ namespace Database
 			return plan;
 		}
 
+		// Outer whitespace is invalid too: MySQL compares with PAD SPACE, so "Bob " and "Bob" would meet in the unique indexes
 		private static bool IsValidUsername(string? name)
 		{
-			if (string.IsNullOrWhiteSpace(name) || name.Contains('\0') || name.Length > User.UsernameMaxLength)
+			if (string.IsNullOrWhiteSpace(name) || name.Contains('\0') || name.Length > User.UsernameMaxLength || !string.Equals(name, name.Trim(), StringComparison.Ordinal))
 				return false;
 
-			return NameNormalizer.Normalize(name).Length <= User.UsernameMaxLength;
+			return NameNormalizer.Normalize(name).Length <= User.UsernameMaxLength && GenOnlineService.Names.NameKey.Of(name).Length <= GenOnlineService.Names.NameKey.MaxLength;
+		}
+
+		// Every imported user takes tag 1, so a name must be free under both unique indexes: (username_normalized, name_tag)
+		// and (name_key, name_tag). Two names collide when either their normalized form or their look-alike key matches.
+		private static IEnumerable<string> UniquenessKeys(string name)
+		{
+			yield return "n:" + NameNormalizer.Normalize(name);
+			yield return "k:" + GenOnlineService.Names.NameKey.Of(name);
 		}
 
 		private void AssignUsernames()
 		{
-			var taken = new HashSet<string>(StringComparer.Ordinal);
+			var taken = new Dictionary<string, long>(StringComparer.Ordinal);
 			var needsName = new List<OldUser>();
 
-			// Valid names first, so a generated name can never take a real one
-			var groups = KeptUsers.Values
-				.Where(u => IsValidUsername(u.DisplayName))
-				.GroupBy(u => NameNormalizer.Normalize(u.DisplayName!));
-
-			foreach (var group in groups)
+			// Valid names first, so a generated name can never take a real one, and the user who signed in last keeps a name
+			foreach (OldUser user in KeptUsers.Values.Where(u => IsValidUsername(u.DisplayName)).OrderBy(u => u, Comparer<OldUser>.Create(OldUser.Precedence)))
 			{
-				var ordered = group.OrderBy(u => u, Comparer<OldUser>.Create(OldUser.Precedence)).ToList();
-				Kept[ordered[0].Id].Username = ordered[0].DisplayName!;
-				taken.Add(group.Key);
-
-				if (ordered.Count > 1)
+				List<string> keys = UniquenessKeys(user.DisplayName!).ToList();
+				string? held = keys.FirstOrDefault(taken.ContainsKey);
+				if (held != null)
 				{
-					Findings.Add(ImportFindings.UsernameCollisions,
-						$"\"{group.Key}\": users {string.Join(", ", ordered.Select(u => u.Id))}; {ordered[0].Id} keeps it");
-					needsName.AddRange(ordered.Skip(1));
+					Findings.Add(ImportFindings.UsernameCollisions, $"\"{user.DisplayName}\": user {user.Id} collides with user {taken[held]}, who keeps it");
+					needsName.Add(user);
+					continue;
+				}
+
+				Kept[user.Id].Username = user.DisplayName!;
+				foreach (string key in keys)
+				{
+					taken[key] = user.Id;
 				}
 			}
 
@@ -1363,12 +1372,16 @@ namespace Database
 				string stem = IsValidUsername(user.DisplayName) ? user.DisplayName! : "player";
 				string name = TextSanitizer.Clean(stem, User.UsernameMaxLength - suffix.Length) + suffix;
 
-				for (int attempt = 2; !taken.Add(NameNormalizer.Normalize(name)); attempt++)
+				for (int attempt = 2; UniquenessKeys(name).Any(taken.ContainsKey); attempt++)
 				{
 					string more = suffix + "_" + attempt.ToString(CultureInfo.InvariantCulture);
 					name = TextSanitizer.Clean(stem, User.UsernameMaxLength - more.Length) + more;
 				}
 
+				foreach (string key in UniquenessKeys(name))
+				{
+					taken[key] = user.Id;
+				}
 				Kept[user.Id].Username = name;
 			}
 		}

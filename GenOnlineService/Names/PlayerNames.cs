@@ -28,12 +28,14 @@ namespace GenOnlineService.Names
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 		private readonly AccountsSettings m_accounts;
 		private readonly KeycloakRenameClient m_plugin;
+		private readonly KeycloakChangeLog? m_changeLog;
 
-		public PlayerNames(IDbContextFactory<AppDbContext> dbFactory, AccountsSettings accounts, KeycloakRenameClient plugin)
+		public PlayerNames(IDbContextFactory<AppDbContext> dbFactory, AccountsSettings accounts, KeycloakRenameClient plugin, KeycloakChangeLog? changeLog = null)
 		{
 			m_dbFactory = dbFactory;
 			m_accounts = accounts;
 			m_plugin = plugin;
+			m_changeLog = changeLog;
 		}
 
 		// The player renames themselves, the tag stays
@@ -173,7 +175,8 @@ namespace GenOnlineService.Names
 			return (Result.Success(), true);
 		}
 
-		// Prod applies the plugin's answer at once and leaves last_seq to the change-log consumer, whose entry carries the same state
+		// Prod applies the plugin's answer at once and leaves last_seq to the change-log consumer, whose entry carries the same state.
+		// With the change log the answer is applied under its last_seq row lock, so a racing push of the same seq writes nothing.
 		private async Task<(Result<Empty> Result, bool Renamed)> RenameThroughPluginAsync(Int64 userID, string name, string changedBy, string pluginActor, string? reason)
 		{
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
@@ -188,6 +191,13 @@ namespace GenOnlineService.Names
 			if (!answer.Ok)
 			{
 				return (answer.Failure!.Value, false);
+			}
+
+			if (m_changeLog != null)
+			{
+				// the change log publishes after its commit
+				await m_changeLog.ApplyAnswer(userID, answer.Name, answer.Tag, changedBy);
+				return (Result.Success(), answer.Seq != null);
 			}
 
 			IReadOnlyList<NameChange> changes;

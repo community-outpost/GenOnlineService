@@ -16,7 +16,9 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Names;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MySqlConnector;
@@ -95,6 +97,7 @@ public abstract class AppDbContext : DbContext
 	// Lobbies
 	public DbSet<ConnectionReport> ConnectionReports => Set<ConnectionReport>();
 	public DbSet<LobbyIdCounter> LobbyIdCounters => Set<LobbyIdCounter>();
+	public DbSet<RealtimeLease> RealtimeLeases => Set<RealtimeLease>();
 
 	// Players and devices
 	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
@@ -129,6 +132,30 @@ public abstract class AppDbContext : DbContext
 	{
 	}
 
+	public override int SaveChanges(bool acceptAllChangesOnSuccess)
+	{
+		WriteNameKeys();
+		return base.SaveChanges(acceptAllChangesOnSuccess);
+	}
+
+	public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+	{
+		WriteNameKeys();
+		return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+	}
+
+	// A new user or a changed name gets its key here, so sign-up, rename, upstream copy and import never write a stale one
+	private void WriteNameKeys()
+	{
+		foreach (EntityEntry<User> entry in ChangeTracker.Entries<User>())
+		{
+			if (entry.State == EntityState.Added || entry.State == EntityState.Modified && entry.Property(u => u.Username).IsModified)
+			{
+				entry.Entity.NameKey = NameKey.Of(entry.Entity.Username);
+			}
+		}
+	}
+
 	protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
 	{
 		base.ConfigureConventions(configurationBuilder);
@@ -156,6 +183,11 @@ public abstract class AppDbContext : DbContext
 		base.OnModelCreating(modelBuilder);
 
 		modelBuilder.ApplyConfiguration(new UserConfiguration());
+		if (this is MySqlAppDbContext)
+		{
+			// the look-alike key compares exactly, as on PostgreSQL, where the default MySQL collations ignore case and accents
+			modelBuilder.Entity<User>().Property(u => u.NameKey).UseCollation("utf8mb4_bin");
+		}
 		modelBuilder.ApplyConfiguration(new UserUsernameHistoryConfiguration());
 		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
 		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());
@@ -175,6 +207,7 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
 		modelBuilder.ApplyConfiguration(new ConnectionReportConfiguration());
 		modelBuilder.ApplyConfiguration(new LobbyIdCounterConfiguration());
+		modelBuilder.ApplyConfiguration(new RealtimeLeaseConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());

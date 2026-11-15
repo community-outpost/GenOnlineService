@@ -38,7 +38,7 @@ namespace GenOnlineService.Realtime
 
 		public bool UsesRedis => Backplane == Redis;
 
-		// Refuses an unknown backplane and redis without a connection string at startup
+		// Refuses an unknown backplane, redis without a connection string, and redis on MySQL or MariaDB at startup
 		public static RealtimeBackplaneSettings Read(IConfiguration configuration)
 		{
 			string backplane = (configuration["Realtime:backplane"] ?? String.Empty).Trim().ToLowerInvariant();
@@ -49,6 +49,12 @@ namespace GenOnlineService.Realtime
 			if (backplane != None && backplane != Redis)
 			{
 				throw new InvalidOperationException($"Realtime:backplane is '{backplane}', expected '{None}' or '{Redis}'.");
+			}
+
+			// every multi copy feature needs PostgreSQL, MySQL and MariaDB run one copy with the none backplane
+			if (backplane == Redis && !Program.UsesPostgres(configuration))
+			{
+				throw new InvalidOperationException("Realtime:backplane is 'redis', but more than one service copy is supported on PostgreSQL only. Set Database:db_provider to postgres or Realtime:backplane to 'none'.");
 			}
 
 			string? connection = configuration["Realtime:redis"];
@@ -154,7 +160,7 @@ namespace GenOnlineService.Realtime
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(RealtimeControl));
 		private static readonly JsonSerializerOptions s_json = RealtimeJson.Create();
-		private static readonly string s_copyID = Guid.NewGuid().ToString("N");
+		private static readonly string s_copyID = GenOnlineService.Failover.CopyIdentity.ID;
 		private static readonly RedisChannel s_closeChannel = RedisChannel.Literal("realtime.close");
 		private static readonly RedisChannel s_ackChannel = RedisChannel.Literal("realtime.close.ack");
 		private static readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> s_pendingAcks = new(StringComparer.Ordinal);

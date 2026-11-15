@@ -22,6 +22,7 @@
   <ItemGroup>
     <None Include="..\docs\realtime-fixtures\*.json" LinkBase="realtime-fixtures" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\docs\api-fixtures\*.json" LinkBase="api-fixtures" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="NameKeyVectors.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

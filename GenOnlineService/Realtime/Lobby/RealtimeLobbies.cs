@@ -67,6 +67,11 @@ namespace GenOnlineService.Realtime
 			_ => AnticheatKind.None,
 		};
 
+		// A member who is not online here, such as one of a restored lobby before it reconnects, shows the name the lobby stored
+		private static Member MemberOf(LobbyMember member) => WebSocketManager.GetSharedDataForUser(member.UserID) == null
+			? RealtimeMembers.Of(member.UserID, member.DisplayNameNotDeduped, null, member.NameTag)
+			: RealtimeMembers.Of(member.UserID);
+
 		public static Slot SlotOf(LobbyMember member)
 		{
 			bool human = member.IsHuman();
@@ -75,7 +80,7 @@ namespace GenOnlineService.Realtime
 			{
 				Index = member.SlotIndex,
 				State = SlotStateOf(member.SlotState),
-				Member = human ? RealtimeMembers.Of(member.UserID) : null,
+				Member = human ? MemberOf(member) : null,
 				Name = human ? member.DisplayName : null,
 				Ready = (human || ai) && member.IsReady,
 				HasMap = human ? member.HasMap : ai,

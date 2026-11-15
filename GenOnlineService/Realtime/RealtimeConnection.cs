@@ -46,7 +46,14 @@ namespace GenOnlineService
 		internal bool IsOpen => Volatile.Read(ref m_closed) == 0 && !m_context.ConnectionAborted.IsCancellationRequested;
 
 		// Sends the optional moderation notice and a close record with a protocol close code on this transport, then drops it
-		public async Task CloseAsync(string code, bool allowReconnect, ModerationNoticeEvent? notice = null)
+		public Task CloseAsync(string code, bool allowReconnect, ModerationNoticeEvent? notice = null) =>
+			CloseAfterAsync(code, allowReconnect, notice == null ? null : new InvocationMessage(nameof(IRealtimeClient.ModerationNotice), new object?[] { notice }));
+
+		// A planned handover: ServerSwitching with the reconnect delay, then the server.switching close record
+		public Task SwitchAsync(int retryAfterMs) =>
+			CloseAfterAsync(CloseCodes.ServerSwitching, allowReconnect: true, new InvocationMessage(nameof(IRealtimeClient.ServerSwitching), new object?[] { new ServerSwitchingEvent { RetryAfterMs = retryAfterMs } }));
+
+		private async Task CloseAfterAsync(string code, bool allowReconnect, InvocationMessage? before)
 		{
 			if (Interlocked.Exchange(ref m_closed, 1) != 0)
 			{
@@ -56,10 +63,10 @@ namespace GenOnlineService
 			try
 			{
 				using CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-				if (notice != null)
+				if (before != null)
 				{
-					// written to the transport directly so the notice always precedes the close record
-					await m_context.WriteAsync(new InvocationMessage(nameof(IRealtimeClient.ModerationNotice), new object?[] { notice }), timeout.Token);
+					// written to the transport directly so the event always precedes the close record
+					await m_context.WriteAsync(before, timeout.Token);
 				}
 				await m_context.WriteAsync(new CloseMessage(code, allowReconnect), timeout.Token);
 			}

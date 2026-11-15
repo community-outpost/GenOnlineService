@@ -55,6 +55,13 @@ namespace GenOnlineService
 			+ "  GenOnlineService connections player <user_id> --reason <text> --by <user_id>\n"
 			+ "  GenOnlineService connections lobby <lobby_id> --reason <text> --by <user_id>";
 
+		private const string RealtimeUsage =
+			"Usage:\n"
+			+ "  GenOnlineService realtime status\n"
+			+ "  GenOnlineService realtime handover";
+
+		// How long "realtime handover" waits for the standby to hold the lease
+
 		private const int MaximumBanDays = 36500;
 		private const int ReportListLimit = 200;
 
@@ -527,6 +534,80 @@ namespace GenOnlineService
 		{
 			string timeline = String.Join(", ", Database.ConnectionReports.ParseEvents(r.Events).Select(e => $"{e.State}@{e.TMs}ms"));
 			return $"lobby {r.LobbyID}  user {r.ReporterID} -> user {r.TargetUserID}  attempt {r.Attempt}  {r.Outcome}  {r.Transport}  ipv{r.IpVersion}  updated {r.UpdatedAt:yyyy-MM-dd HH:mm:ss} UTC  events [{timeline}]";
+		}
+
+		// "realtime status" shows the failover lease, "realtime handover" asks the active copy to hand over to the live standby and stop (docs/realtime-failover.md)
+		public static Task<int> RunRealtime(string[] args) => Run(async () =>
+		{
+			Arguments parsed = Parse(args, RealtimeUsage);
+			string verb = parsed.Positional.FirstOrDefault()?.ToLowerInvariant() ?? String.Empty;
+			if (parsed.Positional.Count != 1 || (verb != "status" && verb != "handover"))
+			{
+				throw new CliException(RealtimeUsage);
+			}
+
+			await using AppDbContext db = await OpenDatabase();
+			if (!db.Database.IsNpgsql())
+			{
+				throw new CliException("realtime status and realtime handover need PostgreSQL: more than one service copy is supported on PostgreSQL only.");
+			}
+			RealtimeLease before = await Database.Lease.Read(db) ?? throw new CliException("realtime_lease has no row.");
+			DateTime now = await Database.Lease.DatabaseNow(db);
+			if (verb == "status")
+			{
+				Console.WriteLine(DescribeLease(before, now));
+				return 0;
+			}
+
+			if (!await Database.Lease.RequestHandover(db))
+			{
+				Console.Error.WriteLine("No handover: it needs a live lease holder and a live standby.");
+				Console.Error.WriteLine(DescribeLease(before, now));
+				return 1;
+			}
+
+			Console.WriteLine($"Handover requested from {before.Holder} (epoch {before.Epoch}) to {before.Standby}.");
+
+			// handed: the epoch moved to the target, confirmed: the target renewed it, cancelled: the old holder took it back
+			DateTime? handedExpiry = null;
+			// the lease moves last, after the queue, the lobbies and the batches, so the wait covers the configured handover budget
+			TimeSpan handoverWait = TimeSpan.FromMilliseconds(GenOnlineService.Failover.FailoverSettings.Read(Program.OpenConfiguration()).HandoverBudgetMs);
+			DateTime until = DateTime.UtcNow + handoverWait;
+			while (DateTime.UtcNow < until)
+			{
+				await Task.Delay(250);
+				RealtimeLease? current = await Database.Lease.Read(db);
+				if (current == null || current.Epoch == before.Epoch)
+				{
+					continue;
+				}
+				if (current.Holder == before.Holder)
+				{
+					Console.Error.WriteLine($"The handover was cancelled: {before.Standby} did not take over, {before.Holder} kept the lease with epoch {current.Epoch}, took back what it owned and keeps serving.");
+					return 1;
+				}
+				if (handedExpiry == null)
+				{
+					handedExpiry = current.ExpiresAt;
+				}
+				else if (current.ExpiresAt > handedExpiry)
+				{
+					Console.WriteLine($"{current.Holder} holds the lease with epoch {current.Epoch}; {before.Holder} moved the queue, its lobbies and every connection to it before handing the lease over, and stops.");
+					return 0;
+				}
+			}
+
+			Console.Error.WriteLine($"The lease did not move within {handoverWait.TotalSeconds:0} seconds.");
+			return 1;
+		});
+
+		private static string DescribeLease(RealtimeLease lease, DateTime now)
+		{
+			string holder = lease.Holder.Length == 0 ? "none" : lease.Holder;
+			string expiry = lease.ExpiresAt > now ? $"expires in {(lease.ExpiresAt - now).TotalMilliseconds:0} ms" : "expired";
+			string standby = lease.Standby != null && lease.StandbyExpiresAt > now ? lease.Standby : "none";
+			string requested = lease.HandoverRequestedAt != null ? "  handover requested" : String.Empty;
+			return $"holder {holder}  epoch {lease.Epoch}  {expiry}  standby {standby}{requested}";
 		}
 	}
 }

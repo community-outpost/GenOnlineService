@@ -1422,6 +1422,62 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("player_stats", (string)null);
                 });
 
+            modelBuilder.Entity("RealtimeLease", b =>
+                {
+                    b.Property<int>("ID")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<long>("Epoch")
+                        .HasColumnType("bigint")
+                        .HasColumnName("epoch");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("HandoverConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("handover_confirmed_at");
+
+                    b.Property<DateTime?>("HandoverRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("handover_requested_at");
+
+                    b.Property<string>("HandoverTarget")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("handover_target");
+
+                    b.Property<string>("Holder")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("holder");
+
+                    b.Property<string>("Standby")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("standby");
+
+                    b.Property<DateTime?>("StandbyExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("standby_expires_at");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("realtime_lease", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            ID = 1,
+                            Epoch = 0L,
+                            ExpiresAt = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Holder = ""
+                        });
+                });
+
             modelBuilder.Entity("Sanction", b =>
                 {
                     b.Property<long>("ID")
@@ -1678,6 +1734,12 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("lockout_end_at");
 
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("name_key");
+
                     b.Property<int>("NameTag")
                         .HasColumnType("integer")
                         .HasColumnName("name_tag");
@@ -1728,6 +1790,10 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasIndex("EmailNormalized")
                         .IsUnique()
                         .HasDatabaseName("ux_users_email_normalized");
+
+                    b.HasIndex("NameKey", "NameTag")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_name_key_name_tag");
 
                     b.HasIndex("UsernameNormalized", "NameTag")
                         .IsUnique()
