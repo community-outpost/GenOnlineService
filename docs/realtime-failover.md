@@ -1,6 +1,6 @@
 # Realtime failover and graceful handover
 
-Status: build order steps 1 to 4 are built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`; reconnect-safe lobby rejoins; live state in Redis and the hot standby; ownership epochs and the planned handover, behind `Realtime:failover:enabled`); step 5 is design. Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
+Status: build order steps 1 to 5 are built on the hub branch (lease, fencing, readiness, `ServerSwitching` and `server.switching`; reconnect-safe lobby rejoins; live state in Redis and the hot standby; ownership epochs and the planned handover; block filtering on every copy and the infra policies, behind `Realtime:failover:enabled`). Decided by the user on 2026-11-14: "active standby with graceful failover to start", "faster switchovers", and a brief active-active period to drain gracefully. Builds on `docs/realtime-scaling.md` (Redis backplane, close requests) and `docs/realtime-protocol.md` (the wire).
 
 ## Goals
 
@@ -122,6 +122,7 @@ During the overlap, version N and N+1 run together:
 - The lease and the lobby id allocator rely on synchronous database replication. With durability `preferred`, a database failover can lose the last commits: a lost lease change reuses an epoch, so two copies can both believe they hold the lease, and a lost lobby id block (blocks of 100 per copy) hands out ids again. Production runs three CloudNativePG instances with durability `required`, and the chart refuses more than one copy with any other setting; keep it that way.
 - Redis holds lobby passwords, host coordinates and match start data, so it must be trusted like the service: same network boundary, authentication and no shared tenants.
 - A copy that loses the lease and takes it back within the reconnect grace can keep stale lobbies. Step 4's ownership epochs must close this.
+- Channel and lobby chat travels once on the Redis channel `realtime.chat`, and the sending copy reads the author's blocks in both directions from the database. During a mixed-version rollout the old copies do not read that channel. Lobby joins, the lobby list and matchmaking still read per-copy block caches. Block pairs pass through Redis, so it must be trusted like the service.
 - Handover limit and batch size: start with 120 s and 5 percent every 200 ms, then tune from metrics.
 - Metrics to add: handover duration, connections moved per batch, lobbies moved, lobbies lost on an unplanned failover, reconnect time seen by clients.
 
