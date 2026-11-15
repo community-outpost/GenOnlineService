@@ -1,0 +1,14 @@
+{
+  "sessions": [
+    {
+      "type": "game",
+      "client_id": "zh_game",
+      "registered_at": "2026-11-14T19:58:12Z"
+    },
+    {
+      "type": "launcher",
+      "client_id": "go_launcher",
+      "registered_at": "2026-11-14T19:55:40Z"
+    }
+  ]
+}

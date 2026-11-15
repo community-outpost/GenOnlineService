@@ -16,7 +16,9 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Names;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MySqlConnector;
@@ -63,32 +65,66 @@ public static class DbHelpers
 	}
 }
 
-// Provider neutral model, provider differences live in Database.Providers.cs.
+// One model for both providers; provider differences live in Database.Providers.cs.
 // Every model change needs a migration for BOTH contexts.
 public abstract class AppDbContext : DbContext
 {
+	// Accounts
 	public DbSet<User> Users => Set<User>();
-	public DbSet<UserDevice> UserDevices => Set<UserDevice>();
-	public DbSet<DailyStat> DailyStats => Set<DailyStat>();
-	public DbSet<LeaderboardDaily> LeaderboardDaily => Set<LeaderboardDaily>();
-	public DbSet<LeaderboardMonthly> LeaderboardMonthly => Set<LeaderboardMonthly>();
-	public DbSet<LeaderboardYearly> LeaderboardYearly => Set<LeaderboardYearly>();
-	public DbSet<ServiceStat> ServiceStats => Set<ServiceStat>();
-	public DbSet<MatchHistoryEntry> MatchHistory => Set<MatchHistoryEntry>();
-	public DbSet<ExternalPublicationEntry> ExternalPublications => Set<ExternalPublicationEntry>();
-	public DbSet<UserStatsEntry> UserStats => Set<UserStatsEntry>();
+	public DbSet<UserUsernameHistory> UserUsernameHistory => Set<UserUsernameHistory>();
+	public DbSet<UserIdentity> Identities => Set<UserIdentity>();
+	public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
+	public DbSet<Client> Clients => Set<Client>();
+	public DbSet<ClientBuild> ClientBuilds => Set<ClientBuild>();
 
-	public DbSet<FriendEntry> Friends => Set<FriendEntry>();
+	// Moderation and audit
+	public DbSet<UserRole> UserRoles => Set<UserRole>();
+	public DbSet<Sanction> Sanctions => Set<Sanction>();
+	public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
-	public DbSet<BlockedUserEntry> BlockedUsers => Set<BlockedUserEntry>();
+	// Social
+	public DbSet<Friendship> Friendships => Set<Friendship>();
+	public DbSet<FriendRequest> FriendRequests => Set<FriendRequest>();
+	public DbSet<UserBlock> Blocks => Set<UserBlock>();
 
-	public DbSet<FriendRequestEntry> FriendRequests => Set<FriendRequestEntry>();
-	public DbSet<ConnectionOutcome> ConnectionOutcomes => Set<ConnectionOutcome>();
-	public DbSet<UserTokenState> UserTokenStates => Set<UserTokenState>();
+	// Chat
+	public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+	public DbSet<ChatReadMarker> ChatReadMarkers => Set<ChatReadMarker>();
+	public DbSet<PlayerReport> PlayerReports => Set<PlayerReport>();
+	public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
+	public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
 
-	public DbSet<AcReviewModule> AcReviewsModules => Set<AcReviewModule>();
-	public DbSet<AcReviewNewAccountGame> AcReviewsNewAccountGames => Set<AcReviewNewAccountGame>();
-	public DbSet<AcReviewProbe> AcReviewsProbes => Set<AcReviewProbe>();
+	// Lobbies
+	public DbSet<ConnectionReport> ConnectionReports => Set<ConnectionReport>();
+	public DbSet<LobbyIdCounter> LobbyIdCounters => Set<LobbyIdCounter>();
+	public DbSet<RealtimeLease> RealtimeLeases => Set<RealtimeLease>();
+
+	// Players and devices
+	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
+	public DbSet<PlayerStat> PlayerStats => Set<PlayerStat>();
+	public DbSet<PlayerPreference> PlayerPreferences => Set<PlayerPreference>();
+	public DbSet<PlayerNetwork> PlayerNetwork => Set<PlayerNetwork>();
+	public DbSet<Device> Devices => Set<Device>();
+	public DbSet<SessionEvent> SessionEvents => Set<SessionEvent>();
+
+	// Matches and stats
+	public DbSet<Match> Matches => Set<Match>();
+	public DbSet<MatchPlayer> MatchPlayers => Set<MatchPlayer>();
+	public DbSet<MatchPublication> MatchPublications => Set<MatchPublication>();
+	public DbSet<LeaderboardEntry> LeaderboardEntries => Set<LeaderboardEntry>();
+
+	// Anti-cheat
+	public DbSet<AnticheatModuleReport> AnticheatModuleReports => Set<AnticheatModuleReport>();
+	public DbSet<AnticheatNewAccountGame> AnticheatNewAccountGames => Set<AnticheatNewAccountGame>();
+	public DbSet<AnticheatProbeReport> AnticheatProbeReports => Set<AnticheatProbeReport>();
+
+	// Machine tokens
+	public DbSet<ServiceAccount> ServiceAccounts => Set<ServiceAccount>();
+	public DbSet<ServiceAccountPermission> ServiceAccountPermissions => Set<ServiceAccountPermission>();
+	public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+
+	// ASP.NET Core data protection key ring, shared by every copy
+	public DbSet<GenOnlineService.Identity.DataProtectionKeyRow> DataProtectionKeys => Set<GenOnlineService.Identity.DataProtectionKeyRow>();
 
 	// Non-generic so the derived contexts can pass their own DbContextOptions<TDerived>
 	protected AppDbContext(DbContextOptions options)
@@ -96,48 +132,98 @@ public abstract class AppDbContext : DbContext
 	{
 	}
 
+	public override int SaveChanges(bool acceptAllChangesOnSuccess)
+	{
+		WriteNameKeys();
+		return base.SaveChanges(acceptAllChangesOnSuccess);
+	}
+
+	public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+	{
+		WriteNameKeys();
+		return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+	}
+
+	// A new user or a changed name gets its key here, so sign-up, rename, upstream copy and import never write a stale one
+	private void WriteNameKeys()
+	{
+		foreach (EntityEntry<User> entry in ChangeTracker.Entries<User>())
+		{
+			if (entry.State == EntityState.Added || entry.State == EntityState.Modified && entry.Property(u => u.Username).IsModified)
+			{
+				entry.Entity.NameKey = NameKey.Of(entry.Entity.Username);
+			}
+		}
+	}
+
 	protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
 	{
 		base.ConfigureConventions(configurationBuilder);
 
 		configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+
+		// Unsigned types are never stored; each widens to the next signed type on both providers.
+		configurationBuilder.Properties<ulong>().HaveConversion<long>();
+		configurationBuilder.Properties<uint>().HaveConversion<long>();
+		configurationBuilder.Properties<ushort>().HaveConversion<int>();
 	}
 
 	// Every JSON column, so the derived contexts can set the provider specific column type
 	protected static void ConfigureJsonColumns(ModelBuilder modelBuilder, Action<PropertyBuilder> configure)
 	{
-		configure(modelBuilder.Entity<DailyStat>().Property(e => e.Stats));
-		configure(modelBuilder.Entity<UserStatsEntry>().Property(e => e.Stats));
-
-		for (int i = 0; i < 8; i++)
-		{
-			configure(modelBuilder.Entity<MatchHistoryEntry>().Property<string?>($"MemberSlot{i}"));
-		}
+		configure(modelBuilder.Entity<PlayerStat>().Property(e => e.Stats));
+		configure(modelBuilder.Entity<MatchPlayer>().Property(e => e.Details));
+		configure(modelBuilder.Entity<AuditLogEntry>().Property(e => e.Details));
+		configure(modelBuilder.Entity<ApplicationSetting>().Property(e => e.Value));
+		configure(modelBuilder.Entity<PlayerReport>().Property(e => e.Evidence));
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
-		// Fluent configuration here
 		base.OnModelCreating(modelBuilder);
 
 		modelBuilder.ApplyConfiguration(new UserConfiguration());
-		modelBuilder.ApplyConfiguration(new UserDevicesConfiguration());
-		modelBuilder.ApplyConfiguration(new WebSessionConfiguration());
-		modelBuilder.ApplyConfiguration(new DailyStatsConfiguration());
-		modelBuilder.ApplyConfiguration(new LeaderboardDailyConfiguration());
-		modelBuilder.ApplyConfiguration(new LeaderboardMonthlyConfiguration());
-		modelBuilder.ApplyConfiguration(new LeaderboardYearlyConfiguration());
-		modelBuilder.ApplyConfiguration(new ServiceStatsConfiguration());
-		modelBuilder.ApplyConfiguration(new MatchHistoryConfiguration());
-		modelBuilder.ApplyConfiguration(new ExternalPublicationConfiguration());
-		modelBuilder.ApplyConfiguration(new UserStatsConfiguration());
-		modelBuilder.ApplyConfiguration(new FriendConfiguration());
+		if (this is MySqlAppDbContext)
+		{
+			// the look-alike key compares exactly, as on PostgreSQL, where the default MySQL collations ignore case and accents
+			modelBuilder.Entity<User>().Property(u => u.NameKey).UseCollation("utf8mb4_bin");
+		}
+		modelBuilder.ApplyConfiguration(new UserUsernameHistoryConfiguration());
+		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
+		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());
+		modelBuilder.ApplyConfiguration(new ClientConfiguration());
+		modelBuilder.ApplyConfiguration(new ClientBuildConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.Identity.DataProtectionKeyConfiguration());
+		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
+		modelBuilder.ApplyConfiguration(new SanctionConfiguration());
+		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
+		modelBuilder.ApplyConfiguration(new FriendshipConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
-		modelBuilder.ApplyConfiguration(new BlockedUserConfiguration());
-		modelBuilder.ApplyConfiguration(new ConnectionOutcomeConfiguration());
-		modelBuilder.ApplyConfiguration(new UserTokenStateConfiguration());
-		modelBuilder.ApplyConfiguration(new AcReviewModuleConfiguration());
-		modelBuilder.ApplyConfiguration(new AcReviewNewAccountGameConfiguration());
-		modelBuilder.ApplyConfiguration(new AcReviewProbeConfiguration());
+		modelBuilder.ApplyConfiguration(new UserBlockConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatMessageConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatReadMarkerConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerReportConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatGroupConfiguration());
+		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
+		modelBuilder.ApplyConfiguration(new ConnectionReportConfiguration());
+		modelBuilder.ApplyConfiguration(new LobbyIdCounterConfiguration());
+		modelBuilder.ApplyConfiguration(new RealtimeLeaseConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());
+		modelBuilder.ApplyConfiguration(new PlayerNetworkConfiguration());
+		modelBuilder.ApplyConfiguration(new DeviceConfiguration());
+		modelBuilder.ApplyConfiguration(new SessionEventConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchPlayerConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchPublicationConfiguration());
+		modelBuilder.ApplyConfiguration(new LeaderboardEntryConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatModuleReportConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatNewAccountGameConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatProbeReportConfiguration());
+		modelBuilder.ApplyConfiguration(new ServiceAccountConfiguration());
+		modelBuilder.ApplyConfiguration(new ServiceAccountPermissionConfiguration());
+		modelBuilder.ApplyConfiguration(new ApiTokenConfiguration());
+		OpenIddictModel.Configure(modelBuilder);
 	}
 }

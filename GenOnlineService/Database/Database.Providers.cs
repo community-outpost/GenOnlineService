@@ -41,7 +41,7 @@ public sealed class AppDbContextFactoryAdapter<TContext> : IDbContextFactory<App
 	}
 }
 
-// Mirrors the old structure.sql exactly, so existing databases can be baselined instead of recreated
+// MySQL/MariaDB: utf8mb4 text, datetime(6) timestamps (the provider default), json columns
 public class MySqlAppDbContext : AppDbContext
 {
 	// Only used by the design time factory, at runtime the server version is detected from the connection
@@ -52,83 +52,30 @@ public class MySqlAppDbContext : AppDbContext
 	{
 	}
 
-	private static readonly ValueConverter<bool, sbyte> TinyIntBool = new(v => v ? (sbyte)1 : (sbyte)0, v => v != 0);
-
-	// The column is an int where -1 means "never set", so only a value above zero is true. PostgreSQL has a real boolean.
-	private static readonly ValueConverter<bool, int> PositiveIntBool = new(v => v ? 1 : 0, v => v > 0);
-
-	private static PropertyBuilder Utf8mb4Bin(PropertyBuilder property)
-	{
-		return property.HasCharSet("utf8mb4").UseCollation("utf8mb4_bin");
-	}
-
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);
 
-		ConfigureJsonColumns(modelBuilder, p => Utf8mb4Bin(p.HasColumnType("longtext")));
+		modelBuilder.HasCharSet("utf8mb4");
 
-		modelBuilder.Entity<WebSession>(e =>
-		{
-			e.Property(x => x.Created).HasColumnType("timestamp");
-			e.Property(x => x.Expiration).HasColumnType("timestamp");
-			e.Property(x => x.LastUsed).HasColumnType("timestamp");
-		});
+		ConfigureJsonColumns(modelBuilder, p => p.HasColumnType("json"));
 
-		// Plain "datetime" like the existing schema, not the provider default datetime(6)
-		modelBuilder.Entity<MatchHistoryEntry>(e =>
-		{
-			e.Property(x => x.Started).HasColumnType("datetime");
-			e.Property(x => x.TimeFinished).HasColumnType("datetime");
-			e.Property(x => x.MaxCamHeight).HasColumnType("smallint(6) unsigned");
-		});
-
-		modelBuilder.Entity<ExternalPublicationEntry>(e =>
-		{
-			e.Property(x => x.NextAttemptAt).HasColumnType("datetime");
-			e.Property(x => x.PublishedAt).HasColumnType("datetime");
-		});
-
-		modelBuilder.Entity<UserTokenState>(e =>
-		{
-			e.Property(x => x.PreviousRefreshJtiExpires).HasColumnType("datetime");
-			e.Property(x => x.Updated).HasColumnType("datetime");
-		});
-
+		// Uniqueness keys compare exactly, as on PostgreSQL; the default collations ignore case and accents
 		modelBuilder.Entity<User>(e =>
 		{
-			e.Property(x => x.AccountType).HasColumnType("int(1)");
-			e.Property(x => x.LastLogin).HasColumnType("datetime").HasDefaultValueSql("current_timestamp()");
-			e.Property(x => x.ClientID).HasColumnType("smallint(5) unsigned");
-			// The existing column defaults to -1 (unset), which reads as false
-			e.Property(x => x.LimitSuperweapons).HasConversion(PositiveIntBool).HasColumnType("int(11)").HasDefaultValue(null).HasDefaultValueSql("-1");
-			// Any non-zero value is true, like a plain bool column. The default converter only treats 1 as true, which would
-			// let a ban written as another value by the website or admin tooling read as not banned.
-			e.Property(x => x.IsAdmin).HasConversion(TinyIntBool).HasColumnType("tinyint(4)");
-			e.Property(x => x.IsBanned).HasConversion(TinyIntBool).HasColumnType("tinyint(4)");
-			e.Property<int?>("PermissionsLevel").HasColumnType("int(11)");
-			e.Property<short>("RelayRegion").HasColumnType("smallint(6)");
-			e.Property<short>("PortmappingTech").HasColumnType("smallint(6)");
+			e.Property(x => x.UsernameNormalized).UseCollation("utf8mb4_bin");
+			e.Property(x => x.EmailNormalized).UseCollation("utf8mb4_bin");
 		});
 
-		modelBuilder.Entity<UserDevice>(e =>
+		modelBuilder.Entity<UserIdentity>(e =>
 		{
-			Utf8mb4Bin(e.Property(x => x.HWID_0));
-			Utf8mb4Bin(e.Property(x => x.HWID_1));
-			Utf8mb4Bin(e.Property(x => x.HWID_2));
-			Utf8mb4Bin(e.Property(x => x.HWID_3));
-			Utf8mb4Bin(e.Property(x => x.HWID_4));
-			Utf8mb4Bin(e.Property(x => x.HWID_5));
-			Utf8mb4Bin(e.Property(x => x.IPAddress));
+			e.Property(x => x.Provider).UseCollation("utf8mb4_bin");
+			e.Property(x => x.ExternUid).UseCollation("utf8mb4_bin");
 		});
-
-		modelBuilder.Entity<AcReviewModule>().Property(x => x.UserId).HasColumnType("bigint(20) unsigned");
-		modelBuilder.Entity<AcReviewNewAccountGame>().Property(x => x.UserId).HasColumnType("bigint(20) unsigned");
-		modelBuilder.Entity<AcReviewProbe>().Property(x => x.UserId).HasColumnType("bigint(20) unsigned");
-
 	}
 }
 
+// PostgreSQL: timestamptz timestamps (the provider default), jsonb columns
 public class PostgresAppDbContext : AppDbContext
 {
 	public PostgresAppDbContext(DbContextOptions<PostgresAppDbContext> options)
@@ -136,39 +83,11 @@ public class PostgresAppDbContext : AppDbContext
 	{
 	}
 
-	protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
-	{
-		base.ConfigureConventions(configurationBuilder);
-
-		// No unsigned types in PostgreSQL (Npgsql would map uint to xid), so widen to the next signed type.
-		// ulong values are IDs and sizes that always fit in a signed 64-bit.
-		configurationBuilder.Properties<ulong>().HaveConversion<long>();
-		configurationBuilder.Properties<uint>().HaveConversion<long>();
-		configurationBuilder.Properties<ushort>().HaveConversion<int>();
-	}
-
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);
 
-		// jsonb gives us the same validity guarantee the old json_valid() CHECK constraint did
 		ConfigureJsonColumns(modelBuilder, p => p.HasColumnType("jsonb"));
-
-		// Partial indexes: only the few pending / banned rows are ever looked up
-		modelBuilder.Entity<ExternalPublicationEntry>()
-			.HasIndex(e => new { e.PublishedAt, e.NextAttemptAt })
-			.HasDatabaseName("ix_external_publication_pending")
-			.HasFilter("published_at IS NULL");
-
-		modelBuilder.Entity<User>()
-			.HasIndex(e => e.IsBanned)
-			.HasDatabaseName("ix_users_banned")
-			.HasFilter("banned");
-
-		// Index names are unique per schema in PostgreSQL, so don't reuse MySQL's bare "user_id" name
-		modelBuilder.Entity<WebSession>()
-			.HasIndex(e => e.UserId)
-			.HasDatabaseName("ix_web_sessions_user_id");
 	}
 }
 

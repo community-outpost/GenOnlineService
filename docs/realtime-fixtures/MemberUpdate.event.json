@@ -1,0 +1,11 @@
+{
+  "member": {
+    "id": 7,
+    "name": "Anna",
+    "tag": "0042",
+    "badges": [
+      "moderator"
+    ],
+    "client": "game"
+  }
+}

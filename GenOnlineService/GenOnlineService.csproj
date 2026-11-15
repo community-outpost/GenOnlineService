@@ -18,6 +18,16 @@
 		<PackageReference Update="System.Linq.AsyncEnumerable" ExcludeAssets="all" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<!-- The Keycloak plugin's UTS #39 confusables table, so local names share its uniqueness key -->
+		<EmbeddedResource Include="Resources\confusables.txt" LogicalName="GenOnlineService.Resources.confusables.txt" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Lets the tests drive a lobby through its internal membership calls -->
+		<InternalsVisibleTo Include="GenOnlineService.Tests" />
+	</ItemGroup>
+
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <WarningLevel>0</WarningLevel>
@@ -49,12 +59,15 @@
     <PackageReference Include="Discord.Net" Version="3.20.1" />
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microting.EntityFrameworkCore.MySql" Version="10.0.13" />
     <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="OpenIddict.AspNetCore" Version="7.8.0" />
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.8.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
@@ -82,7 +95,7 @@
   </ItemGroup>
 
   <!--
-    The git tag is the only source of the version. _GoVersion is the full informational version, which /healthz reports:
+    The git tag is the only source of the version. _GoVersion is the full informational version, which /-/health reports:
       HEAD on tag v1.2.3               1.2.3+<8-char sha>
       HEAD 20 commits after v1.2.3     1.2.3+20.<8-char sha>
       no vX.Y.Z tag reachable          0.0.0+<8-char sha>

@@ -33,6 +33,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using GenOnlineService.Realtime;
+using Microsoft.AspNetCore.SignalR;
 
 namespace GenOnlineService
 {
@@ -46,20 +48,6 @@ namespace GenOnlineService
 
 		public const int OBSERVER_SIDE_VALUE = 1;
 	}
-	public class RoomMember
-	{
-		public RoomMember(Int64 a_UserID, string strName, bool admin)
-		{
-			UserID = a_UserID;
-			Name = strName;
-			IsAdmin = admin;
-		}
-
-		public Int64 UserID { get; set; } = -1;
-		public String Name { get; set; } = String.Empty;
-		public bool IsAdmin { get; set; } = false;
-	}
-
 	public enum EPendingLoginState
 	{
 		None = -1,
@@ -73,16 +61,6 @@ namespace GenOnlineService
 		IPV4 = 0,
 		IPV6
 	}
-
-	public enum EConnectionStateClient
-	{
-		NOT_CONNECTED,
-		CONNECTING_DIRECT,
-		FINDING_ROUTE,
-		CONNECTED_DIRECT,
-		CONNECTION_FAILED,
-		CONNECTION_DISCONNECTED
-	};
 
 	public enum EConnectionState
 	{
@@ -313,64 +291,6 @@ namespace GenOnlineService
 		GameLauncher = 2
 	}
 
-	public static class SocialHelper
-	{
-		public static void NotifyFriendslistDirty(Int64 userID)
-		{
-			// serialize
-			WebSocketMessage_Social_FriendsListDirty friendsListDirtyEvent = new();
-			friendsListDirtyEvent.msg_id = (int)EWebSocketMessageID.SOCIAL_FRIENDS_LIST_DIRTY;
-			byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(friendsListDirtyEvent));
-
-			// send it to all sessions that are subscribed for realtime updates
-			WebSocketManager.GetAllDataFromUser(userID).ForEach(session =>
-			{
-				if (session.IsSubscribedToRealtimeSocialUpdates())
-				{
-					session.QueueWebsocketSend(bytesJSON);
-				}
-			});
-		}
-	}
-
-	public static class WebsocketHelper
-	{
-		public static void SendToAllSessionsOfUser(Int64 userID, byte[] bytesData)
-		{
-			WebSocketManager.GetAllDataFromUser(userID).ForEach(session =>
-			{
-				session.QueueWebsocketSend(bytesData);
-			});
-		}
-	}
-
-
-
-
-	public static class KnownClients
-	{
-		public enum EKnownClients
-		{
-			unknown = -1,
-			gen_online_30hz = 0,
-			gen_online_60hz = 1,
-			genhub = 2,
-			communityoutpost_chat = 3,
-			superhackers_community_patch_client = 4,
-			custom_third_party_client = 5
-		}
-
-		public static ConcurrentDictionary<EKnownClients, EUserSessionType> KnownClientSessionTypes = new()
-		{
-			[EKnownClients.gen_online_30hz] = EUserSessionType.GameClient,
-			[EKnownClients.gen_online_60hz] = EUserSessionType.GameClient,
-			[EKnownClients.genhub] = EUserSessionType.GameLauncher,
-			[EKnownClients.communityoutpost_chat] = EUserSessionType.ChatClient,
-			[EKnownClients.superhackers_community_patch_client] = EUserSessionType.GameClient,
-			[EKnownClients.custom_third_party_client] = EUserSessionType.GameClient
-		};
-	}
-
 
 
 	// TODO
@@ -388,15 +308,18 @@ namespace GenOnlineService
 			}
 		}
 
-		public static Task<UserWebSocketInstance> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, bool bIsAdmin)
+		public static Task<RealtimeConnection?> CreateSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
-			return ServiceLocator.Services.GetRequiredService<LobbyManager>().OpenSessionAsync(_db, sessionType, bIsReconnect, ownerID, client_id, ipAddr, strContinent, strCountry, dLatitude, dLongitude, bIsAdmin);
+			return ServiceLocator.Services.GetRequiredService<LobbyManager>().OpenSessionAsync(_db, sessionType, bIsReconnect, ownerID, client_id, ipAddr, strContinent, strCountry, dLatitude, dLongitude, transport, authorizationID);
 		}
 
-		internal static async Task<UserWebSocketInstance> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, KnownClients.EKnownClients client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, bool bIsAdmin)
+		internal static async Task<RealtimeConnection?> InstallSession(AppDbContext _db, EUserSessionType sessionType, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, HubConnectionContext transport, string? authorizationID)
 		{
-			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
-			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr);
+			// taken before the block lists load, see the reload below
+			long blockSequence = RealtimeBlocks.Sequence;
+			(string Name, int Tag) name = await Database.DisplayNames.Get(_db, ownerID) ?? (String.Empty, 0);
+			string strDisplayName = name.Name;
+			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
 			UserSession? userCacheData = WebSocketManager.GetSessionFromUser(ownerID, sessionType);
@@ -428,7 +351,7 @@ namespace GenOnlineService
 						// get stats
 						PlayerStats GameStats = await Database.UserStats.GetPlayerStats(_db, ownerID);
 
-						m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, bIsAdmin, GameStats);
+						m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 					}
 
 					// clear abandoned flag
@@ -447,9 +370,6 @@ namespace GenOnlineService
 			{
 				s_log.LogDebug("WebSocket connect for user {UserId} ({SessionType})", ownerID, sessionType);
 
-				// how many other sessions do they have online?
-				bool bIsFirstSessionForUser = WebSocketManager.GetAllDataFromUser(ownerID).Count == 0;
-
 				// get and cache social container
 				UserSocialContainer socialContainer = new();
 				socialContainer.Friends = await Database.Social.GetFriends(_db, ownerID);
@@ -462,23 +382,6 @@ namespace GenOnlineService
 				userCacheData = new UserSession(ownerID, sessionType, client_id, strContinent, strCountry, dLatitude, dLongitude);
 				m_dictUserSessions[sessionType][ownerID] = userCacheData;
 				
-				// TODO_SOCIAL: Move this to a class
-				// inform any friends who are online that this person just came online (if they had no other sessions prior)
-				if (bIsFirstSessionForUser)
-				{
-					WebSocketMessage_Social_FriendStatusChanged friendStatusChangedEvent = new();
-					friendStatusChangedEvent.msg_id = (int)EWebSocketMessageID.SOCIAL_FRIEND_ONLINE_STATUS_CHANGED;
-					friendStatusChangedEvent.display_name = strDisplayName;
-					friendStatusChangedEvent.online = true;
-					byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(friendStatusChangedEvent));
-
-					// friends are reciprocal so we can just iterate our friends
-					foreach (Int64 friendID in socialContainer.Friends)
-					{
-						WebsocketHelper.SendToAllSessionsOfUser(friendID, bytesJSON);
-					}
-				}
-
 				// TODO_EFCORE: check reconnect again, reconnect shouldnt increment ref count (nothing is done above)
 				// create or increment shared data
 				if (m_dictSharedUserData.TryGetValue(ownerID, out SharedUserData? sharedData))
@@ -488,19 +391,27 @@ namespace GenOnlineService
 				}
 				else
 				{
-					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, bIsAdmin, GameStats);
+					m_dictSharedUserData[ownerID] = new SharedUserData(ownerID, socialContainer, strDisplayName, name.Tag, GameStats);
 				}
 			}
 
-			// now create a websocket, we always do this whether its reconnect or not, only data is persistent
-			// close the previous socket first: it may still be open, and its send loop must stop reading the session's queue
-			if (m_dictWebsockets[sessionType].TryRemove(ownerID, out UserWebSocketInstance? supersededSess) && supersededSess != null)
+			// a block change that arrived while the lists loaded found no cache to update, so the list is read again
+			if (RealtimeBlocks.Sequence != blockSequence)
 			{
-				s_log.LogDebug("Closing superseded websocket for {UserId} ({DisplayName})", ownerID, strDisplayName);
-				await supersededSess.CloseAsync(WebSocketCloseStatus.NormalClosure, "Superseded by a newer connection");
+				await RealtimeBlocks.ReloadAsync(ownerID);
 			}
 
-			UserWebSocketInstance newSess = new UserWebSocketInstance(sessionType, ownerID, userCacheData);
+			// the sign-in is recorded before the connection is published, so a revocation can always find it
+			userCacheData.AuthorizationID = authorizationID;
+
+			// a connection of the same user and session type replaces the previous one, which is told why
+			if (m_dictWebsockets[sessionType].TryRemove(ownerID, out RealtimeConnection? supersededSess) && supersededSess != null)
+			{
+				s_log.LogDebug("Closing superseded connection for {UserId} ({DisplayName})", ownerID, strDisplayName);
+				await supersededSess.CloseAsync(CloseCodes.SessionSuperseded, allowReconnect: false);
+			}
+
+			RealtimeConnection newSess = new RealtimeConnection(transport, sessionType, ownerID, userCacheData);
 			m_dictWebsockets[sessionType][ownerID] = newSess;
 			RecordConnectionSnapshot();
 
@@ -514,33 +425,6 @@ namespace GenOnlineService
 			}
 
 			Console.Title = String.Format("GenOnline - {0} players", numSessions);
-
-			SharedUserData? sharedUserData = WebSocketManager.GetSharedDataForUser(ownerID);
-
-			// inform the user of any pending friends activities
-			{
-				int numOnline = 0;
-				int numPending = sharedUserData.GetSocialContainer().PendingRequests.Count;
-
-				foreach (Int64 friendID in sharedUserData.GetSocialContainer().Friends)
-				{
-					if (WebSocketManager.GetSessionFromUser(friendID, sessionType) != null)
-					{
-						++numOnline;
-					}
-				}
-
-				if (numOnline > 0 || numPending > 0)
-				{
-					WebSocketMessage_FriendsOverallStatusUpdate outboundMsg = new WebSocketMessage_FriendsOverallStatusUpdate();
-					outboundMsg.msg_id = (int)EWebSocketMessageID.SOCIAL_FRIENDS_OVERALL_STATUS_UPDATE;
-					outboundMsg.num_online = numOnline;
-					outboundMsg.num_pending = numPending;
-					byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsg));
-					// queued: the socket isn't attached until the handshake completes
-					userCacheData.QueueWebsocketSend(bytesJSON);
-				}
-			}
 
 			return newSess;
 		}
@@ -576,14 +460,6 @@ namespace GenOnlineService
 
 		public static async Task CheckForTimeouts()
 		{
-			foreach (var sessionDataByClient in m_dictWebsockets)
-			{
-				foreach (var sessionData in sessionDataByClient.Value)
-				{
-					sessionData.Value.QueueKeepAlive();
-				}
-			}
-
 			// do we need to clear out cache entries?
 			List<(Int64 UserID, EUserSessionType SessionType, UserSession Session)> lstCacheEntriesToDestroy = new();
 			foreach (var sessionDataPerClientType in m_dictUserSessions)
@@ -604,17 +480,17 @@ namespace GenOnlineService
 				await ServiceLocator.Services.GetRequiredService<LobbyManager>().ExpireSessionAsync(userData.Session);
 		}
 
-		public static Task DeleteSession(Int64 userID, EUserSessionType sessionType, UserWebSocketInstance? oldWS, bool destroySession, UserSession? expectedSession = null)
+		public static Task DeleteSession(Int64 userID, EUserSessionType sessionType, RealtimeConnection? oldWS, bool destroySession, UserSession? expectedSession = null)
 		{
 			var session = expectedSession ?? oldWS?.OwnerSession ?? GetSessionFromUser(userID, sessionType);
 			return ServiceLocator.Services.GetRequiredService<LobbyManager>().DisconnectSessionAsync(session, oldWS, destroySession);
 		}
 
-		internal static UserWebSocketInstance? DetachSocket(UserSession session)
+		internal static RealtimeConnection? DetachSocket(UserSession session)
 		{
 			var sockets = m_dictWebsockets[session.GetSessionType()];
 			if (!sockets.TryGetValue(session.m_UserID, out var socket) || !ReferenceEquals(socket.OwnerSession, session)) return null;
-			if (!sockets.TryRemove(new KeyValuePair<long, UserWebSocketInstance>(session.m_UserID, socket))) return null;
+			if (!sockets.TryRemove(new KeyValuePair<long, RealtimeConnection>(session.m_UserID, socket))) return null;
 			RecordConnectionSnapshot();
 			return socket;
 		}
@@ -623,7 +499,6 @@ namespace GenOnlineService
 		{
 			if (!m_dictUserSessions[session.GetSessionType()].TryRemove(new KeyValuePair<long, UserSession>(session.m_UserID, session)))
 				return false;
-			session.ReleasePendingWebsocketSendAccounting();
 
 			// Every real teardown (abandoned expiry, logout, kick/ban, superseding or fresh login) ends here via
 			// DestroySessionAsync, so the per-user middleware ID is dropped here and nowhere else. Transient
@@ -639,16 +514,14 @@ namespace GenOnlineService
 				if (shared.NeedsGC())
 				{
 					m_dictSharedUserData.TryRemove(new KeyValuePair<long, SharedUserData>(session.m_UserID, shared));
-					var message = new WebSocketMessage_Social_FriendStatusChanged
-					{
-						msg_id = (int)EWebSocketMessageID.SOCIAL_FRIEND_ONLINE_STATUS_CHANGED,
-						display_name = shared.m_strDisplayName,
-						online = false
-					};
-					byte[] payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
-					foreach (long friendID in shared.GetSocialContainer().Friends)
-						WebsocketHelper.SendToAllSessionsOfUser(friendID, payload);
 				}
+			}
+
+			// friends see the session type disappear, or the user go offline with the last one, a switch to another copy shows no change,
+			// and a fenced copy leaves presence to the copy that serves now, where the user reconnects
+			if (!session.SwitchingAway && !GenOnlineService.Failover.RealtimeFailover.Fenced)
+			{
+				RealtimeHub.PublishPresence(session.m_UserID);
 			}
 			Console.Title = $"GenOnline - {GetNumberOfUsersOnline()} players";
 			return true;
@@ -669,9 +542,9 @@ namespace GenOnlineService
 		*/
 
 		// TODO_EFCORE: Just use a weakref to the websocket from the user session instead of lookups
-		public static UserWebSocketInstance? GetWebSocketForSession(UserSession session)
+		public static RealtimeConnection? GetWebSocketForSession(UserSession session)
 		{
-			if (m_dictWebsockets[session.GetSessionType()].TryGetValue(session.m_UserID, out UserWebSocketInstance? retVal) && ReferenceEquals(retVal.OwnerSession, session))
+			if (m_dictWebsockets[session.GetSessionType()].TryGetValue(session.m_UserID, out RealtimeConnection? retVal) && ReferenceEquals(retVal.OwnerSession, session))
 			{
 				return retVal;
 			}
@@ -682,7 +555,7 @@ namespace GenOnlineService
 		}
 
 
-		private static ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, UserWebSocketInstance>> m_dictWebsockets = new()
+		private static ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, RealtimeConnection>> m_dictWebsockets = new()
 		{
 			// Initialize everything ahead of time so we don't have to keep doing lookups to see if it exists
 			[EUserSessionType.GameClient] = new(),
@@ -700,23 +573,41 @@ namespace GenOnlineService
 
 		private static ConcurrentDictionary<Int64, SharedUserData> m_dictSharedUserData = new();
 		private static ConcurrentDictionary<Int64, string> m_dictMiddlewareIDs = new();
+		private static ConcurrentDictionary<string, Int64> m_dictMiddlewareIDOwners = new(StringComparer.Ordinal);
+		private static readonly object m_middlewareIDLock = new();
 
 		public static ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, UserSession>> GetUserDataCache()
 		{
 			return m_dictUserSessions;
 		}
 
+		// An online user by "Name#0042", or by bare name when exactly one online user has it
 		public static SharedUserData? GetSharedDataForUser(string strDisplayName)
 		{
+			int hash = strDisplayName.LastIndexOf('#');
+			int tag = -1;
+			if (hash > 0 && Int32.TryParse(strDisplayName.AsSpan(hash + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int parsed))
+			{
+				tag = parsed;
+				strDisplayName = strDisplayName.Substring(0, hash);
+			}
+
+			string normalized = NameNormalizer.Normalize(strDisplayName);
+			SharedUserData? found = null;
 			foreach (var kvPair in m_dictSharedUserData)
 			{
-				if (String.Equals(kvPair.Value.m_strDisplayName, strDisplayName, StringComparison.OrdinalIgnoreCase))
+				SharedUserData data = kvPair.Value;
+				if ((tag < 0 || data.m_NameTag == tag) && NameNormalizer.Normalize(data.m_strDisplayName) == normalized)
 				{
-					return kvPair.Value;
+					if (found != null)
+					{
+						return null;
+					}
+					found = data;
 				}
 			}
 
-			return null;
+			return found;
 		}
 
 
@@ -744,33 +635,71 @@ namespace GenOnlineService
 			}
 		}
 
-		// Returns true only when the stored value changed. While the user is a member of a lobby (any state) their
-		// middleware ID may go from empty to set (late resolve), but an existing ID is never replaced by a
-		// different one: peers and anti-cheat have already registered it. Outside a lobby a new login may set a new value.
+		public enum EMiddlewareIDApplyResult
+		{
+			Unchanged,
+			Changed,
+			HeldByOtherUser,
+			LockedInLobby
+		}
+
+		// While the user is a member of a lobby (any state) their middleware ID may go from empty to set (late resolve),
+		// but an existing ID is never replaced by a different one: peers and anti-cheat have already registered it.
+		// Outside a lobby a new login may set a new value.
 		// The caller must hold the user's membership gate so the in-lobby decision cannot race a join or leave.
-		public static bool ApplyMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID, bool bInLobby)
+		// A middleware ID belongs to at most one user, and a holder without any session loses it to the next claimant.
+		public static EMiddlewareIDApplyResult ApplyMiddlewareIDForUser(Int64 userID, string strMiddlewareUserID, bool bInLobby)
 		{
 			if (userID == -1 || String.IsNullOrEmpty(strMiddlewareUserID))
 			{
-				return false;
+				return EMiddlewareIDApplyResult.Unchanged;
 			}
 
-			if (!bInLobby)
+			lock (m_middlewareIDLock)
 			{
 				m_dictMiddlewareIDs.TryGetValue(userID, out string? strPrevious);
+				if (String.Equals(strPrevious, strMiddlewareUserID, StringComparison.Ordinal))
+				{
+					return EMiddlewareIDApplyResult.Unchanged;
+				}
+
+				if (bInLobby && !String.IsNullOrEmpty(strPrevious))
+				{
+					s_log.LogWarning("Ignoring attempt to replace the middleware ID of user {UserId} while in a lobby", userID);
+					return EMiddlewareIDApplyResult.LockedInLobby;
+				}
+
+				if (m_dictMiddlewareIDOwners.TryGetValue(strMiddlewareUserID, out Int64 ownerID) && ownerID != userID)
+				{
+					if (UserHasAnySession(ownerID))
+					{
+						s_log.LogWarning("Rejecting middleware ID for user {UserId} because user {OwnerId} holds it", userID, ownerID);
+						return EMiddlewareIDApplyResult.HeldByOtherUser;
+					}
+
+					m_dictMiddlewareIDs.TryRemove(new KeyValuePair<Int64, string>(ownerID, strMiddlewareUserID));
+					m_dictMiddlewareIDOwners.TryRemove(new KeyValuePair<string, Int64>(strMiddlewareUserID, ownerID));
+				}
+
+				if (!String.IsNullOrEmpty(strPrevious))
+				{
+					m_dictMiddlewareIDOwners.TryRemove(new KeyValuePair<string, Int64>(strPrevious, userID));
+				}
+
 				m_dictMiddlewareIDs[userID] = strMiddlewareUserID;
-				return !String.Equals(strPrevious, strMiddlewareUserID, StringComparison.Ordinal);
+				m_dictMiddlewareIDOwners[strMiddlewareUserID] = userID;
+				return EMiddlewareIDApplyResult.Changed;
 			}
+		}
 
-			if (m_dictMiddlewareIDs.TryAdd(userID, strMiddlewareUserID))
+		private static bool UserHasAnySession(Int64 userID)
+		{
+			foreach (var sessionsByType in m_dictUserSessions.Values)
 			{
-				return true;
-			}
-
-			if (m_dictMiddlewareIDs.TryGetValue(userID, out string? strCurrent) &&
-				!String.Equals(strCurrent, strMiddlewareUserID, StringComparison.Ordinal))
-			{
-				s_log.LogWarning("Ignoring attempt to replace the middleware ID of user {UserId} while in a lobby", userID);
+				if (sessionsByType.ContainsKey(userID))
+				{
+					return true;
+				}
 			}
 
 			return false;
@@ -788,7 +717,13 @@ namespace GenOnlineService
 
 		public static void ClearMiddlewareIDForUser(Int64 userID)
 		{
-			m_dictMiddlewareIDs.TryRemove(userID, out _);
+			lock (m_middlewareIDLock)
+			{
+				if (m_dictMiddlewareIDs.TryRemove(userID, out string? strPrevious) && !String.IsNullOrEmpty(strPrevious))
+				{
+					m_dictMiddlewareIDOwners.TryRemove(new KeyValuePair<string, Int64>(strPrevious, userID));
+				}
+			}
 		}
 
 		public static List<UserSession> GetAllDataFromUser(Int64 userID)
@@ -806,20 +741,26 @@ namespace GenOnlineService
 			return lstRet;
 		}
 
-		public static async Task DisconnectUser(Int64 userID, byte[] finalMessage)
+		// Closes the user's connections on this copy with a protocol close code and destroys their sessions, all or one session type; RealtimeControl.RequestClose reaches every copy
+		public static async Task<int> DisconnectUser(Int64 userID, string closeCode, bool allowReconnect, ModerationNoticeEvent? notice = null, EUserSessionType? onlySessionType = null)
 		{
 			List<UserSession> userSessions = GetAllDataFromUser(userID);
+			int closed = 0;
 
 			foreach (UserSession userSession in userSessions)
 			{
+				if (onlySessionType != null && userSession.GetSessionType() != onlySessionType)
+				{
+					continue;
+				}
+
+				closed++;
 				try
 				{
-					UserWebSocketInstance? oldWS = GetWebSocketForSession(userSession);
+					RealtimeConnection? oldWS = GetWebSocketForSession(userSession);
 					if (oldWS != null)
 					{
-						// short bound: the socket is torn down right after, don't hold up the caller on a dead peer
-						userSession.QueueWebsocketSend(finalMessage);
-						await userSession.FlushWebsocketSendsAsync(TimeSpan.FromSeconds(2));
+						await oldWS.CloseAsync(closeCode, allowReconnect, notice);
 					}
 
 					await DeleteSession(userID, userSession.GetSessionType(), oldWS, true, userSession);
@@ -829,6 +770,35 @@ namespace GenOnlineService
 					s_log.LogError(ex, "DisconnectUser failed for user {UserId}, session {SessionType}", userID, userSession.GetSessionType());
 				}
 			}
+			return closed;
+		}
+
+		// Closes only the connections on this copy opened with that sign-in and destroys their sessions, the user's other sign-ins stay
+		public static async Task<int> DisconnectSignIn(string authorizationID, string closeCode)
+		{
+			// sessions inside their reconnect grace have no connection but still belong to the sign-in
+			List<UserSession> matches = m_dictUserSessions.Values
+				.SelectMany(byUser => byUser.Values)
+				.Where(s => s.AuthorizationID == authorizationID)
+				.ToList();
+
+			foreach (UserSession session in matches)
+			{
+				try
+				{
+					RealtimeConnection? connection = GetWebSocketForSession(session);
+					if (connection != null)
+					{
+						await connection.CloseAsync(closeCode, allowReconnect: false);
+					}
+					await DeleteSession(session.m_UserID, session.GetSessionType(), connection, true, session);
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "DisconnectSignIn failed for user {UserId}, session {SessionType}", session.m_UserID, session.GetSessionType());
+				}
+			}
+			return matches.Count;
 		}
 
 		public static Task<bool> ClearDataFromUser(Int64 userID, EUserSessionType sessionType)
@@ -838,288 +808,10 @@ namespace GenOnlineService
 		}
 
 
-		// helpers
-		private static readonly object g_dirtyLobbyRoomsLock = new();
-		private static readonly HashSet<int> g_dirtyLobbyRooms = new();
-		private static readonly HashSet<UserSession> g_dirtyLobbySessions = new();
-		private static readonly object g_dirtyMemberRoomsLock = new();
-		private static readonly HashSet<int> g_dirtyMemberRooms = new();
-
-		// Bumped whenever the set/state of lobbies may have changed, so cached lobby-list snapshots built before it are discarded
-		private static long g_lobbyListCacheVersion = 0;
-
-		public static void InvalidateLobbyListCache()
-		{
-			Interlocked.Increment(ref g_lobbyListCacheVersion);
-		}
-
-		public static long GetLobbyListCacheVersion()
-		{
-			return Volatile.Read(ref g_lobbyListCacheVersion);
-		}
-
-		public static void QueueLobbyListUpdateForViewers(int networkRoomID)
-		{
-			InvalidateLobbyListCache();
-
-			if (networkRoomID < 0)
-			{
-				return;
-			}
-
-			lock (g_dirtyLobbyRoomsLock)
-			{
-				g_dirtyLobbyRooms.Add(networkRoomID);
-			}
-		}
-
-		public static void QueueLobbyListUpdateForSession(UserSession session)
-		{
-			lock (g_dirtyLobbyRoomsLock)
-			{
-				g_dirtyLobbySessions.Add(session);
-			}
-		}
-
-		// Lobby list refresh notifications are coalesced: dirty state keeps accumulating in between flushes,
-		// so nothing is lost, but the (expensive) fan-out over every session runs at most once per interval.
-		// The client throttles its own refresh far above this, so the added latency is not observable.
-		private const long LOBBY_LIST_FLUSH_INTERVAL_MS = 250;
-		private static long g_lastLobbyListFlushMs = 0;
-
+		// Lobby list changes coalesce in LobbyListPublisher and flush from the lobby tick
 		internal static void FlushLobbyListUpdates()
 		{
-			long nowMs = Environment.TickCount64;
-			if (nowMs - Volatile.Read(ref g_lastLobbyListFlushMs) < LOBBY_LIST_FLUSH_INTERVAL_MS)
-			{
-				return;
-			}
-
-			int[] dirtyRooms;
-			HashSet<UserSession> directlyDirtySessions;
-			lock (g_dirtyLobbyRoomsLock)
-			{
-				dirtyRooms = g_dirtyLobbyRooms.ToArray();
-				directlyDirtySessions = new HashSet<UserSession>(g_dirtyLobbySessions);
-				g_dirtyLobbyRooms.Clear();
-				g_dirtyLobbySessions.Clear();
-			}
-
-			if (dirtyRooms.Length == 0 && directlyDirtySessions.Count == 0)
-			{
-				return;
-			}
-
-			Volatile.Write(ref g_lastLobbyListFlushMs, nowMs);
-
-			byte[] bytesJSON = CreateLobbyListUpdateBytes();
-
-			// CanViewLobby only depends on the session's selected room, so evaluate it once per distinct room
-			Dictionary<int, bool> canViewByRoom = new();
-
-			// a UserSession object is registered under exactly one session type, so a single pass visits each once
-			HashSet<UserSession>? visitedDirectSessions = directlyDirtySessions.Count > 0 ? new HashSet<UserSession>() : null;
-			foreach (ConcurrentDictionary<Int64, UserSession> sessionsByUser in m_dictUserSessions.Values)
-			{
-				foreach (KeyValuePair<Int64, UserSession> kvp in sessionsByUser)
-				{
-					UserSession session = kvp.Value;
-					bool bShouldSend = false;
-					if (visitedDirectSessions != null && directlyDirtySessions.Contains(session))
-					{
-						visitedDirectSessions.Add(session);
-						bShouldSend = true;
-					}
-					else
-					{
-						int selectedRoomID = session.selectedNetworkRoomID;
-						if (!canViewByRoom.TryGetValue(selectedRoomID, out bShouldSend))
-						{
-							for (int i = 0; i < dirtyRooms.Length; ++i)
-							{
-								if (RoomCatalog.CanViewLobby(selectedRoomID, dirtyRooms[i]))
-								{
-									bShouldSend = true;
-									break;
-								}
-							}
-							canViewByRoom[selectedRoomID] = bShouldSend;
-						}
-					}
-
-					if (bShouldSend)
-					{
-						session.QueueWebsocketSend(bytesJSON);
-					}
-				}
-			}
-
-			// directly dirty sessions that are no longer registered in the session table still get the update
-			if (visitedDirectSessions != null)
-			{
-				foreach (UserSession session in directlyDirtySessions)
-				{
-					if (!visitedDirectSessions.Contains(session))
-					{
-						session.QueueWebsocketSend(bytesJSON);
-					}
-				}
-			}
-		}
-
-		private static byte[] CreateLobbyListUpdateBytes()
-		{
-			WebSocketMessage_CurrentNetworkRoomLobbyListUpdate lobbyListUpdate = new()
-			{
-				msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_LOBBY_LIST_UPDATE
-			};
-			return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(lobbyListUpdate));
-		}
-
-		public static void QueueRoomSelectionAccepted(UserSession session, UInt64? requestID)
-		{
-			QueueRoomSelectionResult(session, requestID, null, null);
-		}
-
-		public static void QueueRoomSelectionRejected(UserSession session, UInt64? requestID, int? rejectedRoomID, string error)
-		{
-			QueueRoomSelectionResult(session, requestID, rejectedRoomID, error);
-		}
-
-		private static void QueueRoomSelectionResult(UserSession session, UInt64? requestID, int? rejectedRoomID, string? error)
-		{
-			WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate = CreateRoomMemberListUpdate(session.networkRoomID);
-			memberListUpdate.request_id = requestID;
-			memberListUpdate.selected_room_id = session.selectedNetworkRoomID;
-			memberListUpdate.effective_room_id = session.networkRoomID;
-			memberListUpdate.rejected_room_id = rejectedRoomID;
-			memberListUpdate.room_selection_error = error;
-			session.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(memberListUpdate)));
-		}
-
-		private static WebSocketMessage_NetworkRoomMemberListUpdate CreateRoomMemberListUpdate(int roomID)
-		{
-			WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate = new()
-			{
-				msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_MEMBER_LIST_UPDATE
-			};
-			if (roomID < 0)
-			{
-				return memberListUpdate;
-			}
-
-			List<UserSession> roomSessions = new();
-			foreach (UserSession session in m_dictUserSessions.Values.SelectMany(byType => byType.Values))
-			{
-				if (session.networkRoomID == roomID)
-				{
-					roomSessions.Add(session);
-				}
-			}
-
-			FillRoomMemberList(memberListUpdate, roomSessions);
-			return memberListUpdate;
-		}
-
-		private static void FillRoomMemberList(WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate, List<UserSession> roomSessions)
-		{
-			foreach (UserSession session in roomSessions)
-			{
-				EUserSessionType sessionType = session.GetSessionType();
-
-				SharedUserData? sharedUserData = GetSharedDataForUser(session.m_UserID);
-				if (sharedUserData == null)
-				{
-					continue;
-				}
-
-				string displayName = sharedUserData.IsAdmin()
-					? $"[★★GO STAFF★★] {sharedUserData.m_strDisplayName}"
-					: sharedUserData.m_strDisplayName;
-
-				if (sessionType == EUserSessionType.GameLauncher)
-				{
-					displayName += session.m_client_id == KnownClients.EKnownClients.genhub ? " [GENHUB]" : " [LAUNCHER]";
-				}
-				else if (sessionType == EUserSessionType.ChatClient)
-				{
-					displayName += " [WEBCHAT]";
-				}
-
-				memberListUpdate.members.Add(new RoomMember(session.m_UserID, displayName, sharedUserData.IsAdmin()));
-			}
-		}
-
-		public static void TickRoomMemberList()
-		{
-			int[] dirtyRooms;
-			lock (g_dirtyMemberRoomsLock)
-			{
-				dirtyRooms = g_dirtyMemberRooms.ToArray();
-				g_dirtyMemberRooms.Clear();
-			}
-
-			if (dirtyRooms.Length == 0)
-			{
-				return;
-			}
-
-			// one pass over all sessions, bucketed by network room (dirty rooms only); enumeration order matches the
-			// per-room scan this replaces, so member order inside each payload is unchanged
-			Dictionary<int, List<UserSession>> sessionsByRoom = new();
-			foreach (int roomID in dirtyRooms)
-			{
-				if (roomID >= 0)
-				{
-					sessionsByRoom[roomID] = new List<UserSession>();
-				}
-			}
-
-			foreach (ConcurrentDictionary<Int64, UserSession> sessionsByUser in m_dictUserSessions.Values)
-			{
-				foreach (KeyValuePair<Int64, UserSession> kvp in sessionsByUser)
-				{
-					UserSession session = kvp.Value;
-					if (sessionsByRoom.TryGetValue(session.networkRoomID, out List<UserSession>? bucket))
-					{
-						bucket.Add(session);
-					}
-				}
-			}
-
-			foreach (int roomID in dirtyRooms)
-			{
-				WebSocketMessage_NetworkRoomMemberListUpdate memberListUpdate = new()
-				{
-					msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_MEMBER_LIST_UPDATE
-				};
-
-				if (!sessionsByRoom.TryGetValue(roomID, out List<UserSession>? roomSessions))
-				{
-					// negative room IDs have no members and nobody to notify
-					continue;
-				}
-
-				FillRoomMemberList(memberListUpdate, roomSessions);
-				byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(memberListUpdate));
-				foreach (UserSession session in roomSessions)
-				{
-					session.QueueWebsocketSend(bytesJSON);
-				}
-			}
-		}
-
-		public static void MarkRoomMemberListAsDirty(int roomID)
-		{
-			if (roomID < 0)
-			{
-				return;
-			}
-
-			lock (g_dirtyMemberRoomsLock)
-			{
-				g_dirtyMemberRooms.Add(roomID);
-			}
+			LobbyListPublisher.Flush(ServiceLocator.Services.GetRequiredService<LobbyManager>());
 		}
 	}
 
@@ -1147,7 +839,9 @@ namespace GenOnlineService
 
 		public Int64 m_UserID = -1;
 		public string m_strDisplayName = String.Empty;
-		private bool m_bIsAdmin;
+
+		// The tag of the display name; Name#tag is unique
+		public int m_NameTag;
 
 		// contains ELO too
 		public PlayerStats? GameStats { get; private set; } = null;
@@ -1156,7 +850,7 @@ namespace GenOnlineService
 
 		public UserSocialContainer GetSocialContainer() { return m_socialContainer; }
 
-		public bool IsAdmin() { return m_bIsAdmin; }
+		public bool HasPermission(string permission) { return StaffRoles.HasPermission(m_UserID, permission); }
 
 		public bool TryConsumeChatMessage()
 		{
@@ -1200,10 +894,10 @@ namespace GenOnlineService
 			}
 		}
 
-		public SharedUserData(Int64 ownerID, UserSocialContainer socialContainer, string strDisplayName, bool bIsAdmin, PlayerStats userStats)
+		public SharedUserData(Int64 ownerID, UserSocialContainer socialContainer, string strDisplayName, int nameTag, PlayerStats userStats)
 		{
 			m_strDisplayName = strDisplayName;
-			m_bIsAdmin = bIsAdmin;
+			m_NameTag = nameTag;
 
 			m_UserID = ownerID;
 
@@ -1251,12 +945,21 @@ namespace GenOnlineService
 		public long MatchmakingStartedTimestamp = 0;
 		public ConcurrentList<int> MatchmakingMapIndicies = new();
 		internal bool IsRegisteredForMatchmaking { get; set; } = false;
+
+		// Set when a planned handover sends this session with an open connection to another copy that keeps its seat or ticket, friends see no change
+		internal volatile bool SwitchingAway;
+
+		// Set for every session a planned handover sends to a copy that keeps its seat or ticket, its end here keeps the relay credentials
+		internal volatile bool KeepRelayCredentials;
 		internal SemaphoreSlim MatchmakingStateLock { get; } = new(1, 1);
 
-		// NOTE: These are not set on login, only when in quickmatch!
-		public UInt32 ExeCRC = 0;
-		public UInt32 IniCRC = 0;
-		public EKnownAnticheatID AnticheatID = EKnownAnticheatID.NONE;
+		// The build of the queue registration, set when the player joins the matchmaking queue
+		public GameBuild MatchmakingBuild = new GameBuild(String.Empty, 0, 0, EKnownAnticheatID.NONE);
+
+		// The peer transports of SetPeerTransports in this session, null until the client sends it
+		private volatile string[]? m_peerTransports;
+		internal IReadOnlyList<string>? PeerTransports => m_peerTransports;
+		internal void SetPeerTransports(IEnumerable<string?>? transports) => m_peerTransports = GenOnlineService.Realtime.ConnectionOrder.KnownTransports(transports);
 
 		private ConcurrentList<UInt64> m_lstHistoricMatchIDs = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToSlotIndexMap = new();
@@ -1265,7 +968,7 @@ namespace GenOnlineService
 
 		private Int64 m_timeAbandoned = -1;
 
-		public KnownClients.EKnownClients m_client_id = KnownClients.EKnownClients.unknown;
+		public string m_client_id = String.Empty;
 		DateTime m_CreateTime = DateTime.Now;
 		public DateTime GetCreationTime()
 		{
@@ -1338,7 +1041,7 @@ namespace GenOnlineService
 			return DateTime.Now - m_CreateTime;
 		}
 
-		public UserSession(Int64 ownerID, EUserSessionType sessionType, KnownClients.EKnownClients client_id, string strContinent, string strCountry, double dLatitude, double dLongitude)
+		public UserSession(Int64 ownerID, EUserSessionType sessionType, string client_id, string strContinent, string strCountry, double dLatitude, double dLongitude)
 		{
 			m_sessionType = sessionType;
 			m_client_id = client_id;
@@ -1361,71 +1064,22 @@ namespace GenOnlineService
 
 		public bool IsAbandoned()
 		{
-			UserWebSocketInstance websocketForUser = WebSocketManager.GetWebSocketForSession(this);
+			RealtimeConnection? websocketForUser = WebSocketManager.GetWebSocketForSession(this);
 			return m_timeAbandoned != -1 && websocketForUser == null;
 		}
 
-		// TODO_EFCORE: check all uses of QueueWebsocketSend, some might need to be SendToAllInstances
-		public void QueueWebsocketSend(byte[] bytesJSON)
-		{
-			if (bytesJSON == null)
-			{
-				return;
-			}
+		// The sign-in whose connection installed or last took over this session
+		public string? AuthorizationID { get; set; }
 
-			if (m_outbound.Writer.TryWrite(bytesJSON))
-			{
-				AppMetrics.AdjustWebSocketSendQueueDepth(1);
-			}
-			else
-			{
-				AppMetrics.RecordWebSocketFailure("outbound", "queue_full");
-				// too far behind to catch up: drop the connection so the client reconnects
-				if (WebSocketManager.GetWebSocketForSession(this)?.AbortIfOpen() == true)
-				{
-					s_log.LogWarning("Outbound websocket queue full for user {UserId}; connection aborted", m_UserID);
-				}
-			}
-		}
-
-		public async Task FlushWebsocketSendsAsync(TimeSpan timeout)
+		public async Task<RealtimeConnection?> CloseWebsocket(string closeCode, bool allowReconnect)
 		{
-			long deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
-			while (m_outbound.Reader.Count > 0 && Environment.TickCount64 < deadline)
-			{
-				await Task.Delay(20);
-			}
-		}
-
-		public async Task<UserWebSocketInstance> CloseWebsocket(WebSocketCloseStatus reason, string strReason)
-		{
-			UserWebSocketInstance websocketForUser = WebSocketManager.GetWebSocketForSession(this);
+			RealtimeConnection? websocketForUser = WebSocketManager.GetWebSocketForSession(this);
 			if (websocketForUser != null)
 			{
-				await websocketForUser.CloseAsync(reason, strReason);
+				await websocketForUser.CloseAsync(closeCode, allowReconnect);
 			}
 
 			return websocketForUser;
-		}
-
-		// outlives the socket so queued messages reach the client after a reconnect; the attached socket's send loop is the only reader
-		private const int c_MaxQueuedSends = 1024;
-		private readonly Channel<byte[]> m_outbound = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(c_MaxQueuedSends)
-		{
-			SingleReader = true,
-			FullMode = BoundedChannelFullMode.Wait
-		});
-
-		public ChannelReader<byte[]> OutboundWebsocketSends => m_outbound.Reader;
-
-		// the session is gone: take its unsent messages off the queue-depth gauge
-		public void ReleasePendingWebsocketSendAccounting()
-		{
-			int pending = m_outbound.Reader.Count;
-			if (pending > 0)
-			{
-				AppMetrics.AdjustWebSocketSendQueueDepth(-pending);
-			}
 		}
 
 		public bool NeedsCleanup()
@@ -1436,17 +1090,6 @@ namespace GenOnlineService
 			// was configurable (the old comment here said "5 minutes", which was wrong - 30000 is
 			// milliseconds, i.e. 30 seconds).
 			return Environment.TickCount64 - m_timeAbandoned >= UserSessionSettings.ReconnectGracePeriodMS;
-		}
-
-		private bool m_bSubscribedToRealtimeSocialupdates = false;
-		public void SetSubscribedToRealtimeSocialUpdates(bool bSubscribe)
-		{
-			m_bSubscribedToRealtimeSocialupdates = bSubscribe;
-		}
-
-		public bool IsSubscribedToRealtimeSocialUpdates()
-		{
-			return m_bSubscribedToRealtimeSocialupdates;
 		}
 
 		public string GetFullCountryName()
@@ -1530,17 +1173,15 @@ namespace GenOnlineService
 				return false;
 			}
 
-			Int16 oldRoom = networkRoomID;
 			selectedNetworkRoomID = newRoomID;
 			networkRoomID = targetRoomID;
-
-			if (oldRoom != networkRoomID)
-			{
-				WebSocketManager.MarkRoomMemberListAsDirty(oldRoom);
-				WebSocketManager.MarkRoomMemberListAsDirty(networkRoomID);
-			}
-
 			return true;
+		}
+
+		public void ClearSessionNetworkRoom()
+		{
+			selectedNetworkRoomID = -1;
+			networkRoomID = -1;
 		}
 
 		public void UpdateSessionLobbyID(Int64 newLobbyID)
@@ -1560,169 +1201,6 @@ namespace GenOnlineService
 
 		// lobby id
 		public Int64 currentLobbyID = -1;
-	}
-
-	public class UserWebSocketInstance
-	{
-		private static readonly ILogger s_log = AppLog.For(typeof(UserWebSocketInstance));
-
-		// cached user data, useful
-		public EUserSessionType m_SessionType = EUserSessionType.None;
-		public Int64 m_UserID = -1;
-
-		// pinged after c_KeepAliveInterval of silence, aborted if no pong within c_KeepAliveTimeout
-		public static readonly TimeSpan c_KeepAliveInterval = TimeSpan.FromSeconds(15);
-#if DEBUG
-		public static readonly TimeSpan c_KeepAliveTimeout = TimeSpan.FromMinutes(10); // survive debugger breaks
-#else
-		public static readonly TimeSpan c_KeepAliveTimeout = TimeSpan.FromSeconds(45);
-#endif
-
-		// cancelling a pending send aborts the socket, so only give up on a peer that stopped reading
-		private static readonly TimeSpan c_SendStallTimeout = c_KeepAliveInterval + c_KeepAliveTimeout;
-
-		// TODO: Start using nullable for int values etc instead of doing 0 or -1
-		// reply to legacy JSON PING; released clients only reset their timeout on it
-		public void QueuePong()
-		{
-			WebSocketMessage_PONG outboundMsg = new WebSocketMessage_PONG();
-			outboundMsg.msg_id = (int)EWebSocketMessageID.PONG;
-			m_OwnerSession.QueueWebsocketSend(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsg)));
-		}
-
-		// legacy JSON keep-alive for clients that don't send their own PING; any queued message serves the same purpose
-		public void QueueKeepAlive()
-		{
-			if (m_OwnerSession.OutboundWebsocketSends.Count == 0)
-			{
-				QueuePong();
-			}
-		}
-
-		private WebSocket? m_SockInternal = null;
-		private readonly object transportLock = new();
-		private bool closed;
-		private readonly UserSession m_OwnerSession;
-		internal UserSession OwnerSession => m_OwnerSession;
-		internal bool IsOpen => m_SockInternal?.State == WebSocketState.Open;
-		private readonly CancellationTokenSource m_sendLoopStop = new CancellationTokenSource();
-		private Task m_sendLoop = Task.CompletedTask;
-
-		public UserWebSocketInstance(EUserSessionType sessionType, Int64 ownerID, UserSession ownerSession) : base()
-		{
-			m_SessionType = sessionType;
-			m_UserID = ownerID;
-			m_OwnerSession = ownerSession;
-		}
-
-		public void AttachWebsocket(WebSocket sock)
-		{
-			lock (transportLock)
-			{
-				if (closed)
-				{
-					sock.Abort();
-					return;
-				}
-				m_SockInternal = sock;
-				m_sendLoop = Task.Run(RunSendLoop);
-			}
-		}
-
-		public bool AbortIfOpen()
-		{
-			WebSocket? sock = m_SockInternal;
-			if (sock == null || sock.State != WebSocketState.Open)
-			{
-				return false;
-			}
-
-			sock.Abort();
-			return true;
-		}
-
-		// sole writer to the socket; a message leaves the queue only once sent, so a dead socket leaves it for the next connection
-		private async Task RunSendLoop()
-		{
-			ChannelReader<byte[]> outbound = m_OwnerSession.OutboundWebsocketSends;
-			try
-			{
-				while (await outbound.WaitToReadAsync(m_sendLoopStop.Token))
-				{
-					while (!m_sendLoopStop.IsCancellationRequested && outbound.TryPeek(out byte[]? buffer))
-					{
-						// a failed send on a still-open socket is dropped rather than retried forever
-						if (!await SendFrameAsync(buffer) && m_SockInternal?.State != WebSocketState.Open)
-						{
-							return;
-						}
-
-						if (outbound.TryRead(out _))
-						{
-							AppMetrics.AdjustWebSocketSendQueueDepth(-1);
-						}
-					}
-				}
-			}
-			catch (OperationCanceledException)
-			{
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "Websocket send loop failed for user {UserId}", m_UserID);
-			}
-		}
-
-		private async Task<bool> SendFrameAsync(byte[] buffer)
-		{
-			WebSocket? sock = m_SockInternal;
-			if (sock == null || sock.State != WebSocketState.Open)
-			{
-				return false;
-			}
-
-			try
-			{
-				using var cts = new CancellationTokenSource(c_SendStallTimeout);
-				await sock.SendAsync(buffer, WebSocketMessageType.Text, true, cts.Token);
-				return true;
-			}
-			catch (OperationCanceledException)
-			{
-				AppMetrics.RecordWebSocketFailure("outbound", "timeout");
-				s_log.LogWarning("Websocket send to user {UserId} stalled for {StallSeconds}s; connection aborted", m_UserID, c_SendStallTimeout.TotalSeconds);
-				return false;
-			}
-			catch
-			{
-				AppMetrics.RecordWebSocketFailure("outbound", "error");
-				return false;
-			}
-		}
-
-		public async Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription)
-		{
-			lock (transportLock) closed = true;
-			// stop reading the queue first so the next connection's send loop is the only reader
-			m_sendLoopStop.Cancel();
-
-			if (m_SockInternal != null)
-			{
-				try
-				{
-					// dont wait forever, certain situations can cause that in ASP.NET
-					using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-					await m_SockInternal.CloseAsync(closeStatus, statusDescription, cts.Token);
-				}
-				catch
-				{
-					// a timed-out close leaves the socket open behind a stuck send; abort to end both
-					m_SockInternal.Abort();
-				}
-			}
-
-			await m_sendLoop;
-		}
 	}
 
 	public enum ESessionAccessType
@@ -1754,11 +1232,10 @@ namespace GenOnlineService
 			return false;
 		}
 
-		public async static Task SetUsedLoggedIn(Int64 userID, KnownClients.EKnownClients clientID, EUserSessionType sessionType)
+		public async static Task SetUsedLoggedIn(Int64 userID, string clientID, EUserSessionType sessionType)
 		{
 			// TODO_EFCORE: website uses this index as 1 (60hz) to 0 (30hz), update it to use new enum + support new clients, also need to update DB to match
 			// TODO_EFCORE: Move away from db for this and just have website login call endpoint on service
-			//UInt16 clientID = clientIDStr == "gen_online_60hz" ? (UInt16)1 : (UInt16)0;
 
 			s_log.LogInformation("StartSession deleting other sessions for user {UserId}", userID);
 
@@ -1769,7 +1246,7 @@ namespace GenOnlineService
 			{
 				s_log.LogInformation("Found duplicate session for user {UserId}", userID);
 
-				UserWebSocketInstance? oldWS = GenOnlineService.WebSocketManager.GetWebSocketForSession(sess);
+				RealtimeConnection? oldWS = GenOnlineService.WebSocketManager.GetWebSocketForSession(sess);
 				await GenOnlineService.WebSocketManager.DeleteSession(userID, sessionType, oldWS, false, sess);
 			}
 		}
@@ -2896,62 +2373,6 @@ namespace GenOnlineService
 		SLOT_PLAYER
 	}
 
-	public enum EWebSocketMessageID
-	{
-		UNKNOWN = -1,
-		NETWORK_ROOM_CHAT_FROM_CLIENT = 1,
-		NETWORK_ROOM_CHAT_FROM_SERVER = 2,
-		NETWORK_ROOM_CHANGE_ROOM = 3,
-		NETWORK_ROOM_MEMBER_LIST_UPDATE = 4, // TODO: This could be more optimal, send a diff instead of full list?
-		NETWORK_ROOM_MARK_READY = 5,
-		LOBBY_CURRENT_LOBBY_UPDATE = 6,
-		NETWORK_ROOM_LOBBY_LIST_UPDATE = 7,
-		ANTICHEAT_MESSAGE = 8,
-		PLAYER_NAME_CHANGE = 9,
-		LOBBY_ROOM_CHAT_FROM_CLIENT = 10,
-		LOBBY_CHAT_FROM_SERVER = 11,
-		NETWORK_SIGNAL = 12,
-		START_GAME = 13,
-		PING = 14,
-		PONG = 15,
-		PROBE = 16,
-		NETWORK_CONNECTION_START_SIGNALLING = 17,
-		NETWORK_CONNECTION_DISCONNECT_PLAYER = 18,
-		NETWORK_CONNECTION_CLIENT_REQUEST_SIGNALLING = 19,
-		MATCHMAKING_ACTION_JOIN_PREARRANGED_LOBBY = 20,
-		MATCHMAKING_ACTION_START_GAME = 21,
-		MATCHMAKING_MESSAGE = 22,
-		START_GAME_COUNTDOWN_STARTED = 23,
-		LOBBY_REMOVE_PASSWORD = 24,
-		LOBBY_CHANGE_PASSWORD = 25,
-		FULL_MESH_CONNECTIVITY_CHECK_HOST_REQUESTS_BEGIN = 26,
-		FULL_MESH_CONNECTIVITY_CHECK_RESPONSE = 27,
-		FULL_MESH_CONNECTIVITY_CHECK_RESPONSE_COMPLETE_TO_HOST = 28,
-		SOCIAL_NEW_FRIEND_REQUEST = 29,
-		SOCIAL_FRIEND_CHAT_MESSAGE_CLIENT_TO_SERVER = 30,
-		SOCIAL_FRIEND_CHAT_MESSAGE_SERVER_TO_CLIENT = 31,
-		SOCIAL_FRIEND_ONLINE_STATUS_CHANGED = 32,
-		SOCIAL_SUBSCRIBE_REALTIME_UPDATES = 33,
-		SOCIAL_UNSUBSCRIBE_REALTIME_UPDATES = 34,
-		SOCIAL_FRIENDS_OVERALL_STATUS_UPDATE = 35,
-		SOCIAL_FRIEND_FRIEND_REQUEST_ACCEPTED_BY_TARGET = 36,
-		SOCIAL_FRIENDS_LIST_DIRTY = 37,
-        SOCIAL_CANT_ADD_FRIEND_LIST_FULL = 38,
-		PROBE_RESP = 39,
-		AC_REGISTER_PLAYER = 40,
-		AC_DEREGISTER_PLAYER = 41,
-		WS_KEEPALIVE = 42,
-		WS_KEEPALIVE_CLIENT = 43,
-		MATCHMAKING_ACTION_REQUEUE = 44,
-		MATCHMAKING_ACTION_SETUP_PROGRESS = 45,
-		MODERATION_NOTICE = 46,
-		MODERATION_COMMAND = 47,
-		MODERATION_COMMAND_RESULT = 48,
-		START_GAME_REJECTED = 49,
-		LOBBY_EVENT = 50,
-		LOBBY_HOST_START_INTENT = 51
-	};
-
 	public static class UserPresence
 	{
 		public enum EPresencePriority
@@ -3034,300 +2455,4 @@ namespace GenOnlineService
 			return strOverallPresence;
 		}
 	}
-
-
-	public class WebSocketMessage_Simple : WebSocketMessage
-	{
-
-	}
-
-	public class WebSocketMessage_Probe : WebSocketMessage
-	{
-		public string url { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_StartMatch : WebSocketMessage
-	{
-		public string screenshot_url { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_StartGameRejected : WebSocketMessage
-	{
-		public string reason { get; set; } = String.Empty;
-
-		// unordered user id pairs, only for mesh_incomplete
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public List<Int64[]>? missing { get; set; }
-	}
-
-	public class WebSocketMessage_LobbyEvent : WebSocketMessage
-	{
-		public string @event { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_LobbyEvent_CountdownStarted : WebSocketMessage_LobbyEvent
-	{
-		public int duration_ms { get; set; }
-	}
-
-	public class WebSocketMessage_LobbyEvent_CountdownCancelled : WebSocketMessage_LobbyEvent
-	{
-		public string reason { get; set; } = String.Empty;
-
-		// unordered user id pairs, only for mesh_incomplete
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public List<Int64[]>? missing { get; set; }
-	}
-
-	public class WebSocketMessage_ModerationNotice : WebSocketMessage
-	{
-		public string action_type { get; set; } = String.Empty;
-		public string reason { get; set; } = String.Empty;
-
-		[System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-		public string? scope_type { get; set; }
-	}
-
-	public sealed class WebSocketMessage_ModerationCommand : WebSocketMessage
-	{
-		public UInt64 request_id { get; set; }
-		public string action_type { get; set; } = String.Empty;
-		public Int64? target_user_id { get; set; }
-		public string reason { get; set; } = String.Empty;
-	}
-
-	public sealed class WebSocketMessage_ModerationCommandResult : WebSocketMessage
-	{
-		public UInt64 request_id { get; set; }
-		public bool success { get; set; }
-
-		[System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-		public string? error_code { get; set; }
-
-		public string message { get; set; } = String.Empty;
-	}
-
-	public abstract class WebSocketMessage
-	{
-		public int msg_id { get; set; }
-	}
-
-	public class WebSocketMessage_NameChange : WebSocketMessage
-	{
-		public string name { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_FullMeshConnectivityCheckRequest : WebSocketMessage
-	{
-		public Int64 mesh_check_id { get; set; }
-		public int attempt { get; set; }
-	}
-
-	public class WebSocketMessage_FullMeshConnectivityCheckResponseFromUser : WebSocketMessage
-	{
-		public Int64 mesh_check_id { get; set; }
-		public int attempt { get; set; }
-		public List<Int64> connectivity_map { get; set; } = new();
-
-		// peers the member is still negotiating with; absent from older clients
-		public List<Int64> connecting_map { get; set; } = new();
-	}
-
-	public class WebSocketMessage_Social_NewFriendRequest : WebSocketMessage
-	{
-		public string display_name { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_FullMeshConnectivityCheckOutcome: WebSocketMessage
-	{
-		public long mesh_check_id { get; set; }
-		public int attempt { get; set; }
-		public string reason { get; set; } = string.Empty;
-		public bool mesh_complete { get; set; }
-		public List<MissingConnectionEntry> missing_connections { get; set; } = new();
-	}
-
-	public class WebSocketMessage_FullMeshConnectivityCheckOutcomeForHost : WebSocketMessage
-	{
-		public Dictionary<Int64, bool> connectivity_map { get; set; } = new();
-	}
-
-	public class WebSocketMessage_LobbyPasswordChange : WebSocketMessage
-	{
-		public string new_password { get; set; } = String.Empty;
-	}
-	
-	public class WebSocketMessage_NetworkRoomChatMessageInbound : WebSocketMessage
-	{
-		public string? message { get; set; }
-		public bool action { get; set; }
-	}
-
-	public class WebSocketMessage_Social_FriendChatMessage_Inbound : WebSocketMessage
-	{
-		public Int64 target_user_id { get; set; }
-		public string? message { get; set; }
-	}
-
-	public class WebSocketMessage_Social_FriendChatMessage_Outbound : WebSocketMessage
-	{
-		public Int64 source_user_id { get; set; }
-		public Int64 target_user_id { get; set; }
-		public string? message { get; set; }
-	}
-
-	public class WebSocketMessage_Social_FriendStatusChanged : WebSocketMessage
-	{
-		public string display_name { get; set; } = String.Empty;
-		public bool online { get; set; }
-	}
-
-    public class WebSocketMessage_Social_FriendsListDirty: WebSocketMessage
-    {
-    }
-
-    public class WebSocketMessage_Social_FriendsListFull : WebSocketMessage
-    {
-    }
-
-    public class WebSocketMessage_Social_FriendRequestAccepted : WebSocketMessage
-	{
-		public string display_name { get; set; } = String.Empty;
-    }
-
-	public class WebSocketMessage_MatchmakingMessage : WebSocketMessage
-	{
-		public string? message { get; set; }
-	}
-
-	public class WebSocketMessage_PONG : WebSocketMessage
-	{
-	}
-	public class WebSocketMessage_NetworkRoomChatMessageOutbound : WebSocketMessage
-	{
-		public string? message { get; set; }
-		public bool action { get; set; } = false;
-		public bool admin { get; set; } = false;
-		public bool name_change { get; set; } = false;
-	}
-
-	public class WebSocketMessage_NetworkStartSignalling : WebSocketMessage
-	{
-		public Int64 lobby_id{ get; set; }
-		public Int64 user_id { get; set; }
-		public Int64 preferred_port { get; set; }
-		public string middleware_id { get; set; }
-	}
-
-	public class WebSocketMessage_FriendsOverallStatusUpdate : WebSocketMessage
-	{
-		public int num_online { get; set; } = 0;
-		public int num_pending { get; set; } = 0;
-	}
-
-	public class WebSocketMessage_ACRegisterPlayer : WebSocketMessage
-	{
-		public Int64 user_id { get; set; }
-		public string mwid { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_ACDeregisterPlayer : WebSocketMessage
-	{
-		public Int64 user_id { get; set; }
-		public string mwid { get; set; } = String.Empty;
-	}
-
-	public class WebSocketMessage_NetworkDisconnectPlayer : WebSocketMessage
-	{
-		public Int64 lobby_id { get; set; }
-		public Int64 user_id { get; set; }
-	}
-
-	public class WebSocketMessage_LobbyChatMessageInbound : WebSocketMessage
-	{
-		public string? message { get; set; }
-		public bool action { get; set; }
-		public bool announcement { get; set; }
-		public bool show_announcement_to_host { get; set; }
-	}
-
-	public class WebSocketMessage_RequestSignaling : WebSocketMessage
-	{
-		public Int64 target_user_id { get; set; }
-	}
-	public class WebSocketMessage_SignalBidirectional : WebSocketMessage
-	{
-		public Int64 target_user_id { get; set; }
-		public List<byte>? payload { get; set; }
-	}
-
-	public class WebSocketMessage_AnticheatMessage : WebSocketMessage
-	{
-		public Int64 target_user_id { get; set; }
-		public List<byte>? payload { get; set; }
-	}
-
-	public class WebSocketMessage_LobbyChatMessageOutbound : WebSocketMessage
-	{
-		public Int64 user_id { get; set; }
-		public string? message { get; set; }
-		public bool action { get; set; }
-		public bool announcement { get; set; }
-		public bool show_announcement_to_host { get; set; } // TODO: Remove, client doesnt care
-	}
-	public class WebSocketMessage_RelayUpgradeInbound : WebSocketMessage
-	{
-		public Int64 target_user_id { get; set; }
-	}
-
-	public class WebSocketMessage_NetworkRoomMemberListUpdate : WebSocketMessage
-	{
-		public List<RoomMember> members { get; set; } = new();
-
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public UInt64? request_id { get; set; }
-
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public Int16? selected_room_id { get; set; }
-
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public Int16? effective_room_id { get; set; }
-
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public int? rejected_room_id { get; set; }
-
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? room_selection_error { get; set; }
-	}
-
-	public class WebSocketMessage_CurrentLobbyUpdate : WebSocketMessage
-	{
-	}
-
-	public class WebSocketMessage_CurrentNetworkRoomLobbyListUpdate : WebSocketMessage
-	{
-	}
-
-	public class WebSocketMessage_MatchmakerJoinLobby : WebSocketMessage
-	{
-
-		public Int64 lobby_id
-		{
-			get; set;
-		}
-	}
-
-	public class WebSocketMessage_MatchmakerStartGame : WebSocketMessage
-	{
-
-	}
-
-	public class WebSocketMessage_MatchmakerSetupProgress : WebSocketMessage
-	{
-		public int timeout_ms { get; set; }
-
-		// start countdown length, 0 while the match is still being set up
-		public int countdown_ms { get; set; }
-	}
-
 }

@@ -1,4 +1,3 @@
-using GenOnlineService.Controllers;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Text.Json;
