@@ -58,7 +58,7 @@ namespace GenOnlineService.Realtime
 		public static IRealtimeClient Group(string group) => s_hub?.Clients.Group(group) ?? s_nullClient;
 		public static IRealtimeClient Groups(IReadOnlyList<string> groups) => groups.Count == 0 ? s_nullClient : s_hub?.Clients.Groups(groups) ?? s_nullClient;
 
-		// The excluded connection ids come from this copy's sessions, so the exclusion holds only for connections on this copy
+		// The excluded connection ids come from this copy's sessions, so chat uses it only with backplane none and RealtimeFanout otherwise
 		public static IRealtimeClient GroupExcept(string group, IReadOnlyList<string> excludedConnectionIDs) => s_hub?.Clients.GroupExcept(group, excludedConnectionIDs) ?? s_nullClient;
 
 		// Every connection of the user on any copy through the user group, which a connection joins just before Ready so Ready stays the first event

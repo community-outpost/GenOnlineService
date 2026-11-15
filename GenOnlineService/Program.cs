@@ -1185,7 +1185,7 @@ namespace GenOnlineService
 				signalR.AddStackExchangeRedis(realtimeBackplane.ConfigureSignalR);
 			}
 			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, GenOnlineService.Realtime.RealtimeUserIdProvider>();
-			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>>(services => new RealtimeLifetimeManager(realtimeBackplane.CreateLifetimeManager(services)));
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>>(services => new RealtimeLifetimeManager(realtimeBackplane.CreateLifetimeManager(services), realtimeBackplane.UsesRedis ? GenOnlineService.Realtime.RealtimeFanout.Groups : null, realtimeBackplane.UsesRedis ? GenOnlineService.Realtime.RealtimeFanout.Outboxes : null));
 
 			CorsPolicy corsPolicy = BuildCorsPolicy(builder.Configuration);
 

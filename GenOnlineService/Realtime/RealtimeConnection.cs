@@ -97,10 +97,15 @@ namespace GenOnlineService
 		private static readonly ConcurrentDictionary<string, HubConnectionContext> s_connections = new(StringComparer.Ordinal);
 
 		private readonly HubLifetimeManager<RealtimeHub> m_inner;
+		private readonly LocalChatGroups? m_localGroups;
+		private readonly ConnectionOutboxes? m_outboxes;
 
-		public RealtimeLifetimeManager(HubLifetimeManager<RealtimeHub> inner)
+		// localGroups mirrors the channel and lobby groups of this copy's connections and outboxes holds their pending chat writes, both given only with the Redis backplane
+		internal RealtimeLifetimeManager(HubLifetimeManager<RealtimeHub> inner, LocalChatGroups? localGroups = null, ConnectionOutboxes? outboxes = null)
 		{
 			m_inner = inner;
+			m_localGroups = localGroups;
+			m_outboxes = outboxes;
 		}
 
 		public static HubConnectionContext? Get(string connectionId) => s_connections.TryGetValue(connectionId, out HubConnectionContext? context) ? context : null;
@@ -114,7 +119,46 @@ namespace GenOnlineService
 		public override Task OnDisconnectedAsync(HubConnectionContext connection)
 		{
 			s_connections.TryRemove(connection.ConnectionId, out _);
+			m_localGroups?.RemoveConnection(connection.ConnectionId);
+			m_outboxes?.Remove(connection.ConnectionId);
 			return m_inner.OnDisconnectedAsync(connection);
+		}
+
+		// Queues one event for this copy's members of a channel or lobby group except the skipped users, serialized once for all of them and never awaited
+		internal static int WriteLocal(LocalChatGroups groups, ConnectionOutboxes outboxes, string group, string methodName, object? argument, IReadOnlyCollection<long> skipped,
+			Func<HubConnectionContext, SerializedHubMessage, ValueTask>? write = null)
+		{
+			string[] recipients = groups.Recipients(group, skipped);
+			if (recipients.Length == 0)
+			{
+				return 0;
+			}
+
+			Func<HubConnectionContext, SerializedHubMessage, ValueTask> send = write ?? (static (connection, message) => connection.WriteAsync(message));
+			SerializedHubMessage message = new SerializedHubMessage(new InvocationMessage(methodName, new object?[] { argument }));
+			int queued = 0;
+			foreach (string connectionID in recipients)
+			{
+				if (!s_connections.TryGetValue(connectionID, out HubConnectionContext? connection))
+				{
+					// a group call that raced the disconnect left the entry behind
+					groups.RemoveConnection(connectionID);
+					outboxes.Remove(connectionID);
+					continue;
+				}
+
+				if (outboxes.Enqueue(connectionID, () => send(connection, message), connection.Abort))
+				{
+					queued++;
+				}
+
+				// a disconnect between the lookup and the enqueue leaves no outbox behind
+				if (!s_connections.ContainsKey(connectionID))
+				{
+					outboxes.Remove(connectionID);
+				}
+			}
+			return queued;
 		}
 
 		public override Task SendAllAsync(string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendAllAsync(methodName, args, cancellationToken);
@@ -126,8 +170,25 @@ namespace GenOnlineService
 		public override Task SendGroupExceptAsync(string groupName, string methodName, object?[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default) => m_inner.SendGroupExceptAsync(groupName, methodName, args, excludedConnectionIds, cancellationToken);
 		public override Task SendUserAsync(string userId, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendUserAsync(userId, methodName, args, cancellationToken);
 		public override Task SendUsersAsync(IReadOnlyList<string> userIds, string methodName, object?[] args, CancellationToken cancellationToken = default) => m_inner.SendUsersAsync(userIds, methodName, args, cancellationToken);
-		public override Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) => m_inner.AddToGroupAsync(connectionId, groupName, cancellationToken);
-		public override Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) => m_inner.RemoveFromGroupAsync(connectionId, groupName, cancellationToken);
+		// the mirror follows the call order, so an add and a remove fired without awaiting end as they would in the inner manager
+		public override Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+		{
+			// only this copy's connections are mirrored, the inner manager forwards any other to its own copy
+			if (m_localGroups != null && s_connections.TryGetValue(connectionId, out HubConnectionContext? connection))
+			{
+				m_localGroups.Add(connectionId, UserOf(connection), groupName);
+			}
+			return m_inner.AddToGroupAsync(connectionId, groupName, cancellationToken);
+		}
+
+		public override Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+		{
+			m_localGroups?.Remove(connectionId, groupName);
+			return m_inner.RemoveFromGroupAsync(connectionId, groupName, cancellationToken);
+		}
+
+		private static long UserOf(HubConnectionContext connection) => Int64.TryParse(connection.UserIdentifier, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long userID) ? userID : 0;
+
 		public override Task<T> InvokeConnectionAsync<T>(string connectionId, string methodName, object?[] args, CancellationToken cancellationToken) => m_inner.InvokeConnectionAsync<T>(connectionId, methodName, args, cancellationToken);
 		public override Task SetConnectionResultAsync(string connectionId, CompletionMessage result) => m_inner.SetConnectionResultAsync(connectionId, result);
 		public override bool TryGetReturnType(string invocationId, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Type? type) => m_inner.TryGetReturnType(invocationId, out type);
