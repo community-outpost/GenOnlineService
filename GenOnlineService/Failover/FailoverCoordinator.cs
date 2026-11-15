@@ -26,6 +26,7 @@ namespace GenOnlineService.Failover
 		Active,
 		HandingOver,
 		Draining,
+		Target,
 		Stopped
 	}
 
@@ -45,8 +46,11 @@ namespace GenOnlineService.Failover
 		Task<long?> TryTakeAsync(string copyID, int leaseMs, CancellationToken cancellationToken);
 		Task<bool> RenewAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken);
 		Task AnnounceStandbyAsync(string copyID, int leaseMs, CancellationToken cancellationToken);
-		Task<Database.Lease.Handover?> HandOverAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken);
-		Task<long?> ReclaimAsync(string copyID, Database.Lease.Handover handover, int leaseMs, CancellationToken cancellationToken);
+		Task<string?> BeginHandoverAsync(string copyID, long epoch, CancellationToken cancellationToken);
+		Task<bool> ConfirmHandoverAsync(string copyID, CancellationToken cancellationToken);
+		Task<bool> TargetAliveAsync(string copyID, long epoch, string target, CancellationToken cancellationToken);
+		Task<long?> CancelHandoverAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken);
+		Task<Database.Lease.Handover?> CompleteHandoverAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken);
 		Task ReleaseAsync(string copyID, long epoch, CancellationToken cancellationToken);
 		Task ClearHandoverRequestAsync(string copyID, long epoch, CancellationToken cancellationToken);
 	}
@@ -66,6 +70,16 @@ namespace GenOnlineService.Failover
 		Task<int> EndIdleSessionsAsync();
 	}
 
+	// The live state steps of a planned handover between the overlap and the batches, build step 4
+	public interface IHandoverMover
+	{
+		// Moves the queue, then the lobbies one by one when quiet or at the limit, false when the target stopped answering
+		Task<bool> MoveAsync(string target, long limitAtMs, Func<long> clockMs, Func<Task<bool>> targetAlive);
+
+		// Reads what the target owns before a cancel, the take back restores it
+		Task PrepareTakeBackAsync(string target);
+	}
+
 	// Holds, renews, takes and hands over the realtime lease of docs/realtime-failover.md and closes this copy's connections when it loses it
 	public sealed class FailoverCoordinator
 	{
@@ -80,14 +94,15 @@ namespace GenOnlineService.Failover
 		private int m_role = (int)FailoverRole.Standby;
 		private long m_epoch;
 		private long m_deadline;
+		private long m_targetDeadline;
 		private long m_lastRenewStart;
 		private long m_lastStoreWarning = long.MinValue;
 		private int m_handoverRequested;
+		private Task m_closing = Task.CompletedTask;
+		private Task<bool>? m_handover;
 
 		// Set once a take failed because another copy held the lease, so a later take follows a failure of that holder
 		private bool m_watchedHolder;
-		private Task m_closing = Task.CompletedTask;
-		private Task<bool>? m_handover;
 
 		public FailoverCoordinator(FailoverSettings settings, string copyID, ILeaseStore store, IConnectionDrain drain, Func<long>? clockMs = null)
 		{
@@ -108,26 +123,39 @@ namespace GenOnlineService.Failover
 		// A standby announces itself only while this holds, build step 3 makes it the in sync check of the live state
 		public Func<bool> StandbyReady { get; set; } = () => true;
 
+		// Runs when the copy stops owning anything, before its connections close, so nothing of it is finalized next to the new owner
+		public Action? Fencing { get; set; }
+
+		// The live state moves of a planned handover, none without live state
+		public IHandoverMover? Mover { get; set; }
+
 		// The connections closed after a lost lease, tests wait on it
 		internal Task Closing => Volatile.Read(ref m_closing);
 
 		private bool HoldsLease => m_clock() < Interlocked.Read(ref m_deadline);
 
-		// Ready on the holder until its own deadline and during the overlap until the target took over, the deadline makes a stalled loop stop serving too
+		private bool TargetValid => m_clock() < Interlocked.Read(ref m_targetDeadline);
+
+		private static bool IsHolderRole(FailoverRole role) => role is FailoverRole.Active or FailoverRole.HandingOver or FailoverRole.Draining;
+
+		// Ready on the holder until its own deadline, also while the handover waits for its target, and on the target during the overlap
 		public bool IsReady => Role switch
 		{
-			FailoverRole.Active => HoldsLease,
-			FailoverRole.HandingOver => true,
+			FailoverRole.Active or FailoverRole.HandingOver => HoldsLease,
+			FailoverRole.Target => TargetValid,
 			_ => false
 		};
 
-		// A copy that must not act: a standby, a stopped copy, or a holder past its own deadline. The handover overlap still serves its connections.
+		// A copy that must not act: a standby, a stopped copy, a holder past its own deadline, or a target that lost sight of the lease row
 		public bool IsFenced => Role switch
 		{
-			FailoverRole.Active => !HoldsLease,
-			FailoverRole.HandingOver or FailoverRole.Draining => false,
+			FailoverRole.Active or FailoverRole.HandingOver or FailoverRole.Draining => !HoldsLease,
+			FailoverRole.Target => !TargetValid,
 			_ => true
 		};
+
+		// True while this copy may write the live state it owns
+		public bool OwnsState => (Role is FailoverRole.Active or FailoverRole.HandingOver or FailoverRole.Draining or FailoverRole.Target) && !IsFenced;
 
 		private void SetRole(FailoverRole role) => Volatile.Write(ref m_role, (int)role);
 
@@ -139,7 +167,7 @@ namespace GenOnlineService.Failover
 			return source;
 		}
 
-		// One lease step: the holder renews and looks for an operator handover, a standby announces itself and takes an expired or handed lease
+		// One lease step: the holder renews, also during its handover, a standby announces itself and takes an expired lease, a target follows the handover
 		public async Task TickAsync(CancellationToken cancellationToken = default)
 		{
 			await m_lock.WaitAsync(cancellationToken);
@@ -148,10 +176,15 @@ namespace GenOnlineService.Failover
 				switch (Role)
 				{
 					case FailoverRole.Active:
+					case FailoverRole.HandingOver:
+					case FailoverRole.Draining:
 						await RenewStepAsync(cancellationToken);
 						break;
 					case FailoverRole.Standby:
 						await StandbyStepAsync(cancellationToken);
+						break;
+					case FailoverRole.Target:
+						await TargetStepAsync(cancellationToken);
 						break;
 				}
 			}
@@ -164,9 +197,14 @@ namespace GenOnlineService.Failover
 		// Runs apart from the loop, so a renewal that hangs on the database still fences the copy at its deadline
 		public void CheckDeadline()
 		{
-			if (Role == FailoverRole.Active && !HoldsLease)
+			FailoverRole role = Role;
+			if (IsHolderRole(role) && !HoldsLease)
 			{
 				Lose("no renewal succeeded before the lease deadline");
+			}
+			else if (role == FailoverRole.Target && !TargetValid)
+			{
+				StepDown("the lease row could not be read during the handover");
 			}
 		}
 
@@ -213,9 +251,13 @@ namespace GenOnlineService.Failover
 				AppMetrics.RecordFailoverLease("renewed_late");
 			}
 			m_lastRenewStart = start;
-			if (Role == FailoverRole.Active)
+			if (IsHolderRole(Role))
 			{
 				Interlocked.Exchange(ref m_deadline, start + m_settings.LeaseMs);
+			}
+			if (Role != FailoverRole.Active)
+			{
+				return;
 			}
 
 			// one interval at most, so the next renewal starts in time
@@ -238,19 +280,35 @@ namespace GenOnlineService.Failover
 		{
 			try
 			{
-				// a lease handed to this copy is confirmed with a renewal, which also starts its own deadline
 				RealtimeLease? lease;
+				long start = m_clock();
 				using (CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken))
 				{
 					lease = await m_store.ReadAsync(timeout.Token);
 				}
+
+				// a lease handed to this copy is confirmed with a renewal, which also starts its own deadline
 				if (lease != null && lease.Holder == CopyID)
 				{
-					long start = m_clock();
 					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken);
 					if (await m_store.RenewAsync(CopyID, lease.Epoch, m_settings.LeaseMs, timeout.Token))
 					{
 						BecomeActive(lease.Epoch, start, "handed over", FailoverActivation.HandedOver);
+					}
+					return;
+				}
+
+				// the holder starts a handover to this copy: it confirms and serves next to the holder until the lease moves
+				if (lease != null && lease.HandoverTarget == CopyID)
+				{
+					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken);
+					if (await m_store.ConfirmHandoverAsync(CopyID, timeout.Token))
+					{
+						Interlocked.Exchange(ref m_targetDeadline, start + m_settings.LeaseMs);
+						m_watchedHolder = true;
+						SetRole(FailoverRole.Target);
+						s_log.LogInformation("Copy {CopyId} is the handover target of {Holder} and serves", CopyID, lease.Holder);
+						AppMetrics.RecordFailoverLease("target");
 					}
 					return;
 				}
@@ -262,24 +320,72 @@ namespace GenOnlineService.Failover
 					await m_store.AnnounceStandbyAsync(CopyID, m_settings.LeaseMs, timeout.Token);
 				}
 
-				long takeStart = m_clock();
-				long? epoch;
-				using (CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken))
-				{
-					epoch = await m_store.TryTakeAsync(CopyID, m_settings.LeaseMs, timeout.Token);
-				}
-				if (epoch != null)
-				{
-					BecomeActive(epoch.Value, takeStart, m_watchedHolder ? "taken after expiry" : "first take", m_watchedHolder ? FailoverActivation.AfterExpiry : FailoverActivation.FirstTake);
-				}
-				else
-				{
-					m_watchedHolder = true;
-				}
+				await TryTakeAsync(cancellationToken);
 			}
 			catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
 			{
 				WarnStore(ex, "The realtime lease could not be checked");
+			}
+		}
+
+		// The target renews its standby entry so the holder sees it alive, takes the lease when the holder hands it over or dies, and steps down on a cancel
+		private async Task TargetStepAsync(CancellationToken cancellationToken)
+		{
+			try
+			{
+				long start = m_clock();
+				RealtimeLease? lease;
+				using (CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken))
+				{
+					lease = await m_store.ReadAsync(timeout.Token);
+				}
+
+				if (lease != null && lease.Holder == CopyID)
+				{
+					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken);
+					if (await m_store.RenewAsync(CopyID, lease.Epoch, m_settings.LeaseMs, timeout.Token))
+					{
+						BecomeActive(lease.Epoch, start, "handed over", FailoverActivation.HandedOver);
+					}
+					return;
+				}
+
+				if (lease == null || lease.HandoverTarget != CopyID)
+				{
+					StepDown("the holder cancelled the handover");
+					return;
+				}
+
+				Interlocked.Exchange(ref m_targetDeadline, start + m_settings.LeaseMs);
+				using (CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken))
+				{
+					await m_store.AnnounceStandbyAsync(CopyID, m_settings.LeaseMs, timeout.Token);
+				}
+
+				// a holder that dies during the handover lets its lease expire, the target then owns everything
+				await TryTakeAsync(cancellationToken);
+			}
+			catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+			{
+				WarnStore(ex, "The realtime lease could not be checked during the handover");
+			}
+		}
+
+		private async Task TryTakeAsync(CancellationToken cancellationToken)
+		{
+			long takeStart = m_clock();
+			long? epoch;
+			using (CancellationTokenSource timeout = Bounded(m_settings.LeaseMs, cancellationToken))
+			{
+				epoch = await m_store.TryTakeAsync(CopyID, m_settings.LeaseMs, timeout.Token);
+			}
+			if (epoch != null)
+			{
+				BecomeActive(epoch.Value, takeStart, m_watchedHolder ? "taken after expiry" : "first take", m_watchedHolder ? FailoverActivation.AfterExpiry : FailoverActivation.FirstTake);
+			}
+			else
+			{
+				m_watchedHolder = true;
 			}
 		}
 
@@ -302,17 +408,52 @@ namespace GenOnlineService.Failover
 			AppMetrics.RecordFailoverLease("acquired");
 		}
 
+		private void RunFencing()
+		{
+			try
+			{
+				Fencing?.Invoke();
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Dropping the state of copy {CopyId} failed", CopyID);
+			}
+		}
+
 		// Stops serving at once and closes every connection, so a paused or cut off copy never acts next to the new active copy
 		private void Lose(string reason)
 		{
 			// the loop and the deadline check may both get here, only one closes
-			if (Interlocked.CompareExchange(ref m_role, (int)FailoverRole.Standby, (int)FailoverRole.Active) != (int)FailoverRole.Active)
+			while (true)
 			{
-				return;
+				int role = Volatile.Read(ref m_role);
+				if (!IsHolderRole((FailoverRole)role))
+				{
+					return;
+				}
+				if (Interlocked.CompareExchange(ref m_role, (int)FailoverRole.Standby, role) == role)
+				{
+					break;
+				}
 			}
 			Interlocked.Exchange(ref m_deadline, 0);
 			s_log.LogWarning("Realtime lease lost by copy {CopyId} with epoch {Epoch}: {Reason}. Closing every connection with {CloseCode}.", CopyID, Epoch, reason, CloseCodes.ServerRestarting);
 			AppMetrics.RecordFailoverLease("lost");
+			RunFencing();
+			Volatile.Write(ref m_closing, CloseAllObservedAsync(CloseCodes.ServerRestarting));
+		}
+
+		// A target whose handover was cancelled or that lost sight of the lease row stops serving, its players go back to the holder
+		private void StepDown(string reason)
+		{
+			if (Interlocked.CompareExchange(ref m_role, (int)FailoverRole.Standby, (int)FailoverRole.Target) != (int)FailoverRole.Target)
+			{
+				return;
+			}
+			Interlocked.Exchange(ref m_targetDeadline, 0);
+			s_log.LogWarning("Copy {CopyId} stops serving as handover target: {Reason}. Closing every connection with {CloseCode}.", CopyID, reason, CloseCodes.ServerRestarting);
+			AppMetrics.RecordFailoverLease("target_stepped_down");
+			RunFencing();
 			Volatile.Write(ref m_closing, CloseAllObservedAsync(CloseCodes.ServerRestarting));
 		}
 
@@ -344,25 +485,25 @@ namespace GenOnlineService.Failover
 		// Takes and consumes an operator handover request seen by the last renewal
 		internal bool TakeHandoverRequest() => Interlocked.Exchange(ref m_handoverRequested, 0) == 1;
 
-		// The lease loop with its deadline check, an operator handover that ends on the standby asks the host to stop
+		// The lease loop with its deadline check, it keeps renewing while an operator handover runs, which asks the host to stop when it ends on the target
 		public async Task RunAsync(Action stopApplication, CancellationToken stopping)
 		{
 			s_log.LogInformation("Realtime failover on: copy {CopyId}, renewal every {IntervalMs} ms, lease {LeaseMs} ms", CopyID, m_settings.RenewIntervalMs, m_settings.LeaseMs);
 			int period = Math.Max(10, Math.Min(100, m_settings.RenewIntervalMs / 2));
 			using Timer watchdog = new(_ => CheckDeadline(), null, period, period);
+			Task<bool>? operatorHandover = null;
 			while (!stopping.IsCancellationRequested && Role != FailoverRole.Stopped)
 			{
 				try
 				{
 					await TickAsync(stopping);
-					if (TakeHandoverRequest())
+					if (operatorHandover == null && TakeHandoverRequest())
 					{
-						if (await HandOverAsync(closeWithoutStandby: false))
-						{
-							s_log.LogInformation("Copy {CopyId} handed over on the operator command and stops", CopyID);
-							stopApplication();
-							return;
-						}
+						operatorHandover = HandOverAsync(closeWithoutStandby: false);
+					}
+					if (operatorHandover?.IsCompleted == true && !operatorHandover.Result)
+					{
+						operatorHandover = null;
 					}
 					await Task.Delay(m_settings.RenewIntervalMs, stopping);
 				}
@@ -375,6 +516,12 @@ namespace GenOnlineService.Failover
 					s_log.LogError(ex, "Realtime lease loop step failed on copy {CopyId}", CopyID);
 					await Task.Delay(m_settings.RenewIntervalMs, CancellationToken.None);
 				}
+			}
+
+			if (operatorHandover != null && await operatorHandover)
+			{
+				s_log.LogInformation("Copy {CopyId} handed over on the operator command and stops", CopyID);
+				stopApplication();
 			}
 		}
 
@@ -392,7 +539,7 @@ namespace GenOnlineService.Failover
 				return;
 			}
 
-			// a target that never confirmed gave the lease back, so the stopping copy still closes and releases it
+			// a cancelled handover leaves this copy the holder, so the stopping copy still closes and releases the lease
 			long epoch;
 			await m_lock.WaitAsync();
 			try
@@ -411,13 +558,11 @@ namespace GenOnlineService.Failover
 			await CloseWithoutStandbyAsync(epoch, m_drain.OpenConnections);
 		}
 
-		// The planned switch: B becomes ready first, then this copy reports not ready and switches its connections over in batches.
-		// Without a live standby a shutdown closes every connection with server.restarting, an operator request changes nothing.
-		// A target that never confirms, or whose lease lapses during the drain, cancels the switch and this copy takes the lease back.
-		// True when the lease went to a standby.
+		// The planned handover: the lease stays here until the target confirmed, the live state moved and every connection switched, true when it went to the target.
+		// Without a live standby a shutdown closes everything with server.restarting, a target that stops answering cancels it with the next epoch.
 		public async Task<bool> HandOverAsync(bool closeWithoutStandby)
 		{
-			Database.Lease.Handover? handover;
+			string? target;
 			long epoch;
 			int connections = m_drain.OpenConnections;
 			TaskCompletionSource<bool> done;
@@ -439,22 +584,22 @@ namespace GenOnlineService.Failover
 				try
 				{
 					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs);
-					handover = await m_store.HandOverAsync(CopyID, epoch, m_settings.LeaseMs, timeout.Token);
+					target = await m_store.BeginHandoverAsync(CopyID, epoch, timeout.Token);
 				}
 				catch (Exception ex)
 				{
-					s_log.LogError(ex, "Handing the realtime lease over failed on copy {CopyId}", CopyID);
-					handover = null;
+					s_log.LogError(ex, "Starting the handover failed on copy {CopyId}", CopyID);
+					target = null;
 				}
 
-				if (handover == null && !closeWithoutStandby)
+				if (target == null && !closeWithoutStandby)
 				{
 					s_log.LogWarning("Handover requested on copy {CopyId} but no live standby waits, the copy keeps serving", CopyID);
 					await IgnoreStoreErrors(token => m_store.ClearHandoverRequestAsync(CopyID, epoch, token));
 					return false;
 				}
 
-				SetRole(handover == null ? FailoverRole.Draining : FailoverRole.HandingOver);
+				SetRole(target == null ? FailoverRole.Draining : FailoverRole.HandingOver);
 				done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 				Volatile.Write(ref m_handover, done.Task);
 			}
@@ -466,7 +611,7 @@ namespace GenOnlineService.Failover
 			bool result = false;
 			try
 			{
-				result = handover == null ? await CloseWithoutStandbyAsync(epoch, connections) : await SwitchToAsync(handover, connections);
+				result = target == null ? await CloseWithoutStandbyAsync(epoch, connections) : await RunHandoverAsync(target, connections);
 				return result;
 			}
 			finally
@@ -484,37 +629,57 @@ namespace GenOnlineService.Failover
 			return false;
 		}
 
-		private async Task<bool> SwitchToAsync(Database.Lease.Handover handover, int connections)
+		private bool Draining => Role == FailoverRole.Draining;
+
+		private async Task<bool> RunHandoverAsync(string target, int connections)
 		{
 			long started = m_clock();
-			s_log.LogInformation("Handover from copy {CopyId} to {Target} with epoch {Epoch} started, {Count} connections", CopyID, handover.Target, handover.Epoch, connections);
-			AppMetrics.RecordFailoverLease("handed_over");
+			s_log.LogInformation("Handover from copy {CopyId} to {Target} started with epoch {Epoch}, {Count} connections", CopyID, target, Epoch, connections);
 
-			if (!await WaitForTargetAsync(handover))
+			if (!await WaitForTargetAsync(target))
 			{
-				// a target that renewed meanwhile makes the take back fail, and the switch goes on
-				if (await TakeBackAsync(handover, "the target did not confirm"))
-				{
-					return false;
-				}
-				if (Role != FailoverRole.HandingOver)
-				{
-					return false;
-				}
+				return await CancelAsync(target, "the target did not confirm");
+			}
+			if (Role != FailoverRole.HandingOver)
+			{
+				return false;
 			}
 
 			// not ready from here on, the proxy health check needs a moment to send new connections to the target
 			SetRole(FailoverRole.Draining);
 			await Task.Delay(m_settings.SwitchDelayMs);
-			if (await TakeBackAsync(handover, "the target lease lapsed"))
+			long limit = started + m_settings.HandoverLimitS * 1000L;
+
+			// the queue and the lobbies move before anyone else, so a lobby's members always move together
+			if (Mover != null && Draining)
 			{
-				return false;
+				bool liveMoved;
+				try
+				{
+					liveMoved = await Mover.MoveAsync(target, limit, m_clock, () => TargetAliveAsync(target));
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "Moving the live state from copy {CopyId} to {Target} failed", CopyID, target);
+					liveMoved = false;
+				}
+				if (!Draining)
+				{
+					return false;
+				}
+				if (!liveMoved)
+				{
+					return await CancelAsync(target, "the target stopped taking over the live state");
+				}
+			}
+			else if (!await TargetAliveAsync(target))
+			{
+				return await CancelAsync(target, "the target stopped renewing");
 			}
 
 			int batch = Math.Max(1, (int)Math.Ceiling(Math.Max(connections, m_drain.OpenConnections) * m_settings.BatchPercent / 100.0));
-			long limit = started + m_settings.HandoverLimitS * 1000L;
 			int moved = 0;
-			while (true)
+			while (Draining)
 			{
 				bool late = m_clock() >= limit;
 				int switched = await m_drain.SwitchAsync(late ? int.MaxValue : batch, NextRetryAfterMs);
@@ -528,34 +693,71 @@ namespace GenOnlineService.Failover
 					break;
 				}
 				await Task.Delay(m_settings.BatchIntervalMs);
-				if (await TakeBackAsync(handover, "the target lease lapsed"))
+				if (!await TargetAliveAsync(target))
 				{
-					return false;
+					return await CancelAsync(target, "the target stopped renewing");
 				}
+			}
+			if (!Draining)
+			{
+				return false;
 			}
 
 			// connections that opened during the last batch get ServerSwitching too, then the sessions inside their reconnect grace end
 			moved += await m_drain.SwitchAsync(int.MaxValue, NextRetryAfterMs);
 			await m_drain.EndIdleSessionsAsync();
 
+			// this copy holds no connection and owns nothing, the lease moves last
+			Database.Lease.Handover? handover;
+			await m_lock.WaitAsync();
+			try
+			{
+				if (!Draining)
+				{
+					return false;
+				}
+				try
+				{
+					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs);
+					handover = await m_store.CompleteHandoverAsync(CopyID, Epoch, m_settings.LeaseMs, timeout.Token);
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "Handing the realtime lease to {Target} failed on copy {CopyId}", target, CopyID);
+					handover = null;
+				}
+				if (handover != null)
+				{
+					SetRole(FailoverRole.Stopped);
+				}
+			}
+			finally
+			{
+				m_lock.Release();
+			}
+			if (handover == null)
+			{
+				return await CancelAsync(target, "the target was gone when the lease was to move");
+			}
+
 			long elapsed = m_clock() - started;
-			SetRole(FailoverRole.Stopped);
+			AppMetrics.RecordFailoverLease("handed_over");
 			AppMetrics.RecordFailoverHandover(TimeSpan.FromMilliseconds(elapsed));
-			s_log.LogInformation("Handover from copy {CopyId} to {Target} ended after {ElapsedMs} ms, {Moved} connections switched", CopyID, handover.Target, elapsed, moved);
+			s_log.LogInformation("Handover from copy {CopyId} to {Target} ended after {ElapsedMs} ms, {Moved} connections switched, the lease has epoch {Epoch}", CopyID, target, elapsed, moved, handover.Epoch);
 			return true;
 		}
 
-		// The target confirms with its own renewal, false when it did not within one lease period
-		private async Task<bool> WaitForTargetAsync(Database.Lease.Handover handover)
+		// The target confirms within one lease period
+		private async Task<bool> WaitForTargetAsync(string target)
 		{
 			long until = m_clock() + m_settings.LeaseMs;
-			while (m_clock() < until)
+			while (m_clock() < until && Role == FailoverRole.HandingOver)
 			{
 				try
 				{
 					using CancellationTokenSource timeout = Bounded(m_settings.RenewIntervalMs);
 					RealtimeLease? lease = await m_store.ReadAsync(timeout.Token);
-					if (lease != null && lease.Holder == handover.Target && lease.Epoch == handover.Epoch && lease.ExpiresAt > handover.ExpiresAt)
+					if (lease != null && lease.Holder == CopyID && lease.HandoverTarget == target && lease.HandoverConfirmedAt != null)
 					{
 						return true;
 					}
@@ -569,34 +771,79 @@ namespace GenOnlineService.Failover
 			return false;
 		}
 
-		// Takes the lease back from a target that never renewed it or whose lease lapsed, with the next epoch, and serves the open connections again.
-		// A database error leaves the outcome unknown, so the copy then stops serving and closes everything.
-		private async Task<bool> TakeBackAsync(Database.Lease.Handover handover, string why)
+		// A database error counts as alive, a lasting one fences this copy through its own renewal
+		private async Task<bool> TargetAliveAsync(string target)
 		{
-			long start = m_clock();
-			long? epoch;
 			try
 			{
-				using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs);
-				epoch = await m_store.ReclaimAsync(CopyID, handover, m_settings.LeaseMs, timeout.Token);
+				using CancellationTokenSource timeout = Bounded(m_settings.RenewIntervalMs);
+				return await m_store.TargetAliveAsync(CopyID, Epoch, target, timeout.Token);
 			}
 			catch (Exception ex)
 			{
-				s_log.LogError(ex, "Copy {CopyId} could not check the handover target {Target}, closing every connection with {CloseCode}", CopyID, handover.Target, CloseCodes.ServerRestarting);
-				SetRole(FailoverRole.Standby);
-				Volatile.Write(ref m_closing, CloseAllObservedAsync(CloseCodes.ServerRestarting));
+				WarnStore(ex, "Checking the handover target failed");
 				return true;
 			}
+		}
 
-			if (epoch == null)
+		// Ends the handover with the next epoch and serves again with what the target owned, a database error closes everything since the outcome is unknown
+		private async Task<bool> CancelAsync(string target, string why)
+		{
+			if (Role is not (FailoverRole.HandingOver or FailoverRole.Draining))
 			{
 				return false;
 			}
+			if (Mover != null)
+			{
+				try
+				{
+					await Mover.PrepareTakeBackAsync(target);
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "Reading what the handover target {Target} owns failed on copy {CopyId}", target, CopyID);
+				}
+			}
 
-			s_log.LogWarning("Handover from copy {CopyId} to {Target} cancelled: {Why}. The copy took the lease back and serves its open connections again.", CopyID, handover.Target, why);
-			AppMetrics.RecordFailoverLease("handover_cancelled");
-			BecomeActive(epoch.Value, start, "taken back from " + handover.Target, FailoverActivation.TakenBack);
-			return true;
+			await m_lock.WaitAsync();
+			try
+			{
+				if (Role is not (FailoverRole.HandingOver or FailoverRole.Draining))
+				{
+					return false;
+				}
+				long start = m_clock();
+				long? epoch;
+				try
+				{
+					using CancellationTokenSource timeout = Bounded(m_settings.LeaseMs);
+					epoch = await m_store.CancelHandoverAsync(CopyID, Epoch, m_settings.LeaseMs, timeout.Token);
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "Copy {CopyId} could not cancel the handover to {Target}, closing every connection with {CloseCode}", CopyID, target, CloseCodes.ServerRestarting);
+					SetRole(FailoverRole.Standby);
+					Interlocked.Exchange(ref m_deadline, 0);
+					RunFencing();
+					Volatile.Write(ref m_closing, CloseAllObservedAsync(CloseCodes.ServerRestarting));
+					return false;
+				}
+
+				if (epoch == null)
+				{
+					Lose("the lease moved during the handover");
+					return false;
+				}
+
+				s_log.LogWarning("Handover from copy {CopyId} to {Target} cancelled: {Why}. The copy takes back what the target owned and serves again.", CopyID, target, why);
+				AppMetrics.RecordFailoverLease("handover_cancelled");
+				BecomeActive(epoch.Value, start, "taken back from " + target, FailoverActivation.TakenBack);
+				return false;
+			}
+			finally
+			{
+				m_lock.Release();
+			}
 		}
 
 		private int NextRetryAfterMs() => Random.Shared.Next(m_settings.SwitchRetryMinMs, m_settings.SwitchRetryMaxMs + 1);

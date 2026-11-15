@@ -122,7 +122,8 @@ public partial class LobbyManager
 		{
 			try
 			{
-				if (gameplay) await membershipConnections.DeleteRelayCredentialsAsync(session.m_UserID);
+				// a player switching to another copy keeps its relay credentials, a running match goes on there, and a fenced copy leaves them to the copy that serves now
+				if (gameplay && !session.KeepRelayCredentials && !GenOnlineService.Failover.RealtimeFailover.Fenced) await membershipConnections.DeleteRelayCredentialsAsync(session.m_UserID);
 			}
 			finally
 			{

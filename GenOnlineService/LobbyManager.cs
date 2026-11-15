@@ -1328,6 +1328,12 @@ public async Task FinalizeACChecks()
 
 		public async Task Tick()
 		{
+			// a lobby handed to another copy is frozen from its final capture on, its countdown and checks go on there or after a cancel
+			if (IsMovingAway)
+			{
+				return;
+			}
+
 			await ProcessPendingFullMeshConnectivityChecks();
 			await ProcessStartCountdown();
 

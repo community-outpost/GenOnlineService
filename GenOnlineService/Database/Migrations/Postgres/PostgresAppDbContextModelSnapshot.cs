@@ -1436,9 +1436,18 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
+                    b.Property<DateTime?>("HandoverConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("handover_confirmed_at");
+
                     b.Property<DateTime?>("HandoverRequestedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("handover_requested_at");
+
+                    b.Property<string>("HandoverTarget")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("handover_target");
 
                     b.Property<string>("Holder")
                         .IsRequired()

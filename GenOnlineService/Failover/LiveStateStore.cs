@@ -21,30 +21,139 @@ using System.Globalization;
 
 namespace GenOnlineService.Failover
 {
-	// One change the writer sends: a set with the envelope, a delete, or the reset a new owner starts with
-	public sealed record LiveWrite(LiveOp Op, string Key, long Seq, long Version, string? Body);
+	// One change the writer sends: the owner epoch it holds and, for a transfer, the new owner
+	public sealed record LiveWrite(LiveOp Op, string Key, long Epoch, string? Target, long Version, string? Body);
+
+	// Accepted with the entity's owner epoch after the change, or refused because another owner or a newer epoch holds it
+	public sealed record LiveWriteResult(bool Accepted, long Epoch);
+
+	// Which entities a claim takes: all that another copy owns (a takeover) or those of one owner (a take back)
+	public enum LiveClaim
+	{
+		NotMine,
+		OwnedBy
+	}
 
 	// The live state in Redis, behind an interface so the writer and the follower run without Redis in tests
 	public interface ILiveStateStore
 	{
-		// Sends the writes of one owner in order as one pipelined batch
-		Task WriteAsync(string copy, long epoch, IReadOnlyList<LiveWrite> writes);
+		// Each write is compared with the stored owner epoch, a refused write changes nothing
+		Task<IReadOnlyList<LiveWriteResult>> WriteAsync(string copy, IReadOnlyList<LiveWrite> writes);
 
-		// Every stored entity with the last stream entry and the owner, read in one transaction
+		// Raises the owner epoch of the matching entities and makes the caller their owner, returns the live ones with their new epoch
+		Task<IReadOnlyDictionary<string, long>> ClaimAsync(string copy, LiveClaim mode, string? owner, IReadOnlyList<string> ensure);
+
 		Task<LiveSnapshot> LoadAsync();
 
 		// Up to count entries after the position, oldest first
 		Task<IReadOnlyList<LiveStreamEntry>> ReadAfterAsync(string position, int count);
+
+		// One stored envelope, null when there is none
+		Task<string?> ReadAsync(string key);
+
+		// Forgets the delete markers older than the age, a fenced copy is long gone by then
+		Task PruneAsync(long olderThanMs);
 	}
 
-	// The state hash, the capped change stream and the owner key of one environment
+	// The state hash, the owner epochs, the capped change stream and each copy's write count of one environment.
+	// Every change runs as one Lua script, which Redis executes without any other command in between, so the compare and the write are one step.
 	public sealed class RedisLiveStateStore : ILiveStateStore
 	{
+		// KEYS state, epochs, stream, seqs. ARGV op, key, writer, epoch, target, version, body, maxlen, now.
+		// An entity is written only by its owner at the epoch it holds, an absent one only at epoch 1, a transfer gives it to the target at epoch plus one.
+		// The epochs field is "epoch|owner", a deleted entity keeps "epoch|owner|d|ms" and is never written again.
+		public const string WriteScript = @"
+local cur = redis.call('HGET', KEYS[2], ARGV[2])
+local epoch = tonumber(ARGV[4])
+if cur then
+  local s = string.find(cur, '|', 1, true)
+  local ce = tonumber(string.sub(cur, 1, s - 1))
+  local rest = string.sub(cur, s + 1)
+  local t = string.find(rest, '|', 1, true)
+  local co = rest
+  if t then return {0, ce} end
+  if ce ~= epoch or co ~= ARGV[3] then return {0, ce} end
+elseif epoch ~= 1 then
+  return {0, 0}
+end
+local ne = epoch
+local no = ARGV[3]
+if ARGV[1] == 'transfer' then
+  ne = epoch + 1
+  no = ARGV[5]
+end
+if ARGV[1] == 'del' then
+  redis.call('HDEL', KEYS[1], ARGV[2])
+  redis.call('HSET', KEYS[2], ARGV[2], ne .. '|' .. no .. '|d|' .. ARGV[9])
+else
+  redis.call('HSET', KEYS[1], ARGV[2], ARGV[7])
+  redis.call('HSET', KEYS[2], ARGV[2], ne .. '|' .. no)
+end
+local seq = redis.call('HINCRBY', KEYS[4], ARGV[3], 1)
+redis.call('XADD', KEYS[3], 'MAXLEN', '~', ARGV[8], '*', 'op', ARGV[1], 'key', ARGV[2], 'copy', ARGV[3], 'seq', seq, 'epoch', ne, 'owner', no, 'version', ARGV[6], 'body', ARGV[7])
+return {1, ne}
+";
+
+		// KEYS epochs. ARGV copy, mode (others or owner), owner, then the keys to own even when absent.
+		// The matching entities get the epoch plus one with the caller as owner, deleted ones keep their marker and are not returned.
+		public const string ClaimScript = @"
+local out = {}
+local all = redis.call('HGETALL', KEYS[1])
+local seen = {}
+for i = 1, #all, 2 do
+  local f = all[i]
+  local v = all[i + 1]
+  seen[f] = true
+  local s = string.find(v, '|', 1, true)
+  local ce = tonumber(string.sub(v, 1, s - 1))
+  local rest = string.sub(v, s + 1)
+  local t = string.find(rest, '|', 1, true)
+  local co = rest
+  local mark = ''
+  if t then
+    co = string.sub(rest, 1, t - 1)
+    mark = string.sub(rest, t)
+  end
+  local take = (ARGV[2] == 'others' and co ~= ARGV[1]) or (ARGV[2] == 'owner' and co == ARGV[3])
+  if take then
+    redis.call('HSET', KEYS[1], f, (ce + 1) .. '|' .. ARGV[1] .. mark)
+    if mark == '' then
+      table.insert(out, f)
+      table.insert(out, tostring(ce + 1))
+    end
+  end
+end
+for i = 4, #ARGV do
+  if not seen[ARGV[i]] then
+    redis.call('HSET', KEYS[1], ARGV[i], '1|' .. ARGV[1])
+    table.insert(out, ARGV[i])
+    table.insert(out, '1')
+  end
+end
+return out
+";
+
+		// KEYS epochs. ARGV now, max age. Drops the delete markers older than the age.
+		public const string PruneScript = @"
+local all = redis.call('HGETALL', KEYS[1])
+local removed = 0
+for i = 1, #all, 2 do
+  local v = all[i + 1]
+  local d = string.find(v, '|d|', 1, true)
+  if d and tonumber(ARGV[1]) - tonumber(string.sub(v, d + 3)) > tonumber(ARGV[2]) then
+    redis.call('HDEL', KEYS[1], all[i])
+    removed = removed + 1
+  end
+end
+return removed
+";
+
 		private readonly Func<Task<IConnectionMultiplexer>> m_connect;
 		private readonly int m_streamMaxLength;
 		private readonly RedisKey m_state;
+		private readonly RedisKey m_epochs;
 		private readonly RedisKey m_stream;
-		private readonly RedisKey m_owner;
+		private readonly RedisKey m_seqs;
 
 		public RedisLiveStateStore(Func<Task<IConnectionMultiplexer>> connect, string prefix, int streamMaxLength)
 		{
@@ -52,51 +161,62 @@ namespace GenOnlineService.Failover
 			m_streamMaxLength = streamMaxLength;
 			string root = (prefix.Length > 0 ? prefix + ":" : String.Empty) + "genonline:live:";
 			m_state = root + "state";
+			m_epochs = root + "epochs";
 			m_stream = root + "stream";
-			m_owner = root + "owner";
+			m_seqs = root + "seqs";
 		}
 
 		private async Task<IDatabase> Database() => (await m_connect()).GetDatabase();
 
-		public async Task WriteAsync(string copy, long epoch, IReadOnlyList<LiveWrite> writes)
+		private static string Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
+
+		private static string OpName(LiveOp op) => op switch
+		{
+			LiveOp.Delete => "del",
+			LiveOp.Transfer => "transfer",
+			_ => "set"
+		};
+
+		public async Task<IReadOnlyList<LiveWriteResult>> WriteAsync(string copy, IReadOnlyList<LiveWrite> writes)
 		{
 			IDatabase db = await Database();
 			IBatch batch = db.CreateBatch();
-			List<Task> sent = new(writes.Count * 2 + 1);
-			string epochText = epoch.ToString(CultureInfo.InvariantCulture);
+			RedisKey[] keys = { m_state, m_epochs, m_stream, m_seqs };
+			string now = Now();
+			List<Task<RedisResult>> sent = new(writes.Count);
 			foreach (LiveWrite write in writes)
 			{
-				switch (write.Op)
+				RedisValue[] args =
 				{
-					case LiveOp.Reset:
-						sent.Add(batch.KeyDeleteAsync(m_state));
-						sent.Add(batch.StringSetAsync(m_owner, copy + "|" + epochText));
-						break;
-					case LiveOp.Delete:
-						sent.Add(batch.HashDeleteAsync(m_state, write.Key));
-						break;
-					case LiveOp.Set:
-						sent.Add(batch.HashSetAsync(m_state, write.Key, write.Body));
-						break;
-				}
-
-				List<NameValueEntry> fields = new(7)
-				{
-					new("op", OpName(write.Op)),
-					new("key", write.Key),
-					new("copy", copy),
-					new("epoch", epochText),
-					new("seq", write.Seq.ToString(CultureInfo.InvariantCulture)),
-					new("version", write.Version.ToString(CultureInfo.InvariantCulture))
+					OpName(write.Op), write.Key, copy, write.Epoch.ToString(CultureInfo.InvariantCulture), write.Target ?? String.Empty,
+					write.Version.ToString(CultureInfo.InvariantCulture), write.Body ?? String.Empty, m_streamMaxLength.ToString(CultureInfo.InvariantCulture), now
 				};
-				if (write.Body != null)
-				{
-					fields.Add(new("body", write.Body));
-				}
-				sent.Add(batch.StreamAddAsync(m_stream, fields.ToArray(), maxLength: m_streamMaxLength, useApproximateMaxLength: true));
+				sent.Add(batch.ScriptEvaluateAsync(WriteScript, keys, args));
 			}
 			batch.Execute();
 			await Task.WhenAll(sent);
+
+			List<LiveWriteResult> results = new(sent.Count);
+			foreach (Task<RedisResult> task in sent)
+			{
+				RedisResult[] values = (RedisResult[])task.Result!;
+				results.Add(new LiveWriteResult((long)values[0] == 1, (long)values[1]));
+			}
+			return results;
+		}
+
+		public async Task<IReadOnlyDictionary<string, long>> ClaimAsync(string copy, LiveClaim mode, string? owner, IReadOnlyList<string> ensure)
+		{
+			IDatabase db = await Database();
+			List<RedisValue> args = new() { copy, mode == LiveClaim.NotMine ? "others" : "owner", owner ?? String.Empty };
+			args.AddRange(ensure.Select(key => (RedisValue)key));
+			RedisResult[] values = (RedisResult[])(await db.ScriptEvaluateAsync(ClaimScript, new RedisKey[] { m_epochs }, args.ToArray()))!;
+			Dictionary<string, long> claimed = new(StringComparer.Ordinal);
+			for (int i = 0; i + 1 < values.Length; i += 2)
+			{
+				claimed[values[i].ToString()!] = Int64.Parse(values[i + 1].ToString()!, CultureInfo.InvariantCulture);
+			}
+			return claimed;
 		}
 
 		public async Task<LiveSnapshot> LoadAsync()
@@ -104,8 +224,8 @@ namespace GenOnlineService.Failover
 			IDatabase db = await Database();
 			ITransaction transaction = db.CreateTransaction();
 			Task<HashEntry[]> state = transaction.HashGetAllAsync(m_state);
+			Task<HashEntry[]> seqs = transaction.HashGetAllAsync(m_seqs);
 			Task<StreamEntry[]> last = transaction.StreamRangeAsync(m_stream, "-", "+", 1, Order.Descending);
-			Task<RedisValue> owner = transaction.StringGetAsync(m_owner);
 			if (!await transaction.ExecuteAsync())
 			{
 				throw new InvalidOperationException("The live state transaction did not run.");
@@ -116,45 +236,34 @@ namespace GenOnlineService.Failover
 			{
 				entities[entry.Name.ToString()] = entry.Value.ToString();
 			}
-
-			StreamEntry[] lastEntries = await last;
-			LiveStreamEntry? lastEntry = lastEntries.Length > 0 ? Parse(lastEntries[0]) : null;
-
-			string? ownerCopy = null;
-			long ownerEpoch = 0;
-			RedisValue ownerValue = await owner;
-			if (ownerValue.HasValue)
+			Dictionary<string, long> counts = new(StringComparer.Ordinal);
+			foreach (HashEntry entry in await seqs)
 			{
-				string text = ownerValue.ToString();
-				int split = text.LastIndexOf('|');
-				if (split > 0 && Int64.TryParse(text.AsSpan(split + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed))
-				{
-					ownerCopy = text.Substring(0, split);
-					ownerEpoch = parsed;
-				}
+				counts[entry.Name.ToString()] = (long)entry.Value;
 			}
-
-			return new LiveSnapshot(entities, lastEntry, ownerCopy, ownerEpoch);
+			StreamEntry[] lastEntries = await last;
+			return new LiveSnapshot(entities, counts, lastEntries.Length > 0 ? lastEntries[0].Id.ToString() : "0-0");
 		}
 
 		public async Task<IReadOnlyList<LiveStreamEntry>> ReadAfterAsync(string position, int count)
 		{
 			IDatabase db = await Database();
 			StreamEntry[] entries = await db.StreamReadAsync(m_stream, position, count);
-			List<LiveStreamEntry> parsed = new(entries.Length);
-			foreach (StreamEntry entry in entries)
-			{
-				parsed.Add(Parse(entry));
-			}
-			return parsed;
+			return entries.Select(Parse).ToList();
 		}
 
-		private static string OpName(LiveOp op) => op switch
+		public async Task<string?> ReadAsync(string key)
 		{
-			LiveOp.Reset => "reset",
-			LiveOp.Delete => "del",
-			_ => "set"
-		};
+			IDatabase db = await Database();
+			RedisValue value = await db.HashGetAsync(m_state, key);
+			return value.HasValue ? value.ToString() : null;
+		}
+
+		public async Task PruneAsync(long olderThanMs)
+		{
+			IDatabase db = await Database();
+			await db.ScriptEvaluateAsync(PruneScript, new RedisKey[] { m_epochs }, new RedisValue[] { Now(), olderThanMs });
+		}
 
 		// An unknown op of a later version reads as a set without a body, which changes nothing but keeps the sequence
 		private static LiveStreamEntry Parse(StreamEntry entry)
@@ -164,12 +273,12 @@ namespace GenOnlineService.Failover
 
 			LiveOp op = Field("op") switch
 			{
-				"reset" => LiveOp.Reset,
 				"del" => LiveOp.Delete,
+				"transfer" => LiveOp.Transfer,
 				_ => LiveOp.Set
 			};
-			RedisValue body = entry["body"];
-			return new LiveStreamEntry(entry.Id.ToString(), op, Field("key"), Field("copy"), Number("epoch"), Number("seq"), Number("version"), body.HasValue ? body.ToString() : null);
+			string body = Field("body");
+			return new LiveStreamEntry(entry.Id.ToString(), op, Field("key"), Field("copy"), Number("seq"), Number("epoch"), Field("owner"), Number("version"), body.Length > 0 ? body : null);
 		}
 	}
 }

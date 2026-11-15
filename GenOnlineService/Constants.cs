@@ -509,8 +509,12 @@ namespace GenOnlineService
 				}
 			}
 
-			// friends see the session type disappear, or the user go offline with the last one
-			RealtimeHub.PublishPresence(session.m_UserID);
+			// friends see the session type disappear, or the user go offline with the last one, a switch to another copy shows no change,
+			// and a fenced copy leaves presence to the copy that serves now, where the user reconnects
+			if (!session.SwitchingAway && !GenOnlineService.Failover.RealtimeFailover.Fenced)
+			{
+				RealtimeHub.PublishPresence(session.m_UserID);
+			}
 			Console.Title = $"GenOnline - {GetNumberOfUsersOnline()} players";
 			return true;
 		}
@@ -933,6 +937,12 @@ namespace GenOnlineService
 		public long MatchmakingStartedTimestamp = 0;
 		public ConcurrentList<int> MatchmakingMapIndicies = new();
 		internal bool IsRegisteredForMatchmaking { get; set; } = false;
+
+		// Set when a planned handover sends this session with an open connection to another copy that keeps its seat or ticket, friends see no change
+		internal volatile bool SwitchingAway;
+
+		// Set for every session a planned handover sends to a copy that keeps its seat or ticket, its end here keeps the relay credentials
+		internal volatile bool KeepRelayCredentials;
 		internal SemaphoreSlim MatchmakingStateLock { get; } = new(1, 1);
 
 		// The build of the queue registration, set when the player joins the matchmaking queue

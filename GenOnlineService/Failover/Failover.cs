@@ -40,8 +40,13 @@ namespace GenOnlineService.Failover
 		public int SwitchRetryMinMs { get; init; } = 250;
 		public int SwitchRetryMaxMs { get; init; } = 1000;
 
-		// The longest a handover runs: the drain limit, the bounded handover statement, the wait for the target and a take back, the switch delay and the last batch
-		public int HandoverBudgetMs => HandoverLimitS * 1000 + LeaseMs * 3 + SwitchDelayMs + 5000;
+		// The longest a handover runs: the drain limit, the bounded statements, the wait for the target and a cancel, the switch delay, the queue move
+		// and the forced lobby moves at the limit (each waits up to two lease periods for the target, ForcedMoveRounds rounds of them), and the last batch
+		public int HandoverBudgetMs => HandoverLimitS * 1000 + LeaseMs * 3 + SwitchDelayMs + LeaseMs * 2 * (1 + ForcedMoveRounds) + 5000;
+
+		// How many forced moves run at once at the limit, and how many rounds of them the budget allows
+		public const int ForcedMoveConcurrency = 8;
+		public const int ForcedMoveRounds = 4;
 
 		public const string PostgresOnly = "Realtime:failover:enabled is true, but more than one service copy (failover and handover) is supported on PostgreSQL only. Set Database:db_provider to postgres or Realtime:failover:enabled to false.";
 
@@ -136,5 +141,23 @@ namespace GenOnlineService.Failover
 		}
 
 		public const string StandbyWhat = "standby";
+
+		private static ISessionSwitcher? s_switcher;
+
+		internal static void InstallSwitcher(ISessionSwitcher? switcher) => Volatile.Write(ref s_switcher, switcher);
+
+		// Switches one session to the target shortly after its refused call answered
+		public static void SwitchSoon(UserSession session)
+		{
+			ISessionSwitcher? switcher = Volatile.Read(ref s_switcher);
+			if (switcher != null)
+			{
+				_ = Task.Run(async () =>
+				{
+					await Task.Delay(100);
+					await switcher.SwitchSessionsAsync(new[] { session }, kept: false);
+				});
+			}
+		}
 	}
 }

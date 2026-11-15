@@ -1162,8 +1162,8 @@ namespace GenOnlineService
 			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);
 
 			// Realtime:failover holds the lease of docs/realtime-failover.md. The host waits the handover budget plus 10 s on shutdown:
-			// handover_limit_s, three lease periods for the bounded statements and waits, the switch delay and 5 s for the last batch
-			// (133.5 s with the defaults). A handover cancelled during the shutdown and started again can exceed it, the host then aborts what is left.
+			// handover_limit_s, three lease periods for the bounded statements and waits, the switch delay, ten lease periods for the queue move
+			// and the forced lobby moves, and 5 s for the last batch (168.5 s with the defaults). A handover cancelled during the shutdown and started again can exceed it, the host then aborts what is left.
 			GenOnlineService.Failover.FailoverSettings failoverSettings = GenOnlineService.Failover.FailoverSettings.Read(builder.Configuration);
 			if (failoverSettings.Enabled)
 			{
@@ -1402,8 +1402,9 @@ namespace GenOnlineService
 			GenOnlineService.Failover.FailoverCoordinator? failover = null;
 			if (failoverSettings.Enabled)
 			{
+				GenOnlineService.Failover.RealtimeConnectionDrain drain = new();
 				failover = new GenOnlineService.Failover.FailoverCoordinator(failoverSettings, GenOnlineService.Failover.CopyIdentity.ID,
-					new GenOnlineService.Failover.DatabaseLeaseStore(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>()), new GenOnlineService.Failover.RealtimeConnectionDrain());
+					new GenOnlineService.Failover.DatabaseLeaseStore(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>()), drain);
 				GenOnlineService.Failover.RealtimeFailover.Install(failover);
 				if (!realtimeBackplane.UsesRedis)
 				{
@@ -1411,20 +1412,29 @@ namespace GenOnlineService
 				}
 				else
 				{
-					// build step 3: the owner writes lobbies and the queue to Redis, the standby follows them and takes them over after an unplanned failover
+					// build steps 3 and 4: the owner writes lobbies and the queue to Redis with compared owner epochs, the standby follows them,
+					// takes them over after an unplanned failover, and a planned handover moves the queue and the lobbies one by one
 					GenOnlineService.Failover.LiveStateSettings liveStateSettings = GenOnlineService.Failover.LiveStateSettings.Read(builder.Configuration);
 					GenOnlineService.Failover.RedisLiveStateStore liveStore = new(() => GenOnlineService.Realtime.RealtimeRedis.ConnectAsync(realtimeBackplane), realtimeBackplane.ChannelPrefix, liveStateSettings.StreamMaxLength);
 					GenOnlineService.Failover.FailoverCoordinator coordinator = failover;
-					GenOnlineService.Failover.LiveStateWriter liveWriter = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID,
-						() => coordinator.Role == GenOnlineService.Failover.FailoverRole.Active && !coordinator.IsFenced ? coordinator.Epoch : null);
+					GenOnlineService.Failover.LiveStateWriter liveWriter = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID, () => coordinator.OwnsState);
 					GenOnlineService.Failover.LiveStateFollower liveFollower = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID,
-						() => coordinator.Role == GenOnlineService.Failover.FailoverRole.Standby, liveStateSettings.PollIntervalMs, failoverSettings.LeaseMs);
+						() => coordinator.Role is GenOnlineService.Failover.FailoverRole.Standby or GenOnlineService.Failover.FailoverRole.Target, liveStateSettings.PollIntervalMs, failoverSettings.LeaseMs);
 					GenOnlineService.Failover.RealtimeLiveState.Install(liveWriter, liveFollower, liveStateSettings.RefreshMs, liveStateSettings.RewriteMs);
 					LobbyManager liveLobbies = app.Services.GetRequiredService<LobbyManager>();
-					failover.Activating = (activation, epoch) => GenOnlineService.Failover.LiveStateTakeover.OnActivating(activation, epoch, liveLobbies);
+					GenOnlineService.Failover.LiveStateHandover handover = new(liveWriter, liveStore, liveLobbies, drain, failoverSettings.LeaseMs * 2);
+					liveWriter.Rejected += handover.OnRejected;
+					liveFollower.Owned += handover.OnOwned;
+					failover.Activating = handover.OnActivating;
+					failover.Fencing = handover.OnFencing;
+					failover.Mover = handover;
+					LobbyManager.MovingLeave = handover.OnMovingLeave;
 					failover.StandbyReady = () => liveFollower.InSync;
-					_ = Task.Run(() => liveWriter.RunAsync(app.Lifetime.ApplicationStopping));
-					_ = Task.Run(() => liveFollower.RunAsync(app.Lifetime.ApplicationStopping));
+					GenOnlineService.Failover.RealtimeFailover.InstallSwitcher(drain);
+
+					// the loops run until the process ends, a shutdown handover still writes and follows
+					_ = Task.Run(() => liveWriter.RunAsync(CancellationToken.None));
+					_ = Task.Run(() => liveFollower.RunAsync(CancellationToken.None));
 					app.Logger.LogInformation("Realtime live state on: lobbies and the queue go to Redis, a standby announces itself only while in sync");
 				}
 			}

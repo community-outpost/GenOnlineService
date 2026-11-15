@@ -33,8 +33,8 @@ namespace GenOnlineService.Failover
 		// The standby reads the stream this often while it is caught up
 		public int PollIntervalMs { get; init; } = 100;
 
-		// Every entity is written again this often even when unchanged, so a late write of a fenced copy heals
-		public int RewriteMs { get; init; } = 30000;
+		// Zero by default: compare on write keeps a fenced copy's late write out, a positive value writes every entity again that often anyway
+		public int RewriteMs { get; init; }
 
 		public static LiveStateSettings Read(IConfiguration configuration)
 		{
@@ -44,11 +44,11 @@ namespace GenOnlineService.Failover
 				RefreshMs = section.GetValue("refresh_ms", 2000),
 				StreamMaxLength = section.GetValue("stream_max_length", 10000),
 				PollIntervalMs = section.GetValue("poll_interval_ms", 100),
-				RewriteMs = section.GetValue("rewrite_ms", 30000),
+				RewriteMs = section.GetValue("rewrite_ms", 0),
 			};
-			if (settings.RefreshMs < 100 || settings.StreamMaxLength < 100 || settings.PollIntervalMs < 10 || settings.RewriteMs < settings.RefreshMs)
+			if (settings.RefreshMs < 100 || settings.StreamMaxLength < 100 || settings.PollIntervalMs < 10 || (settings.RewriteMs != 0 && settings.RewriteMs < settings.RefreshMs))
 			{
-				throw new InvalidOperationException("Realtime:failover:live_state needs refresh_ms of at least 100, stream_max_length of at least 100, poll_interval_ms of at least 10 and rewrite_ms of at least refresh_ms.");
+				throw new InvalidOperationException("Realtime:failover:live_state needs refresh_ms of at least 100, stream_max_length of at least 100, poll_interval_ms of at least 10 and rewrite_ms of 0 or at least refresh_ms.");
 			}
 			return settings;
 		}
@@ -63,9 +63,26 @@ namespace GenOnlineService.Failover
 		public static string Lobby(long lobbyID) => LobbyPrefix + lobbyID;
 
 		public static bool IsLobby(string key) => key.StartsWith(LobbyPrefix, StringComparison.Ordinal);
+
+		// A queue ticket a handover sends after the queue moved, one per player
+		public const string TicketPrefix = "ticket:";
+
+		public static string Ticket(long userID) => TicketPrefix + userID;
+
+		public static bool IsTicket(string key) => key.StartsWith(TicketPrefix, StringComparison.Ordinal);
+
+		// A leave from a lobby during its move, applied by the copy that takes the lobby
+		public const string LeavePrefix = "leave:";
+
+		public static string Leave(long lobbyID, long userID) => LeavePrefix + lobbyID + ":" + userID;
+
+		public static bool IsLeave(string key) => key.StartsWith(LeavePrefix, StringComparison.Ordinal);
+
+		// A lobby is written new at epoch 1, a ticket or a leave is only ever transferred new at epoch 1
+		public static bool IsNew(string key, bool transfer) => transfer ? IsTicket(key) || IsLeave(key) : IsLobby(key);
 	}
 
-	// One stored entity with owner, owner epoch and entity version, formats change additively and readers ignore unknown fields
+	// One stored entity with owner, owner epoch, the writing copy and an entity version per owner, formats change additively and readers ignore unknown fields
 	public sealed record LiveEnvelope
 	{
 		public const int CurrentVersion = 1;
@@ -77,21 +94,25 @@ namespace GenOnlineService.Failover
 		public long Epoch { get; init; }
 		public long Version { get; init; }
 		public long WrittenAtMs { get; init; }
+
+		// the copy that wrote it, the old owner while it hands the entity to a new one
+		public string WrittenBy { get; init; } = String.Empty;
 		public JsonElement Data { get; init; }
 	}
 
-	// The stream entry of one change, the fields of a Redis stream entry
+	// One accepted change: a write by the owner, a delete, or a transfer that gives the entity to a new owner with the next owner epoch
 	public enum LiveOp
 	{
 		Set,
 		Delete,
-		Reset
+		Transfer
 	}
 
-	public sealed record LiveStreamEntry(string ID, LiveOp Op, string Key, string Copy, long Epoch, long Seq, long Version, string? Body);
+	// A stream entry: seq counts the accepted writes of each copy, epoch and owner are the entity's after the change
+	public sealed record LiveStreamEntry(string ID, LiveOp Op, string Key, string Copy, long Seq, long Epoch, string Owner, long Version, string? Body);
 
-	// The state of the environment as loaded by a standby: every stored entity, the last stream entry and the owner
-	public sealed record LiveSnapshot(IReadOnlyDictionary<string, string> Entities, LiveStreamEntry? Last, string? OwnerCopy, long OwnerEpoch);
+	// The state of the environment as loaded by a standby: every stored entity, each copy's write count and the stream position, read in one transaction
+	public sealed record LiveSnapshot(IReadOnlyDictionary<string, string> Entities, IReadOnlyDictionary<string, long> Seqs, string Position);
 
 	public static class LiveJson
 	{
@@ -105,7 +126,7 @@ namespace GenOnlineService.Failover
 		};
 
 		// The envelope around data that is already JSON, so a lobby is serialized once
-		public static string Envelope(string key, string owner, long epoch, long version, string dataJson)
+		public static string Envelope(string key, string owner, long epoch, long version, string dataJson, string? writtenBy = null)
 		{
 			System.Buffers.ArrayBufferWriter<byte> buffer = new(dataJson.Length + 256);
 			using (Utf8JsonWriter writer = new(buffer))
@@ -117,6 +138,7 @@ namespace GenOnlineService.Failover
 				writer.WriteNumber("epoch", epoch);
 				writer.WriteNumber("version", version);
 				writer.WriteNumber("written_at_ms", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+				writer.WriteString("written_by", writtenBy ?? owner);
 				writer.WritePropertyName("data");
 				writer.WriteRawValue(dataJson, skipInputValidation: true);
 				writer.WriteEndObject();
@@ -272,6 +294,12 @@ namespace GenOnlineService.Failover
 	{
 		public List<QueueTicketLive> Tickets { get; init; } = new();
 		public List<QueueBucketLive> Buckets { get; init; } = new();
+	}
+
+	public sealed record LobbyLeaveLive
+	{
+		public long LobbyId { get; init; }
+		public long UserId { get; init; }
 	}
 
 	public sealed record QueueTicketLive

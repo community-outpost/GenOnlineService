@@ -16,59 +16,118 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 
 namespace GenOnlineService.Failover
 {
-	// The owner side: queues each entity's state and sends it from its own loop, a new own epoch starts with a reset entry
+	// The owner side: queues each entity's state and sends it from its own loop as compared writes, an entity another copy took is dropped and reported
 	public sealed class LiveStateWriter
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(LiveStateWriter));
 
+		// Delete markers older than this are forgotten, a fenced copy stops long before
+		public const long TombstoneMs = 600_000;
+
+		private enum Kind { Set, Delete, Transfer }
+
+		private sealed record Change(Kind Kind, string Key, string? Data, string? Target, TaskCompletionSource<bool>? Done);
+
+		private sealed record Claim(LiveClaim Mode, string? Owner, IReadOnlyList<string> Ensure, TaskCompletionSource<IReadOnlyDictionary<string, long>> Done);
+
 		private readonly ILiveStateStore m_store;
 		private readonly string m_copy;
-		private readonly Func<long?> m_activeEpoch;
+		private readonly Func<bool> m_canWrite;
 		private readonly Func<long> m_clock;
-		private readonly Channel<(LiveOp Op, string Key, string? Data)> m_queue =
-			Channel.CreateUnbounded<(LiveOp, string, string?)>(new UnboundedChannelOptions { SingleReader = true });
+		private readonly Channel<Change> m_queue = Channel.CreateUnbounded<Change>(new UnboundedChannelOptions { SingleReader = true });
+		private readonly ConcurrentDictionary<string, long> m_epochs = new(StringComparer.Ordinal);
+		private readonly ConcurrentDictionary<string, byte> m_released = new(StringComparer.Ordinal);
 		private readonly Dictionary<string, long> m_versions = new(StringComparer.Ordinal);
+		private readonly List<Change> m_carry = new();
 
-		private long m_epoch;
-		private long m_seq;
+		private Claim? m_claim;
 		private int m_generation;
 		private long m_lastWarning = long.MinValue;
+		private long m_nextPrune;
 		private bool m_failed;
 
-		public LiveStateWriter(ILiveStateStore store, string copy, Func<long?> activeEpoch, Func<long>? clockMs = null)
+		public LiveStateWriter(ILiveStateStore store, string copy, Func<bool> canWrite, Func<long>? clockMs = null)
 		{
 			m_store = store;
 			m_copy = copy;
-			m_activeEpoch = activeEpoch;
+			m_canWrite = canWrite;
 			m_clock = clockMs ?? (() => Environment.TickCount64);
 		}
 
-		// True while this copy owns the live state, publishers skip the work otherwise
-		public bool Writing => m_activeEpoch() != null;
+		public string Copy => m_copy;
 
-		// Raised when every entity has to be written again: a new own epoch, writes dropped while not owning, or a failed batch
+		// True while this copy may write the entities it owns
+		public bool Writing => m_canWrite();
+
+		// Raised when every entity has to be written again: writes dropped while not owning, or a failed batch
 		public int Generation => Volatile.Read(ref m_generation);
 
-		public void Set(string key, string dataJson) => m_queue.Writer.TryWrite((LiveOp.Set, key, dataJson));
+		// Raised on the writer's loop for an entity whose write Redis refused, another copy owns it now
+		public event Action<string>? Rejected;
 
-		public void Delete(string key) => m_queue.Writer.TryWrite((LiveOp.Delete, key, null));
+		public bool Owns(string key) => m_epochs.ContainsKey(key);
 
-		private int m_resetPending;
+		public long EpochOf(string key) => m_epochs.TryGetValue(key, out long epoch) ? epoch : 0;
+
+		public void Set(string key, string dataJson) => m_queue.Writer.TryWrite(new Change(Kind.Set, key, dataJson, null, null));
+
+		public void Delete(string key) => m_queue.Writer.TryWrite(new Change(Kind.Delete, key, null, null, null));
+
+		// Gives an owned entity with its final state to another copy at the next owner epoch, true once Redis accepted it
+		public Task<bool> TransferAsync(string key, string dataJson, string target)
+		{
+			TaskCompletionSource<bool> done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+			m_queue.Writer.TryWrite(new Change(Kind.Transfer, key, dataJson, target, done));
+			return done.Task;
+		}
+
+		// Takes ownership before any later write, sent once the copy may write
+		public Task<IReadOnlyDictionary<string, long>> ClaimAsync(LiveClaim mode, string? owner, IReadOnlyList<string> ensure)
+		{
+			TaskCompletionSource<IReadOnlyDictionary<string, long>> done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+			Interlocked.Exchange(ref m_claim, new Claim(mode, owner, ensure, done))?.Done.TrySetCanceled();
+			m_queue.Writer.TryWrite(new Change(Kind.Set, String.Empty, null, null, null));
+			return done.Task;
+		}
+
+		// An entity another copy handed to this one, at the epoch the transfer gave it
+		public void Adopt(string key, long epoch)
+		{
+			m_released.TryRemove(key, out _);
+			m_epochs[key] = epoch;
+		}
+
+		private int m_releases;
+
+		// A fenced copy owns nothing any more, also not what a batch in flight writes
+		public void ReleaseAll()
+		{
+			Interlocked.Increment(ref m_releases);
+			foreach (string key in m_epochs.Keys)
+			{
+				m_released[key] = 0;
+			}
+			m_epochs.Clear();
+		}
 
 		private void Invalidate() => Interlocked.Increment(ref m_generation);
 
-		// A copy that becomes the owner starts with a reset, even when it has nothing to write, so the hash holds no older owner's entities
-		public void RequestReset()
+		private void Warn(Exception ex, string message)
 		{
-			Volatile.Write(ref m_resetPending, 1);
-			m_queue.Writer.TryWrite((LiveOp.Reset, "*", null));
+			long now = m_clock();
+			if (now - m_lastWarning >= 5000)
+			{
+				m_lastWarning = now;
+				s_log.LogWarning(ex, "{Message} on copy {CopyId}", message, m_copy);
+			}
 		}
 
-		// Wakes on every queued change and every 250 ms, so a reset requested before the role changed is still sent
+		// Wakes on every queued change and every 250 ms, a failed batch waits a second so an outage costs one write of every entity per second at most
 		public async Task RunAsync(CancellationToken stopping)
 		{
 			while (!stopping.IsCancellationRequested)
@@ -87,8 +146,7 @@ namespace GenOnlineService.Failover
 					}
 				}
 				await FlushAsync();
-
-				// a failed batch waits a second, so a Redis outage costs one write of every entity per second at most
+				await PruneAsync();
 				if (m_failed)
 				{
 					try
@@ -103,89 +161,212 @@ namespace GenOnlineService.Failover
 			}
 		}
 
-		// Sends everything queued as one batch, the latest change per entity only. Tests call it directly.
+		private async Task PruneAsync()
+		{
+			long now = m_clock();
+			if (now < m_nextPrune || !Writing)
+			{
+				return;
+			}
+			m_nextPrune = now + TombstoneMs;
+			try
+			{
+				await m_store.PruneAsync(TombstoneMs);
+			}
+			catch (Exception ex)
+			{
+				Warn(ex, "Pruning the live state delete markers failed");
+			}
+		}
+
+		// Sends a pending claim, then everything queued as one batch with the latest change per entity, a transfer closing its entity. Tests call it directly.
 		public async Task<int> FlushAsync()
 		{
-			List<string> order = new();
-			Dictionary<string, (LiveOp Op, string? Data)> latest = new(StringComparer.Ordinal);
-			while (m_queue.Reader.TryRead(out (LiveOp Op, string Key, string? Data) change))
+			List<Change> drained = new(m_carry);
+			m_carry.Clear();
+			while (m_queue.Reader.TryRead(out Change? change))
 			{
-				if (change.Op == LiveOp.Reset)
+				if (change.Key.Length > 0)
 				{
-					continue;
+					drained.Add(change);
 				}
-				if (!latest.ContainsKey(change.Key))
-				{
-					order.Add(change.Key);
-				}
-				latest[change.Key] = (change.Op, change.Data);
-			}
-			bool reset = Volatile.Read(ref m_resetPending) == 1;
-			if (order.Count == 0 && !reset)
-			{
-				return 0;
 			}
 
-			long? epoch = m_activeEpoch();
-			if (epoch == null)
+			if (!Writing)
 			{
 				// a standby or a fenced copy writes nothing, and writes everything again once it owns the state
-				if (order.Count > 0)
+				foreach (Change change in drained)
+				{
+					change.Done?.TrySetResult(false);
+				}
+				if (drained.Any(change => change.Kind != Kind.Transfer))
 				{
 					Invalidate();
 				}
 				return 0;
 			}
 
-			List<LiveWrite> writes = new(order.Count + 1);
-			if (epoch.Value != m_epoch || reset)
+			Claim? claim = Volatile.Read(ref m_claim);
+			if (claim != null)
 			{
-				// a new epoch starts its sequence over, a reset within the same epoch continues it
-				if (epoch.Value != m_epoch)
+				try
 				{
-					m_epoch = epoch.Value;
-					m_seq = 0;
+					IReadOnlyDictionary<string, long> claimed = await m_store.ClaimAsync(m_copy, claim.Mode, claim.Owner, claim.Ensure);
+					foreach ((string key, long epoch) in claimed)
+					{
+						Adopt(key, epoch);
+					}
+					Interlocked.CompareExchange(ref m_claim, null, claim);
+					claim.Done.TrySetResult(claimed);
+					m_failed = false;
 				}
-				Volatile.Write(ref m_resetPending, 0);
-				writes.Add(new LiveWrite(LiveOp.Reset, "*", ++m_seq, 0, null));
-				Invalidate();
+				catch (Exception ex)
+				{
+					m_carry.AddRange(drained);
+					m_failed = true;
+					Warn(ex, "Claiming the live state failed");
+					return 0;
+				}
 			}
 
-			foreach (string key in order)
+			// the latest set or delete per entity, a transfer replaces what came before it and later changes of that entity stay out
+			List<Change> slots = new();
+			Dictionary<string, int> open = new(StringComparer.Ordinal);
+			foreach (Change change in drained)
 			{
-				(LiveOp op, string? data) = latest[key];
-				long version = m_versions.TryGetValue(key, out long previous) ? previous + 1 : 1;
-				if (op == LiveOp.Delete)
+				if (open.TryGetValue(change.Key, out int index))
 				{
-					m_versions.Remove(key);
-					writes.Add(new LiveWrite(LiveOp.Delete, key, ++m_seq, version, null));
+					if (slots[index].Done != null)
+					{
+						slots.Add(change);
+						continue;
+					}
+					slots[index] = change;
+					if (change.Kind == Kind.Transfer)
+					{
+						open.Remove(change.Key);
+					}
 				}
 				else
 				{
-					m_versions[key] = version;
-					writes.Add(new LiveWrite(LiveOp.Set, key, ++m_seq, version, LiveJson.Envelope(key, m_copy, m_epoch, version, data!)));
+					if (change.Kind != Kind.Transfer)
+					{
+						open[change.Key] = slots.Count;
+					}
+					slots.Add(change);
 				}
 			}
 
+			List<(Change Change, LiveWrite Write)> writes = new(slots.Count);
+			HashSet<string> leaving = new(StringComparer.Ordinal);
+			foreach (Change change in slots)
+			{
+				bool owned = m_epochs.TryGetValue(change.Key, out long epoch);
+				if (leaving.Contains(change.Key) || m_released.ContainsKey(change.Key) || (!owned && !LiveKeys.IsNew(change.Key, change.Kind == Kind.Transfer)))
+				{
+					change.Done?.TrySetResult(false);
+					continue;
+				}
+
+				// a lobby this copy writes for the first time starts at epoch 1
+				if (!owned)
+				{
+					epoch = 1;
+				}
+				long version = m_versions.TryGetValue(change.Key, out long previous) ? previous + 1 : 1;
+				m_versions[change.Key] = version;
+				LiveWrite write = change.Kind switch
+				{
+					Kind.Delete => new LiveWrite(LiveOp.Delete, change.Key, epoch, null, version, null),
+					Kind.Transfer => new LiveWrite(LiveOp.Transfer, change.Key, epoch, change.Target, version,
+						LiveJson.Envelope(change.Key, change.Target!, epoch + 1, version, change.Data!, m_copy)),
+					_ => new LiveWrite(LiveOp.Set, change.Key, epoch, null, version, LiveJson.Envelope(change.Key, m_copy, epoch, version, change.Data!, m_copy))
+				};
+				writes.Add((change, write));
+				if (change.Kind != Kind.Set)
+				{
+					leaving.Add(change.Key);
+				}
+			}
+			if (writes.Count == 0)
+			{
+				return 0;
+			}
+
+			IReadOnlyList<LiveWriteResult> results;
+			int releases = Volatile.Read(ref m_releases);
 			try
 			{
-				await m_store.WriteAsync(m_copy, m_epoch, writes);
+				results = await m_store.WriteAsync(m_copy, writes.Select(entry => entry.Write).ToList());
 				m_failed = false;
 			}
 			catch (Exception ex)
 			{
+				// a lost delete would leave its entity stored, so deletes go out again, sets come back with the next generation
 				m_failed = true;
-
-				// the sequence numbers are spent and a lost delete would leave its entity in the hash, so the next batch starts with a reset
-				Volatile.Write(ref m_resetPending, 1);
-				Invalidate();
-				long now = m_clock();
-				if (now - m_lastWarning >= 5000)
+				foreach ((Change change, LiveWrite _) in writes)
 				{
-					m_lastWarning = now;
-					s_log.LogWarning(ex, "Writing the live state of copy {CopyId} to Redis failed", m_copy);
+					if (change.Kind == Kind.Delete)
+					{
+						m_carry.Add(change);
+					}
+					change.Done?.TrySetResult(false);
 				}
+				Invalidate();
+				Warn(ex, "Writing the live state to Redis failed");
 				AppMetrics.RecordFailoverLiveState("write_failed");
+				return 0;
+			}
+
+			for (int i = 0; i < writes.Count; i++)
+			{
+				(Change change, LiveWrite write) = writes[i];
+				LiveWriteResult result = results[i];
+				if (result.Accepted)
+				{
+					// a copy that released everything meanwhile does not own the entity again
+					if (change.Kind == Kind.Set && !m_released.ContainsKey(change.Key) && Volatile.Read(ref m_releases) == releases)
+					{
+						m_epochs[change.Key] = result.Epoch;
+					}
+					else if (change.Kind == Kind.Set)
+					{
+						m_released[change.Key] = 0;
+					}
+					else
+					{
+						m_epochs.TryRemove(change.Key, out _);
+						m_released[change.Key] = 0;
+						m_versions.Remove(change.Key);
+					}
+					change.Done?.TrySetResult(true);
+					continue;
+				}
+
+				// another copy holds a newer owner epoch, or the entity is deleted: this copy drops it
+				m_epochs.TryRemove(change.Key, out _);
+				m_released[change.Key] = 0;
+				if (change.Kind == Kind.Delete)
+				{
+					continue;
+				}
+				AppMetrics.RecordFailoverLiveState("write_refused");
+				s_log.LogWarning("Copy {CopyId} lost {Key} to a newer owner epoch {Epoch}", m_copy, change.Key, result.Epoch);
+				if (change.Done != null)
+				{
+					change.Done.TrySetResult(false);
+				}
+				else
+				{
+					try
+					{
+						Rejected?.Invoke(change.Key);
+					}
+					catch (Exception ex)
+					{
+						s_log.LogError(ex, "Dropping {Key} on copy {CopyId} failed", change.Key, m_copy);
+					}
+				}
 			}
 			return writes.Count;
 		}
@@ -211,6 +392,9 @@ namespace GenOnlineService.Failover
 		private long m_lastRead = long.MinValue;
 		private long m_lastInSync = long.MinValue;
 		private long m_lastWarning = long.MinValue;
+
+		// Raised outside the lock for each applied write that names this copy as the owner, a handover gives the entity to it
+		public event Action<string, string, long>? Owned;
 
 		public LiveStateFollower(ILiveStateStore store, string copy, Func<bool> shouldFollow, int pollIntervalMs, int staleMs, Func<long>? clockMs = null)
 		{
@@ -323,6 +507,7 @@ namespace GenOnlineService.Failover
 				}
 
 				IReadOnlyList<LiveStreamEntry> entries = await m_store.ReadAfterAsync(position, BatchSize);
+				List<LiveStreamEntry> owned = new();
 				lock (m_lock)
 				{
 					if (!m_shouldFollow() || !m_mirror.Loaded || m_mirror.Position != position)
@@ -340,12 +525,27 @@ namespace GenOnlineService.Failover
 							SetInSync(false);
 							return entries.Count;
 						}
+						if (entry.Op != LiveOp.Delete && entry.Body != null && entry.Owner == m_copy && entry.Copy != m_copy)
+						{
+							owned.Add(entry);
+						}
 					}
 					m_lastRead = m_clock();
 					SetInSync(entries.Count < BatchSize);
 					if (entries.Count < BatchSize)
 					{
 						m_lastInSync = m_lastRead;
+					}
+				}
+				foreach (LiveStreamEntry entry in owned)
+				{
+					try
+					{
+						Owned?.Invoke(entry.Key, entry.Body!, entry.Epoch);
+					}
+					catch (Exception ex)
+					{
+						s_log.LogError(ex, "Taking over {Key} on copy {CopyId} failed", entry.Key, m_copy);
 					}
 				}
 				return entries.Count;
@@ -367,13 +567,13 @@ namespace GenOnlineService.Failover
 		}
 	}
 
-	// Build step 3 of docs/realtime-failover.md, on only with failover and the Redis backplane, every call is a no op otherwise
+	// Build steps 3 and 4 of docs/realtime-failover.md, on only with failover and the Redis backplane, every call is a no op otherwise
 	public static class RealtimeLiveState
 	{
 		private static LiveStateWriter? s_writer;
 		private static LiveStateFollower? s_follower;
 		private static int s_refreshMs = 2000;
-		private static int s_rewriteMs = 30000;
+		private static int s_rewriteMs;
 
 		public static bool Enabled => Volatile.Read(ref s_writer) != null;
 
@@ -383,10 +583,16 @@ namespace GenOnlineService.Failover
 
 		public static int RefreshMs => s_refreshMs;
 
+		// Zero by default, compare on write keeps a fenced copy's late write out
 		public static int RewriteMs => s_rewriteMs;
+
+		internal static LiveStateWriter? Writer => Volatile.Read(ref s_writer);
 
 		// True when the follower applied the stream up to its latest entry, always true without live state
 		public static bool StandbyInSync => Volatile.Read(ref s_follower)?.InSync ?? true;
+
+		// True when this copy owns the entity, always true without live state
+		public static bool Owns(string key) => Volatile.Read(ref s_writer)?.Owns(key) ?? true;
 
 		internal static void Install(LiveStateWriter? writer, LiveStateFollower? follower, int refreshMs, int rewriteMs)
 		{
@@ -399,9 +605,6 @@ namespace GenOnlineService.Failover
 		public static void Set(string key, string dataJson) => Volatile.Read(ref s_writer)?.Set(key, dataJson);
 
 		public static void Delete(string key) => Volatile.Read(ref s_writer)?.Delete(key);
-
-		// The copy became the owner, its first write is a reset
-		public static void Activated() => Volatile.Read(ref s_writer)?.RequestReset();
 
 		public static (IReadOnlyDictionary<string, string> Entities, bool Fresh) DetachMirror() =>
 			Volatile.Read(ref s_follower)?.Detach() ?? (new Dictionary<string, string>(), false);

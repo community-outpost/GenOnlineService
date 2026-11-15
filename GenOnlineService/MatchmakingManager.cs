@@ -418,6 +418,8 @@ static partial class MatchmakingManager
 
 		private Formation? TryBeginFormation(Playlist playlist, bool graceExpired)
 		{
+			// only the copy that owns the queue forms matches, build step 4 moves it during a handover
+			if (!FormsMatches) return null;
 			lock (m_StateLock)
 			{
 				if (IsLockedForMatchStart() || m_bMergedAway) return null;
@@ -907,86 +909,104 @@ static partial class MatchmakingManager
 
 		private async Task AbortQuickMatchAutoStartAsync(MatchRequeueReason reason, bool dropNonJoiners = false)
 		{
-			List<UserSession> sessionsToRequeue = new();
-			long abortedLobbyID;
-			lock (m_StateLock)
+			// a lobby handed to another copy is frozen, the abort and its requeues wait or end with the bucket released
+			LobbyManager lobbies = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+			Lobby? held = m_LobbyID == -1 ? null : lobbies.GetLobby(m_LobbyID);
+			if (held != null && !await held.TryReserveForStartAsync())
 			{
-				if (m_bAbortInProgress || m_bStartCommitted)
-				{
-					return;
-				}
-
-				m_bAbortInProgress = true;
-				abortedLobbyID = m_LobbyID;
-				m_bPendingDeletion = true;
-
-				foreach (MatchmakingBucketMember member in m_lstMembers)
-				{
-					UserSession? memberSession = member.GetAssociatedSession();
-					if (memberSession != null)
-					{
-						sessionsToRequeue.Add(memberSession);
-					}
-				}
-
-				m_StartTime = -1;
-				m_bWaitingOnLobbyJoins = false;
-				m_bHasStartedCountdown = false;
-				m_bWaitingOnMeshConnectivityChecks = false;
+				return;
 			}
-			AppMetrics.RecordMatchmakingMatch(PlaylistID.ToString(CultureInfo.InvariantCulture), "setup_aborted");
-
-			LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-			Lobby? quickMatchLobby = lobbyManager.GetLobby(abortedLobbyID);
-			if (quickMatchLobby != null)
+			if (held == null && FrozenOrReleasedByHandover(lobbies))
 			{
-				if (dropNonJoiners)
+				return;
+			}
+			try
+			{
+				List<UserSession> sessionsToRequeue = new();
+				long abortedLobbyID;
+				lock (m_StateLock)
 				{
-					// Close admission before classifying late arrivals; never change a newer registration.
-					await quickMatchLobby.UpdateState(ELobbyState.COMPLETE);
-					foreach (var session in sessionsToRequeue)
+					if (m_bAbortInProgress || m_bStartCommitted)
 					{
-						if (quickMatchLobby.GetMemberFromUserID(session.m_UserID) != null) continue;
-						bool dropped = false;
-						await session.MatchmakingStateLock.WaitAsync();
-						try
+						return;
+					}
+
+					m_bAbortInProgress = true;
+					abortedLobbyID = m_LobbyID;
+					m_bPendingDeletion = true;
+
+					foreach (MatchmakingBucketMember member in m_lstMembers)
+					{
+						UserSession? memberSession = member.GetAssociatedSession();
+						if (memberSession != null)
 						{
-							lock (m_StateLock)
+							sessionsToRequeue.Add(memberSession);
+						}
+					}
+
+					m_StartTime = -1;
+					m_bWaitingOnLobbyJoins = false;
+					m_bHasStartedCountdown = false;
+					m_bWaitingOnMeshConnectivityChecks = false;
+				}
+				AppMetrics.RecordMatchmakingMatch(PlaylistID.ToString(CultureInfo.InvariantCulture), "setup_aborted");
+
+				LobbyManager lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+				Lobby? quickMatchLobby = lobbyManager.GetLobby(abortedLobbyID);
+				if (quickMatchLobby != null)
+				{
+					if (dropNonJoiners)
+					{
+						// Close admission before classifying late arrivals; never change a newer registration.
+						await quickMatchLobby.UpdateState(ELobbyState.COMPLETE);
+						foreach (var session in sessionsToRequeue)
+						{
+							if (quickMatchLobby.GetMemberFromUserID(session.m_UserID) != null) continue;
+							bool dropped = false;
+							await session.MatchmakingStateLock.WaitAsync();
+							try
 							{
-								if (HasPlayer(session))
+								lock (m_StateLock)
 								{
-									MatchmakingManager.RecordQueueExit(session, "join_timeout");
-									session.IsRegisteredForMatchmaking = false;
-									dropped = true;
+									if (HasPlayer(session))
+									{
+										MatchmakingManager.RecordQueueExit(session, "join_timeout");
+										session.IsRegisteredForMatchmaking = false;
+										dropped = true;
+									}
 								}
 							}
+							finally { session.MatchmakingStateLock.Release(); }
+							if (dropped) await SendLeft(session, "join_timeout");
 						}
-						finally { session.MatchmakingStateLock.Release(); }
-						if (dropped) await SendLeft(session, "join_timeout");
 					}
+					foreach (UserSession memberSession in sessionsToRequeue)
+					{
+						LobbyMember? lobbyMember = quickMatchLobby.GetMemberFromUserID(memberSession.m_UserID);
+						if (lobbyMember != null)
+						{
+							// the departing player also drops its peers and anticheat registrations before the next lobby
+							await lobbyManager.RemoveMatchmakingMemberAsync(quickMatchLobby, lobbyMember, sendPeerTeardown: true);
+						}
+					}
+
+					await lobbyManager.DeleteLobby(quickMatchLobby);
 				}
+
 				foreach (UserSession memberSession in sessionsToRequeue)
 				{
-					LobbyMember? lobbyMember = quickMatchLobby.GetMemberFromUserID(memberSession.m_UserID);
-					if (lobbyMember != null)
-					{
-						// the departing player also drops its peers and anticheat registrations before the next lobby
-						await lobbyManager.RemoveMatchmakingMemberAsync(quickMatchLobby, lobbyMember, sendPeerTeardown: true);
-					}
+					await lobbyManager.TryRequeueMatchmakingAsync(memberSession, abortedLobbyID, reason);
 				}
 
-				await lobbyManager.DeleteLobby(quickMatchLobby);
-			}
+				m_lstMembers.Clear();
+				m_LobbyID = -1;
 
-			foreach (UserSession memberSession in sessionsToRequeue)
+				MatchmakingManager.DestroyBucket(this);
+			}
+			finally
 			{
-				await lobbyManager.TryRequeueMatchmakingAsync(memberSession, abortedLobbyID, reason);
+				held?.ReleaseStartReservation();
 			}
-
-			m_lstMembers.Clear();
-			m_LobbyID = -1;
-
-			MatchmakingManager.DestroyBucket(this);
 		}
 
 		public async Task Tick()
@@ -1013,6 +1033,12 @@ static partial class MatchmakingManager
 			}
 
 			var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+
+			// a quick match lobby handed to another copy freezes its setup here, once it left the copy that took it carries it on
+			if (FrozenOrReleasedByHandover(lobbyManager))
+			{
+				return;
+			}
 
 			// drop any members whose session has gone away, otherwise they are counted forever and the bucket can
 			// never reach the "everyone is in the lobby" condition
@@ -1042,6 +1068,10 @@ static partial class MatchmakingManager
 					Lobby? lobbyDuringMeshCheck = lobbyManager.GetLobby(m_LobbyID);
 					if (lobbyDuringMeshCheck == null)
 					{
+						if (FrozenOrReleasedByHandover(lobbyManager))
+						{
+							return;
+						}
 						await AbortQuickMatchAutoStartAsync(MatchRequeueReason.LobbyGone);
 						return;
 					}
@@ -1050,45 +1080,57 @@ static partial class MatchmakingManager
 
 					if (await lobbyDuringMeshCheck.GetValidatedMeshCheckResultAsync(m_MeshCheckID) is bool meshComplete)
 					{
-						bool bStartCountdown;
-						bool bAbortStart;
-						bool bInvalidatedAtDecision;
-						lock (m_StateLock)
+						// a forced move that won the lobby gate during the await freezes the setup, the move then carries it on
+						if (!await lobbyDuringMeshCheck.TryReserveForStartAsync())
 						{
-							bInvalidatedAtDecision = m_bAutoStartInvalidated;
-							if (m_bStartCommitted || m_bAbortInProgress || m_bPendingDeletion)
+							return;
+						}
+						try
+						{
+							bool bStartCountdown;
+							bool bAbortStart;
+							bool bInvalidatedAtDecision;
+							lock (m_StateLock)
 							{
-								bStartCountdown = false;
-								bAbortStart = false;
-							}
-							else
-							{
-								m_bWaitingOnMeshConnectivityChecks = false;
-								bStartCountdown = IsFormationCurrent(lobbyDuringMeshCheck) && meshComplete;
-								bAbortStart = !bStartCountdown;
-								if (bStartCountdown)
+								bInvalidatedAtDecision = m_bAutoStartInvalidated;
+								if (m_bStartCommitted || m_bAbortInProgress || m_bPendingDeletion)
 								{
-									m_StartTime = Environment.TickCount64 + GameStartCountdownMs;
-									m_bHasStartedCountdown = true;
+									bStartCountdown = false;
+									bAbortStart = false;
+								}
+								else
+								{
+									m_bWaitingOnMeshConnectivityChecks = false;
+									bStartCountdown = IsFormationCurrent(lobbyDuringMeshCheck) && meshComplete;
+									bAbortStart = !bStartCountdown;
+									if (bStartCountdown)
+									{
+										m_StartTime = Environment.TickCount64 + GameStartCountdownMs;
+										m_bHasStartedCountdown = true;
+									}
 								}
 							}
-						}
 
-						if (bStartCountdown)
-						{
-							QueueSetupProgress(GameStartCountdownMs + SetupClientTimeoutMarginMs, GameStartCountdownMs);
-							foreach (MatchmakingBucketMember member in m_lstMembers)
+							if (bStartCountdown)
 							{
-								UserSession? memberSession = member.GetAssociatedSession();
-								if (memberSession != null)
+								QueueSetupProgress(GameStartCountdownMs + SetupClientTimeoutMarginMs, GameStartCountdownMs);
+								foreach (MatchmakingBucketMember member in m_lstMembers)
 								{
-									await SendStatus(memberSession, StatusCodes.Starting, new { Seconds = GameStartCountdownMs / 1000 });
+									UserSession? memberSession = member.GetAssociatedSession();
+									if (memberSession != null)
+									{
+										await SendStatus(memberSession, StatusCodes.Starting, new { Seconds = GameStartCountdownMs / 1000 });
+									}
 								}
 							}
+							else if (bAbortStart)
+							{
+								await AbortQuickMatchAutoStartAsync(bInvalidatedAtDecision ? MatchRequeueReason.PlayerLeft : MatchRequeueReason.MeshIncomplete);
+							}
 						}
-						else if (bAbortStart)
+						finally
 						{
-							await AbortQuickMatchAutoStartAsync(bInvalidatedAtDecision ? MatchRequeueReason.PlayerLeft : MatchRequeueReason.MeshIncomplete);
+							lobbyDuringMeshCheck.ReleaseStartReservation();
 						}
 					}
 
@@ -1105,41 +1147,57 @@ static partial class MatchmakingManager
 					Lobby? lobbyAfterCountdown = lobbyManager.GetLobby(m_LobbyID);
 					if (lobbyAfterCountdown == null)
 					{
+						if (FrozenOrReleasedByHandover(lobbyManager))
+						{
+							return;
+						}
 						await AbortQuickMatchAutoStartAsync(MatchRequeueReason.LobbyGone);
 						return;
 					}
 
 					bool meshStillValid = await lobbyAfterCountdown.GetValidatedMeshCheckResultAsync(m_MeshCheckID) == true;
-					bool bStartGame;
-					bool bAbortStart;
-					lock (m_StateLock)
+					if (!await lobbyAfterCountdown.TryReserveForStartAsync())
 					{
-						if (m_bStartCommitted || m_bAbortInProgress || m_bPendingDeletion)
+						return;
+					}
+					try
+					{
+						bool bStartGame;
+						bool bAbortStart;
+						lock (m_StateLock)
 						{
-							bStartGame = false;
-							bAbortStart = false;
-						}
-						else
-						{
-							m_bHasStartedCountdown = false;
-							m_StartTime = -1;
-							bStartGame = meshStillValid && IsFormationCurrent(lobbyAfterCountdown);
-							bAbortStart = !bStartGame;
-							if (bStartGame)
+							if (m_bStartCommitted || m_bAbortInProgress || m_bPendingDeletion)
 							{
-								m_bStartCommitted = true;
-								m_bPendingDeletion = true;
+								bStartGame = false;
+								bAbortStart = false;
+							}
+							else
+							{
+								m_bHasStartedCountdown = false;
+								m_StartTime = -1;
+								bStartGame = meshStillValid && IsFormationCurrent(lobbyAfterCountdown);
+								bAbortStart = !bStartGame;
+								if (bStartGame)
+								{
+									m_bStartCommitted = true;
+									m_bPendingDeletion = true;
+								}
 							}
 						}
-					}
 
-					if (bStartGame)
-					{
-						await StartGameAfterSuccessfulMeshCheck(lobbyAfterCountdown);
+						if (bStartGame)
+						{
+							await StartGameAfterSuccessfulMeshCheck(lobbyAfterCountdown);
+						}
+						else if (bAbortStart)
+						{
+							await AbortQuickMatchAutoStartAsync(MatchRequeueReason.PlayerLeft);
+						}
+
 					}
-					else if (bAbortStart)
+					finally
 					{
-						await AbortQuickMatchAutoStartAsync(MatchRequeueReason.PlayerLeft);
+						lobbyAfterCountdown.ReleaseStartReservation();
 					}
 
 					return;
@@ -1493,7 +1551,7 @@ static partial class MatchmakingManager
 		foreach (var kvPair in m_dictMatchmakingBuckets)
 		{
 			// merging needs at least two buckets in the playlist; the bucket tick itself still runs for a lone bucket
-			bool bCanMergeInPlaylist = kvPair.Value.Count >= 2;
+			bool bCanMergeInPlaylist = kvPair.Value.Count >= 2 && FormsMatches;
 			foreach (MatchmakingBucket mmBucket in kvPair.Value)
 			{
 				// if we've already been merged and are awaiting delayed deletion, dont process it anymore
@@ -1553,7 +1611,7 @@ static partial class MatchmakingManager
 		}
 
 		List<WeakReference<UserSession>> lstDestroy = new();
-		foreach (WeakReference<UserSession> wrSession in lstSessions)
+		foreach (WeakReference<UserSession> wrSession in FormsMatches ? lstSessions : new ConcurrentList<WeakReference<UserSession>>())
 		{
 			if (!wrSession.TryGetTarget(out UserSession? thisSession) || thisSession == null)
 			{
@@ -1909,7 +1967,11 @@ static partial class MatchmakingManager
 		finally
 		{
 			player.MatchmakingStateLock.Release();
-			RealtimeHub.PublishPresence(player.m_UserID);
+			// a player switching to another copy shows no change to friends, the new connection publishes presence there
+			if (!player.SwitchingAway && !GenOnlineService.Failover.RealtimeFailover.Fenced)
+			{
+				RealtimeHub.PublishPresence(player.m_UserID);
+			}
 		}
 	}
 

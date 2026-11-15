@@ -61,7 +61,6 @@ namespace GenOnlineService
 			+ "  GenOnlineService realtime handover";
 
 		// How long "realtime handover" waits for the standby to hold the lease
-		private static readonly TimeSpan s_handoverWait = TimeSpan.FromSeconds(30);
 
 		private const int MaximumBanDays = 36500;
 		private const int ReportListLimit = 200;
@@ -571,7 +570,9 @@ namespace GenOnlineService
 
 			// handed: the epoch moved to the target, confirmed: the target renewed it, cancelled: the old holder took it back
 			DateTime? handedExpiry = null;
-			DateTime until = DateTime.UtcNow + s_handoverWait;
+			// the lease moves last, after the queue, the lobbies and the batches, so the wait covers the configured handover budget
+			TimeSpan handoverWait = TimeSpan.FromMilliseconds(GenOnlineService.Failover.FailoverSettings.Read(Program.OpenConfiguration()).HandoverBudgetMs);
+			DateTime until = DateTime.UtcNow + handoverWait;
 			while (DateTime.UtcNow < until)
 			{
 				await Task.Delay(250);
@@ -582,7 +583,7 @@ namespace GenOnlineService
 				}
 				if (current.Holder == before.Holder)
 				{
-					Console.Error.WriteLine($"The handover was cancelled: {before.Standby} did not take over, {before.Holder} took the lease back with epoch {current.Epoch} and keeps serving.");
+					Console.Error.WriteLine($"The handover was cancelled: {before.Standby} did not take over, {before.Holder} kept the lease with epoch {current.Epoch}, took back what it owned and keeps serving.");
 					return 1;
 				}
 				if (handedExpiry == null)
@@ -591,12 +592,12 @@ namespace GenOnlineService
 				}
 				else if (current.ExpiresAt > handedExpiry)
 				{
-					Console.WriteLine($"{current.Holder} holds the lease with epoch {current.Epoch}; {before.Holder} switches its connections over and stops.");
+					Console.WriteLine($"{current.Holder} holds the lease with epoch {current.Epoch}; {before.Holder} moved the queue, its lobbies and every connection to it before handing the lease over, and stops.");
 					return 0;
 				}
 			}
 
-			Console.Error.WriteLine($"The lease did not move within {s_handoverWait.TotalSeconds:0} seconds.");
+			Console.Error.WriteLine($"The lease did not move within {handoverWait.TotalSeconds:0} seconds.");
 			return 1;
 		});
 

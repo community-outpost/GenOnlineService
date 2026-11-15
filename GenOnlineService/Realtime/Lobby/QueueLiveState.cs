@@ -39,6 +39,108 @@ static partial class MatchmakingManager
 
 	internal static bool HasRestoredTickets => !s_restoredTickets.IsEmpty;
 
+	internal static bool HasRestoredTicket(long userID) => s_restoredTickets.ContainsKey(userID);
+
+	// How a seat or a ticket that ended unclaimed tells friends, tests replace it
+	internal static Action<long> PublishPresence { get; set; } = RealtimeHub.PublishPresence;
+
+	// Set while a planned handover captures and hands the queue over, so no match forms from a ticket that is moving
+	internal static volatile bool HoldFormation;
+
+	// Only the copy that owns the queue forms matches, always true without live state
+	internal static bool FormsMatches => !HoldFormation && (!RealtimeLiveState.Enabled || RealtimeLiveState.Owns(LiveKeys.Queue));
+
+	// The next matchmaking tick writes the queue even when it did not change
+	internal static void ForceLivePublish() => s_livePublished = null;
+
+	// The queue left this copy: every searching or waiting player leaves the local queue without a status, a setup already locked finishes here.
+	// Returns the released players, who reconnect to the copy that owns the queue now and keep their tickets there.
+	internal static async Task<IReadOnlyCollection<(UserSession Session, QueueTicketLive Ticket)>> ReleaseQueueAsync()
+	{
+		HashSet<UserSession> released = new(ReferenceEqualityComparer.Instance);
+		foreach (ConcurrentBag<MatchmakingBucket> bag in m_dictMatchmakingBuckets.Values)
+		{
+			foreach (MatchmakingBucket bucket in bag)
+			{
+				if (bucket.IsLockedForMatchStart() || bucket.IsMergedAway())
+				{
+					continue;
+				}
+				foreach (UserSession session in bucket.TakeAllMembers())
+				{
+					released.Add(session);
+				}
+				DestroyBucket(bucket);
+			}
+		}
+		foreach (WeakReference<UserSession> reference in lstSessions.ToList())
+		{
+			if (reference.TryGetTarget(out UserSession? session) && session != null)
+			{
+				released.Add(session);
+			}
+			lstSessions.Remove(reference);
+		}
+
+		List<(UserSession, QueueTicketLive)> moved = new();
+		long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+		foreach (UserSession session in released)
+		{
+			await session.MatchmakingStateLock.WaitAsync();
+			try
+			{
+				if (session.IsRetired || !session.IsRegisteredForMatchmaking)
+				{
+					continue;
+				}
+				long started = Interlocked.Read(ref session.MatchmakingStartedTimestamp);
+				QueueTicketLive ticket = new()
+				{
+					UserId = session.m_UserID,
+					PlaylistId = session.MatchmakingPlaylistID,
+					MapIndexes = session.MatchmakingMapIndicies.ToList(),
+					Build = LiveBuildOf(session.MatchmakingBuild),
+					QueuedAtMs = nowMs - (started == 0 ? 0 : (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds)
+				};
+				RecordQueueExit(session, "handed_over");
+				session.IsRegisteredForMatchmaking = false;
+				moved.Add((session, ticket));
+			}
+			finally
+			{
+				session.MatchmakingStateLock.Release();
+			}
+		}
+		return moved;
+	}
+
+	// A fenced copy owns no queue: everything local goes, the sessions close next
+	internal static void DropAllLocal()
+	{
+		HoldFormation = false;
+		foreach (ConcurrentBag<MatchmakingBucket> bag in m_dictMatchmakingBuckets.Values)
+		{
+			foreach (MatchmakingBucket bucket in bag)
+			{
+				foreach (UserSession session in bucket.TakeAllMembers())
+				{
+					session.IsRegisteredForMatchmaking = false;
+				}
+				DestroyBucket(bucket);
+			}
+		}
+		foreach (WeakReference<UserSession> reference in lstSessions.ToList())
+		{
+			if (reference.TryGetTarget(out UserSession? session) && session != null)
+			{
+				session.IsRegisteredForMatchmaking = false;
+			}
+			lstSessions.Remove(reference);
+		}
+		s_restoredTickets.Clear();
+		s_restoredBuckets.Clear();
+	}
+
 	internal const string PhaseSearching = "searching";
 	internal const string PhaseCommitted = "committed";
 
@@ -125,7 +227,7 @@ static partial class MatchmakingManager
 	// The tick seam: the queue is written when it differs from what was written last or every entity must be written again
 	internal static void PublishLiveState()
 	{
-		if (!RealtimeLiveState.Writing)
+		if (!RealtimeLiveState.Writing || !RealtimeLiveState.Owns(LiveKeys.Queue))
 		{
 			return;
 		}
@@ -133,7 +235,7 @@ static partial class MatchmakingManager
 		int generation = RealtimeLiveState.Generation;
 		string json = LiveJson.Data(CaptureQueue());
 		long now = Environment.TickCount64;
-		if (now < s_liveNextRewrite && generation == s_liveGeneration && String.Equals(json, s_livePublished, StringComparison.Ordinal))
+		if ((RealtimeLiveState.RewriteMs <= 0 || now < s_liveNextRewrite) && generation == s_liveGeneration && String.Equals(json, s_livePublished, StringComparison.Ordinal))
 		{
 			return;
 		}
@@ -162,14 +264,38 @@ static partial class MatchmakingManager
 		return s_restoredTickets.Count;
 	}
 
+	// One more ticket that waits for its player, sent by the old copy of a handover after the queue moved
+	internal static void AddRestoredTicket(QueueTicketLive ticket, long graceMs)
+	{
+		if (ticket.PlaylistId < 0 || ticket.PlaylistId > UInt16.MaxValue || !g_Playlists.ContainsKey((UInt16)ticket.PlaylistId))
+		{
+			return;
+		}
+		s_restoredTickets[ticket.UserId] = (ticket with { Bucket = -1 }, null);
+		long deadline = Environment.TickCount64 + graceMs;
+		long current;
+		do
+		{
+			current = Interlocked.Read(ref s_restoredDeadline);
+		}
+		while (deadline > current && Interlocked.CompareExchange(ref s_restoredDeadline, deadline, current) != current);
+	}
+
 	// Tickets whose player did not come back within the grace are dropped
 	internal static void DropExpiredRestoredTickets()
 	{
 		if (!s_restoredTickets.IsEmpty && Environment.TickCount64 >= Interlocked.Read(ref s_restoredDeadline))
 		{
-			int dropped = s_restoredTickets.Count;
+			long[] users = s_restoredTickets.Keys.ToArray();
+			int dropped = users.Length;
 			s_restoredTickets.Clear();
 			s_restoredBuckets.Clear();
+
+			// a player who never came back is offline for friends here, no other copy says so
+			foreach (long userID in users)
+			{
+				PublishPresence(userID);
+			}
 			s_log.LogInformation("Dropped {Count} restored matchmaking tickets whose players did not reconnect", dropped);
 		}
 	}
@@ -195,7 +321,8 @@ static partial class MatchmakingManager
 		await session.MatchmakingStateLock.WaitAsync();
 		try
 		{
-			if (session.IsRetired || session.IsRegisteredForMatchmaking)
+			// a player whose setup reached the game sits in its lobby and needs no ticket
+			if (session.IsRetired || session.IsRegisteredForMatchmaking || session.currentLobbyID != -1)
 			{
 				return false;
 			}
@@ -285,6 +412,54 @@ static partial class MatchmakingManager
 					LobbyId = m_LobbyID,
 					Members = sessions.Select(session => session.m_UserID).ToList()
 				}, sessions);
+			}
+		}
+
+		// True while the bucket's lobby moves to another copy, or once it left: then the bucket ends without an abort or a requeue,
+		// its players have their seats on the other copy
+		internal bool FrozenOrReleasedByHandover(LobbyManager lobbies)
+		{
+			long lobbyID;
+			lock (m_StateLock)
+			{
+				lobbyID = m_LobbyID;
+			}
+			if (lobbyID == -1)
+			{
+				return false;
+			}
+			if (lobbies.GetLobby(lobbyID)?.IsMovingAway == true)
+			{
+				return true;
+			}
+			if (!lobbies.MovedAway(lobbyID))
+			{
+				return false;
+			}
+
+			foreach (UserSession session in TakeAllMembers())
+			{
+				session.IsRegisteredForMatchmaking = false;
+			}
+			lock (m_StateLock)
+			{
+				m_bPendingDeletion = true;
+				m_bWaitingOnLobbyJoins = false;
+				m_bHasStartedCountdown = false;
+				m_bWaitingOnMeshConnectivityChecks = false;
+			}
+			MatchmakingManager.DestroyBucket(this);
+			return true;
+		}
+
+		// Empties the bucket and returns the sessions of its members
+		internal List<UserSession> TakeAllMembers()
+		{
+			lock (m_StateLock)
+			{
+				List<UserSession> sessions = m_lstMembers.ToList().Select(member => member.GetAssociatedSession()).Where(session => session != null).Cast<UserSession>().ToList();
+				m_lstMembers.Clear();
+				return sessions;
 			}
 		}
 

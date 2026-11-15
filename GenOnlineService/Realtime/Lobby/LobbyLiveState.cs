@@ -33,6 +33,27 @@ namespace GenOnlineService
 		private int m_LiveGeneration = -1;
 		private string? m_LivePublished;
 
+		// Set while a planned handover gives this lobby to another copy, the tick then writes nothing of it
+		private int m_MovingAway;
+
+		internal bool IsMovingAway => Volatile.Read(ref m_MovingAway) != 0;
+
+		// A quick match start or abort that decided under the gate holds the lobby, a forced move waits for it
+		private int m_StartReservations;
+
+		// True when the start or abort may go on: the lobby is not moving and no move begins until the release
+		internal Task<bool> TryReserveForStartAsync() => RunExclusiveAsync(() =>
+		{
+			if (IsMovingAway)
+			{
+				return Task.FromResult(false);
+			}
+			Interlocked.Increment(ref m_StartReservations);
+			return Task.FromResult(true);
+		});
+
+		internal void ReleaseStartReservation() => Interlocked.Decrement(ref m_StartReservations);
+
 		// A countdown restored from another copy runs to its deadline without the mesh watch, the members reconnect meanwhile
 		private bool m_RestoredCountdown;
 
@@ -44,7 +65,7 @@ namespace GenOnlineService
 		// The tick seam: a changed lobby, a new generation or the refresh interval captures the state under the gate and queues it outside, only when it differs
 		private async Task PublishLiveStateAsync()
 		{
-			if (!RealtimeLiveState.Writing || Volatile.Read(ref m_LiveRemoved) != 0)
+			if (!RealtimeLiveState.Writing || Volatile.Read(ref m_LiveRemoved) != 0 || IsMovingAway)
 			{
 				return;
 			}
@@ -61,8 +82,8 @@ namespace GenOnlineService
 			string json = LiveJson.Data(live);
 			m_LiveNextRefresh = now + RealtimeLiveState.RefreshMs;
 
-			// an unchanged lobby is still written every rewrite interval, until build step 4 compares epochs on write
-			bool rewrite = now >= m_LiveNextRewrite;
+			// an unchanged lobby is written again only when rewrite_ms asks for it, compare on write keeps late writes out
+			bool rewrite = RealtimeLiveState.RewriteMs > 0 && now >= m_LiveNextRewrite;
 			if (!rewrite && generation == m_LiveGeneration && String.Equals(json, m_LivePublished, StringComparison.Ordinal))
 			{
 				return;
@@ -79,6 +100,9 @@ namespace GenOnlineService
 				RealtimeLiveState.Delete(LiveKeys.Lobby(LobbyID));
 			}
 		}
+
+		// A lobby that left this copy without being destroyed writes nothing more, its stored state belongs to another owner
+		internal void MarkReplaced() => Volatile.Write(ref m_LiveRemoved, 1);
 
 		// The removal of a destroyed lobby, written once
 		internal void PublishLiveRemoval()
@@ -343,6 +367,47 @@ namespace GenOnlineService
 			DirtyRetransmit();
 			return Task.FromResult(true);
 		});
+
+		// Quiet for a handover: setup with no countdown, mesh check or start in progress, or in game, under the lobby gate
+		private bool IsQuietLocked() => State == ELobbyState.INGAME
+			|| (State == ELobbyState.GAME_SETUP && LobbyType == ELobbyType.CustomGame && m_StartPhase == EStartPhase.None && !PendingFullMeshConnectivityChecks);
+
+		// The final state for a handover when the lobby is quiet or forced, null otherwise, from then on the tick writes nothing of it
+		internal Task<LobbyLive?> BeginMoveAsync(bool force) => RunExclusiveAsync(() =>
+		{
+			if (IsMovingAway || State == ELobbyState.COMPLETE || Volatile.Read(ref m_LiveRemoved) != 0 || Volatile.Read(ref m_StartReservations) > 0 || (!force && !IsQuietLocked()))
+			{
+				return Task.FromResult<LobbyLive?>(null);
+			}
+			Volatile.Write(ref m_MovingAway, 1);
+			return Task.FromResult<LobbyLive?>(CaptureLiveLocked());
+		});
+
+		// The handover did not take the lobby, this copy keeps it and writes it again
+		internal void CancelMove()
+		{
+			Volatile.Write(ref m_MovingAway, 0);
+			MarkLiveDirty();
+		}
+
+		// The sessions of the human members on this copy, connected or inside their reconnect grace
+		internal IReadOnlyCollection<UserSession> MemberSessions() => Members
+			.Where(member => member.IsHuman())
+			.Select(member => member.GetSession().TryGetTarget(out UserSession? session) ? session : null)
+			.Where(session => session != null && !session.IsRetired)
+			.Cast<UserSession>()
+			.ToArray();
+
+		// Seats a session of this copy in a lobby that is not live yet, which replaces a stale local copy of it
+		internal void SeatLocked(UserSession session)
+		{
+			LobbyMember? member = GetMemberFromUserID(session.m_UserID);
+			if (member != null && !member.HasLiveSession())
+			{
+				member.AttachSession(session);
+				session.UpdateSessionLobbyID(LobbyID);
+			}
+		}
 
 		// Frees the seat of a member that a newer restored lobby also holds, before the lobby is live
 		internal void RemoveRestoredSeat(Int64 userID)

@@ -67,6 +67,8 @@ namespace GenOnlineService
         private static readonly Counter<long> s_failoverLobbiesLost =
             s_meter.CreateCounter<long>("genonline.failover.lobbies.lost", "{lobby}", "Mirrored lobbies that could not be read on an unplanned failover");
         private static long s_failoverMirrorLag;
+        private static readonly Counter<long> s_failoverLobbiesMoved =
+            s_meter.CreateCounter<long>("genonline.failover.lobbies.moved", "{lobby}", "Lobbies a planned handover moved to the new copy");
 
         static AppMetrics()
         {
@@ -119,6 +121,11 @@ namespace GenOnlineService
         public static void RecordFailoverLiveState(string liveStateEvent)
         {
             s_failoverLiveStateEvents.Add(1, new TagList { { "event", liveStateEvent } });
+        }
+
+        public static void RecordFailoverLobbiesMoved(int lobbies)
+        {
+            s_failoverLobbiesMoved.Add(lobbies);
         }
 
         public static void RecordFailoverMirrorLag(int entries)

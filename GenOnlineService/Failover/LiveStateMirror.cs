@@ -22,113 +22,69 @@ namespace GenOnlineService.Failover
 	{
 		Applied,
 
-		// an entry of an older owner epoch, a fenced copy that wrote late
-		Stale,
-
-		// a missing sequence number or a new owner without its reset entry, the mirror needs a full reload
+		// a missing sequence number of a writing copy, the stream was trimmed past the follower, which needs a full reload
 		Gap
 	}
 
-	// The standby's copy of the stored envelopes from a snapshot and the stream in order, no lobby logic, the follower serializes access
+	// The standby's copy of the stored envelopes from a snapshot and the stream in order, no lobby logic, the follower serializes access.
+	// Redis refuses stale writes, so every entry is applied as it comes and only the write count of each copy is checked.
 	public sealed class LiveStateMirror
 	{
 		private readonly Dictionary<string, string> m_entities = new(StringComparer.Ordinal);
+		private readonly Dictionary<string, long> m_seqs = new(StringComparer.Ordinal);
 
 		public bool Loaded { get; private set; }
 
 		// The id of the last applied stream entry, 0-0 before any
 		public string Position { get; private set; } = "0-0";
 
-		// The writer whose entries are applied: its copy id, epoch and last sequence number
-		public string? WriterCopy { get; private set; }
-		public long WriterEpoch { get; private set; }
-		public long WriterSeq { get; private set; }
-
 		public int Count => m_entities.Count;
 
 		public IReadOnlyDictionary<string, string> Entities => m_entities;
 
-		// Replaces the mirror with a snapshot: entities of an older epoch than the owner's are a fenced copy's late writes and stay out
+		public long SeqOf(string copy) => m_seqs.TryGetValue(copy, out long seq) ? seq : 0;
+
 		public void Load(LiveSnapshot snapshot)
 		{
 			m_entities.Clear();
 			foreach ((string key, string json) in snapshot.Entities)
 			{
-				LiveEnvelope? envelope = LiveJson.ReadEnvelope(json);
-				if (envelope != null && envelope.Epoch < snapshot.OwnerEpoch)
-				{
-					continue;
-				}
 				m_entities[key] = json;
 			}
-
-			if (snapshot.Last != null)
+			m_seqs.Clear();
+			foreach ((string copy, long seq) in snapshot.Seqs)
 			{
-				Position = snapshot.Last.ID;
-				WriterCopy = snapshot.Last.Copy;
-				WriterEpoch = snapshot.Last.Epoch;
-				WriterSeq = snapshot.Last.Seq;
+				m_seqs[copy] = seq;
 			}
-			else
-			{
-				Position = "0-0";
-				WriterCopy = snapshot.OwnerCopy;
-				WriterEpoch = snapshot.OwnerEpoch;
-				WriterSeq = 0;
-			}
+			Position = snapshot.Position;
 			Loaded = true;
 		}
 
 		public void Unload()
 		{
 			m_entities.Clear();
+			m_seqs.Clear();
 			Loaded = false;
 		}
 
 		// Applies one entry in stream order. A gap changes nothing, the caller reloads.
 		public MirrorApply Apply(LiveStreamEntry entry)
 		{
-			if (entry.Epoch < WriterEpoch)
-			{
-				Position = entry.ID;
-				return MirrorApply.Stale;
-			}
-
-			bool sameWriter = entry.Epoch == WriterEpoch && String.Equals(entry.Copy, WriterCopy, StringComparison.Ordinal);
-			if (!sameWriter)
-			{
-				// a new owner always starts with its reset entry, sequence 1
-				if (entry.Op != LiveOp.Reset || entry.Seq != 1)
-				{
-					return MirrorApply.Gap;
-				}
-				WriterCopy = entry.Copy;
-				WriterEpoch = entry.Epoch;
-				WriterSeq = 0;
-			}
-
-			if (entry.Seq != WriterSeq + 1)
+			if (entry.Seq != SeqOf(entry.Copy) + 1)
 			{
 				return MirrorApply.Gap;
 			}
 
-			switch (entry.Op)
+			if (entry.Op == LiveOp.Delete)
 			{
-				case LiveOp.Reset:
-					m_entities.Clear();
-					break;
-				case LiveOp.Delete:
-					m_entities.Remove(entry.Key);
-					break;
-				case LiveOp.Set:
-					if (entry.Body != null)
-					{
-						m_entities[entry.Key] = entry.Body;
-					}
-					break;
+				m_entities.Remove(entry.Key);
+			}
+			else if (entry.Body != null)
+			{
+				m_entities[entry.Key] = entry.Body;
 			}
 
-			WriterSeq = entry.Seq;
+			m_seqs[entry.Copy] = entry.Seq;
 			Position = entry.ID;
 			return MirrorApply.Applied;
 		}

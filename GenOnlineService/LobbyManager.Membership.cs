@@ -141,6 +141,16 @@ public partial class LobbyManager
 	// Caller holds the user's membership gate through removal and session cleanup.
 	private async Task<LobbyMember?> RemoveMembershipAsync(Lobby lobby, long userID, LobbyMember? expectedMember = null)
 	{
+		// a lobby handed to another copy stays frozen here, the leave reaches the new copy as a note
+		if (lobby.IsMovingAway)
+		{
+			if (lobby.GetMemberFromUserID(userID) != null)
+			{
+				MovingLeave?.Invoke(lobby.LobbyID, userID);
+			}
+			return null;
+		}
+
 		var removed = await lobby.RemoveMemberAsync(userID, expectedMember);
 		if (removed != null && removed.GetSession().TryGetTarget(out var session)
 			&& IsCurrentSession(session) && !session.IsRetired && session.currentLobbyID == lobby.LobbyID)

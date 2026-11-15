@@ -47,6 +47,8 @@ public class FailoverTests
 		public string? Standby;
 		public long StandbyExpiresAt;
 		public bool HandoverRequested;
+		public string? HandoverTarget;
+		public bool HandoverConfirmed;
 		public bool Down;
 		public bool Hang;
 
@@ -70,7 +72,7 @@ public class FailoverTests
 			lock (m_lock)
 			{
 				Check();
-				return Task.FromResult<RealtimeLease?>(new RealtimeLease { ID = 1, Holder = Holder, Epoch = Epoch, ExpiresAt = At(ExpiresAt), Standby = Standby, StandbyExpiresAt = At(StandbyExpiresAt), HandoverRequestedAt = HandoverRequested ? At(m_clock.Read()) : null });
+				return Task.FromResult<RealtimeLease?>(new RealtimeLease { ID = 1, Holder = Holder, Epoch = Epoch, ExpiresAt = At(ExpiresAt), Standby = Standby, StandbyExpiresAt = At(StandbyExpiresAt), HandoverRequestedAt = HandoverRequested ? At(m_clock.Read()) : null, HandoverTarget = HandoverTarget, HandoverConfirmedAt = HandoverConfirmed ? At(m_clock.Read()) : null });
 			}
 		}
 
@@ -88,6 +90,8 @@ public class FailoverTests
 				ExpiresAt = m_clock.Read() + leaseMs;
 				Standby = null;
 				HandoverRequested = false;
+				HandoverTarget = null;
+				HandoverConfirmed = false;
 				return Task.FromResult<long?>(Epoch);
 			}
 		}
@@ -121,7 +125,7 @@ public class FailoverTests
 			lock (m_lock)
 			{
 				Check();
-				if (Holder != copyID)
+				if (Holder != copyID && (HandoverTarget == null || HandoverTarget == copyID))
 				{
 					Standby = copyID;
 					StandbyExpiresAt = m_clock.Read() + leaseMs;
@@ -130,20 +134,79 @@ public class FailoverTests
 			}
 		}
 
-		public Task<Database.Lease.Handover?> HandOverAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken)
+		public Task<string?> BeginHandoverAsync(string copyID, long epoch, CancellationToken cancellationToken)
 		{
 			lock (m_lock)
 			{
 				Check();
-				if (Holder != copyID || Epoch != epoch || Standby == null || Standby == copyID || StandbyExpiresAt <= m_clock.Read())
+				long now = m_clock.Read();
+				if (Holder != copyID || Epoch != epoch || ExpiresAt <= now || Standby == null || Standby == copyID || StandbyExpiresAt <= now)
+				{
+					return Task.FromResult<string?>(null);
+				}
+				HandoverTarget = Standby;
+				HandoverConfirmed = false;
+				HandoverRequested = false;
+				return Task.FromResult<string?>(HandoverTarget);
+			}
+		}
+
+		public Task<bool> ConfirmHandoverAsync(string copyID, CancellationToken cancellationToken)
+		{
+			lock (m_lock)
+			{
+				Check();
+				if (HandoverTarget != copyID || Holder == copyID || ExpiresAt <= m_clock.Read())
+				{
+					return Task.FromResult(false);
+				}
+				HandoverConfirmed = true;
+				return Task.FromResult(true);
+			}
+		}
+
+		public Task<bool> TargetAliveAsync(string copyID, long epoch, string target, CancellationToken cancellationToken)
+		{
+			lock (m_lock)
+			{
+				Check();
+				return Task.FromResult(Holder == copyID && Epoch == epoch && HandoverTarget == target && Standby == target && StandbyExpiresAt > m_clock.Read());
+			}
+		}
+
+		public Task<long?> CancelHandoverAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken)
+		{
+			lock (m_lock)
+			{
+				Check();
+				if (Holder != copyID || Epoch != epoch)
+				{
+					return Task.FromResult<long?>(null);
+				}
+				Epoch++;
+				ExpiresAt = m_clock.Read() + leaseMs;
+				HandoverTarget = null;
+				HandoverConfirmed = false;
+				HandoverRequested = false;
+				return Task.FromResult<long?>(Epoch);
+			}
+		}
+
+		public Task<Database.Lease.Handover?> CompleteHandoverAsync(string copyID, long epoch, int leaseMs, CancellationToken cancellationToken)
+		{
+			lock (m_lock)
+			{
+				Check();
+				if (Holder != copyID || Epoch != epoch || HandoverTarget == null || !HandoverConfirmed || Standby != HandoverTarget || StandbyExpiresAt <= m_clock.Read())
 				{
 					return Task.FromResult<Database.Lease.Handover?>(null);
 				}
-				Holder = Standby;
+				Holder = HandoverTarget;
 				Epoch++;
 				ExpiresAt = m_clock.Read() + leaseMs;
 				Standby = null;
-				HandoverRequested = false;
+				HandoverTarget = null;
+				HandoverConfirmed = false;
 				return Task.FromResult<Database.Lease.Handover?>(new Database.Lease.Handover(Holder, Epoch, At(ExpiresAt)));
 			}
 		}
@@ -158,24 +221,6 @@ public class FailoverTests
 					ExpiresAt = m_clock.Read() - 1000;
 				}
 				return Task.CompletedTask;
-			}
-		}
-
-		public Task<long?> ReclaimAsync(string copyID, Database.Lease.Handover handover, int leaseMs, CancellationToken cancellationToken)
-		{
-			lock (m_lock)
-			{
-				Check();
-				long handed = (long)(handover.ExpiresAt - DateTime.UnixEpoch).TotalMilliseconds;
-				if (Holder != handover.Target || Epoch != handover.Epoch || (ExpiresAt != handed && ExpiresAt >= m_clock.Read()))
-				{
-					return Task.FromResult<long?>(null);
-				}
-				Holder = copyID;
-				Epoch++;
-				ExpiresAt = m_clock.Read() + leaseMs;
-				Standby = null;
-				return Task.FromResult<long?>(Epoch);
 			}
 		}
 
@@ -453,6 +498,10 @@ public class FailoverTests
 		Assert.True(targetReadyAtFirstSwitch);
 		Assert.False(sourceReadyDuringSwitch);
 		Assert.Equal((FailoverRole.Stopped, false), (a.Role, a.IsReady));
+
+		// the lease moved last, the target confirms it with its next step
+		Assert.Equal(("b", 2L), (store.Holder, store.Epoch));
+		await b.TickAsync();
 		Assert.Equal((FailoverRole.Active, 2L), (b.Role, b.Epoch));
 
 		// 5 percent of 40 per batch, each connection with its own delay inside the range
@@ -611,11 +660,11 @@ public class FailoverTests
 		await a.TickAsync();
 		await b.TickAsync();
 
-		// b dies right after the lease was handed to it
+		// b dies right after it was named the target, the holder kept the lease and cancels with the next epoch
 		Assert.False(await WithClockRunning(clock, a.HandOverAsync(closeWithoutStandby: false)));
 
-		Assert.Equal((FailoverRole.Active, true, 3L), (a.Role, a.IsReady, a.Epoch));
-		Assert.Equal(("a", 3L), (store.Holder, store.Epoch));
+		Assert.Equal((FailoverRole.Active, true, 2L), (a.Role, a.IsReady, a.Epoch));
+		Assert.Equal(("a", 2L, (string?)null), (store.Holder, store.Epoch, store.HandoverTarget));
 		Assert.Empty(drain.Batches);
 		Assert.Empty(drain.Closes);
 		Assert.Equal(10, drain.OpenConnections);
@@ -678,7 +727,7 @@ public class FailoverTests
 		await b.TickAsync();
 
 		Assert.False(await handover);
-		Assert.Equal((FailoverRole.Active, true, 3L), (a.Role, a.IsReady, a.Epoch));
+		Assert.Equal((FailoverRole.Active, true, 2L), (a.Role, a.IsReady, a.Epoch));
 		Assert.Equal(new[] { 2 }, drainA.Batches);
 		Assert.Equal(38, drainA.OpenConnections);
 		Assert.Empty(drainA.Closes);
@@ -705,7 +754,7 @@ public class FailoverTests
 
 		// the clock runs slower than the renewals, b never confirms
 		long until = Environment.TickCount64 + 10_000;
-		while (store.Epoch < 3 && Environment.TickCount64 < until)
+		while (store.Epoch < 2 && Environment.TickCount64 < until)
 		{
 			clock.Advance(20);
 			await Task.Delay(5);
@@ -713,7 +762,7 @@ public class FailoverTests
 		await Task.Delay(200);
 
 		Assert.False(stopped);
-		Assert.Equal(("a", 3L, FailoverRole.Active), (store.Holder, store.Epoch, a.Role));
+		Assert.Equal(("a", 2L, FailoverRole.Active), (store.Holder, store.Epoch, a.Role));
 		stop.Cancel();
 		await loop;
 		Assert.False(stopped);
@@ -903,5 +952,193 @@ public class FailoverTests
 		c.Activating = (_, _) => throw new InvalidOperationException("restore failed");
 		await c.TickAsync();
 		Assert.True(c.IsReady);
+	}
+
+	private sealed class FakeMover : IHandoverMover
+	{
+		public readonly List<string> Calls = new();
+		public bool Result = true;
+		public Func<Task>? During;
+
+		public async Task<bool> MoveAsync(string target, long limitAtMs, Func<long> clockMs, Func<Task<bool>> targetAlive)
+		{
+			lock (Calls)
+			{
+				Calls.Add("move " + target);
+			}
+			if (During != null)
+			{
+				await During();
+			}
+			return Result && await targetAlive();
+		}
+
+		public Task PrepareTakeBackAsync(string target)
+		{
+			lock (Calls)
+			{
+				Calls.Add("take back " + target);
+			}
+			return Task.CompletedTask;
+		}
+	}
+
+	// Ticks both copies while the fake clock runs, as their lease loops do
+	private static async Task<T> WithLoops<T>(Clock clock, Task<T> task, params FailoverCoordinator[] copies)
+	{
+		while (!task.IsCompleted)
+		{
+			clock.Advance(100);
+			foreach (FailoverCoordinator copy in copies)
+			{
+				await copy.TickAsync();
+			}
+			await Task.Delay(5);
+		}
+		return await task;
+	}
+
+	[Fact]
+	public async Task TheHolderKeepsAndRenewsTheLeaseDuringItsHandoverAndHandsItOverLast()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FakeDrain drainA = new(40);
+		FailoverSettings settings = new() { Enabled = true, BatchIntervalMs = 20, SwitchDelayMs = 1 };
+		FailoverCoordinator a = Copy("a", store, drainA, clock, settings);
+		FailoverCoordinator b = Copy("b", store, new FakeDrain(0), clock, settings);
+		await a.TickAsync();
+		await b.TickAsync();
+
+		List<(string Holder, long ExpiresAt, FailoverRole Target)> seen = new();
+		drainA.OnSwitch = () => seen.Add((store.Holder, store.ExpiresAt, b.Role));
+		Assert.True(await WithLoops(clock, a.HandOverAsync(closeWithoutStandby: true), a, b));
+
+		// every batch ran while a held the lease and renewed it, with b serving as the target
+		Assert.Equal(20, seen.Count);
+		Assert.All(seen, s => Assert.Equal(("a", FailoverRole.Target), (s.Holder, s.Target)));
+		Assert.True(seen.Last().ExpiresAt > seen.First().ExpiresAt);
+		Assert.Equal(("b", 2L), (store.Holder, store.Epoch));
+		await b.TickAsync();
+		Assert.Equal((FailoverRole.Active, true), (b.Role, b.IsReady));
+	}
+
+	[Fact]
+	public async Task TheTargetServesUntilTheHolderCancelsThenStepsDownAndClosesItsConnections()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FakeDrain drainB = new(5);
+		FailoverCoordinator a = Copy("a", store, new FakeDrain(0), clock);
+		FailoverCoordinator b = Copy("b", store, drainB, clock);
+		int fenced = 0;
+		b.Fencing = () => fenced += drainB.Closes.Count == 0 ? 1 : 100;
+		await a.TickAsync();
+		await b.TickAsync();
+
+		store.HandoverTarget = "b";
+		await b.TickAsync();
+		Assert.Equal((FailoverRole.Target, true, false), (b.Role, b.IsReady, b.IsFenced));
+		Assert.True(store.HandoverConfirmed);
+
+		// the holder ends the handover without moving the lease
+		store.HandoverTarget = null;
+		await b.TickAsync();
+		await b.Closing;
+		Assert.Equal((FailoverRole.Standby, false), (b.Role, b.IsReady));
+		Assert.Equal(new[] { CloseCodes.ServerRestarting }, drainB.Closes);
+		Assert.Equal(1, fenced);
+	}
+
+	[Fact]
+	public async Task AHolderThatDiesDuringTheHandoverLetsTheTargetTakeTheLeaseAndEverything()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FailoverCoordinator a = Copy("a", store, new FakeDrain(0), clock);
+		FailoverCoordinator b = Copy("b", store, new FakeDrain(0), clock);
+		List<FailoverActivation> activations = new();
+		b.Activating = (activation, _) => activations.Add(activation);
+		await a.TickAsync();
+		await b.TickAsync();
+		store.HandoverTarget = "b";
+		await b.TickAsync();
+		Assert.Equal(FailoverRole.Target, b.Role);
+
+		// a stops renewing, b takes the expired lease as after any failure
+		clock.Advance(2600);
+		await b.TickAsync();
+		Assert.Equal((FailoverRole.Active, 2L, (string?)null), (b.Role, b.Epoch, store.HandoverTarget));
+		Assert.Equal(new[] { FailoverActivation.AfterExpiry }, activations);
+	}
+
+	[Fact]
+	public async Task TheMovesRunBeforeTheBatchesAndAFailedMoveCancelsWithATakeBack()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FakeDrain drainA = new(10);
+		FailoverCoordinator a = Copy("a", store, drainA, clock);
+		FailoverCoordinator b = Copy("b", store, new FakeDrain(0), clock);
+		FakeMover mover = new() { Result = false };
+		a.Mover = mover;
+		List<(FailoverActivation Activation, long Epoch)> activations = new();
+		a.Activating = (activation, epoch) => activations.Add((activation, epoch));
+		await a.TickAsync();
+		await b.TickAsync();
+		activations.Clear();
+
+		Assert.False(await WithLoops(clock, a.HandOverAsync(closeWithoutStandby: false), a, b));
+		Assert.Equal(new[] { "move b", "take back b" }, mover.Calls);
+		Assert.Empty(drainA.Batches);
+		Assert.Equal(new[] { (FailoverActivation.TakenBack, 2L) }, activations);
+		Assert.Equal((FailoverRole.Active, true, "a", 2L), (a.Role, a.IsReady, store.Holder, store.Epoch));
+
+		// the target sees the cancel and steps down
+		await b.TickAsync();
+		Assert.Equal(FailoverRole.Standby, b.Role);
+	}
+
+	[Fact]
+	public async Task ASuccessfulMoveComesBeforeTheFirstBatch()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FakeDrain drainA = new(4);
+		FailoverCoordinator a = Copy("a", store, drainA, clock);
+		FailoverCoordinator b = Copy("b", store, new FakeDrain(0), clock);
+		FakeMover mover = new();
+		int batchesAtMove = -1;
+		mover.During = () =>
+		{
+			batchesAtMove = drainA.Batches.Count;
+			return Task.CompletedTask;
+		};
+		a.Mover = mover;
+		await a.TickAsync();
+		await b.TickAsync();
+
+		Assert.True(await WithLoops(clock, a.HandOverAsync(closeWithoutStandby: true), a, b));
+		Assert.Equal(0, batchesAtMove);
+		Assert.Equal(4, drainA.RetryAfters.Count);
+	}
+
+	[Fact]
+	public async Task ALostLeaseDropsTheOwnedStateBeforeTheConnectionsClose()
+	{
+		Clock clock = new();
+		FakeStore store = new(clock);
+		FakeDrain drainA = new(3);
+		FailoverCoordinator a = Copy("a", store, drainA, clock);
+		int closesAtFencing = -1;
+		a.Fencing = () => closesAtFencing = drainA.Closes.Count;
+		await a.TickAsync();
+
+		store.Epoch = 9;
+		clock.Advance(500);
+		await a.TickAsync();
+		await a.Closing;
+		Assert.Equal(0, closesAtFencing);
+		Assert.Equal(new[] { CloseCodes.ServerRestarting }, drainA.Closes);
 	}
 }

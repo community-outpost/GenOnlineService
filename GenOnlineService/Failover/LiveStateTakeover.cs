@@ -25,27 +25,67 @@ namespace GenOnlineService.Failover
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(LiveStateTakeover));
 
-		// Only a takeover after a failure restores the mirror, every activation then writes the state again under the new epoch
-		public static void OnActivating(FailoverActivation activation, long epoch, LobbyManager lobbies)
+		// The stored state a copy restores and claims when it becomes the holder, before it reports ready.
+		// After a failure the fresh mirror, after a cancelled handover what the target owned, nothing on a cold start.
+		// Every entity another copy owned is claimed at its owner epoch plus one, and what was not restored is deleted.
+		public static void OnActivating(FailoverActivation activation, long epoch, LobbyManager lobbies, LiveStateWriter writer, IReadOnlyDictionary<string, string>? takenBack, string? target)
 		{
 			(IReadOnlyDictionary<string, string> mirror, bool fresh) = RealtimeLiveState.DetachMirror();
+			IReadOnlyDictionary<string, string> source = activation switch
+			{
+				FailoverActivation.TakenBack => takenBack ?? new Dictionary<string, string>(),
+				FailoverActivation.HandedOver => mirror,
+				FailoverActivation.AfterExpiry when fresh => mirror,
+				_ => new Dictionary<string, string>()
+			};
 			if (activation == FailoverActivation.AfterExpiry && !fresh)
 			{
 				// a mirror not in sync lately may hold lobbies minutes old, the copy starts empty as a cold start does
 				AppMetrics.RecordFailoverLiveState("restore_skipped_stale");
 				s_log.LogWarning("Copy took over with epoch {Epoch} but its mirror was not in sync lately, {Count} stored entities are not restored", epoch, mirror.Count);
 			}
-			else if (activation == FailoverActivation.AfterExpiry)
+
+			// entities this copy owns are live here, one transferred to it but not adopted yet is restored too
+			Dictionary<string, string> foreign = source
+				.Where(entry => !writer.Owns(entry.Key))
+				.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+			HashSet<string> restoredKeys = new(StringComparer.Ordinal);
+			LiveRestoreResult result = Restore(foreign, lobbies, UserSessionSettings.ReconnectGracePeriodMS, restoredKeys);
+			if (activation is FailoverActivation.AfterExpiry or FailoverActivation.TakenBack || result.Restored + result.Lost > 0)
 			{
-				LiveRestoreResult result = Restore(mirror, lobbies, UserSessionSettings.ReconnectGracePeriodMS);
 				s_log.LogInformation("Copy took over with epoch {Epoch}: {Restored} lobbies restored, {Lost} lost, {Skipped} skipped, {Tickets} matchmaking tickets waiting for their players",
 					epoch, result.Restored, result.Lost, result.Skipped, result.Tickets);
 			}
-			RealtimeLiveState.Activated();
+
+			MatchmakingManager.HoldFormation = false;
+			Task<IReadOnlyDictionary<string, long>> claim = activation == FailoverActivation.TakenBack
+				? writer.ClaimAsync(LiveClaim.OwnedBy, target, new[] { LiveKeys.Queue })
+				: writer.ClaimAsync(LiveClaim.NotMine, null, new[] { LiveKeys.Queue });
+			_ = claim.ContinueWith(done =>
+			{
+				if (!done.IsCompletedSuccessfully)
+				{
+					return;
+				}
+				foreach (string key in done.Result.Keys)
+				{
+					if (LiveKeys.IsLobby(key) && !restoredKeys.Contains(key) && !(Int64.TryParse(key.AsSpan(LiveKeys.LobbyPrefix.Length), out long id) && lobbies.GetLobby(id) != null))
+					{
+						writer.Delete(key);
+					}
+
+					// a leave note or a ticket the other copy never applied: the leave applies here, the note goes
+					else if (LiveKeys.IsLeave(key) || LiveKeys.IsTicket(key))
+					{
+						writer.Delete(key);
+					}
+				}
+				MatchmakingManager.ForceLivePublish();
+			}, TaskScheduler.Default);
 		}
 
 		// Each entity on its own: an unreadable one is skipped and counted, never a crash
-		public static LiveRestoreResult Restore(IReadOnlyDictionary<string, string> mirror, LobbyManager lobbies, long graceMs)
+		public static LiveRestoreResult Restore(IReadOnlyDictionary<string, string> mirror, LobbyManager lobbies, long graceMs, ISet<string>? restoredKeys = null)
 		{
 			int restored = 0, lost = 0, skipped = 0, tickets = 0;
 			List<(Lobby Lobby, long WrittenAtMs)> candidates = new();
@@ -106,6 +146,7 @@ namespace GenOnlineService.Failover
 				else
 				{
 					++restored;
+					restoredKeys?.Add(LiveKeys.Lobby(lobby.LobbyID));
 				}
 			}
 
@@ -121,6 +162,7 @@ namespace GenOnlineService.Failover
 				else
 				{
 					tickets = MatchmakingManager.RestoreQueue(queue, graceMs);
+					restoredKeys?.Add(LiveKeys.Queue);
 				}
 			}
 

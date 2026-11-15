@@ -29,6 +29,10 @@ public class RealtimeLease
 	public string? Standby { get; set; }
 	public DateTime? StandbyExpiresAt { get; set; }
 	public DateTime? HandoverRequestedAt { get; set; }
+
+	// The copy a running planned handover moves to, and when it confirmed that it serves (build step 4)
+	public string? HandoverTarget { get; set; }
+	public DateTime? HandoverConfirmedAt { get; set; }
 }
 
 public class RealtimeLeaseConfiguration : IEntityTypeConfiguration<RealtimeLease>
@@ -46,6 +50,8 @@ public class RealtimeLeaseConfiguration : IEntityTypeConfiguration<RealtimeLease
 		builder.Property(e => e.Standby).HasColumnName("standby").HasMaxLength(128);
 		builder.Property(e => e.StandbyExpiresAt).HasColumnName("standby_expires_at");
 		builder.Property(e => e.HandoverRequestedAt).HasColumnName("handover_requested_at");
+		builder.Property(e => e.HandoverTarget).HasColumnName("handover_target").HasMaxLength(128);
+		builder.Property(e => e.HandoverConfirmedAt).HasColumnName("handover_confirmed_at");
 
 		// the row exists from the first migration on, expired, so the first copy takes it at once
 		builder.HasData(new RealtimeLease { ID = Database.Lease.RowID, Holder = String.Empty, Epoch = 0, ExpiresAt = DateTime.UnixEpoch });
@@ -81,8 +87,8 @@ namespace Database
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
 			int updated = await db.Database.ExecuteSqlRawAsync(
-				$"UPDATE realtime_lease SET holder = {{0}}, epoch = epoch + 1, expires_at = {NowPlus(db, 1)}, standby = NULL, standby_expires_at = NULL, handover_requested_at = NULL "
-				+ $"WHERE id = {RowID} AND expires_at < {Now(db)}",
+				$"UPDATE realtime_lease SET holder = {{0}}, epoch = epoch + 1, expires_at = {NowPlus(db, 1)}, standby = NULL, standby_expires_at = NULL, handover_requested_at = NULL, "
+				+ $"handover_target = NULL, handover_confirmed_at = NULL WHERE id = {RowID} AND expires_at < {Now(db)}",
 				new object[] { copyID, leaseMs }, cancellationToken);
 			if (updated != 1)
 			{
@@ -108,19 +114,79 @@ namespace Database
 		public static async Task<bool> AnnounceStandby(AppDbContext db, string copyID, int leaseMs, CancellationToken cancellationToken = default)
 		{
 			int updated = await db.Database.ExecuteSqlRawAsync(
-				$"UPDATE realtime_lease SET standby = {{0}}, standby_expires_at = {NowPlus(db, 1)} WHERE id = {RowID} AND holder <> {{0}}",
+				$"UPDATE realtime_lease SET standby = {{0}}, standby_expires_at = {NowPlus(db, 1)} WHERE id = {RowID} AND holder <> {{0}} AND (handover_target IS NULL OR handover_target = {{0}})",
 				new object[] { copyID, leaseMs }, cancellationToken);
 			return updated == 1;
 		}
 
-		// Gives the lease to a live standby with the epoch plus one, null without a live standby or when the caller no longer holds it
-		public static async Task<Handover?> HandOver(AppDbContext db, string copyID, long epoch, int leaseMs, CancellationToken cancellationToken = default)
+		// Starts a planned handover to the live standby while the caller keeps the lease, null without one or when the caller no longer holds it
+		public static async Task<string?> BeginHandover(AppDbContext db, string copyID, long epoch, CancellationToken cancellationToken = default)
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
 			int updated = await db.Database.ExecuteSqlRawAsync(
-				$"UPDATE realtime_lease SET holder = standby, epoch = epoch + 1, expires_at = {NowPlus(db, 2)}, standby = NULL, standby_expires_at = NULL, handover_requested_at = NULL "
-				+ $"WHERE id = {RowID} AND holder = {{0}} AND epoch = {{1}} AND standby IS NOT NULL AND standby <> {{0}} AND standby_expires_at > {Now(db)}",
+				$"UPDATE realtime_lease SET handover_target = standby, handover_confirmed_at = NULL, handover_requested_at = NULL "
+				+ $"WHERE id = {RowID} AND holder = {{0}} AND epoch = {{1}} AND expires_at > {Now(db)} AND standby IS NOT NULL AND standby <> {{0}} AND standby_expires_at > {Now(db)}",
+				new object[] { copyID, epoch }, cancellationToken);
+			if (updated != 1)
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return null;
+			}
+
+			string? target = await db.RealtimeLeases.AsNoTracking().Where(l => l.ID == RowID).Select(l => l.HandoverTarget).SingleAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return target;
+		}
+
+		// The target says it serves, only while it is the target of a live holder
+		public static async Task<bool> ConfirmHandover(AppDbContext db, string copyID, CancellationToken cancellationToken = default)
+		{
+			int updated = await db.Database.ExecuteSqlRawAsync(
+				$"UPDATE realtime_lease SET handover_confirmed_at = {Now(db)} WHERE id = {RowID} AND handover_target = {{0}} AND holder <> {{0}} AND expires_at > {Now(db)}",
+				new object[] { copyID }, cancellationToken);
+			return updated == 1;
+		}
+
+		// True while the target of the caller's handover still renews its standby entry
+		public static async Task<bool> TargetAlive(AppDbContext db, string copyID, long epoch, string target, CancellationToken cancellationToken = default)
+		{
+			int count = await db.Database.SqlQueryRaw<int>(
+				$"SELECT count(*)::int AS \"Value\" FROM realtime_lease WHERE id = {RowID} AND holder = {{0}} AND epoch = {{1}} AND handover_target = {{2}} AND standby = {{2}} AND standby_expires_at > {Now(db)}",
+				copyID, epoch, target).SingleAsync(cancellationToken);
+			return count == 1;
+		}
+
+		// Ends the handover without moving the lease and raises the epoch, so the caller takes back what the target owned under a new epoch
+		public static async Task<long?> CancelHandover(AppDbContext db, string copyID, long epoch, int leaseMs, CancellationToken cancellationToken = default)
+		{
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+			int updated = await db.Database.ExecuteSqlRawAsync(
+				$"UPDATE realtime_lease SET epoch = epoch + 1, expires_at = {NowPlus(db, 2)}, handover_target = NULL, handover_confirmed_at = NULL, handover_requested_at = NULL "
+				+ $"WHERE id = {RowID} AND holder = {{0}} AND epoch = {{1}}",
+				new object[] { copyID, epoch, leaseMs }, cancellationToken);
+			if (updated != 1)
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return null;
+			}
+
+			long next = await db.RealtimeLeases.AsNoTracking().Where(l => l.ID == RowID).Select(l => l.Epoch).SingleAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return next;
+		}
+
+		// The end of the handover: the confirmed and live target gets the lease with the epoch plus one, null when it is gone
+		public static async Task<Handover?> CompleteHandover(AppDbContext db, string copyID, long epoch, int leaseMs, CancellationToken cancellationToken = default)
+		{
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+			int updated = await db.Database.ExecuteSqlRawAsync(
+				$"UPDATE realtime_lease SET holder = handover_target, epoch = epoch + 1, expires_at = {NowPlus(db, 2)}, standby = NULL, standby_expires_at = NULL, "
+				+ $"handover_target = NULL, handover_confirmed_at = NULL, handover_requested_at = NULL "
+				+ $"WHERE id = {RowID} AND holder = {{0}} AND epoch = {{1}} AND handover_target IS NOT NULL AND handover_confirmed_at IS NOT NULL "
+				+ $"AND standby = handover_target AND standby_expires_at > {Now(db)}",
 				new object[] { copyID, epoch, leaseMs }, cancellationToken);
 			if (updated != 1)
 			{
@@ -131,26 +197,6 @@ namespace Database
 			RealtimeLease lease = await db.RealtimeLeases.AsNoTracking().SingleAsync(l => l.ID == RowID, cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return new Handover(lease.Holder, lease.Epoch, lease.ExpiresAt);
-		}
-
-		// Takes a handed lease back with the next epoch while the target never renewed it or let it lapse, the row lock orders it against the target's renewal
-		public static async Task<long?> Reclaim(AppDbContext db, string copyID, Handover handover, int leaseMs, CancellationToken cancellationToken = default)
-		{
-			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-
-			int updated = await db.Database.ExecuteSqlRawAsync(
-				$"UPDATE realtime_lease SET holder = {{0}}, epoch = epoch + 1, expires_at = {NowPlus(db, 4)}, standby = NULL, standby_expires_at = NULL, handover_requested_at = NULL "
-				+ $"WHERE id = {RowID} AND holder = {{1}} AND epoch = {{2}} AND (expires_at = {{3}} OR expires_at < {Now(db)})",
-				new object[] { copyID, handover.Target, handover.Epoch, handover.ExpiresAt, leaseMs }, cancellationToken);
-			if (updated != 1)
-			{
-				await transaction.RollbackAsync(cancellationToken);
-				return null;
-			}
-
-			long epoch = await db.RealtimeLeases.AsNoTracking().Where(l => l.ID == RowID).Select(l => l.Epoch).SingleAsync(cancellationToken);
-			await transaction.CommitAsync(cancellationToken);
-			return epoch;
 		}
 
 		// Ends the caller's lease now so the next copy takes it without waiting for the expiry

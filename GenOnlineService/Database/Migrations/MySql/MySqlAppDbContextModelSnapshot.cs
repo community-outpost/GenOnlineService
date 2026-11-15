@@ -1437,9 +1437,18 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("datetime(6)")
                         .HasColumnName("expires_at");
 
+                    b.Property<DateTime?>("HandoverConfirmedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("handover_confirmed_at");
+
                     b.Property<DateTime?>("HandoverRequestedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("handover_requested_at");
+
+                    b.Property<string>("HandoverTarget")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("handover_target");
 
                     b.Property<string>("Holder")
                         .IsRequired()

@@ -56,10 +56,16 @@ public class LeaseProbeTests
 		await Database.Lease.AnnounceStandby(db, copy, leaseMs);
 	}
 
-	private static async Task<Database.Lease.Handover?> HandOver(ProbeDatabase probe, string copy, long epoch, int leaseMs = Lease)
+	private static async Task<string?> Begin(ProbeDatabase probe, string copy, long epoch)
 	{
 		await using AppDbContext db = probe.Open();
-		return await Database.Lease.HandOver(db, copy, epoch, leaseMs);
+		return await Database.Lease.BeginHandover(db, copy, epoch);
+	}
+
+	private static async Task<T> With<T>(ProbeDatabase probe, Func<AppDbContext, Task<T>> statement)
+	{
+		await using AppDbContext db = probe.Open();
+		return await statement(db);
 	}
 
 	[ProbeTheory]
@@ -136,39 +142,47 @@ public class LeaseProbeTests
 
 	[ProbeTheory]
 	[MemberData(nameof(Postgres))]
-	public async Task AHandoverNeedsALiveStandbyAndRaisesTheEpoch(string provider)
+	public async Task AHandoverNeedsALiveStandbyAndKeepsTheLeaseOnTheHolderUntilItEnds(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
 
 		Assert.Equal(1L, await Take(probe, "a", 60_000));
-		await using (AppDbContext db = probe.Open())
-		{
-			Assert.False(await Database.Lease.RequestHandover(db));
-		}
-		Assert.Null(await HandOver(probe, "a", 1));
+		Assert.False(await With(probe, db => Database.Lease.RequestHandover(db)));
+		Assert.Null(await Begin(probe, "a", 1));
 
 		// a standby whose announcement expired does not count
 		await Announce(probe, "b", 100);
 		await Task.Delay(300);
-		Assert.Null(await HandOver(probe, "a", 1));
+		Assert.Null(await Begin(probe, "a", 1));
 
 		await Announce(probe, "b", 60_000);
-		await using (AppDbContext db = probe.Open())
-		{
-			Assert.True(await Database.Lease.RequestHandover(db));
-		}
-		Assert.NotNull((await Row(probe)).HandoverRequestedAt);
+		Assert.True(await With(probe, db => Database.Lease.RequestHandover(db)));
 
-		// only the holder with its own epoch hands over
-		Assert.Null(await HandOver(probe, "b", 1));
-		Assert.Null(await HandOver(probe, "a", 7));
-		Database.Lease.Handover? handover = await HandOver(probe, "a", 1, 60_000);
-		Assert.NotNull(handover);
-		Assert.Equal(("b", 2L), (handover!.Target, handover.Epoch));
-
+		// only the holder with its own epoch starts it, the lease stays where it is
+		Assert.Null(await Begin(probe, "b", 1));
+		Assert.Null(await Begin(probe, "a", 7));
+		Assert.Equal("b", await Begin(probe, "a", 1));
 		RealtimeLease row = await Row(probe);
-		Assert.Equal(("b", 2L, (string?)null, (DateTime?)null), (row.Holder, row.Epoch, row.Standby, row.HandoverRequestedAt));
+		Assert.Equal(("a", 1L, "b", (DateTime?)null, (DateTime?)null), (row.Holder, row.Epoch, row.HandoverTarget, row.HandoverConfirmedAt, row.HandoverRequestedAt));
+		Assert.True(await Renew(probe, "a", 1, 60_000));
+
+		// another standby never replaces the target, only the target confirms
+		await Announce(probe, "c", 60_000);
+		Assert.Equal("b", (await Row(probe)).Standby);
+		Assert.False(await With(probe, db => Database.Lease.ConfirmHandover(db, "c")));
+		Assert.False(await With(probe, db => Database.Lease.ConfirmHandover(db, "a")));
+		Assert.Null(await With(probe, db => Database.Lease.CompleteHandover(db, "a", 1, 60_000)));
+		Assert.True(await With(probe, db => Database.Lease.ConfirmHandover(db, "b")));
+		Assert.True(await With(probe, db => Database.Lease.TargetAlive(db, "a", 1, "b")));
+		Assert.False(await With(probe, db => Database.Lease.TargetAlive(db, "a", 1, "c")));
+
+		// the end moves the lease to the target with the next epoch
+		Assert.Null(await With(probe, db => Database.Lease.CompleteHandover(db, "b", 1, 60_000)));
+		Database.Lease.Handover? handover = await With(probe, db => Database.Lease.CompleteHandover(db, "a", 1, 60_000));
+		Assert.Equal(("b", 2L), (handover!.Target, handover.Epoch));
+		row = await Row(probe);
+		Assert.Equal(("b", 2L, (string?)null, (string?)null), (row.Holder, row.Epoch, row.Standby, row.HandoverTarget));
 		Assert.False(await Renew(probe, "a", 1));
 		Assert.True(await Renew(probe, "b", 2));
 
@@ -179,41 +193,40 @@ public class LeaseProbeTests
 
 	[ProbeTheory]
 	[MemberData(nameof(Postgres))]
-	public async Task AHandedLeaseIsTakenBackOnlyWhileTheTargetNeverRenewedOrLetItLapse(string provider)
+	public async Task ACancelledHandoverRaisesTheEpochAndAGoneTargetGetsNoLease(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
 
 		Assert.Equal(1L, await Take(probe, "a", 60_000));
 		await Announce(probe, "b", 60_000);
-		Database.Lease.Handover handover = (await HandOver(probe, "a", 1, 60_000))!;
+		Assert.Equal("b", await Begin(probe, "a", 1));
+		Assert.True(await With(probe, db => Database.Lease.ConfirmHandover(db, "b")));
 
-		// the target never renewed: the old holder takes it back with the next epoch, the target is fenced
-		await using (AppDbContext db = probe.Open())
-		{
-			Assert.Null(await Database.Lease.Reclaim(db, "a", handover with { Epoch = 7 }, Lease));
-			Assert.Equal(3L, await Database.Lease.Reclaim(db, "a", handover, 60_000));
-		}
-		Assert.Equal(("a", 3L), ((await Row(probe)).Holder, (await Row(probe)).Epoch));
-		Assert.False(await Renew(probe, "b", 2));
+		// the holder cancels: the lease stays with it at the next epoch and the target is no target any more
+		Assert.Null(await With(probe, db => Database.Lease.CancelHandover(db, "a", 7, 60_000)));
+		Assert.Equal(2L, await With(probe, db => Database.Lease.CancelHandover(db, "a", 1, 60_000)));
+		RealtimeLease row = await Row(probe);
+		Assert.Equal(("a", 2L, (string?)null, (DateTime?)null), (row.Holder, row.Epoch, row.HandoverTarget, row.HandoverConfirmedAt));
+		Assert.False(await Renew(probe, "a", 1));
+		Assert.True(await Renew(probe, "a", 2, 60_000));
+		Assert.False(await With(probe, db => Database.Lease.ConfirmHandover(db, "b")));
 
-		// a target that renewed keeps the lease
-		await Announce(probe, "b", 60_000);
-		handover = (await HandOver(probe, "a", 3, 60_000))!;
-		Assert.True(await Renew(probe, "b", 4, 60_000));
-		await using (AppDbContext db = probe.Open())
-		{
-			Assert.Null(await Database.Lease.Reclaim(db, "a", handover, 60_000));
-		}
-		Assert.Equal("b", (await Row(probe)).Holder);
-
-		// once its lease lapses the old holder takes it back
-		Assert.True(await Renew(probe, "b", 4, 100));
+		// a target whose standby entry lapsed is not alive and gets no lease
+		await Announce(probe, "b", 100);
+		Assert.Equal("b", await Begin(probe, "a", 2));
+		Assert.True(await With(probe, db => Database.Lease.ConfirmHandover(db, "b")));
 		await Task.Delay(300);
-		await using (AppDbContext db = probe.Open())
-		{
-			Assert.Equal(5L, await Database.Lease.Reclaim(db, "a", handover, 60_000));
-		}
+		Assert.False(await With(probe, db => Database.Lease.TargetAlive(db, "a", 2, "b")));
+		Assert.Null(await With(probe, db => Database.Lease.CompleteHandover(db, "a", 2, 60_000)));
+		Assert.Equal("a", (await Row(probe)).Holder);
+
+		// a holder that dies during the handover lets the target take the expired lease, which clears the handover
+		Assert.True(await Renew(probe, "a", 2, 100));
+		await Task.Delay(300);
+		Assert.Equal(3L, await Take(probe, "b"));
+		row = await Row(probe);
+		Assert.Equal(("b", (string?)null), (row.Holder, row.HandoverTarget));
 	}
 
 	[ProbeTheory]

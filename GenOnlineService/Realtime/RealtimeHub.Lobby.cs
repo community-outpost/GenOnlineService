@@ -85,11 +85,34 @@ namespace GenOnlineService.Realtime
 			return Result.Success();
 		}
 
+		// A lobby handed to another copy is frozen from its final capture on: a change to it, or a join, is refused as a standby refuses it,
+		// its members switch with the lobby and send the change again on the new copy
+		internal static Failure? MovingRefusal(Lobby? lobby) => lobby?.IsMovingAway == true
+			? Result.Fail(GenOnlineService.Rest.RestCodes.ServiceUnavailable, new { What = GenOnlineService.Failover.RealtimeFailover.StandbyWhat })
+			: null;
+
+		private Failure? RefuseOnMovingLobby(Int64? lobbyID = null) => MovingRefusal(m_lobbyManager.GetLobby(lobbyID ?? Session.currentLobbyID));
+
+		// While this copy hands over, new lobbies and queue entries belong on the new copy: the caller is refused as a standby refuses and switched there
+		private Failure? RefuseWhileHandingOver()
+		{
+			if (!GenOnlineService.Failover.RealtimeLiveState.Enabled || GenOnlineService.Failover.RealtimeFailover.Current?.Role != GenOnlineService.Failover.FailoverRole.Draining)
+			{
+				return null;
+			}
+			GenOnlineService.Failover.RealtimeFailover.SwitchSoon(Session);
+			return Result.Fail(GenOnlineService.Rest.RestCodes.ServiceUnavailable, new { What = GenOnlineService.Failover.RealtimeFailover.StandbyWhat });
+		}
+
 		public async Task<Result<CreateLobbyData>> CreateLobby(CreateLobbyRequest request)
 		{
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
+			}
+			if (RefuseWhileHandingOver() is Failure handingOver)
+			{
+				return handingOver;
 			}
 
 			if (!IsValidText(request.Name, LobbyNameMaxLength)) return Result.Invalid("name");
@@ -146,6 +169,10 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<JoinLobbyData>> JoinLobby(JoinLobbyRequest request)
 		{
+			if ((RefuseOnMovingLobby(request.LobbyId) ?? RefuseOnMovingLobby()) is Failure moving)
+			{
+				return moving;
+			}
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
@@ -195,6 +222,10 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<Empty>> LeaveLobby(Empty request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return moving;
+			}
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
@@ -212,6 +243,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> UpdateLobby(UpdateLobbyRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			if (request.Map != null)
 			{
 				if (!IsValidText(request.Map.Name, MapNameMaxLength)) return Invalid("map.name");
@@ -258,6 +293,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> SetLobbyPassword(SetLobbyPasswordRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			if (request.Password != null && !IsValidText(request.Password, LobbyPasswordMaxLength)) return Invalid("password");
 
 			return ChangeLobbyAsync(hostOnly: true, resetsReady: true, (lobby, member) =>
@@ -277,6 +316,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> UpdateMySlot(UpdateMySlotRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			if (IsInvalidSide(request.Side)) return Invalid("side");
 			if (IsInvalidGameID(request.Color)) return Invalid("color");
 			if (IsInvalidGameID(request.StartPosition)) return Invalid("start_position");
@@ -317,6 +360,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> SetHasMap(SetHasMapRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			return ChangeLobbyAsync(hostOnly: false, resetsReady: false, (lobby, member) =>
 			{
 				member.UpdateHasMap(request.HasMap);
@@ -326,6 +373,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> SetReady(SetReadyRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			return ChangeLobbyAsync(hostOnly: false, resetsReady: false, (lobby, member) =>
 			{
 				member.SetReadyState(request.Ready);
@@ -335,6 +386,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> SetSlotState(SetSlotStateRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			if (request.Index < 0 || request.Index >= Lobby.MaxLobbySize) return Invalid("index");
 			if (!Enum.IsDefined(request.State) || request.State == SlotState.Player) return Invalid("state");
 
@@ -353,6 +408,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> UpdateSlots(UpdateSlotsRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			if (request.Slots == null) return Invalid("slots");
 			foreach (SlotPatch patch in request.Slots)
 			{
@@ -393,6 +452,10 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<Empty>> KickFromLobby(UserRequest request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return moving;
+			}
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
@@ -421,6 +484,10 @@ namespace GenOnlineService.Realtime
 
 		public Task<Result<Empty>> ForceReady(Empty request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return Task.FromResult<Result<Empty>>(moving);
+			}
 			return ChangeLobbyAsync(hostOnly: true, resetsReady: false, (lobby, member) =>
 			{
 				lobby.ForceReady();
@@ -430,6 +497,10 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<Empty>> StartGame(Empty request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return moving;
+			}
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
@@ -466,6 +537,10 @@ namespace GenOnlineService.Realtime
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
+			}
+			if (RefuseWhileHandingOver() is Failure handingOver)
+			{
+				return handingOver;
 			}
 
 			if (request.MapIndexes == null) return Result.Invalid("map_indexes");
@@ -555,6 +630,10 @@ namespace GenOnlineService.Realtime
 
 		public async Task<Result<Empty>> BeginMeshCheck(Empty request)
 		{
+			if (RefuseOnMovingLobby() is Failure moving)
+			{
+				return moving;
+			}
 			if (RequireAccess(ESessionAccessType.Gameplay) is Failure denied)
 			{
 				return denied;
