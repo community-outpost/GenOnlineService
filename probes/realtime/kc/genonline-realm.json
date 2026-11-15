@@ -1,0 +1,194 @@
+{
+  "realm": "genonline",
+  "enabled": true,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "eventsEnabled": false,
+  "sslRequired": "none",
+  "groups": [
+    {
+      "name": "genonline-admin"
+    },
+    {
+      "name": "genonline-moderator"
+    },
+    {
+      "name": "genonline-banned"
+    },
+    {
+      "name": "genonline-streamer"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "genonline-dev",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "probe-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:@SERVICE_PORT@/users/auth/keycloak/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        },
+        {
+          "name": "go_user_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "go_user_id",
+            "claim.name": "go_user_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "genonline-sync",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "probe-sync-secret",
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.org",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "A",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice-pw",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/genonline-admin"
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@example.org",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "B",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob-pw",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "email": "carol@example.org",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "C",
+      "attributes": {
+        "go_user_id": [
+          "7001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol-pw",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "service-account-genonline-sync",
+      "enabled": true,
+      "serviceAccountClientId": "genonline-sync",
+      "clientRoles": {
+        "realm-management": [
+          "view-events",
+          "view-users"
+        ]
+      }
+    },
+    {
+      "username": "dave",
+      "enabled": true,
+      "email": "dave@example.org",
+      "emailVerified": true,
+      "firstName": "Dave",
+      "lastName": "Dave",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dave-pw",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/genonline-moderator"
+      ]
+    },
+    {
+      "username": "erin",
+      "enabled": true,
+      "email": "erin@example.org",
+      "emailVerified": true,
+      "firstName": "Erin",
+      "lastName": "Erin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "erin-pw",
+          "temporary": false
+        }
+      ],
+      "groups": []
+    },
+    {
+      "username": "frank",
+      "enabled": true,
+      "email": "frank@example.org",
+      "emailVerified": true,
+      "firstName": "Frank",
+      "lastName": "Frank",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "frank-pw",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/genonline-moderator"
+      ]
+    }
+  ]
+}
