@@ -166,7 +166,8 @@ player_network            user_id pk, relay_region varchar(16) null, port_mappin
                           ipv4 varchar(15) null, ipv6 varchar(45) null, updated_at
 
 devices                   id, user_id, kind varchar(16) ('machine_guid' | 'mac' | 'volume_serial' | ...),
-                          value_hmac binary(32), first_seen_at, last_seen_at, last_ip varchar(45) null
+                          value_hmac binary(32), value_raw varchar(64) null, first_seen_at, last_seen_at,
+                          last_ip varchar(45) null
                           unique (user_id, kind, value_hmac)
                           -- retention: purged 180 days after last_seen_at
 
@@ -177,6 +178,8 @@ session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | '
 ```
 
 `devices.value_hmac` is HMAC-SHA-256 with a per-deployment key (`Devices:hmac_key_path`). Equality lookups for ban evasion still work; a plain SHA-256 of a MAC or volume serial is reversible by brute force. The key can never rotate without rehashing, so it is created once and backed up with the database.
+
+`devices.value_raw` is the value the client sent, upper-cased, as the old `hwid_3..5` columns held it. Purpose: staff review of ban evasion and anti-cheat reports. It is personal data: it leaves with the row 180 days after the device was last seen, and it is null on rows whose raw value was never known. Matching always uses `value_hmac`.
 
 ### Matches and stats
 
@@ -247,7 +250,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 | `users.favorite_*` | `player_preferences` |
 | `users.relay_region, portmapping_tech, ipv4, ipv6` | `player_network` |
 | `users.last_ip, client_id` | dropped (session events start fresh) |
-| `user_devices.hwid_0..5, ip_addr` | `devices` rows, values HMAC'd |
+| `user_devices.hwid_0..5, ip_addr` | `devices` rows: `hwid_0..2` HMAC'd into `value_hmac`, `hwid_3..5` kept as `value_raw` |
 | `friends` | `friendships` (pair normalized low/high) |
 | `friends_requests` | `friend_requests` |
 | `friends_blocked` | `blocks` |

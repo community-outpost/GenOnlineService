@@ -42,15 +42,17 @@ public static class SessionEventResults
 	public const string Ok = "ok";
 }
 
-// A hardware identifier seen on a user's sign-in, stored only as an HMAC
+// A hardware identifier seen on a user's sign-in: the HMAC matches devices, the raw value is for staff review
 public class Device
 {
 	public const int ValueHmacLength = 32;
+	public const int ValueRawLength = 64;
 
 	public Int64 ID { get; set; }
 	public Int64 UserID { get; set; }
 	public string Kind { get; set; } = String.Empty;
 	public byte[] ValueHmac { get; set; } = Array.Empty<byte>();
+	public string? ValueRaw { get; set; }
 	public DateTime FirstSeenAt { get; set; } = DateTime.UnixEpoch;
 	public DateTime LastSeenAt { get; set; } = DateTime.UnixEpoch;
 	public string? LastIp { get; set; }
@@ -85,6 +87,7 @@ public class DeviceConfiguration : IEntityTypeConfiguration<Device>
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16);
 		builder.Property(e => e.ValueHmac).HasColumnName("value_hmac").HasMaxLength(Device.ValueHmacLength).IsFixedLength();
+		builder.Property(e => e.ValueRaw).HasColumnName("value_raw").HasMaxLength(Device.ValueRawLength);
 		builder.Property(e => e.FirstSeenAt).HasColumnName("first_seen_at");
 		builder.Property(e => e.LastSeenAt).HasColumnName("last_seen_at");
 		builder.Property(e => e.LastIp).HasColumnName("last_ip").HasMaxLength(45);
@@ -114,7 +117,7 @@ public class SessionEventConfiguration : IEntityTypeConfiguration<SessionEvent>
 	}
 }
 
-// Device values are HMAC-SHA-256 of their upper-case MD5 hex, the only form old databases kept, so imported and new rows compare equal
+// Device values are HMAC-SHA-256 of their upper-case MD5 hex, the form every old row has, so imported and new rows compare equal
 public static class DeviceHasher
 {
 	public const int KeyLength = 32;
@@ -194,6 +197,18 @@ public static class DeviceHasher
 		return !String.IsNullOrWhiteSpace(rawValue) && !rawValue.Equals("NONE", StringComparison.OrdinalIgnoreCase);
 	}
 
+	// The raw value as stored: upper case like old databases, null when it identifies nothing
+	public static string? NormalizeRaw(string? rawValue)
+	{
+		if (!IsMeaningful(rawValue))
+		{
+			return null;
+		}
+
+		string cleaned = TextSanitizer.Clean(rawValue!.Trim().ToUpperInvariant(), Device.ValueRawLength);
+		return cleaned.Length == 0 ? null : cleaned;
+	}
+
 	public static readonly string NoneMd5 = Helpers.ComputeMD5Hash("NONE").ToUpperInvariant();
 }
 
@@ -223,14 +238,14 @@ namespace Database
 					await Database.AntiCheat.FlagAccountForReview_SuspectProbes(db, userId, 0, "Logged in with potentially spoofed HWID 2");
 				}
 
-				var seen = new List<(string Kind, byte[] Value)>();
-				if (DeviceHasher.IsMeaningful(hwid_0)) seen.Add((DeviceKinds.MachineGuid, DeviceHasher.HashRaw(hwid_0)));
-				if (DeviceHasher.IsMeaningful(hwid_1)) seen.Add((DeviceKinds.Mac, DeviceHasher.HashRaw(hwid_1)));
-				if (DeviceHasher.IsMeaningful(hwid_2)) seen.Add((DeviceKinds.VolumeSerial, DeviceHasher.HashRaw(hwid_2)));
+				var seen = new List<(string Kind, byte[] Value, string? Raw)>();
+				if (DeviceHasher.IsMeaningful(hwid_0)) seen.Add((DeviceKinds.MachineGuid, DeviceHasher.HashRaw(hwid_0), DeviceHasher.NormalizeRaw(hwid_0)));
+				if (DeviceHasher.IsMeaningful(hwid_1)) seen.Add((DeviceKinds.Mac, DeviceHasher.HashRaw(hwid_1), DeviceHasher.NormalizeRaw(hwid_1)));
+				if (DeviceHasher.IsMeaningful(hwid_2)) seen.Add((DeviceKinds.VolumeSerial, DeviceHasher.HashRaw(hwid_2), DeviceHasher.NormalizeRaw(hwid_2)));
 
-				foreach (var (kind, value) in seen)
+				foreach (var (kind, value, raw) in seen)
 				{
-					await Touch(db, userId, kind, value, ipAddr);
+					await Touch(db, userId, kind, value, raw, ipAddr);
 				}
 			}
 			catch (Exception ex)
@@ -239,7 +254,7 @@ namespace Database
 			}
 		}
 
-		private static async Task Touch(AppDbContext db, long userId, string kind, byte[] value, string ipAddr)
+		private static async Task Touch(AppDbContext db, long userId, string kind, byte[] value, string? raw, string ipAddr)
 		{
 			DateTime now = DateTime.UtcNow;
 			string? ip = String.IsNullOrEmpty(ipAddr) ? null : TextSanitizer.Clean(ipAddr, 45);
@@ -248,14 +263,16 @@ namespace Database
 				.Where(d => d.UserID == userId && d.Kind == kind && d.ValueHmac == value)
 				.ExecuteUpdateAsync(s => s
 					.SetProperty(d => d.LastSeenAt, now)
-					.SetProperty(d => d.LastIp, ip));
+					.SetProperty(d => d.LastIp, ip)
+					// Fills rows stored before raw values were kept
+					.SetProperty(d => d.ValueRaw, d => d.ValueRaw ?? raw));
 
 			if (updated > 0)
 			{
 				return;
 			}
 
-			db.Devices.Add(new Device { UserID = userId, Kind = kind, ValueHmac = value, FirstSeenAt = now, LastSeenAt = now, LastIp = ip });
+			db.Devices.Add(new Device { UserID = userId, Kind = kind, ValueHmac = value, ValueRaw = raw, FirstSeenAt = now, LastSeenAt = now, LastIp = ip });
 
 			try
 			{

@@ -661,6 +661,11 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("value_hmac")
                         .IsFixedLength();
 
+                    b.Property<string>("ValueRaw")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("value_raw");
+
                     b.HasKey("ID");
 
                     b.HasIndex("LastSeenAt")

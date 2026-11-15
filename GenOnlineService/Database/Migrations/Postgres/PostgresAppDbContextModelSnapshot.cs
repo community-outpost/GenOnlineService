@@ -660,6 +660,11 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnName("value_hmac")
                         .IsFixedLength();
 
+                    b.Property<string>("ValueRaw")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("value_raw");
+
                     b.HasKey("ID");
 
                     b.HasIndex("LastSeenAt")

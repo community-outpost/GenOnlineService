@@ -833,15 +833,16 @@ namespace Database
 
 			private async Task ConvertDevices()
 			{
-				var line = Line("user_devices.hwid_0..2, ip_addr", "devices");
+				var line = Line("user_devices.hwid_0..5, ip_addr", "devices");
 				var seen = new Dictionary<(long, string, string), Device>();
 
-				await foreach (var r in Rows(_source, "SELECT user_id, hwid_0, hwid_1, hwid_2, ip_addr FROM user_devices ORDER BY user_id, hwid_0, hwid_1, hwid_2, ip_addr"))
+				await foreach (var r in Rows(_source, "SELECT user_id, hwid_0, hwid_1, hwid_2, hwid_3, hwid_4, hwid_5, ip_addr FROM user_devices ORDER BY user_id, hwid_0, hwid_1, hwid_2, ip_addr"))
 				{
 					long userId = r.Long("user_id");
 					string ip = r.String("ip_addr") ?? string.Empty;
 
-					foreach (var (column, kind) in new[] { ("hwid_0", DeviceKinds.MachineGuid), ("hwid_1", DeviceKinds.Mac), ("hwid_2", DeviceKinds.VolumeSerial) })
+					// hwid_3..5 hold the raw values of hwid_0..2
+					foreach (var (column, rawColumn, kind) in new[] { ("hwid_0", "hwid_3", DeviceKinds.MachineGuid), ("hwid_1", "hwid_4", DeviceKinds.Mac), ("hwid_2", "hwid_5", DeviceKinds.VolumeSerial) })
 					{
 						line.Source++;
 						if (!KeepUserRow(line, userId, "user_devices"))
@@ -854,10 +855,14 @@ namespace Database
 							continue;
 						}
 
+						string? raw = DeviceHasher.NormalizeRaw(r.String(rawColumn));
+						raw = raw == null ? null : Clamp(raw, Device.ValueRawLength, "devices", "value_raw");
+
 						// Rows differed by IP address; one device row per user, kind and value keeps the last IP
 						if (seen.TryGetValue((userId, kind, md5), out Device? existing))
 						{
 							line.Drop("same device on another IP");
+							existing.ValueRaw ??= raw;
 							existing.LastIp = string.IsNullOrEmpty(ip) ? existing.LastIp : Clamp(ip, 45, "devices", "last_ip");
 							continue;
 						}
@@ -868,6 +873,7 @@ namespace Database
 							UserID = userId,
 							Kind = kind,
 							ValueHmac = DeviceHasher.HashLegacyMd5(md5),
+							ValueRaw = raw,
 							FirstSeenAt = lastSeen,
 							LastSeenAt = lastSeen,
 							LastIp = string.IsNullOrEmpty(ip) ? null : Clamp(ip, 45, "devices", "last_ip")
@@ -1592,7 +1598,7 @@ namespace Database
 			["users"] = new[] { "user_id", "account_type", "steam_id", "discord_id", "discord_username", "gamereplays_id", "gamereplays_username", "displayname", "lastlogin",
 				"favorite_color", "favorite_side", "favorite_map", "favorite_starting_money", "favorite_limit_superweapons", "admin", "banned",
 				"elo_rating", "monthly_elo_rating", "elo_num_matches", "ban_reason", "banned_by", "ban_verified_by", "ban_aliases" },
-			["user_devices"] = new[] { "user_id", "hwid_0", "hwid_1", "hwid_2", "ip_addr" },
+			["user_devices"] = new[] { "user_id", "hwid_0", "hwid_1", "hwid_2", "hwid_3", "hwid_4", "hwid_5", "ip_addr" },
 			["user_stats_v2"] = new[] { "user_id", "stats" },
 			["friends"] = new[] { "user_id_1", "user_id_2" },
 			["friends_requests"] = new[] { "source_user_id", "target_user_id" },
