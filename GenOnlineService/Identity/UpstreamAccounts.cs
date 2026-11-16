@@ -161,9 +161,10 @@ namespace GenOnlineService.Identity
 				}
 				case ProviderKind.GameReplays:
 				{
-					// resource.php answers the member itself or wraps it in "user"
+					// resource.php answers the member itself or wraps it in "user"; the name is members_display_name only,
+					// GameReplays: "You can ignore username."
 					string? id = Claim("id");
-					string? memberName = Claim("members_display_name") ?? Claim("username");
+					string? memberName = Claim("members_display_name");
 					if (id == null && Claim("user") is string wrapped)
 					{
 						try
@@ -171,15 +172,14 @@ namespace GenOnlineService.Identity
 							using var document = System.Text.Json.JsonDocument.Parse(wrapped);
 							System.Text.Json.JsonElement user = document.RootElement;
 							id = user.TryGetProperty("id", out var idValue) ? idValue.ToString() : null;
-							memberName ??= (user.TryGetProperty("members_display_name", out var display) ? display.GetString() : null)
-								?? (user.TryGetProperty("username", out var username) ? username.GetString() : null);
+							memberName ??= user.TryGetProperty("members_display_name", out var display) && display.ValueKind == System.Text.Json.JsonValueKind.String ? display.GetString() : null;
 						}
 						catch (System.Text.Json.JsonException)
 						{
 							id = null;
 						}
 					}
-					return new UpstreamProfile(String.IsNullOrEmpty(id) ? null : id, memberName ?? name);
+					return new UpstreamProfile(String.IsNullOrEmpty(id) ? null : id, memberName);
 				}
 				default:
 					return new UpstreamProfile(Claim(OpenIddictConstants.Claims.Subject) ?? Claim(ClaimTypes.NameIdentifier), name);

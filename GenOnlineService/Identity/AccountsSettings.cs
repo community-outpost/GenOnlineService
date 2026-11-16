@@ -57,9 +57,14 @@ namespace GenOnlineService.Identity
 		public bool AllowSignUp { get; init; } = true;
 		public bool OnlyProvider { get; init; }
 		public bool AutoLinkVerifiedEmail { get; init; }
+		// The return URL registered at the provider when it is not this service's callback: sent as is in the
+		// authorization and token requests; that URL must redirect the browser, query intact, to CallbackPath here
+		public string? RedirectUri { get; init; }
 
 		public string Source => AuthoritySources.UpstreamPrefix + Name;
 		public string CallbackPath => $"users/auth/{Name}/callback";
+		// What the provider is told to return to: the relay URL when one is set, else the callback here
+		public string ReturnUri => RedirectUri ?? CallbackPath;
 		// Steam: the path its OpenID 2.0 handler answers itself before handing over to CallbackPath
 		public string SteamHandlerPath => $"/users/auth/{Name}/openid";
 
@@ -108,6 +113,18 @@ namespace GenOnlineService.Identity
 						throw new InvalidOperationException($"{prefix}:base_url must be the absolute http or https URL of the folder holding authorize.php, token.php and resource.php.");
 					}
 					break;
+			}
+
+			if (RedirectUri != null)
+			{
+				if (Kind == ProviderKind.Steam)
+				{
+					throw new InvalidOperationException($"{prefix}:redirect_uri is not supported for Steam, whose return URL is always this service's.");
+				}
+				if (!Uri.TryCreate(RedirectUri, UriKind.Absolute, out Uri? relay) || (relay.Scheme != Uri.UriSchemeHttps && relay.Scheme != Uri.UriSchemeHttp))
+				{
+					throw new InvalidOperationException($"{prefix}:redirect_uri must be the absolute http or https return URL registered at the provider.");
+				}
 			}
 		}
 	}
@@ -189,7 +206,8 @@ namespace GenOnlineService.Identity
 				ClientSecret = p.GetValue<string>("client_secret") ?? String.Empty,
 				AllowSignUp = p.GetValue<bool?>("allow_sign_up") ?? true,
 				OnlyProvider = p.GetValue<bool>("only_provider"),
-				AutoLinkVerifiedEmail = p.GetValue<bool>("auto_link_verified_email")
+				AutoLinkVerifiedEmail = p.GetValue<bool>("auto_link_verified_email"),
+				RedirectUri = String.IsNullOrEmpty(p.GetValue<string>("redirect_uri")) ? null : p.GetValue<string>("redirect_uri")
 			}).ToList();
 
 			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Enabled))

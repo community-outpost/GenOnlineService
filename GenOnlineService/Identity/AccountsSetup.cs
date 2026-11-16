@@ -262,6 +262,14 @@ namespace GenOnlineService.Identity
 			List<UpstreamProviderSettings> registered = providers.Where(p => p.Kind != ProviderKind.Steam).ToList();
 			options.SetRedirectionEndpointUris(registered.Select(p => p.CallbackPath).ToArray());
 
+			// a provider whose return URL is another host's comes back here through that host's redirect, which the
+			// built-in endpoint check would take for a mix-up
+			if (registered.Any(p => p.RedirectUri != null))
+			{
+				options.RemoveEventHandler(OpenIddictClientHandlers.ValidateEndpointUri.Descriptor);
+				options.AddEventHandler(RelayedEndpointUri.CreateDescriptor(new RelayedEndpointUri(registered)));
+			}
+
 			foreach (UpstreamProviderSettings provider in registered)
 			{
 				// an email is asked for only where it may link an existing account
@@ -274,7 +282,7 @@ namespace GenOnlineService.Identity
 							.SetProviderDisplayName(provider.DisplayName)
 							.SetClientId(provider.ClientID)
 							.SetClientSecret(provider.ClientSecret)
-							.SetRedirectUri(provider.CallbackPath)
+							.SetRedirectUri(provider.ReturnUri)
 							.AddScopes(email.Prepend("identify").ToArray()));
 						break;
 
@@ -284,7 +292,7 @@ namespace GenOnlineService.Identity
 							.SetProviderDisplayName(provider.DisplayName)
 							.SetClientId(provider.ClientID)
 							.SetClientSecret(provider.ClientSecret)
-							.SetRedirectUri(provider.CallbackPath)
+							.SetRedirectUri(provider.ReturnUri)
 							.AddScopes(email.Prepend(Scopes.Profile).ToArray()));
 						break;
 
@@ -300,7 +308,7 @@ namespace GenOnlineService.Identity
 							Issuer = new Uri(provider.Issuer, UriKind.Absolute),
 							ClientId = provider.ClientID,
 							ClientSecret = String.IsNullOrEmpty(provider.ClientSecret) ? null : provider.ClientSecret,
-							RedirectUri = new Uri(provider.CallbackPath, UriKind.Relative)
+							RedirectUri = new Uri(provider.ReturnUri, UriKind.RelativeOrAbsolute)
 						};
 						registration.Scopes.UnionWith(new[] { Scopes.Email, Scopes.Profile });
 						options.AddRegistration(registration);
@@ -310,7 +318,10 @@ namespace GenOnlineService.Identity
 		}
 
 		// GameReplays is a plain OAuth 2.0 server (no discovery, no ID token): authorize.php, token.php with the client
-		// secret in the form, then the member from resource.php with the access token; scope sso
+		// secret in the form, then the member from resource.php with the access token; scope user_profile
+		// GameReplays: "Scope for you would be user_profile. It will give you the display name, username and email."
+		private const string GameReplaysScope = "user_profile";
+
 		private static OpenIddictClientRegistration GameReplaysRegistration(UpstreamProviderSettings provider)
 		{
 			var issuer = new Uri(provider.BaseUrl + "/", UriKind.Absolute);
@@ -323,7 +334,7 @@ namespace GenOnlineService.Identity
 			};
 			configuration.GrantTypesSupported.Add(GrantTypes.AuthorizationCode);
 			configuration.ResponseTypesSupported.Add(ResponseTypes.Code);
-			configuration.ScopesSupported.Add("sso");
+			configuration.ScopesSupported.Add(GameReplaysScope);
 			configuration.TokenEndpointAuthMethodsSupported.Add(ClientAuthenticationMethods.ClientSecretPost);
 
 			var registration = new OpenIddictClientRegistration
@@ -333,10 +344,10 @@ namespace GenOnlineService.Identity
 				Issuer = issuer,
 				ClientId = provider.ClientID,
 				ClientSecret = provider.ClientSecret,
-				RedirectUri = new Uri(provider.CallbackPath, UriKind.Relative),
+				RedirectUri = new Uri(provider.ReturnUri, UriKind.RelativeOrAbsolute),
 				Configuration = configuration
 			};
-			registration.Scopes.Add("sso");
+			registration.Scopes.Add(GameReplaysScope);
 			return registration;
 		}
 
