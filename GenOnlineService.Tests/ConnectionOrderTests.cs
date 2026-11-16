@@ -30,6 +30,9 @@ namespace GenOnlineService.Tests
 		private static readonly string[] s_eos = ["eos"];
 		private static readonly string[] s_none = [];
 
+		// the linked-account providers the service supports, as registered in Program.cs
+		private static readonly string[] s_supported = ["eos"];
+
 		[Fact]
 		public void FirstStartSignallingIsDirectGnsForSixSeconds()
 		{
@@ -37,7 +40,7 @@ namespace GenOnlineService.Tests
 			PeerPairState state = pairs.Current(7, 3);
 
 			Assert.Equal(new PeerPairState(1, 1), state);
-			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(state, ConnectionOrder.SharedTransport(s_eos, s_eos)));
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(state, ConnectionOrder.SharedTransport(s_eos, s_eos, s_supported)));
 			Assert.Equal(state, pairs.Current(3, 7));
 		}
 
@@ -79,10 +82,10 @@ namespace GenOnlineService.Tests
 			pairs.Current(3, 7);
 
 			PeerPairState? second = pairs.Request(3, 7, 1, true);
-			Assert.Equal(new PeerStepValues(2, "eos", false, 10), ConnectionOrder.ValuesOf(second!.Value, ConnectionOrder.SharedTransport(s_eos, s_eos)));
+			Assert.Equal(new PeerStepValues(2, "eos", false, 10), ConnectionOrder.ValuesOf(second!.Value, ConnectionOrder.SharedTransport(s_eos, s_eos, s_supported)));
 
 			PeerPairState? third = pairs.Request(7, 3, 2, true);
-			Assert.Equal(new PeerStepValues(3, "gns", true, 0), ConnectionOrder.ValuesOf(third!.Value, ConnectionOrder.SharedTransport(s_eos, s_eos)));
+			Assert.Equal(new PeerStepValues(3, "gns", true, 0), ConnectionOrder.ValuesOf(third!.Value, ConnectionOrder.SharedTransport(s_eos, s_eos, s_supported)));
 		}
 
 		[Fact]
@@ -91,16 +94,16 @@ namespace GenOnlineService.Tests
 			PeerPairs pairs = new PeerPairs();
 			pairs.Current(3, 7);
 
-			PeerPairState? next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(s_eos, s_none) != null);
+			PeerPairState? next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(s_eos, s_none, s_supported) != null);
 			Assert.Equal(new PeerPairState(2, 3), next);
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next!.Value, ConnectionOrder.SharedTransport(s_eos, s_none)));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next!.Value, ConnectionOrder.SharedTransport(s_eos, s_none, s_supported)));
 		}
 
 		[Fact]
 		public void EmptyTransportListStillSendsTheStepFields()
 		{
-			Assert.Null(ConnectionOrder.SharedTransport(s_none, s_none));
-			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(ConnectionOrder.First, ConnectionOrder.SharedTransport(s_none, s_none)));
+			Assert.Null(ConnectionOrder.SharedTransport(s_none, s_none, s_supported));
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(ConnectionOrder.First, ConnectionOrder.SharedTransport(s_none, s_none, s_supported)));
 		}
 
 		[Fact]
@@ -189,13 +192,13 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void AMemberWithoutSetPeerTransportsListsNoPluginTransport()
 		{
-			Assert.Null(ConnectionOrder.SharedTransport(null, s_eos));
-			Assert.Null(ConnectionOrder.SharedTransport(s_eos, null));
-			Assert.Null(ConnectionOrder.SharedTransport(null, null));
+			Assert.Null(ConnectionOrder.SharedTransport(null, s_eos, s_supported));
+			Assert.Null(ConnectionOrder.SharedTransport(s_eos, null, s_supported));
+			Assert.Null(ConnectionOrder.SharedTransport(null, null, s_supported));
 
 			// every StartSignalling carries the step fields, a pair on step 2 without a shared transport falls to step 3
-			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(ConnectionOrder.First, ConnectionOrder.SharedTransport(null, s_eos)));
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(new PeerPairState(2, ConnectionOrder.PluginStep), ConnectionOrder.SharedTransport(s_eos, null)));
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(ConnectionOrder.First, ConnectionOrder.SharedTransport(null, s_eos, s_supported)));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(new PeerPairState(2, ConnectionOrder.PluginStep), ConnectionOrder.SharedTransport(s_eos, null, s_supported)));
 		}
 
 		[Fact]
@@ -208,21 +211,38 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void SharedTransportIsTheFirstCommonNameInOrdinalOrder()
 		{
-			Assert.Equal("eos", ConnectionOrder.SharedTransport(["steam", "eos"], ["eos", "steam"]));
-			Assert.Equal("steam", ConnectionOrder.SharedTransport(["steam", "eos"], ["steam"]));
-			Assert.Equal("eos_2", ConnectionOrder.SharedTransport(["zz", "eos_3", "eos_2"], ["eos_3", "eos_2"]));
-			Assert.Null(ConnectionOrder.SharedTransport(["steam"], s_eos));
+			string[] supported = ["eos", "steam", "eos_2", "eos_3", "zz"];
+			Assert.Equal("eos", ConnectionOrder.SharedTransport(["steam", "eos"], ["eos", "steam"], supported));
+			Assert.Equal("steam", ConnectionOrder.SharedTransport(["steam", "eos"], ["steam"], supported));
+			Assert.Equal("eos_2", ConnectionOrder.SharedTransport(["zz", "eos_3", "eos_2"], ["eos_3", "eos_2"], supported));
+			Assert.Null(ConnectionOrder.SharedTransport(["steam"], s_eos, supported));
 		}
 
 		[Fact]
-		public void AnyPluginNameDrivesStepTwo()
+		public void OnlySupportedProvidersCountForStepTwo()
+		{
+			// abc sorts before eos, but only eos is a supported provider
+			Assert.Equal("eos", ConnectionOrder.SharedTransport(["eos", "abc"], ["abc", "eos"], s_supported));
+			Assert.Null(ConnectionOrder.SharedTransport(["abc"], ["abc"], s_supported));
+			Assert.Null(ConnectionOrder.SharedTransport(["eos"], ["eos"], s_none));
+
+			PeerPairs pairs = new PeerPairs();
+			pairs.Current(3, 7);
+			string[] abc = ["abc"];
+			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(abc, abc, s_supported) != null)!.Value;
+			Assert.Equal(new PeerPairState(2, ConnectionOrder.RelayStep), next);
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(abc, abc, s_supported)));
+		}
+
+		[Fact]
+		public void AnySupportedProviderNameDrivesStepTwo()
 		{
 			PeerPairs pairs = new PeerPairs();
 			pairs.Current(3, 7);
 			string[] steam = ["steam"];
 
-			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, steam) != null)!.Value;
-			Assert.Equal(new PeerStepValues(2, "steam", false, 10), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(steam, steam)));
+			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, steam, steam) != null)!.Value;
+			Assert.Equal(new PeerStepValues(2, "steam", false, 10), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(steam, steam, steam)));
 		}
 
 		[Fact]
@@ -232,9 +252,9 @@ namespace GenOnlineService.Tests
 			pairs.Current(3, 7);
 			string[] steam = ["steam"];
 
-			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, s_eos) != null)!.Value;
+			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, s_eos, s_supported) != null)!.Value;
 			Assert.Equal(new PeerPairState(2, ConnectionOrder.RelayStep), next);
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(steam, s_eos)));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(steam, s_eos, s_supported)));
 		}
 
 		[Theory]

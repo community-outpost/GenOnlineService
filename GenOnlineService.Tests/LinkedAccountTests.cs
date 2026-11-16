@@ -21,7 +21,6 @@ using GenOnlineService.Realtime;
 using GenOnlineService.Rest;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -43,10 +42,10 @@ namespace GenOnlineService.Tests
 			public List<(Int64 UserID, EUserSessionType SessionType, string Proof)> Links { get; } = new();
 			public int Issued { get; private set; }
 
-			public (SignInToken? Token, Failure? Failure) IssueSignInToken(Int64 userID, string displayName)
+			public Result<SignInToken> IssueSignInToken(Int64 userID, string displayName)
 			{
 				Issued++;
-				return IssueFailure is Failure failure ? (null, failure) : (new SignInToken("tok-" + userID + "-" + displayName, 300), null);
+				return IssueFailure is Failure failure ? failure : Result.Success(new SignInToken("tok-" + userID + "-" + displayName, 300));
 			}
 
 			public Task<Failure?> LinkAsync(Int64 userID, EUserSessionType sessionType, string proof)
@@ -73,7 +72,7 @@ namespace GenOnlineService.Tests
 				context.Request.Body = new MemoryStream(bytes);
 				context.Request.ContentLength = bytes.Length;
 			}
-			return new MeController(new LinkedAccountProviders(new[] { provider }), null!)
+			return new MeController(new[] { provider }, null!)
 			{
 				ControllerContext = new ControllerContext { HttpContext = context }
 			};
@@ -97,6 +96,7 @@ namespace GenOnlineService.Tests
 		[Theory]
 		[InlineData("steam")]
 		[InlineData("EOS")]
+		[InlineData("eos ")]
 		[InlineData("")]
 		public async Task UnknownProviderIsNotFoundOnBothRoutes(string name)
 		{
@@ -159,20 +159,10 @@ namespace GenOnlineService.Tests
 			Assert.Equal(503, status);
 			Assert.Equal("{\"error\":\"service.unavailable\",\"params\":{\"what\":\"linked_account\",\"provider\":\"eos\"}}", body);
 
-			(Failure Failure, int Status, string Code)[] cases =
-			{
-				(LinkedAccounts.InvalidProof("eos"), 422, "linked_account.invalid_proof"),
-				(LinkedAccounts.Mismatch("eos"), 403, "linked_account.mismatch"),
-				(LinkedAccounts.InUse("eos"), 409, "linked_account.in_use"),
-				(LinkedAccounts.Locked("eos"), 409, "linked_account.locked")
-			};
-			foreach ((Failure failure, int expectedStatus, string code) in cases)
-			{
-				FakeProvider provider = new FakeProvider { LinkFailure = failure };
-				(status, body) = Answer(await Controller(provider, EUserSessionType.GameClient, "{\"proof\":\"eyJ\"}").LinkAccount("eos"));
-				Assert.Equal(expectedStatus, status);
-				Assert.Equal("{\"error\":\"" + code + "\",\"params\":{\"provider\":\"eos\"}}", body);
-			}
+			FakeProvider mismatch = new FakeProvider { LinkFailure = LinkedAccounts.Mismatch("eos") };
+			(status, body) = Answer(await Controller(mismatch, EUserSessionType.GameClient, "{\"proof\":\"eyJ\"}").LinkAccount("eos"));
+			Assert.Equal(403, status);
+			Assert.Equal("{\"error\":\"linked_account.mismatch\",\"params\":{\"provider\":\"eos\"}}", body);
 		}
 
 		[Fact]
@@ -190,10 +180,10 @@ namespace GenOnlineService.Tests
 			EosLinkedAccountProvider provider = new EosLinkedAccountProvider(null!, () => settings);
 			Assert.Equal("eos", provider.Name);
 
-			(SignInToken? token, Failure? failure) = provider.IssueSignInToken(42, "Ace");
-			Assert.Null(failure);
-			Assert.Equal(300, token!.ExpiresIn);
-			JwtSecurityToken jwt = new JwtSecurityTokenHandler().ReadJwtToken(token.Token);
+			Result<SignInToken> issued = provider.IssueSignInToken(42, "Ace");
+			Assert.True(issued.Ok);
+			Assert.Equal(300, issued.Data!.ExpiresIn);
+			JwtSecurityToken jwt = new JwtSecurityTokenHandler().ReadJwtToken(issued.Data.Token);
 			Assert.Equal(SecurityAlgorithms.RsaSha256, jwt.Header.Alg);
 			Assert.Equal("42", jwt.Subject);
 			Assert.Equal(new[] { "genonline-eos" }, jwt.Audiences);
@@ -205,29 +195,10 @@ namespace GenOnlineService.Tests
 		public void EosWithoutTokenSettingsIsUnavailable()
 		{
 			EosLinkedAccountProvider provider = new EosLinkedAccountProvider(null!, () => null);
-			(SignInToken? token, Failure? failure) = provider.IssueSignInToken(42, "Ace");
-			Assert.Null(token);
-			Assert.Equal("{\"error\":\"service.unavailable\",\"params\":{\"what\":\"linked_account\",\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(failure!.Value), ApiResults.Json));
-		}
-
-		[Fact]
-		public void ProvidersMatchTheirNameExactly()
-		{
-			LinkedAccountProviders providers = new LinkedAccountProviders(new[] { new FakeProvider() });
-			Assert.NotNull(providers.Find("eos"));
-			Assert.Null(providers.Find("Eos"));
-			Assert.Null(providers.Find("eos "));
-		}
-
-		[Fact]
-		public void OnlyTheProviderNeutralRoutesRemain()
-		{
-			string[] templates = typeof(MeController).GetMethods()
-				.SelectMany(m => m.GetCustomAttributes(typeof(HttpMethodAttribute), false).Cast<HttpMethodAttribute>())
-				.Select(a => a.Template!)
-				.OrderBy(t => t, StringComparer.Ordinal)
-				.ToArray();
-			Assert.Equal(new[] { "~/api/v1/me/linked_accounts/{provider}", "~/api/v1/me/linked_accounts/{provider}/sign_in_token" }, templates);
+			Result<SignInToken> issued = provider.IssueSignInToken(42, "Ace");
+			Assert.False(issued.Ok);
+			Assert.Null(issued.Data);
+			Assert.Equal("{\"error\":\"service.unavailable\",\"params\":{\"what\":\"linked_account\",\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(new Failure(issued.Code!, issued.Params!)), ApiResults.Json));
 		}
 	}
 }

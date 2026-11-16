@@ -85,17 +85,20 @@ namespace GenOnlineService.Rest
 	// The accounts a game session links at a platform (section 10.4); the provider decides what the token and the proof are
 	public sealed class MeController : ApiControllerBase
 	{
-		private readonly LinkedAccountProviders m_providers;
+		private readonly IEnumerable<ILinkedAccountProvider> m_providers;
 
-		public MeController(LinkedAccountProviders providers, IAuthorizationService authorization) : base(authorization)
+		public MeController(IEnumerable<ILinkedAccountProvider> providers, IAuthorizationService authorization) : base(authorization)
 		{
 			m_providers = providers;
 		}
 
+		// provider names are opaque and case-sensitive
+		private ILinkedAccountProvider? Find(string provider) => m_providers.FirstOrDefault(p => p.Name == provider);
+
 		[HttpPost("~/api/v1/me/linked_accounts/{provider}/sign_in_token")]
 		public IActionResult IssueSignInToken(string provider)
 		{
-			ILinkedAccountProvider? linked = m_providers.Find(provider);
+			ILinkedAccountProvider? linked = Find(provider);
 			if (linked == null)
 			{
 				return RestResults.NotFound("provider");
@@ -106,19 +109,18 @@ namespace GenOnlineService.Rest
 				return RestResults.Fail(RestCodes.SessionGameRequired);
 			}
 
-			(SignInToken? token, Failure? failure) = linked.IssueSignInToken(Me, TokenHelper.GetDisplayName(this));
-			if (failure is Failure failed)
+			Result<SignInToken> issued = linked.IssueSignInToken(Me, TokenHelper.GetDisplayName(this));
+			if (!issued.Ok)
 			{
-				return RestResults.Fail(failed);
+				return RestResults.Fail(new Failure(issued.Code!, issued.Params!));
 			}
-			return RestResults.Ok(new SignInTokenResponse { Token = token!.Token, ExpiresIn = token.ExpiresIn });
+			return RestResults.Ok(new SignInTokenResponse { Token = issued.Data!.Token, ExpiresIn = issued.Data.ExpiresIn });
 		}
 
-		// Only game clients link an account
 		[HttpPut("~/api/v1/me/linked_accounts/{provider}")]
 		public async Task<IActionResult> LinkAccount(string provider)
 		{
-			ILinkedAccountProvider? linked = m_providers.Find(provider);
+			ILinkedAccountProvider? linked = Find(provider);
 			if (linked == null)
 			{
 				return RestResults.NotFound("provider");

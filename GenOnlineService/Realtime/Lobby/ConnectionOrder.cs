@@ -66,15 +66,15 @@ namespace GenOnlineService.Realtime
 			return (transports ?? []).Where(IsPluginTransport).Select(name => name!).Distinct(StringComparer.Ordinal).Take(MaxPluginTransports).ToArray();
 		}
 
-		// The plugin transport both members listed, the first in ordinal order when they share several, null when they share none.
+		// The supported provider both members listed, the first in ordinal order when they share several, null when they share none.
 		// A null list means the member has not sent SetPeerTransports in its current session and counts as listing none
-		public static string? SharedTransport(IReadOnlyList<string>? a, IReadOnlyList<string>? b)
+		public static string? SharedTransport(IReadOnlyList<string>? a, IReadOnlyList<string>? b, IEnumerable<string> supported)
 		{
 			if (a == null || b == null)
 			{
 				return null;
 			}
-			return a.Where(name => b.Contains(name, StringComparer.Ordinal)).Order(StringComparer.Ordinal).FirstOrDefault();
+			return a.Where(name => b.Contains(name, StringComparer.Ordinal) && supported.Contains(name, StringComparer.Ordinal)).Order(StringComparer.Ordinal).FirstOrDefault();
 		}
 
 		// Step 2 needs a shared plugin transport, otherwise the pair uses step 3

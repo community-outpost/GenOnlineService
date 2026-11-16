@@ -1157,9 +1157,8 @@ namespace GenOnlineService
 			builder.Services.AddSingleton(sp => new LobbyIdAllocator(sp.GetRequiredService<ILobbyIdSource>()));
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
-			// linked-account providers of section 10.4, by name
+			// add a provider by registering another ILinkedAccountProvider
 			builder.Services.AddSingleton<GenOnlineService.Rest.ILinkedAccountProvider>(sp => new GenOnlineService.Rest.EosLinkedAccountProvider(sp.GetRequiredService<LobbyManager>()));
-			builder.Services.AddSingleton<GenOnlineService.Rest.LinkedAccountProviders>();
 
 			// realtime protocol v1, see docs/realtime-protocol.md; Realtime:backplane redis carries it between copies, see docs/realtime-scaling.md
 			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);

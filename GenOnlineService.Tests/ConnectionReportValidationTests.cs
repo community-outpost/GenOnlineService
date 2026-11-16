@@ -145,6 +145,18 @@ namespace GenOnlineService.Tests
 			Assert.Equal(transport, result.Data!.Transport);
 		}
 
+		// storage keeps the reported name, the metric tag is gns, a supported provider or other
+		[Theory]
+		[InlineData("gns", "gns")]
+		[InlineData("eos", "eos")]
+		[InlineData("abc", "other")]
+		[InlineData("steam", "other")]
+		[InlineData("other", "other")]
+		public void TheMetricTagIsGnsASupportedProviderOrOther(string transport, string tag)
+		{
+			Assert.Equal(tag, ConnectionReportValidation.MetricTransport(transport, ["eos"]));
+		}
+
 		[Theory]
 		[InlineData("Bad!")]
 		[InlineData("EOS")]

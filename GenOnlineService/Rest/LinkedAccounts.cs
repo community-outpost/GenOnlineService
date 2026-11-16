@@ -28,23 +28,10 @@ namespace GenOnlineService.Rest
 		string Name { get; }
 
 		// A short-lived token the platform plugin signs the player in with
-		(SignInToken? Token, Failure? Failure) IssueSignInToken(Int64 userID, string displayName);
+		Result<SignInToken> IssueSignInToken(Int64 userID, string displayName);
 
 		// Validates the provider's proof of the caller's account and links it as their middleware ID
 		Task<Failure?> LinkAsync(Int64 userID, EUserSessionType sessionType, string proof);
-	}
-
-	// The providers the service supports, matched by name as an opaque, case-sensitive string
-	public sealed class LinkedAccountProviders
-	{
-		private readonly Dictionary<string, ILinkedAccountProvider> m_byName;
-
-		public LinkedAccountProviders(IEnumerable<ILinkedAccountProvider> providers)
-		{
-			m_byName = providers.ToDictionary(p => p.Name, StringComparer.Ordinal);
-		}
-
-		public ILinkedAccountProvider? Find(string name) => m_byName.GetValueOrDefault(name);
 	}
 
 	// The codes of the linked-account routes, each naming its provider
@@ -85,16 +72,16 @@ namespace GenOnlineService.Rest
 
 		public string Name => EosLink.Provider;
 
-		public (SignInToken? Token, Failure? Failure) IssueSignInToken(Int64 userID, string displayName)
+		public Result<SignInToken> IssueSignInToken(Int64 userID, string displayName)
 		{
 			EosTokenIssuer.Settings? settings = m_tokenSettings();
 			if (settings == null)
 			{
-				return (null, LinkedAccounts.Unavailable(Name));
+				return LinkedAccounts.Unavailable(Name);
 			}
 
 			string token = EosTokenIssuer.Issue(settings, userID, displayName, out _);
-			return (new SignInToken(token, (int)settings.Lifetime.TotalSeconds), null);
+			return Result.Success(new SignInToken(token, (int)settings.Lifetime.TotalSeconds));
 		}
 
 		public Task<Failure?> LinkAsync(Int64 userID, EUserSessionType sessionType, string proof)

@@ -636,12 +636,22 @@ namespace GenOnlineService
 		private static IReadOnlyList<string>? TransportsOf(LobbyMember member) =>
 			member.GetSession().TryGetTarget(out UserSession? session) ? session?.PeerTransports : null;
 
+		// Step 2 needs both account ids at the provider, so only the registered linked-account providers count as plugin transports;
+		// read lazily, so a pair where a member listed no transports never resolves them
+		private static IEnumerable<string> LinkedAccountProviderNames()
+		{
+			foreach (GenOnlineService.Rest.ILinkedAccountProvider provider in ServiceLocator.Services.GetServices<GenOnlineService.Rest.ILinkedAccountProvider>())
+			{
+				yield return provider.Name;
+			}
+		}
+
 		// Restarts the pair on both clients with one more attempt, advancing to the next step when asked
 		private void RestartPairLocked(LobbyMember a, LobbyMember b, bool advance)
 		{
 			IReadOnlyList<string>? transportsA = TransportsOf(a);
 			IReadOnlyList<string>? transportsB = TransportsOf(b);
-			m_PeerPairs.Restart(a.UserID, b.UserID, advance, ConnectionOrder.SharedTransport(transportsA, transportsB) != null);
+			m_PeerPairs.Restart(a.UserID, b.UserID, advance, ConnectionOrder.SharedTransport(transportsA, transportsB, LinkedAccountProviderNames()) != null);
 			MarkLiveDirty();
 			PeerStepValues values = PairValuesLocked(a, b, transportsA, transportsB);
 			SendStartSignallingToMember(a, b, values);
@@ -660,7 +670,7 @@ namespace GenOnlineService
 
 			IReadOnlyList<string>? transportsSource = TransportsOf(source);
 			IReadOnlyList<string>? transportsTarget = TransportsOf(target);
-			if (m_PeerPairs.Request(sourceUserID, targetUserID, failedAttempt, ConnectionOrder.SharedTransport(transportsSource, transportsTarget) != null) == null)
+			if (m_PeerPairs.Request(sourceUserID, targetUserID, failedAttempt, ConnectionOrder.SharedTransport(transportsSource, transportsTarget, LinkedAccountProviderNames()) != null) == null)
 			{
 				return Task.CompletedTask;
 			}
@@ -747,7 +757,7 @@ namespace GenOnlineService
 		// The step values of a pair from one snapshot of both transport lists, under the lobby gate
 		private PeerStepValues PairValuesLocked(LobbyMember a, LobbyMember b, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
 		{
-			string? shared = ConnectionOrder.SharedTransport(transportsA, transportsB);
+			string? shared = ConnectionOrder.SharedTransport(transportsA, transportsB, LinkedAccountProviderNames());
 			PeerPairState state = m_PeerPairs.Settle(a.UserID, b.UserID, shared != null);
 			MarkLiveDirty();
 

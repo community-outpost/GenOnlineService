@@ -23,6 +23,7 @@ using Microsoft.EntityFrameworkCore;
 namespace GenOnlineService.Api
 {
 	using GenOnlineService.Realtime;
+	using GenOnlineService.Rest;
 
 	// Checks a connection report body and turns it into the stored row, the first broken field is named
 	public static class ConnectionReportValidation
@@ -46,6 +47,12 @@ namespace GenOnlineService.Api
 			}
 
 			return Validate(body ?? new ConnectionReportRequest(), reporterId, lobbyId, wasMember);
+		}
+
+		// The transport tag of the connection outcome metric: gns, a supported linked-account provider, or other for any other name
+		public static string MetricTransport(string transport, IEnumerable<string> supported)
+		{
+			return transport == ConnectionOrder.Gns || supported.Contains(transport, StringComparer.Ordinal) ? transport : "other";
 		}
 
 		// wasLobbyMember tells whether a player is or was a member of the lobby
@@ -115,11 +122,13 @@ namespace GenOnlineService.Api
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 		private readonly LobbyManager m_lobbyManager;
+		private readonly IEnumerable<ILinkedAccountProvider> m_providers;
 
-		public ConnectionReportsController(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization) : base(authorization)
+		public ConnectionReportsController(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IEnumerable<ILinkedAccountProvider> providers, IAuthorizationService authorization) : base(authorization)
 		{
 			m_dbFactory = dbFactory;
 			m_lobbyManager = lobbyManager;
+			m_providers = providers;
 		}
 
 		// 32 events fit in about 1.5 KB, larger bodies are refused before parsing
@@ -141,7 +150,7 @@ namespace GenOnlineService.Api
 				await Database.ConnectionReports.Upsert(db, row);
 			}
 
-			AppMetrics.RecordConnectionOutcome(row.Outcome, row.Transport, row.IpVersion);
+			AppMetrics.RecordConnectionOutcome(row.Outcome, ConnectionReportValidation.MetricTransport(row.Transport, m_providers.Select(p => p.Name)), row.IpVersion);
 			return ApiResults.NoContent(Result.Success());
 		}
 	}
