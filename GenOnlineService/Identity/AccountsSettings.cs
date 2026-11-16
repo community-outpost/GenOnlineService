@@ -29,10 +29,26 @@ namespace GenOnlineService.Identity
 		public List<string> RedirectUris { get; init; } = new();
 	}
 
-	// One upstream OpenID Connect provider: it signs people in, the environment owns their names, roles and bans
+	// How a provider signs people in: OpenID Connect, OpenIddict's Discord or Google provider, a plain OAuth 2.0 server
+	// (GameReplays) or OpenID 2.0 (Steam)
+	public enum ProviderKind
+	{
+		Oidc,
+		Discord,
+		Google,
+		Steam,
+		GameReplays
+	}
+
+	// One upstream sign-in provider: it signs people in, the environment owns their names, roles and bans
 	public sealed class UpstreamProviderSettings
 	{
 		public string Name { get; init; } = String.Empty;
+		public ProviderKind Kind { get; init; } = ProviderKind.Oidc;
+		// GameReplays: the folder of authorize.php, token.php and resource.php
+		public string BaseUrl { get; init; } = String.Empty;
+		// Steam: an optional Steam Web API key, only for the persona name
+		public string? ApplicationKey { get; init; }
 		public string DisplayName { get; init; } = String.Empty;
 		public bool Enabled { get; init; }
 		public string Issuer { get; init; } = String.Empty;
@@ -44,6 +60,56 @@ namespace GenOnlineService.Identity
 
 		public string Source => AuthoritySources.UpstreamPrefix + Name;
 		public string CallbackPath => $"users/auth/{Name}/callback";
+		// Steam: the path its OpenID 2.0 handler answers itself before handing over to CallbackPath
+		public string SteamHandlerPath => $"/users/auth/{Name}/openid";
+
+		private static readonly Dictionary<string, ProviderKind> s_kinds = new(StringComparer.Ordinal)
+		{
+			["oidc"] = ProviderKind.Oidc,
+			["discord"] = ProviderKind.Discord,
+			["google"] = ProviderKind.Google,
+			["steam"] = ProviderKind.Steam,
+			["gamereplays"] = ProviderKind.GameReplays
+		};
+
+		// The kind setting, else the provider's key when it names a kind, else OpenID Connect
+		internal static ProviderKind KindOf(string name, string? kind)
+		{
+			if (!String.IsNullOrEmpty(kind))
+			{
+				return s_kinds.TryGetValue(kind, out ProviderKind configured) ? configured
+					: throw new InvalidOperationException($"Accounts:providers:{name}:kind \"{kind}\" is unknown. Use one of {String.Join(", ", s_kinds.Keys)}.");
+			}
+			return s_kinds.TryGetValue(name, out ProviderKind byName) ? byName : ProviderKind.Oidc;
+		}
+
+		// What each kind needs before the start goes on
+		internal void Validate()
+		{
+			string prefix = $"Accounts:providers:{Name}";
+			switch (Kind)
+			{
+				case ProviderKind.Oidc:
+					if (!Uri.TryCreate(Issuer, UriKind.Absolute, out _))
+					{
+						throw new InvalidOperationException($"{prefix}:issuer must be the provider's absolute issuer URL.");
+					}
+					break;
+				case ProviderKind.Discord:
+				case ProviderKind.Google:
+				case ProviderKind.GameReplays:
+					if (String.IsNullOrEmpty(ClientID) || String.IsNullOrEmpty(ClientSecret))
+					{
+						throw new InvalidOperationException($"{prefix} needs client_id and client_secret of the application registered at {Kind}.");
+					}
+					if (Kind == ProviderKind.GameReplays
+						&& (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out Uri? url) || (url.Scheme != Uri.UriSchemeHttps && url.Scheme != Uri.UriSchemeHttp)))
+					{
+						throw new InvalidOperationException($"{prefix}:base_url must be the absolute http or https URL of the folder holding authorize.php, token.php and resource.php.");
+					}
+					break;
+			}
+		}
 	}
 
 	public sealed class AccountsSettings
@@ -113,6 +179,9 @@ namespace GenOnlineService.Identity
 			var providers = section.GetSection("providers").GetChildren().Select(p => new UpstreamProviderSettings
 			{
 				Name = p.Key,
+				Kind = UpstreamProviderSettings.KindOf(p.Key, p.GetValue<string>("kind")),
+				BaseUrl = (p.GetValue<string>("base_url") ?? String.Empty).TrimEnd('/'),
+				ApplicationKey = String.IsNullOrEmpty(p.GetValue<string>("application_key")) ? null : p.GetValue<string>("application_key"),
 				DisplayName = p.GetValue<string>("display_name") ?? p.Key,
 				Enabled = p.GetValue<bool>("enabled"),
 				Issuer = p.GetValue<string>("issuer") ?? String.Empty,
@@ -122,6 +191,11 @@ namespace GenOnlineService.Identity
 				OnlyProvider = p.GetValue<bool>("only_provider"),
 				AutoLinkVerifiedEmail = p.GetValue<bool>("auto_link_verified_email")
 			}).ToList();
+
+			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Enabled))
+			{
+				provider.Validate();
+			}
 
 			return new AccountsSettings
 			{

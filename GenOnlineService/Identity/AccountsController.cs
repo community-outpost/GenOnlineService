@@ -99,6 +99,20 @@ namespace GenOnlineService.Identity
 				return NotFound();
 			}
 
+			if (settings.Kind == ProviderKind.Steam)
+			{
+				// Steam's handler verifies the OpenID 2.0 answer, signs into the external cookie and comes back to the callback
+				var steam = new AuthenticationProperties(new Dictionary<string, string?>
+				{
+					[SteamProviderItem] = settings.Name,
+					[SteamReturnUrlItem] = SafeReturnUrl(returnUrl)
+				})
+				{
+					RedirectUri = "/" + settings.CallbackPath
+				};
+				return Challenge(steam, settings.Name);
+			}
+
 			var properties = new AuthenticationProperties(new Dictionary<string, string?>
 			{
 				[OpenIddictClientAspNetCoreConstants.Properties.ProviderName] = settings.Name
@@ -110,6 +124,9 @@ namespace GenOnlineService.Identity
 			return Challenge(properties, OpenIddictClientAspNetCoreDefaults.AuthenticationScheme);
 		}
 
+		private const string SteamProviderItem = "go_provider";
+		private const string SteamReturnUrlItem = "go_return_url";
+
 		[AcceptVerbs("GET", "POST", Route = "~/users/auth/{provider}/callback")]
 		[IgnoreAntiforgeryToken]
 		public async Task<IActionResult> Callback(string provider)
@@ -120,7 +137,14 @@ namespace GenOnlineService.Identity
 				return NotFound();
 			}
 
-			AuthenticateResult result = await HttpContext.AuthenticateAsync(OpenIddictClientAspNetCoreDefaults.AuthenticationScheme);
+			bool steam = settings.Kind == ProviderKind.Steam;
+			AuthenticateResult result = await HttpContext.AuthenticateAsync(steam ? IdentityConstants.ExternalScheme : OpenIddictClientAspNetCoreDefaults.AuthenticationScheme);
+			if (steam)
+			{
+				// the external cookie only carries this one hand-over
+				await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+			}
+
 			if (!result.Succeeded || result.Principal == null)
 			{
 				s_log.LogWarning("Upstream sign-in with {Provider} failed: {Error}", provider, result.Failure?.Message);
@@ -128,8 +152,9 @@ namespace GenOnlineService.Identity
 				return Page(401, "Sign-in failed", "<p>The sign-in could not be completed. Please try again.</p>");
 			}
 
-			// the state token names the provider the flow started with; another callback path must not finish it
-			if (result.Properties?.Items.TryGetValue(OpenIddictClientAspNetCoreConstants.Properties.ProviderName, out string? started) == true && started != provider)
+			// the flow names the provider it started with; another callback path must not finish it
+			string providerItem = steam ? SteamProviderItem : OpenIddictClientAspNetCoreConstants.Properties.ProviderName;
+			if (result.Properties?.Items.TryGetValue(providerItem, out string? started) != true || started != provider)
 			{
 				return BadRequest();
 			}
@@ -151,7 +176,8 @@ namespace GenOnlineService.Identity
 			}
 
 			await m_signIn.SignInAsync(signIn.User, isPersistent: false, authenticationMethod: provider);
-			return LocalRedirect(SafeReturnUrl(result.Properties?.RedirectUri));
+			string? returnUrl = steam ? result.Properties!.GetString(SteamReturnUrlItem) : result.Properties?.RedirectUri;
+			return LocalRedirect(SafeReturnUrl(returnUrl));
 		}
 
 		[HttpPost("~/users/sign_out")]

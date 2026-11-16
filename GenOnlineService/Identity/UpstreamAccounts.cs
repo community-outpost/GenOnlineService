@@ -29,6 +29,9 @@ namespace GenOnlineService.Identity
 		public static UpstreamSignInResult Refused(string error) => new(null, error);
 	}
 
+	// Who the provider says signed in: the subject identities store (null when the provider gave none we accept) and a name
+	public sealed record UpstreamProfile(string? Subject, string? Name);
+
 	// GitLab OmniAuth behaviour: a known identity signs in, an (opt-in) verified email finds the user, otherwise sign-up
 	public sealed class UpstreamAccounts
 	{
@@ -48,13 +51,15 @@ namespace GenOnlineService.Identity
 
 		public async Task<UpstreamSignInResult> SignIn(UpstreamProviderSettings provider, ClaimsPrincipal external)
 		{
-			string? subject = external.GetClaim(OpenIddictConstants.Claims.Subject) ?? external.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+			UpstreamProfile profile = ReadProfile(provider, external);
+			string? subject = profile.Subject;
 			if (String.IsNullOrEmpty(subject) || subject.Length > 128)
 			{
+				s_log.LogWarning("{Provider} sign-in carries no usable subject", provider.Name);
 				return UpstreamSignInResult.Refused(ErrorNoSubject);
 			}
 
-			string? externName = Truncate(external.GetClaim(OpenIddictConstants.Claims.PreferredUsername) ?? external.GetClaim(OpenIddictConstants.Claims.Name), 128);
+			string? externName = Truncate(profile.Name, 128);
 
 			try
 			{
@@ -133,6 +138,52 @@ namespace GenOnlineService.Identity
 			await db.SaveChangesAsync();
 
 			return new UpstreamSignInResult(user, null);
+		}
+
+		private const string SteamClaimedIDPrefix = "https://steamcommunity.com/openid/id/";
+
+		// The subject in the form the import stores it: SteamID64 for Steam, the member id for GameReplays, the provider's
+		// user id (sub or the name identifier OpenIddict maps it to) for the others
+		public static UpstreamProfile ReadProfile(UpstreamProviderSettings provider, ClaimsPrincipal external)
+		{
+			string? Claim(string type) => external.FindFirst(type)?.Value is { Length: > 0 } value ? value : null;
+			string? name = Claim(OpenIddictConstants.Claims.PreferredUsername) ?? Claim(OpenIddictConstants.Claims.Name) ?? Claim(ClaimTypes.Name);
+
+			switch (provider.Kind)
+			{
+				case ProviderKind.Steam:
+				{
+					// the verified OpenID 2.0 claimed id; only Steam's own https form is a Steam account
+					string? claimed = Claim(ClaimTypes.NameIdentifier);
+					string? steamID = claimed != null && claimed.StartsWith(SteamClaimedIDPrefix, StringComparison.Ordinal) ? claimed.Substring(SteamClaimedIDPrefix.Length) : null;
+					bool valid = steamID != null && steamID.Length is > 0 and <= 20 && steamID.All(Char.IsAsciiDigit);
+					return new UpstreamProfile(valid ? steamID : null, name);
+				}
+				case ProviderKind.GameReplays:
+				{
+					// resource.php answers the member itself or wraps it in "user"
+					string? id = Claim("id");
+					string? memberName = Claim("members_display_name") ?? Claim("username");
+					if (id == null && Claim("user") is string wrapped)
+					{
+						try
+						{
+							using var document = System.Text.Json.JsonDocument.Parse(wrapped);
+							System.Text.Json.JsonElement user = document.RootElement;
+							id = user.TryGetProperty("id", out var idValue) ? idValue.ToString() : null;
+							memberName ??= (user.TryGetProperty("members_display_name", out var display) ? display.GetString() : null)
+								?? (user.TryGetProperty("username", out var username) ? username.GetString() : null);
+						}
+						catch (System.Text.Json.JsonException)
+						{
+							id = null;
+						}
+					}
+					return new UpstreamProfile(String.IsNullOrEmpty(id) ? null : id, memberName ?? name);
+				}
+				default:
+					return new UpstreamProfile(Claim(OpenIddictConstants.Claims.Subject) ?? Claim(ClaimTypes.NameIdentifier), name);
+			}
 		}
 
 		// An unknown identity links by a verified email only where the operator allows it
