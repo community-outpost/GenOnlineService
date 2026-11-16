@@ -45,8 +45,8 @@ public sealed class NameTagsExhaustedException : Exception
 
 namespace Database
 {
-	// Xbox-style names: the name is not unique, name#tag is. Keycloak owns both in the official deployment and the
-	// environment copies them (ApplyUpstream); elsewhere the environment assigns the tag itself (AssignNewUser, RenameKeepingTag).
+	// Xbox-style names: the name is not unique, name#tag is. The environment assigns the tag (AssignNewUser) and renames keep it
+	// (RenameKeepingTag); ApplyUpstream copies a name and tag another environment owns (the follow-prod mirror, identity hub T8).
 	// Look-alikes count as one name everywhere: the plugin's key (NameKey) is unique with the tag (ux_users_name_key_name_tag).
 	public static class DisplayNames
 	{
@@ -161,7 +161,7 @@ namespace Database
 			return changes;
 		}
 
-		// ApplyUpstream inside the caller's transaction (the Keycloak change log); a unique violation is the caller's to retry
+		// ApplyUpstream inside the caller's transaction; a unique violation is the caller's to retry
 		public static async Task<IReadOnlyList<NameChange>> ApplyUpstreamInTransaction(AppDbContext db, Int64 userID, string? name, string? tagText, string changedBy)
 		{
 			if (!IsStorable(name) || !Int32.TryParse(tagText, NumberStyles.None, CultureInfo.InvariantCulture, out int tag) || tag < MinTag || tag > MaxTag)

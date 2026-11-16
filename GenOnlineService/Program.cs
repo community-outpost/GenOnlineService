@@ -1200,9 +1200,6 @@ namespace GenOnlineService
 			AccountsSettings accountsSettings = AccountsSettings.Read(builder.Configuration);
 			builder.Services.AddSingleton(accountsSettings);
 
-			// renames: the Keycloak plugin in prod, local rules for self-hosters (identity section 5b)
-			builder.Services.AddHttpClient(GenOnlineService.Names.KeycloakRenameClient.HttpClientName);
-			builder.Services.AddSingleton<GenOnlineService.Names.KeycloakRenameClient>(sp => new GenOnlineService.Names.KeycloakRenameClient(sp.GetRequiredService<IHttpClientFactory>(), accountsSettings));
 			builder.Services.AddSingleton<GenOnlineService.Names.PlayerNames>();
 
 			builder.Services.AddAuthentication(options =>
@@ -1219,13 +1216,6 @@ namespace GenOnlineService
 
 			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
 			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
-
-			// the Keycloak plugin's change log (identity design 5b): at most one trusted provider feeds it
-			UpstreamProviderSettings? changeLogProvider = accountsSettings.EnabledProviders.FirstOrDefault(p => p.ChangeLog.Enabled);
-			if (changeLogProvider != null)
-			{
-				builder.Services.AddSingleton(sp => new KeycloakChangeLog(changeLogProvider, sp.GetRequiredService<IDbContextFactory<AppDbContext>>()));
-			}
 
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -1761,52 +1751,6 @@ namespace GenOnlineService
 					}
 				};
 				timerTick.Start();
-			}
-
-			// Keycloak group changes between sign-ins (identity design section 5)
-			foreach (UpstreamProviderSettings provider in accountsSettings.EnabledProviders.Where(p => p.Trusted && p.GroupSync.Enabled))
-			{
-				System.Timers.Timer timerGroupSync = new System.Timers.Timer(provider.GroupSync.IntervalSeconds * 1000);
-				timerGroupSync.AutoReset = false;
-				timerGroupSync.Elapsed += async (sender, e) =>
-				{
-					try
-					{
-						await RunObservedBackgroundJobAsync("group_sync_" + provider.Name, app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await KeycloakGroupSync.Run(db, provider);
-						});
-					}
-					finally
-					{
-						timerGroupSync.Start();
-					}
-				};
-				timerGroupSync.Start();
-			}
-
-			// the change log: once at startup, then every interval, so a lost push or downtime is caught up
-			KeycloakChangeLog? changeLog = app.Services.GetService<KeycloakChangeLog>();
-			if (changeLog != null)
-			{
-				System.Timers.Timer timerChangeLog = new System.Timers.Timer(1000);
-				timerChangeLog.AutoReset = false;
-				timerChangeLog.Elapsed += async (sender, e) =>
-				{
-					try
-					{
-						await RunObservedBackgroundJobAsync("keycloak_change_log", app.Logger, () => changeLog.Sync());
-					}
-					finally
-					{
-						timerChangeLog.Interval = changeLogProvider!.ChangeLog.IntervalSeconds * 1000;
-						timerChangeLog.Start();
-					}
-				};
-				timerChangeLog.Start();
 			}
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) =>

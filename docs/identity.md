@@ -1,6 +1,6 @@
 # Identity: every environment is its own identity provider (OpenIddict)
 
-Status: **draft, topology decided by the user** (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
+Status: **being replaced.** Keycloak is gone (the identity hub, decided 2026-11-15): prod's service is the identity provider, and the sections below on Keycloak, player ids, trusted claims, group sync and the plugin's change log no longer describe the service. A full rewrite follows. Earlier status: draft, topology decided by the user (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
 
 Each GenOnline environment owns its accounts and issues every token itself, like a GitLab instance. Upstream sign-in providers (Keycloak, Discord, Steam, Google, any OIDC) are linked to a local account, like GitLab's OmniAuth providers. The official deployment ties its environments together through one Keycloak; a self-hoster runs the same thing with or without one.
 
@@ -114,7 +114,9 @@ game client           system browser                 accounts (this environment)
 
 Steam is OpenID 2.0; its handler is built into accounts.
 
-GameReplays offers OAuth sign-in (Invision Community OAuth 2.0 server). It is a regular upstream provider: a generic OAuth 2.0 handler in accounts (authorization code, then the user from the Invision user-info API `/api/core/me`, `extern_uid` = GameReplays member id). Imported `gamereplays_id` links work on first sign-in. For the official deployment it is brokered in Keycloak like the others; if GameReplays issues no ID tokens, Keycloak's OIDC broker cannot use it directly and needs either a small identity provider extension or GameReplays configured as a provider in each environment's accounts next to Keycloak (to be verified against GameReplays' endpoints).
+GameReplays offers OAuth 2.0 sign-in (no ID tokens): provider kind `gamereplays`, `base_url` `https://www.gamereplays.org/community/modules/oauth` (the folder of `authorize.php`, `token.php` and `resource.php`), scope `user_profile`, the client secret sent in the token request form. `resource.php` answers the member (or wraps it in `user`): `extern_uid` = member `id`, the name = `members_display_name`; `username` is ignored. Imported `gamereplays_id` links work on first sign-in.
+
+Any provider except Steam may set `redirect_uri` when the return URL registered at the provider is another host's: the service sends that exact URL in the authorization and token requests, and that host must redirect the browser, query string intact, to `<service>/users/auth/<name>/callback`. That callback then counts as the registered URL for that provider only.
 
 ### 4.3 Website
 

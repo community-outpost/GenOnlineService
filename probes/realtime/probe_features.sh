@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PROVIDER=postgres|mariadb bash probe_features.sh: client features from roles, observer seats and the Keycloak group sync
+# PROVIDER=postgres|mariadb bash probe_features.sh: client features from roles and observer seats
 HERE=$(cd "$(dirname "$0")" && pwd)
 source "$HERE/env.sh" || exit 1
 stop_service

@@ -1,4 +1,4 @@
-# Realtime hub probe helpers: Keycloak browser-flow login, session registration, raw SignalR JSON client
+# Realtime hub probe helpers: browser-flow login at the test OpenID Connect provider, session registration, raw SignalR JSON client
 import base64, hashlib, html, json, os, re, secrets, socket, subprocess, sys, threading, time
 import requests
 

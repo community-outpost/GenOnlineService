@@ -6,7 +6,6 @@ import rt
 
 GAME, CHAT = "genonline_zerohour", "genonline_chat"
 BIN = os.environ["BIN"]
-KCADM = ["docker", "exec", os.environ["KC_CONTAINER"], "/opt/keycloak/bin/kcadm.sh"]
 BOTH = ["observer", "stats_exporter"]
 RELOAD_WAIT = 9  # the role cache reloads every 5 s
 
@@ -49,18 +48,6 @@ def gos(*args):
     return p.returncode, p.stdout + p.stderr
 
 
-def kc(*args):
-    return subprocess.run([*KCADM, *args], capture_output=True, text=True, timeout=60)
-
-
-def kc_id(path, **query):
-    q = [a for k, v in query.items() for a in ("-q", f"{k}={v}")]
-    out = kc("get", path, "-r", "genonline", *q, "--fields", "id,name,username").stdout
-    import json
-    rows = json.loads(out or "[]")
-    return rows[0]["id"] if rows else None
-
-
 def features_update(hub, seconds=RELOAD_WAIT):
     ev = hub.wait("FeaturesUpdate", seconds)
     return ev and ev["features"]
@@ -78,7 +65,7 @@ def latest_state(hub, uid, pred, seconds=3):
     return st and slot_of(st, uid)
 
 
-# staff roles come from the Keycloak group sync, so the staff sign in first
+# staff roles are granted with the CLI once the staff have signed in (their accounts exist from then on)
 def roles_loaded(token, role, seconds=30):
     """Waits until GET /api/v1/me shows the role: the role cache Ready.features is computed from has reloaded"""
     end = time.time() + seconds
@@ -91,8 +78,11 @@ def roles_loaded(token, role, seconds=30):
 
 
 staff = {user: login(user) for user in ("alice", "dave")}
-check("admin role loaded from the sign-in", True, roles_loaded(staff["alice"], "admin"))
-check("moderator role loaded from the sign-in", True, roles_loaded(staff["dave"], "moderator"))
+for user, role in (("alice", "admin"), ("dave", "moderator")):
+    uid = str(api("GET", "/api/v1/me", staff[user]).json()["user_id"])
+    gos("roles", "grant", uid, role, "--reason", "probe")
+check("admin role loaded after the CLI grant", True, roles_loaded(staff["alice"], "admin"))
+check("moderator role loaded after the CLI grant", True, roles_loaded(staff["dave"], "moderator"))
 
 bob = connect("bob")
 check("player Ready features empty", [], bob.ready["features"])
@@ -189,28 +179,6 @@ erin.take("LobbyState")
 check("streamer joins the lobby without observers", True, ok(carol.call("JoinLobby", {"lobby_id": closed["data"]["lobby_id"] if ok(closed) else None, "password": None, "preferred_port": 8092, "has_map": True})))
 seat = latest_state(erin, carol.uid, lambda s: True, 3)
 check("remembered observer seat falls back to random without observers", -1, seat and seat["side"])
-
-# Keycloak group sync maps genonline-streamer like the staff groups
-gid = None
-try:
-    kc("config", "credentials", "--server", "http://localhost:8080", "--realm", "master", "--user", "admin", "--password", "admin")
-    gid = kc_id("groups", search="genonline-streamer", exact="true")
-    kid = kc_id("users", username="erin", exact="true")
-    check("realm has genonline-streamer", True, gid is not None and kid is not None)
-    erin.take("FeaturesUpdate")
-    kc("update", f"users/{kid}/groups/{gid}", "-r", "genonline", "-s", f"realm=genonline", "-s", f"userId={kid}", "-s", f"groupId={gid}", "-n")
-    STREAMER_ROW = f"SELECT COUNT(*) FROM user_roles WHERE user_id = {erin.uid} AND role = 'streamer' AND source = 'upstream:keycloak'"
-    check("upstream streamer row", True, until(lambda: sql(STREAMER_ROW) == "1", 30))
-    check("group sync grant sends FeaturesUpdate", BOTH, features_update(erin, 15))
-    kc("delete", f"users/{kid}/groups/{gid}", "-r", "genonline")
-    check("upstream streamer row removed", True, until(lambda: sql(STREAMER_ROW) == "0", 30))
-    check("group sync removal sends an empty FeaturesUpdate", [], features_update(erin, 15))
-    erin.pump(2)
-    check("group sync removal keeps the session", None, erin.closed)
-finally:
-    if gid:
-        kid = kc_id("users", username="erin", exact="true")
-        kc("delete", f"users/{kid}/groups/{gid}", "-r", "genonline")
 
 print(f"\n{rt.PASS} passed, {rt.FAIL} failed ({PROVIDER})")
 sys.exit(1 if rt.FAIL else 0)

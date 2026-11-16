@@ -35,10 +35,6 @@ def gos(*args):
     return subprocess.run([bin_dir + "/GenOnlineService" + os.environ.get("EXE", ""), *args], cwd=bin_dir, capture_output=True, text=True, env=os.environ)
 
 
-def kcadm(*args):
-    env = dict(os.environ, MSYS_NO_PATHCONV="1")
-    return subprocess.run(["docker", "exec", os.environ["KC_CONTAINER"], "/opt/keycloak/bin/kcadm.sh", *args], capture_output=True, text=True, env=env).stdout
-
 
 def jwt_parts(token):
     def dec(p):
@@ -229,10 +225,11 @@ check("access token lifetime 15 min", 900, claims["exp"] - claims["iat"])
 check("refresh token is a reference token", False, alice.get("refresh_token", "").count(".") == 2)
 check("id token issued", True, "id_token" in alice)
 ALICE_ID = int(claims["sub"])
-check("player id: a new user is created with its player_id as the id", 7101, ALICE_ID)
-check("alice created with the Keycloak name and tag", ("Alice", "1001"), (sql(f"SELECT username FROM users WHERE id={ALICE_ID}"), sql(f"SELECT name_tag FROM users WHERE id={ALICE_ID}")))
-check("alice identity linked", "keycloak", sql(f"SELECT provider FROM identities WHERE user_id={ALICE_ID}"))
-check("trusted group -> upstream admin role", "admin|upstream:keycloak" if PROVIDER == "postgres" else "admin\tupstream:keycloak", sql(f"SELECT role, source FROM user_roles WHERE user_id={ALICE_ID}"))
+check("a new user gets an id from the database, not the imported range", True, ALICE_ID > 7001)
+check("alice takes the provider's username, the environment picks the tag", ("alice", True), (sql(f"SELECT username FROM users WHERE id={ALICE_ID}"), 1 <= int(sql(f"SELECT name_tag FROM users WHERE id={ALICE_ID}") or 0) <= 9999))
+check("alice identity linked", "idp", sql(f"SELECT provider FROM identities WHERE user_id={ALICE_ID}"))
+check("the provider's groups grant no role", "0", sql(f"SELECT count(*) FROM user_roles WHERE user_id={ALICE_ID}"))
+gos("roles", "grant", str(ALICE_ID), "admin", "--reason", "probe")
 
 kind, code, verifier, _ = sign_in("alice", "alice-pw", redirect="http://127.0.0.1:61000/other")
 check("unregistered loopback path refused", "stop", kind)
@@ -259,19 +256,13 @@ for _ in range(20):
     if status == 200:
         break
     time.sleep(1)
-check("upstream admin role grants server.stats within the reload tick", 200, status)
+check("a CLI admin role grants server.stats within the reload tick", 200, status)
 r = api("GET", "/api/v1/matches", alice["access_token"])
 check("session principal lacks machine permission", (403, {"error": "forbidden", "params": {"permission": "match_history.read"}}), (r.status_code, r.json()))
 
 # realtime: registration required, close on logout
 bob = login("bob", "bob-pw")
 BOB_ID = int(jwt_parts(bob["access_token"])[1]["sub"])
-check("player id: bob is 7102", 7102, BOB_ID)
-kind, status, _, body = sign_in("dave", "dave-pw")
-check("player id: a sign-in without player_id refused", ("stop", 403, True), (kind, status, "no player id" in (body or "")))
-kind, status, _, body = sign_in("erin", "erin-pw")
-check("player id: an id another identity holds refused", ("stop", 403, True), (kind, status, "does not match" in (body or "")))
-check("player id: refused sign-ins create no user", "0", sql("SELECT count(*) FROM users WHERE username IN ('dave', 'erin')"))
 check("realtime without registration 409", 409, WS(bob["access_token"]).status)
 check("register bob", 200, register(bob["access_token"]).status_code)
 check("realtime after registration 101", 101, WS(bob["access_token"]).status)
@@ -320,9 +311,9 @@ check("banned: userinfo works", 200, requests.get(BASE + "/oauth/userinfo", head
 # block: sign-in refused, everything refused
 carol = login("carol", "carol-pw")
 CAROL_ID = int(jwt_parts(carol["access_token"])[1]["sub"])
-check("player id: an imported user with that id is signed in", 7001, CAROL_ID)
-check("imported account takes the Keycloak name and tag", ("Carol", "42"), (sql("SELECT username FROM users WHERE id=7001"), sql("SELECT name_tag FROM users WHERE id=7001")))
-check("the name copy keeps the imported name in the history", "1", sql("SELECT count(*) FROM user_username_history WHERE user_id=7001 AND username='CarolOld'"))
+check("an imported identity signs in to the imported user", 7001, CAROL_ID)
+check("the imported user keeps its name and tag", ("CarolOld", "1"), (sql("SELECT username FROM users WHERE id=7001"), sql("SELECT name_tag FROM users WHERE id=7001")))
+check("the sign-in writes no name history", "0", sql("SELECT count(*) FROM user_username_history WHERE user_id=7001"))
 register(carol["access_token"])
 ws = WS(carol["access_token"])
 sql("UPDATE users SET state='blocked' WHERE id=7001")
@@ -346,29 +337,6 @@ r = api("POST", f"/api/v1/users/{ALICE_ID}/revoke_sessions", pat)
 check("revoke_sessions with gopat users.revoke", 200, r.status_code)
 check("revoke_sessions closes realtime with auth.revoked", "auth.revoked", ws.close_code())
 check("revoke_sessions revokes refresh", 400, refresh(dave["refresh_token"]).status_code)
-
-# group sync: Keycloak changes between sign-ins
-erin = login("alice", "alice-pw")
-kc_alice = kcadm("get", "users", "-r", "genonline", "-q", "username=alice", "--fields", "id", "--format", "csv", "--noquotes").strip()
-groups = json.loads(kcadm("get", "groups", "-r", "genonline"))
-gid = {g["name"]: g["id"] for g in groups}
-kcadm("update", f"users/{kc_alice}/groups/{gid['genonline-banned']}", "-r", "genonline", "-s", "realm=genonline", "-s", f"userId={kc_alice}", "-s", f"groupId={gid['genonline-banned']}", "-n")
-kcadm("delete", f"users/{kc_alice}/groups/{gid['genonline-admin']}", "-r", "genonline")
-ok = False
-for _ in range(30):
-    time.sleep(2)
-    if sql(f"SELECT count(*) FROM user_roles WHERE user_id={ALICE_ID}") == "0" and sql(f"SELECT count(*) FROM sanctions WHERE user_id={ALICE_ID} AND type='ban' AND source='upstream:keycloak' AND lifted_at IS NULL") == "1":
-        ok = True
-        break
-check("group sync removes the upstream role and adds the upstream ban", True, ok)
-time.sleep(6)
-check("group sync revokes game sessions", 400, refresh(erin["refresh_token"]).status_code)
-check("upstream ban: game API 403", 403, api("GET", "/api/v1/config", erin["access_token"]).status_code)
-check("local roles untouched", "0", sql(f"SELECT count(*) FROM user_roles WHERE source='local'"))
-check("audit has upstream entries", True, int(sql("SELECT count(*) FROM audit_log WHERE actor_kind='upstream'") or 0) >= 3)
-check("upstream audit actor is the provider name", "keycloak", sql("SELECT DISTINCT actor FROM audit_log WHERE actor_kind='upstream'"))
-kcadm("delete", f"users/{kc_alice}/groups/{gid['genonline-banned']}", "-r", "genonline")
-kcadm("update", f"users/{kc_alice}/groups/{gid['genonline-admin']}", "-r", "genonline", "-s", "realm=genonline", "-s", f"userId={kc_alice}", "-s", f"groupId={gid['genonline-admin']}", "-n")
 
 # a temporary ban carries expires_at, ISO UTC with seconds; unknown users are not_found
 gos("bans", "revoke", str(BOB_ID))
