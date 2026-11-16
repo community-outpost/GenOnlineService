@@ -404,6 +404,9 @@ namespace GenOnlineService
 			// the sign-in is recorded before the connection is published, so a revocation can always find it
 			userCacheData.AuthorizationID = authorizationID;
 
+			// SetPeerTransports is required again after every Ready, so a reused session forgets the previous connection's list
+			userCacheData.ResetPeerTransports();
+
 			// a connection of the same user and session type replaces the previous one, which is told why
 			if (m_dictWebsockets[sessionType].TryRemove(ownerID, out RealtimeConnection? supersededSess) && supersededSess != null)
 			{
@@ -956,10 +959,25 @@ namespace GenOnlineService
 		// The build of the queue registration, set when the player joins the matchmaking queue
 		public GameBuild MatchmakingBuild = new GameBuild(String.Empty, 0, 0, EKnownAnticheatID.NONE);
 
-		// The peer transports of SetPeerTransports in this session, null until the client sends it
+		// The plugin transports of SetPeerTransports in the current connection, null until the client sends them
 		private volatile string[]? m_peerTransports;
 		internal IReadOnlyList<string>? PeerTransports => m_peerTransports;
-		internal void SetPeerTransports(IEnumerable<string?>? transports) => m_peerTransports = GenOnlineService.Realtime.ConnectionOrder.KnownTransports(transports);
+		internal void SetPeerTransports(IEnumerable<string?>? transports) => m_peerTransports = GenOnlineService.Realtime.ConnectionOrder.PluginTransports(transports);
+
+		// A reconnect in a lobby being set up resends StartSignalling once the transports of the new connection arrived
+		private int m_signallingResendPending;
+
+		// A new connection of this session has sent no transports yet and owes no resend
+		internal void ResetPeerTransports()
+		{
+			Interlocked.Exchange(ref m_signallingResendPending, 0);
+			m_peerTransports = null;
+		}
+
+		internal void MarkSignallingResendPending() => Interlocked.Exchange(ref m_signallingResendPending, 1);
+
+		// True once, when a resend is pending and the transports of this connection arrived; both sides call it after their write
+		internal bool TakeSignallingResend() => m_peerTransports != null && Interlocked.Exchange(ref m_signallingResendPending, 0) == 1;
 
 		private ConcurrentList<UInt64> m_lstHistoricMatchIDs = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToSlotIndexMap = new();

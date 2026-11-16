@@ -697,14 +697,10 @@ namespace GenOnlineService.Realtime
 		public long UserId { get; init; }
 		public int PreferredPort { get; init; }
 		public string MiddlewareId { get; init; } = "";
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public int? Attempt { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? Transport { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public bool? Relay { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public int? TimeoutS { get; init; }
+		public int Attempt { get; init; }
+		public string Transport { get; init; } = "";
+		public bool Relay { get; init; }
+		public int TimeoutS { get; init; }
 	}
 
 	public sealed record DisconnectPeerEvent

@@ -30,14 +30,6 @@ public static class ConnectionReportOutcomes
 	public static readonly string[] All = { ConnectedDirect, ConnectedRelay, Failed, Disconnected };
 }
 
-public static class ConnectionReportTransports
-{
-	public const string Gns = "gns";
-	public const string Eos = "eos";
-
-	public static readonly string[] All = { Gns, Eos };
-}
-
 // The states an event may name: the outcomes plus the two in-progress states
 public static class ConnectionReportStates
 {
