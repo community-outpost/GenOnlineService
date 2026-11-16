@@ -17,8 +17,8 @@ Every REST route of the service. The realtime hub is `/realtime` (`docs/realtime
 |---|---|---|
 | `GET /api/v1/me` | session of any client, the website included | `{user_id, display_name, tag, roles, permissions}` |
 | `GET /api/v1/me/sessions` | session of any client | `{sessions: [{type: game\|launcher\|chat, client_id, registered_at}]}` |
-| `POST /api/v1/me/eos_token` | game session | `{eos_token, expires_in}`; `session.game_required` (403), `service.unavailable {what: eos_token}` |
-| `PUT /api/v1/me/linked_accounts/eos` | game session | body `{id_token}` (the Epic ID token), 204; `session.game_required`, `eos.invalid_token` (422), `eos.account_mismatch` (403), `eos.account_in_use` (409), `eos.account_locked` (409), `service.unavailable {what: eos}` |
+| `POST /api/v1/me/linked_accounts/:provider/sign_in_token` | game session | `{token, expires_in}`; for `eos` the EOS ID token. `not_found {what: provider}` (404), `session.game_required` (403), `service.unavailable {what: linked_account, provider}` (503) |
+| `PUT /api/v1/me/linked_accounts/:provider` | game session | body `{proof}` (for `eos` the Epic Connect ID token), 204; `not_found {what: provider}` (404), `invalid_argument {field: proof}` (400), `session.game_required` (403), `linked_account.invalid_proof` (422), `linked_account.mismatch` (403), `linked_account.in_use` (409), `linked_account.locked` (409), all four with `{provider}`, `service.unavailable {what: linked_account, provider}` (503) |
 
 Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention decision. Signing out is `DELETE /api/v1/auth/session`.
 
@@ -79,4 +79,4 @@ Sign-out everywhere for another user is `POST /api/v1/users/:id/revoke_sessions`
 | `GET /-/readiness` | anonymous | `{status: "ok"}`, or 503 `service.unavailable {what: database}`, or with failover on `{what: standby}` on a copy that is not serving |
 | `GET /-/database` | `ops.database` | `{ok}` |
 | `GET /-/self_check/version` | `server.stats` | `{ok, clients: [{client_id, ok}]}` |
-| `GET /.well-known/jwks.json` | anonymous | the EOS token keys |
+| `GET /.well-known/jwks.json` | anonymous | the keys of the `eos` sign-in token |

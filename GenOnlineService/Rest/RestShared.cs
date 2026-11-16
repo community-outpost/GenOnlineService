@@ -31,10 +31,10 @@ namespace GenOnlineService.Rest
 		public const string Unauthorized = "unauthorized";
 		public const string ServiceUnavailable = "service.unavailable";
 		public const string SessionGameRequired = "session.game_required";
-		public const string EosInvalidToken = "eos.invalid_token";
-		public const string EosAccountMismatch = "eos.account_mismatch";
-		public const string EosAccountInUse = "eos.account_in_use";
-		public const string EosAccountLocked = "eos.account_locked";
+		public const string LinkedAccountInvalidProof = "linked_account.invalid_proof";
+		public const string LinkedAccountMismatch = "linked_account.mismatch";
+		public const string LinkedAccountInUse = "linked_account.in_use";
+		public const string LinkedAccountLocked = "linked_account.locked";
 		public const string TokenLimitReached = "token.limit_reached";
 		public const string Conflict = "conflict";
 		public const string MethodNotAllowed = "method_not_allowed";
@@ -54,9 +54,9 @@ namespace GenOnlineService.Rest
 			[RestCodes.Unauthorized] = StatusCodes.Status401Unauthorized,
 			[RestCodes.ServiceUnavailable] = StatusCodes.Status503ServiceUnavailable,
 			[RestCodes.SessionGameRequired] = StatusCodes.Status403Forbidden,
-			[RestCodes.EosAccountMismatch] = StatusCodes.Status403Forbidden,
-			[RestCodes.EosAccountInUse] = StatusCodes.Status409Conflict,
-			[RestCodes.EosAccountLocked] = StatusCodes.Status409Conflict,
+			[RestCodes.LinkedAccountMismatch] = StatusCodes.Status403Forbidden,
+			[RestCodes.LinkedAccountInUse] = StatusCodes.Status409Conflict,
+			[RestCodes.LinkedAccountLocked] = StatusCodes.Status409Conflict,
 			[RestCodes.Conflict] = StatusCodes.Status409Conflict,
 			[RestCodes.MethodNotAllowed] = StatusCodes.Status405MethodNotAllowed,
 		};

@@ -12,8 +12,8 @@ The deploy is greenfield: no client of the old routes is served. The game client
 |---|---|
 | `GET Users/Me`, `POST OID` | `GET /api/v1/me` |
 | `DELETE User` (a logout) | `DELETE /api/v1/auth/session` |
-| `POST EosToken` | `POST /api/v1/me/eos_token` |
-| `POST ProvideMWToken` | `PUT /api/v1/me/linked_accounts/eos` (body `{id_token}`) |
+| `POST EosToken` | `POST /api/v1/me/linked_accounts/eos/sign_in_token` (answers `{token, expires_in}`) |
+| `POST ProvideMWToken` | `PUT /api/v1/me/linked_accounts/eos` (body `{proof}`) |
 | `POST VersionCheck`, `POST /cloud/env:prod/VersionCheck` | `GET /api/v1/compatibility?client=&version=` |
 | `GET VersionManifest` | Removed. The launcher reads executable CRCs from the CDN release manifest |
 | `GET ServiceConfig`, `GET MOTD` | `GET /api/v1/config` |

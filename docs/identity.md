@@ -132,7 +132,7 @@ Built so far: third-party clients (`first_party = false`) get a consent page on 
 
 ### 4.6 EOS
 
-The EOS ID token (RS256, `sub` = user id, audience `genonline-eos`) is issued by each environment's accounts; each environment points at its own EOS deployment and JWKS.
+The EOS ID token (RS256, `sub` = user id, audience `genonline-eos`) is issued by each environment's accounts as the `eos` sign-in token of `POST /api/v1/me/linked_accounts/eos/sign_in_token`; each environment points at its own EOS deployment and JWKS.
 
 ### 4.7 Client registry
 

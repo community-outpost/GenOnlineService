@@ -29,7 +29,7 @@ using Xunit;
 
 namespace GenOnlineService.Tests
 {
-	// Version checks, MOTD handling, the EOS link errors and the global stats of /api/v1/me, /compatibility, /config and /stats/global
+	// Version checks, MOTD handling, the EOS linked-account errors and the global stats of /api/v1/me, /compatibility, /config and /stats/global
 	public class RestMeAndMetaTests
 	{
 		private static RegisteredClient Client(string clientID, string? minVersion) => new RegisteredClient(1, clientID, ClientKinds.Game, ClientGames.ZeroHour, true, true, minVersion, []);
@@ -166,22 +166,15 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void EosRequestNeedsTheIdToken()
-		{
-			Assert.Equal(Result.Invalid("id_token"), EosLink.ValidateRequest(null));
-			Assert.Equal(Result.Invalid("id_token"), EosLink.ValidateRequest(new LinkEosRequest { IdToken = "" }));
-			Assert.Null(EosLink.ValidateRequest(new LinkEosRequest { IdToken = "eyJ" }));
-		}
-
-		[Fact]
 		public void EosValidationErrorsMapToTheirCodes()
 		{
-			Assert.Equal(RestCodes.EosInvalidToken, EosLink.FailureOfValidation(new SecurityTokenException("bad"))!.Value.Code);
-			Assert.Equal(RestCodes.EosInvalidToken, EosLink.FailureOfValidation(new SecurityTokenExpiredException("old"))!.Value.Code);
-			Assert.Equal(RestCodes.EosInvalidToken, EosLink.FailureOfValidation(new ArgumentException("malformed"))!.Value.Code);
+			Failure invalid = EosLink.FailureOfValidation(new SecurityTokenException("bad"))!.Value;
+			Assert.Equal("{\"error\":\"linked_account.invalid_proof\",\"params\":{\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(invalid), ApiResults.Json));
+			Assert.Equal(RestCodes.LinkedAccountInvalidProof, EosLink.FailureOfValidation(new SecurityTokenExpiredException("old"))!.Value.Code);
+			Assert.Equal(RestCodes.LinkedAccountInvalidProof, EosLink.FailureOfValidation(new ArgumentException("malformed"))!.Value.Code);
 
 			Failure unavailable = EosLink.FailureOfValidation(new HttpRequestException("down"))!.Value;
-			Assert.Equal("{\"error\":\"service.unavailable\",\"params\":{\"what\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(unavailable), ApiResults.Json));
+			Assert.Equal("{\"error\":\"service.unavailable\",\"params\":{\"what\":\"linked_account\",\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(unavailable), ApiResults.Json));
 			Assert.Equal(RestCodes.ServiceUnavailable, EosLink.FailureOfValidation(new TaskCanceledException())!.Value.Code);
 			Assert.Equal(RestCodes.ServiceUnavailable, EosLink.FailureOfValidation(new JsonException())!.Value.Code);
 			Assert.Equal(RestCodes.ServiceUnavailable, EosLink.FailureOfValidation(new CryptographicException())!.Value.Code);
@@ -193,8 +186,8 @@ namespace GenOnlineService.Tests
 		public void EosLinkOutcomesMapToTheirCodes()
 		{
 			Assert.Null(EosLink.FailureOf(EosLinkOutcome.Linked));
-			Assert.Equal(RestCodes.EosAccountInUse, EosLink.FailureOf(EosLinkOutcome.InUse)!.Value.Code);
-			Assert.Equal(RestCodes.EosAccountLocked, EosLink.FailureOf(EosLinkOutcome.Locked)!.Value.Code);
+			Assert.Equal("{\"error\":\"linked_account.in_use\",\"params\":{\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(EosLink.FailureOf(EosLinkOutcome.InUse)!.Value), ApiResults.Json));
+			Assert.Equal("{\"error\":\"linked_account.locked\",\"params\":{\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(EosLink.FailureOf(EosLinkOutcome.Locked)!.Value), ApiResults.Json));
 		}
 
 		[Fact]
@@ -209,8 +202,8 @@ namespace GenOnlineService.Tests
 
 			Assert.Null(EosLink.CheckEpicAccountBinding(Claims("42"), settings, 42));
 			Assert.Equal("account_mismatch", EosLink.CheckEpicAccountBinding(Claims("43"), settings, 42));
-			Assert.Equal(RestCodes.EosAccountMismatch, EosLink.FailureOfBinding("account_mismatch")!.Value.Code);
-			Assert.Equal(RestCodes.EosAccountMismatch, EosLink.FailureOfBinding("wrong_deployment")!.Value.Code);
+			Assert.Equal("{\"error\":\"linked_account.mismatch\",\"params\":{\"provider\":\"eos\"}}", JsonSerializer.Serialize(ApiResults.BodyOf(EosLink.FailureOfBinding("account_mismatch")!.Value), ApiResults.Json));
+			Assert.Equal(RestCodes.LinkedAccountMismatch, EosLink.FailureOfBinding("wrong_deployment")!.Value.Code);
 			Assert.Null(EosLink.FailureOfBinding(null));
 		}
 
