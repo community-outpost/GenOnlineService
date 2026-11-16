@@ -37,7 +37,7 @@ namespace GenOnlineService.Tests
 			PeerPairState state = pairs.Current(7, 3);
 
 			Assert.Equal(new PeerPairState(1, 1), state);
-			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesFor(state, s_eos, s_eos));
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(state, ConnectionOrder.SharedTransport(s_eos, s_eos)));
 			Assert.Equal(state, pairs.Current(3, 7));
 		}
 
@@ -79,10 +79,10 @@ namespace GenOnlineService.Tests
 			pairs.Current(3, 7);
 
 			PeerPairState? second = pairs.Request(3, 7, 1, true);
-			Assert.Equal(new PeerStepValues(2, "eos", false, 10), ConnectionOrder.ValuesFor(second!.Value, s_eos, s_eos));
+			Assert.Equal(new PeerStepValues(2, "eos", false, 10), ConnectionOrder.ValuesOf(second!.Value, ConnectionOrder.SharedTransport(s_eos, s_eos)));
 
 			PeerPairState? third = pairs.Request(7, 3, 2, true);
-			Assert.Equal(new PeerStepValues(3, "gns", true, 0), ConnectionOrder.ValuesFor(third!.Value, s_eos, s_eos));
+			Assert.Equal(new PeerStepValues(3, "gns", true, 0), ConnectionOrder.ValuesOf(third!.Value, ConnectionOrder.SharedTransport(s_eos, s_eos)));
 		}
 
 		[Fact]
@@ -93,14 +93,14 @@ namespace GenOnlineService.Tests
 
 			PeerPairState? next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(s_eos, s_none) != null);
 			Assert.Equal(new PeerPairState(2, 3), next);
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesFor(next!.Value, s_eos, s_none));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next!.Value, ConnectionOrder.SharedTransport(s_eos, s_none)));
 		}
 
 		[Fact]
 		public void EmptyTransportListStillSendsTheStepFields()
 		{
 			Assert.Null(ConnectionOrder.SharedTransport(s_none, s_none));
-			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesFor(ConnectionOrder.First, s_none, s_none));
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(ConnectionOrder.First, ConnectionOrder.SharedTransport(s_none, s_none)));
 		}
 
 		[Fact]
@@ -194,8 +194,8 @@ namespace GenOnlineService.Tests
 			Assert.Null(ConnectionOrder.SharedTransport(null, null));
 
 			// every StartSignalling carries the step fields, a pair on step 2 without a shared transport falls to step 3
-			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesFor(ConnectionOrder.First, null, s_eos));
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesFor(new PeerPairState(2, ConnectionOrder.PluginStep), s_eos, null));
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesOf(ConnectionOrder.First, ConnectionOrder.SharedTransport(null, s_eos)));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(new PeerPairState(2, ConnectionOrder.PluginStep), ConnectionOrder.SharedTransport(s_eos, null)));
 		}
 
 		[Fact]
@@ -222,7 +222,7 @@ namespace GenOnlineService.Tests
 			string[] steam = ["steam"];
 
 			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, steam) != null)!.Value;
-			Assert.Equal(new PeerStepValues(2, "steam", false, 10), ConnectionOrder.ValuesFor(next, steam, steam));
+			Assert.Equal(new PeerStepValues(2, "steam", false, 10), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(steam, steam)));
 		}
 
 		[Fact]
@@ -234,7 +234,7 @@ namespace GenOnlineService.Tests
 
 			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, s_eos) != null)!.Value;
 			Assert.Equal(new PeerPairState(2, ConnectionOrder.RelayStep), next);
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesFor(next, steam, s_eos));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(next, ConnectionOrder.SharedTransport(steam, s_eos)));
 		}
 
 		[Theory]
@@ -284,18 +284,20 @@ namespace GenOnlineService.Tests
 		public void SessionTransportsAreReplacedWholeAndIgnoreInvalidNames()
 		{
 			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
+			object connection = new object();
+			session.ResetPeerTransports(connection);
 			Assert.Null(session.PeerTransports);
 
-			session.SetPeerTransports(["eos", "Quic", "gns", "eos"]);
+			Assert.True(session.SetPeerTransports(connection, ["eos", "Quic", "gns", "eos"]));
 			Assert.Equal(s_eos, session.PeerTransports);
 
-			session.SetPeerTransports(["steam", "eos"]);
+			session.SetPeerTransports(connection, ["steam", "eos"]);
 			Assert.Equal(["steam", "eos"], session.PeerTransports);
 
-			session.SetPeerTransports([]);
+			session.SetPeerTransports(connection, []);
 			Assert.Empty(session.PeerTransports!);
 
-			session.SetPeerTransports(null);
+			session.SetPeerTransports(connection, null);
 			Assert.Empty(session.PeerTransports!);
 		}
 
@@ -303,33 +305,43 @@ namespace GenOnlineService.Tests
 		public void ReconnectResendWaitsForTheTransportsOfTheNewConnection()
 		{
 			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
-			session.SetPeerTransports(s_eos);
+			object oldConnection = new object();
+			session.ResetPeerTransports(oldConnection);
+			session.SetPeerTransports(oldConnection, s_eos);
 
 			// a new connection forgets the earlier list, so the resend waits for SetPeerTransports
-			session.ResetPeerTransports();
+			object newConnection = new object();
+			session.ResetPeerTransports(newConnection);
 			Assert.Null(session.PeerTransports);
 			session.MarkSignallingResendPending();
 			Assert.False(session.TakeSignallingResend());
 
-			session.SetPeerTransports([]);
+			Assert.True(session.SetPeerTransports(newConnection, []));
 			Assert.True(session.TakeSignallingResend());
 
 			// the resend runs once, a later list change sends nothing again
-			session.SetPeerTransports(s_eos);
+			session.SetPeerTransports(newConnection, s_eos);
 			Assert.False(session.TakeSignallingResend());
 		}
 
 		[Fact]
-		public void ReconnectResendRunsAtOnceWhenTheTransportsAlreadyArrived()
+		public void ASupersededConnectionsTransportsDoNotCountForTheNewConnection()
 		{
 			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
-			session.ResetPeerTransports();
-			session.SetPeerTransports(s_eos);
+			object oldConnection = new object();
+			session.ResetPeerTransports(oldConnection);
+
+			// the old connection's SetPeerTransports lands after the new connection took the session over
+			object newConnection = new object();
+			session.ResetPeerTransports(newConnection);
+			session.MarkSignallingResendPending();
+			Assert.False(session.SetPeerTransports(oldConnection, s_eos));
+			Assert.Null(session.PeerTransports);
 			Assert.False(session.TakeSignallingResend());
 
-			session.MarkSignallingResendPending();
+			// the new connection's own list still runs the resend
+			Assert.True(session.SetPeerTransports(newConnection, []));
 			Assert.True(session.TakeSignallingResend());
-			Assert.False(session.TakeSignallingResend());
 		}
 
 		[Fact]
@@ -337,8 +349,9 @@ namespace GenOnlineService.Tests
 		{
 			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
 			session.MarkSignallingResendPending();
-			session.ResetPeerTransports();
-			session.SetPeerTransports(s_eos);
+			object connection = new object();
+			session.ResetPeerTransports(connection);
+			session.SetPeerTransports(connection, s_eos);
 			Assert.False(session.TakeSignallingResend());
 		}
 

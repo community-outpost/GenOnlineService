@@ -110,13 +110,7 @@ namespace GenOnlineService.Realtime
 			return failedAttempt.Value == state.Attempt ? Restart(state, true, shared) : null;
 		}
 
-		// The step values for a StartSignalling from both members' transport lists
-		public static PeerStepValues ValuesFor(PeerPairState state, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
-		{
-			return ValuesOf(state, SharedTransport(transportsA, transportsB));
-		}
-
-		// The step values with the shared plugin transport, null when the pair cannot use step 2 for this send
+		// The step values for this send; shared is null when the pair cannot use step 2 for it
 		public static PeerStepValues ValuesOf(PeerPairState state, string? shared)
 		{
 			return Settle(state.Step, shared != null) switch
