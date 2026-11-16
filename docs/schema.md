@@ -56,6 +56,7 @@ users
   email_confirmed_at      timestamp null
   password_hash           varchar(255) null      -- null without local passwords
   security_stamp          varchar(64)
+  authenticator_key       varchar(512) null      -- TOTP key, encrypted with Data Protection; null without an authenticator app
   state                   varchar(16)            -- active | blocked | deactivated
   two_factor_enabled      bool
   lockout_end_at          timestamp null
@@ -66,7 +67,8 @@ user_username_history     id, user_id, username, name_tag null, changed_at, chan
 identities                id, user_id, provider varchar(32), extern_uid varchar(128),
                           extern_username varchar(128) null, created_at, last_used_at
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
-user_authenticator_keys, user_recovery_codes                   -- TOTP (ASP.NET Identity)
+user_recovery_codes       id, user_id, code_hash varchar(64), created_at, used_at null
+                          -- two-factor recovery codes: SHA-256 hex only, each used once; new codes replace the old
 oauth_applications, oauth_authorizations, oauth_scopes, oauth_tokens   -- OpenIddict, renamed via its options
 ```
 

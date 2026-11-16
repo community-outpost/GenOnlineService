@@ -129,6 +129,41 @@ namespace GenOnlineService.Identity
 		}
 	}
 
+	// Accounts:password: email + password accounts, off unless the operator turns them on
+	public sealed class PasswordSignInSettings
+	{
+		public const int MinimumLength = 8;
+		public const int MaximumLength = 128;
+
+		public bool Enabled { get; init; }
+		public bool AllowSignUp { get; init; } = true;
+		// Length is the only rule (NIST SP 800-63B): at least MinLength, at most MaximumLength characters
+		public int MinLength { get; init; } = MinimumLength;
+		// An invisible sign-up field that people leave empty and form-filling bots do not
+		public bool Honeypot { get; init; } = true;
+		// Sign-up refuses an email address at one of these domains (lower case, compared without case)
+		public List<string> EmailDomainDenyList { get; init; } = new();
+
+		internal static PasswordSignInSettings Read(IConfigurationSection section)
+		{
+			int minLength = section.GetValue<int?>("min_length") ?? MinimumLength;
+			if (minLength < MinimumLength || minLength > MaximumLength)
+			{
+				throw new InvalidOperationException($"Accounts:password:min_length must be between {MinimumLength} and {MaximumLength}.");
+			}
+
+			return new PasswordSignInSettings
+			{
+				Enabled = section.GetValue<bool>("enabled"),
+				AllowSignUp = section.GetValue<bool?>("allow_sign_up") ?? true,
+				MinLength = minLength,
+				Honeypot = section.GetValue<bool?>("honeypot") ?? true,
+				EmailDomainDenyList = (section.GetSection("email_domain_deny_list").Get<List<string>>() ?? new())
+					.Select(d => d.Trim().ToLowerInvariant()).Where(d => d.Length > 0).Distinct().ToList()
+			};
+		}
+	}
+
 	public sealed class AccountsSettings
 	{
 		public const string GameScope = "game";
@@ -153,6 +188,7 @@ namespace GenOnlineService.Identity
 		public bool RequireHttps { get; init; } = true;
 		public List<OAuthClientSettings> Clients { get; init; } = new();
 		public List<UpstreamProviderSettings> Providers { get; init; } = new();
+		public PasswordSignInSettings Password { get; init; } = new();
 
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
@@ -229,7 +265,8 @@ namespace GenOnlineService.Identity
 				EphemeralKeys = section.GetValue<bool>("ephemeral_keys"),
 				RequireHttps = EnforceHttps(config),
 				Clients = clients,
-				Providers = providers
+				Providers = providers,
+				Password = PasswordSignInSettings.Read(section.GetSection("password"))
 			};
 		}
 	}

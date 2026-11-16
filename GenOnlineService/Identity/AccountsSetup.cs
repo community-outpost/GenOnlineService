@@ -152,8 +152,22 @@ namespace GenOnlineService.Identity
 				{
 					options.User.RequireUniqueEmail = false;
 					options.User.AllowedUserNameCharacters = String.Empty;
+
+					// every account, staff included, locks for 15 minutes after 5 wrong passwords or codes in a row
+					options.Lockout.AllowedForNewUsers = true;
+					options.Lockout.MaxFailedAccessAttempts = 5;
+					options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+
+					// length is the only password rule (NIST SP 800-63B); MaximumLengthPasswordValidator caps it
+					options.Password.RequiredLength = settings.Password.MinLength;
+					options.Password.RequireDigit = false;
+					options.Password.RequireLowercase = false;
+					options.Password.RequireUppercase = false;
+					options.Password.RequireNonAlphanumeric = false;
+					options.Password.RequiredUniqueChars = 1;
 				})
 				.AddUserStore<GoUserStore>()
+				.AddPasswordValidator<MaximumLengthPasswordValidator>()
 				.AddSignInManager();
 
 			services.AddAuthentication().AddIdentityCookies(cookies => cookies.ApplicationCookie?.Configure(options =>
