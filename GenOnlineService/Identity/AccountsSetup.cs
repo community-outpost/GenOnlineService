@@ -19,6 +19,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.Client;
@@ -170,6 +171,10 @@ namespace GenOnlineService.Identity
 				.AddPasswordValidator<MaximumLengthPasswordValidator>()
 				.AddSignInManager();
 
+			// Identity's own user validator would refuse a second "Player": display names are not unique (Name#tag)
+			services.RemoveAll<IUserValidator<User>>();
+			services.AddScoped<IUserValidator<User>, GoUserValidator>();
+
 			services.AddAuthentication().AddIdentityCookies(cookies => cookies.ApplicationCookie?.Configure(options =>
 			{
 				options.LoginPath = "/users/sign_in";
@@ -185,6 +190,7 @@ namespace GenOnlineService.Identity
 			services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(1));
 
 			services.AddScoped<UpstreamAccounts>();
+			services.AddScoped<PasswordAccounts>();
 
 			// the consent page posts back to /oauth/authorize with an antiforgery token
 			services.AddAntiforgery(options =>
