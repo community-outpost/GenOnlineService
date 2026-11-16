@@ -24,47 +24,78 @@ namespace GenOnlineService.Realtime
 	// The values one StartSignalling carries for a pair
 	public readonly record struct PeerStepValues(int Attempt, string Transport, bool Relay, int TimeoutS);
 
-	// The connection order of a pair: direct GNS, then EOS P2P, then GNS over TURN
+	// The connection order of a pair: direct GNS, then a plugin transport both members share, then GNS over TURN
 	public static class ConnectionOrder
 	{
 		public const string Gns = "gns";
-		public const string Eos = "eos";
 
 		public const int DirectStep = 1;
-		public const int EosStep = 2;
+		public const int PluginStep = 2;
 		public const int RelayStep = 3;
+
+		// A transport name is 1 to 32 characters of a-z, 0-9 and _, and at most 8 plugin names of one list count
+		public const int MaxTransportNameLength = 32;
+		public const int MaxPluginTransports = 8;
 
 		// The first StartSignalling of a pair in a lobby
 		public static PeerPairState First => new PeerPairState(1, DirectStep);
 
-		// Keeps the known transport names only, so unknown names are ignored
-		public static string[] KnownTransports(IEnumerable<string?>? transports)
+		// The syntax every transport name follows, gns included
+		public static bool IsTransportName(string? name)
 		{
-			return (transports ?? []).Where(name => name == Eos).Distinct(StringComparer.Ordinal).Select(name => name!).ToArray();
+			if (String.IsNullOrEmpty(name) || name.Length > MaxTransportNameLength)
+			{
+				return false;
+			}
+			foreach (char c in name)
+			{
+				if (!(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_'))
+				{
+					return false;
+				}
+			}
+			return true;
 		}
 
-		// Null lists mean the member has not sent SetPeerTransports in its current session
-		public static bool BothListEos(IReadOnlyList<string>? a, IReadOnlyList<string>? b) => a != null && b != null && a.Contains(Eos) && b.Contains(Eos);
+		// A name a plugin reports, gns is reserved for the built-in transport
+		public static bool IsPluginTransport(string? name) => name != Gns && IsTransportName(name);
 
-		// Step 2 needs eos on both members, otherwise the pair uses step 3
-		public static int Settle(int step, bool bothEos) => step == EosStep && !bothEos ? RelayStep : step;
+		// Keeps the first distinct plugin names in the order sent, anything else is ignored
+		public static string[] PluginTransports(IEnumerable<string?>? transports)
+		{
+			return (transports ?? []).Where(IsPluginTransport).Select(name => name!).Distinct(StringComparer.Ordinal).Take(MaxPluginTransports).ToArray();
+		}
 
-		public static int Next(int step, bool bothEos) => step == DirectStep && bothEos ? EosStep : RelayStep;
+		// The plugin transport both members listed, the first in ordinal order when they share several, null when they share none.
+		// A null list means the member has not sent SetPeerTransports in its current session and counts as listing none
+		public static string? SharedTransport(IReadOnlyList<string>? a, IReadOnlyList<string>? b)
+		{
+			if (a == null || b == null)
+			{
+				return null;
+			}
+			return a.Where(name => b.Contains(name, StringComparer.Ordinal)).Order(StringComparer.Ordinal).FirstOrDefault();
+		}
+
+		// Step 2 needs a shared plugin transport, otherwise the pair uses step 3
+		public static int Settle(int step, bool shared) => step == PluginStep && !shared ? RelayStep : step;
+
+		public static int Next(int step, bool shared) => step == DirectStep && shared ? PluginStep : RelayStep;
 
 		// A restart counts one more attempt and moves to the next step only when it advances
-		public static PeerPairState Restart(PeerPairState? current, bool advance, bool bothEos)
+		public static PeerPairState Restart(PeerPairState? current, bool advance, bool shared)
 		{
 			if (current is not PeerPairState state)
 			{
 				return First;
 			}
 
-			int step = Settle(state.Step, bothEos);
-			return new PeerPairState(state.Attempt + 1, advance ? Next(step, bothEos) : step);
+			int step = Settle(state.Step, shared);
+			return new PeerPairState(state.Attempt + 1, advance ? Next(step, shared) : step);
 		}
 
 		// A RequestSignalling advances on the current attempt, restarts the same step without one, and ignores any other attempt
-		public static PeerPairState? OnRequest(PeerPairState? current, int? failedAttempt, bool bothEos)
+		public static PeerPairState? OnRequest(PeerPairState? current, int? failedAttempt, bool shared)
 		{
 			// a report for a pair without state names no attempt the service handed out
 			if (current == null && failedAttempt != null)
@@ -73,24 +104,25 @@ namespace GenOnlineService.Realtime
 			}
 			if (current is not PeerPairState state || failedAttempt == null)
 			{
-				return Restart(current, false, bothEos);
+				return Restart(current, false, shared);
 			}
 
-			return failedAttempt.Value == state.Attempt ? Restart(state, true, bothEos) : null;
+			return failedAttempt.Value == state.Attempt ? Restart(state, true, shared) : null;
 		}
 
-		// The step values for a StartSignalling, null for the old shape when either member has not sent SetPeerTransports
-		public static PeerStepValues? ValuesFor(PeerPairState state, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
+		// The step values for a StartSignalling from both members' transport lists
+		public static PeerStepValues ValuesFor(PeerPairState state, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
 		{
-			return transportsA == null || transportsB == null ? null : ValuesOf(state, BothListEos(transportsA, transportsB));
+			return ValuesOf(state, SharedTransport(transportsA, transportsB));
 		}
 
-		public static PeerStepValues ValuesOf(PeerPairState state, bool bothEos)
+		// The step values with the shared plugin transport, null when the pair cannot use step 2 for this send
+		public static PeerStepValues ValuesOf(PeerPairState state, string? shared)
 		{
-			return Settle(state.Step, bothEos) switch
+			return Settle(state.Step, shared != null) switch
 			{
 				DirectStep => new PeerStepValues(state.Attempt, Gns, false, 6),
-				EosStep => new PeerStepValues(state.Attempt, Eos, false, 10),
+				PluginStep => new PeerStepValues(state.Attempt, shared!, false, 10),
 				_ => new PeerStepValues(state.Attempt, Gns, true, 0),
 			};
 		}
@@ -115,19 +147,19 @@ namespace GenOnlineService.Realtime
 			return state;
 		}
 
-		public PeerPairState Restart(long userA, long userB, bool advance, bool bothEos)
+		public PeerPairState Restart(long userA, long userB, bool advance, bool shared)
 		{
 			(long Low, long High) key = Key(userA, userB);
-			PeerPairState next = ConnectionOrder.Restart(m_pairs.TryGetValue(key, out PeerPairState state) ? state : null, advance, bothEos);
+			PeerPairState next = ConnectionOrder.Restart(m_pairs.TryGetValue(key, out PeerPairState state) ? state : null, advance, shared);
 			m_pairs[key] = next;
 			return next;
 		}
 
 		// Null when the report changes nothing
-		public PeerPairState? Request(long userA, long userB, int? failedAttempt, bool bothEos)
+		public PeerPairState? Request(long userA, long userB, int? failedAttempt, bool shared)
 		{
 			(long Low, long High) key = Key(userA, userB);
-			PeerPairState? next = ConnectionOrder.OnRequest(m_pairs.TryGetValue(key, out PeerPairState state) ? state : null, failedAttempt, bothEos);
+			PeerPairState? next = ConnectionOrder.OnRequest(m_pairs.TryGetValue(key, out PeerPairState state) ? state : null, failedAttempt, shared);
 			if (next is PeerPairState restarted)
 			{
 				m_pairs[key] = restarted;
@@ -136,10 +168,10 @@ namespace GenOnlineService.Realtime
 		}
 
 		// Stores the step the pair is sent on, so a pair that fell back to step 3 stays there
-		public PeerPairState Settle(long userA, long userB, bool bothEos)
+		public PeerPairState Settle(long userA, long userB, bool shared)
 		{
 			PeerPairState state = Current(userA, userB);
-			int step = ConnectionOrder.Settle(state.Step, bothEos);
+			int step = ConnectionOrder.Settle(state.Step, shared);
 			if (step != state.Step)
 			{
 				state = state with { Step = step };

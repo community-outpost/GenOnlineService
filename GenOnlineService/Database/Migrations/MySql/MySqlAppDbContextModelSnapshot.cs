@@ -596,8 +596,8 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("Transport")
                         .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("varchar(8)")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
                         .HasColumnName("transport");
 
                     b.Property<DateTime>("UpdatedAt")

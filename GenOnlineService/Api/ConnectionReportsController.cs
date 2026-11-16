@@ -61,7 +61,8 @@ namespace GenOnlineService.Api
 				return Result.Invalid("outcome");
 			}
 
-			if (body.Transport is not string transport || !ConnectionReportTransports.All.Contains(transport))
+			// gns or a plugin transport name, both follow the SetPeerTransports syntax
+			if (body.Transport is not string transport || !ConnectionOrder.IsTransportName(transport))
 			{
 				return Result.Invalid("transport");
 			}
@@ -71,8 +72,7 @@ namespace GenOnlineService.Api
 				return Result.Invalid("ip_version");
 			}
 
-			int attempt = body.Attempt ?? 1;
-			if (attempt < 1)
+			if (body.Attempt is not int attempt || attempt < 1)
 			{
 				return Result.Invalid("attempt");
 			}

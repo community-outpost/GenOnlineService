@@ -27,7 +27,7 @@ namespace GenOnlineService.Tests
 	public class ConnectionOrderTests
 	{
 		private static readonly JsonSerializerOptions s_options = RealtimeJson.Create();
-		private static readonly string[] s_eos = [ConnectionOrder.Eos];
+		private static readonly string[] s_eos = ["eos"];
 		private static readonly string[] s_none = [];
 
 		[Fact]
@@ -50,7 +50,7 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void APairThatFellBackToTurnStaysThereWhenEosReturns()
+		public void APairThatFellBackToTurnStaysThereWhenTheSharedTransportReturns()
 		{
 			PeerPairs pairs = new PeerPairs();
 			pairs.Current(3, 7);
@@ -60,16 +60,16 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void AnEosStepSentWithoutEosValuesKeepsItsStoredStep()
+		public void APluginStepSentWithoutPluginValuesKeepsItsStoredStep()
 		{
 			PeerPairs pairs = new PeerPairs();
 			pairs.Current(3, 7);
 			PeerPairState state = pairs.Request(3, 7, 1, true)!.Value;
 
 			// a send without both middleware ids uses the turn values once
-			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(state, false));
-			Assert.Equal(ConnectionOrder.EosStep, pairs.Current(3, 7).Step);
-			Assert.Equal(new PeerStepValues(3, "eos", false, 10), ConnectionOrder.ValuesOf(pairs.Restart(3, 7, false, true), true));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesOf(state, null));
+			Assert.Equal(ConnectionOrder.PluginStep, pairs.Current(3, 7).Step);
+			Assert.Equal(new PeerStepValues(3, "eos", false, 10), ConnectionOrder.ValuesOf(pairs.Restart(3, 7, false, true), "eos"));
 		}
 
 		[Fact]
@@ -86,12 +86,12 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void StepTwoIsSkippedUnlessBothMembersListEos()
+		public void StepTwoIsSkippedUnlessBothMembersShareAPluginTransport()
 		{
 			PeerPairs pairs = new PeerPairs();
 			pairs.Current(3, 7);
 
-			PeerPairState? next = pairs.Request(3, 7, 1, ConnectionOrder.BothListEos(s_eos, s_none));
+			PeerPairState? next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(s_eos, s_none) != null);
 			Assert.Equal(new PeerPairState(2, 3), next);
 			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesFor(next!.Value, s_eos, s_none));
 		}
@@ -99,7 +99,7 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void EmptyTransportListStillSendsTheStepFields()
 		{
-			Assert.False(ConnectionOrder.BothListEos(s_none, s_none));
+			Assert.Null(ConnectionOrder.SharedTransport(s_none, s_none));
 			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesFor(ConnectionOrder.First, s_none, s_none));
 		}
 
@@ -187,19 +187,89 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void OldShapeWhenEitherMemberNeverSent()
+		public void AMemberWithoutSetPeerTransportsListsNoPluginTransport()
 		{
-			Assert.Null(ConnectionOrder.ValuesFor(ConnectionOrder.First, null, s_eos));
-			Assert.Null(ConnectionOrder.ValuesFor(ConnectionOrder.First, s_eos, null));
-			Assert.Null(ConnectionOrder.ValuesFor(ConnectionOrder.First, null, null));
-			Assert.False(ConnectionOrder.BothListEos(null, s_eos));
+			Assert.Null(ConnectionOrder.SharedTransport(null, s_eos));
+			Assert.Null(ConnectionOrder.SharedTransport(s_eos, null));
+			Assert.Null(ConnectionOrder.SharedTransport(null, null));
+
+			// every StartSignalling carries the step fields, a pair on step 2 without a shared transport falls to step 3
+			Assert.Equal(new PeerStepValues(1, "gns", false, 6), ConnectionOrder.ValuesFor(ConnectionOrder.First, null, s_eos));
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesFor(new PeerPairState(2, ConnectionOrder.PluginStep), s_eos, null));
 		}
 
 		[Fact]
-		public void OldShapeLeavesTheFourFieldsOut()
+		public void StartSignallingAlwaysCarriesTheFourFields()
 		{
-			StartSignallingEvent signal = new StartSignallingEvent { LobbyId = 991, UserId = 7, PreferredPort = 8088, MiddlewareId = "m" };
-			Assert.Equal("{\"lobby_id\":991,\"user_id\":7,\"preferred_port\":8088,\"middleware_id\":\"m\"}", JsonSerializer.Serialize(signal, s_options));
+			StartSignallingEvent signal = new StartSignallingEvent { LobbyId = 991, UserId = 7, PreferredPort = 8088, MiddlewareId = "m", Attempt = 1, Transport = "gns", Relay = false, TimeoutS = 6 };
+			Assert.Equal("{\"lobby_id\":991,\"user_id\":7,\"preferred_port\":8088,\"middleware_id\":\"m\",\"attempt\":1,\"transport\":\"gns\",\"relay\":false,\"timeout_s\":6}", JsonSerializer.Serialize(signal, s_options));
+		}
+
+		[Fact]
+		public void SharedTransportIsTheFirstCommonNameInOrdinalOrder()
+		{
+			Assert.Equal("eos", ConnectionOrder.SharedTransport(["steam", "eos"], ["eos", "steam"]));
+			Assert.Equal("steam", ConnectionOrder.SharedTransport(["steam", "eos"], ["steam"]));
+			Assert.Equal("eos_2", ConnectionOrder.SharedTransport(["zz", "eos_3", "eos_2"], ["eos_3", "eos_2"]));
+			Assert.Null(ConnectionOrder.SharedTransport(["steam"], s_eos));
+		}
+
+		[Fact]
+		public void AnyPluginNameDrivesStepTwo()
+		{
+			PeerPairs pairs = new PeerPairs();
+			pairs.Current(3, 7);
+			string[] steam = ["steam"];
+
+			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, steam) != null)!.Value;
+			Assert.Equal(new PeerStepValues(2, "steam", false, 10), ConnectionOrder.ValuesFor(next, steam, steam));
+		}
+
+		[Fact]
+		public void StepTwoIsSkippedWhenNoNameIsShared()
+		{
+			PeerPairs pairs = new PeerPairs();
+			pairs.Current(3, 7);
+			string[] steam = ["steam"];
+
+			PeerPairState next = pairs.Request(3, 7, 1, ConnectionOrder.SharedTransport(steam, s_eos) != null)!.Value;
+			Assert.Equal(new PeerPairState(2, ConnectionOrder.RelayStep), next);
+			Assert.Equal(new PeerStepValues(2, "gns", true, 0), ConnectionOrder.ValuesFor(next, steam, s_eos));
+		}
+
+		[Theory]
+		[InlineData("eos", true)]
+		[InlineData("steam", true)]
+		[InlineData("a", true)]
+		[InlineData("plugin_2", true)]
+		[InlineData("abcdefghijklmnopqrstuvwxyz012345", true)]
+		[InlineData("abcdefghijklmnopqrstuvwxyz0123456", false)]
+		[InlineData("", false)]
+		[InlineData(null, false)]
+		[InlineData("EOS", false)]
+		[InlineData("Bad!", false)]
+		[InlineData("e-os", false)]
+		[InlineData("e os", false)]
+		public void TransportNameSyntax(string? name, bool valid)
+		{
+			Assert.Equal(valid, ConnectionOrder.IsTransportName(name));
+			Assert.Equal(valid, ConnectionOrder.IsPluginTransport(name));
+		}
+
+		[Fact]
+		public void GnsIsATransportNameButReservedForPlugins()
+		{
+			Assert.True(ConnectionOrder.IsTransportName("gns"));
+			Assert.False(ConnectionOrder.IsPluginTransport("gns"));
+		}
+
+		[Fact]
+		public void PluginTransportsKeepTheFirstEightValidDistinctNamesInOrder()
+		{
+			Assert.Equal(["steam", "eos"], ConnectionOrder.PluginTransports(["steam", "gns", "EOS", "eos", "steam", "Bad!", null, new string('a', 33)]));
+
+			string[] many = ["p1", "p1", "gns", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"];
+			Assert.Equal(["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"], ConnectionOrder.PluginTransports(many));
 		}
 
 		[Fact]
@@ -211,19 +281,65 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void SessionTransportsAreReplacedWholeAndIgnoreUnknownNames()
+		public void SessionTransportsAreReplacedWholeAndIgnoreInvalidNames()
 		{
 			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
 			Assert.Null(session.PeerTransports);
 
-			session.SetPeerTransports(["eos", "quic", "eos"]);
+			session.SetPeerTransports(["eos", "Quic", "gns", "eos"]);
 			Assert.Equal(s_eos, session.PeerTransports);
+
+			session.SetPeerTransports(["steam", "eos"]);
+			Assert.Equal(["steam", "eos"], session.PeerTransports);
 
 			session.SetPeerTransports([]);
 			Assert.Empty(session.PeerTransports!);
 
 			session.SetPeerTransports(null);
 			Assert.Empty(session.PeerTransports!);
+		}
+
+		[Fact]
+		public void ReconnectResendWaitsForTheTransportsOfTheNewConnection()
+		{
+			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
+			session.SetPeerTransports(s_eos);
+
+			// a new connection forgets the earlier list, so the resend waits for SetPeerTransports
+			session.ResetPeerTransports();
+			Assert.Null(session.PeerTransports);
+			session.MarkSignallingResendPending();
+			Assert.False(session.TakeSignallingResend());
+
+			session.SetPeerTransports([]);
+			Assert.True(session.TakeSignallingResend());
+
+			// the resend runs once, a later list change sends nothing again
+			session.SetPeerTransports(s_eos);
+			Assert.False(session.TakeSignallingResend());
+		}
+
+		[Fact]
+		public void ReconnectResendRunsAtOnceWhenTheTransportsAlreadyArrived()
+		{
+			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
+			session.ResetPeerTransports();
+			session.SetPeerTransports(s_eos);
+			Assert.False(session.TakeSignallingResend());
+
+			session.MarkSignallingResendPending();
+			Assert.True(session.TakeSignallingResend());
+			Assert.False(session.TakeSignallingResend());
+		}
+
+		[Fact]
+		public void ANewConnectionDropsAResendTheOldOneStillOwed()
+		{
+			UserSession session = new UserSession(7, EUserSessionType.None, "", "", "", 0, 0);
+			session.MarkSignallingResendPending();
+			session.ResetPeerTransports();
+			session.SetPeerTransports(s_eos);
+			Assert.False(session.TakeSignallingResend());
 		}
 
 		[Fact]
