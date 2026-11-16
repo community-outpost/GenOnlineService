@@ -137,7 +137,7 @@ Messages are stored without encryption. A tombstone keeps `deleted_at` only; who
 ```
 connection_reports        id, reporter_id, lobby_id, target_user_id, attempt int, outcome varchar(16)
                           ('connected_direct' | 'connected_relay' | 'failed' | 'disconnected'),
-                          transport varchar(8) ('gns' | 'eos'), ip_version int (4 | 6), events json,
+                          transport varchar(32) ('gns' or a plugin transport name), ip_version int (4 | 6), events json,
                           created_at, updated_at
                           unique (reporter_id, lobby_id, target_user_id, attempt),
                           index (target_user_id, updated_at), (lobby_id), (updated_at)

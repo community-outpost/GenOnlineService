@@ -231,7 +231,7 @@ namespace GenOnlineService.Api
 		public long? TMs { get; init; }
 	}
 
-	// The final result of one connection attempt to one peer, attempt defaults to 1
+	// The final result of one connection attempt to one peer
 	[ApiFixture("post-lobbies-connection_reports.request")]
 	public sealed record ConnectionReportRequest
 	{
@@ -239,7 +239,6 @@ namespace GenOnlineService.Api
 		public string? Outcome { get; init; }
 		public string? Transport { get; init; }
 		public int? IpVersion { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public int? Attempt { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public IReadOnlyList<ConnectionReportEvent>? Events { get; init; }

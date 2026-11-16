@@ -624,8 +624,12 @@ namespace GenOnlineService.Realtime
 				return;
 			}
 
-			Session.SetPeerTransports(request.Transports);
-			await ResendSignallingIfDueAsync(Session);
+			// a call of a connection that was superseded after it passed the check above stores nothing
+			RealtimeConnection connection = Connection;
+			if (connection.OwnerSession.SetPeerTransports(connection, request.Transports))
+			{
+				await ResendSignallingIfDueAsync(connection.OwnerSession);
+			}
 		}
 
 		public Task RequestSignalling(RequestSignallingRequest request)
