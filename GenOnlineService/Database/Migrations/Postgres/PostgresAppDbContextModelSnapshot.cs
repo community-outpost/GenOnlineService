@@ -595,8 +595,8 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.Property<string>("Transport")
                         .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("transport");
 
                     b.Property<DateTime>("UpdatedAt")
