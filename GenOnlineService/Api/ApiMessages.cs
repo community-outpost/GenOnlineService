@@ -185,6 +185,13 @@ namespace GenOnlineService.Api
 		public string? ResolutionNote { get; init; }
 	}
 
+	// POST /api/v1/players/:id/reset_name
+	public sealed record ResetNameRequest
+	{
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Reason { get; init; }
+	}
+
 	[ApiFixture("patch-players.request")]
 	public sealed record RenamePlayerRequest
 	{

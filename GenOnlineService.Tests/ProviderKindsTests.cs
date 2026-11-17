@@ -200,6 +200,9 @@ namespace GenOnlineService.Tests
 			Assert.Equal("d-id", registrations["discord"].ClientId);
 			Assert.Equal("users/auth/discord/callback", registrations["discord"].RedirectUri!.OriginalString);
 			Assert.Equal("g-id", registrations["google"].ClientId);
+			// no real names (user, 2026-11-17: "i dont want profile from google"): openid only, email only where it may link
+			Assert.DoesNotContain("profile", registrations["google"].Scopes);
+			Assert.DoesNotContain("email", registrations["google"].Scopes);
 
 			OpenIddictClientRegistration gameReplays = registrations["gamereplays"];
 			Assert.Equal(("gr-id", "gr-secret"), (gameReplays.ClientId, gameReplays.ClientSecret));
@@ -381,6 +384,27 @@ namespace GenOnlineService.Tests
 			Assert.True(passedEndpointCheck);
 			// the token request sends this same value
 			Assert.Equal(Relay, callback.StateTokenPrincipal!.FindFirst(OpenIddictConstants.Claims.Private.RedirectUri)!.Value);
+		}
+
+		// Google asks for an email address only when that provider may link by it, and never for the profile
+		[Fact]
+		public void GoogleAsksForEmailOnlyToLink()
+		{
+			Dictionary<string, string?> values = AllKinds();
+			values["Accounts:providers:google:auto_link_verified_email"] = "true";
+			ServiceCollection services = new();
+			services.AddLogging();
+			services.AddOpenIddict().AddClient(options =>
+			{
+				options.AllowAuthorizationCodeFlow();
+				options.AddEphemeralEncryptionKey().AddEphemeralSigningKey();
+				AccountsSetup.AddUpstreamRegistrations(options, Read(values).EnabledProviders.Where(p => p.Kind != ProviderKind.Steam));
+			});
+			using ServiceProvider provider = services.BuildServiceProvider();
+			OpenIddictClientRegistration google = provider.GetRequiredService<IOptionsMonitor<OpenIddictClientOptions>>().CurrentValue.Registrations.Single(r => r.ProviderName == "google");
+
+			Assert.Contains("email", google.Scopes);
+			Assert.DoesNotContain("profile", google.Scopes);
 		}
 	}
 }

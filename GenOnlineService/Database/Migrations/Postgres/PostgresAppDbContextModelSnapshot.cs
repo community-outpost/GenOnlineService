@@ -1750,6 +1750,10 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("character varying(255)")
                         .HasColumnName("name_key");
 
+                    b.Property<DateTime?>("NameRequiredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("name_required_at");
+
                     b.Property<int>("NameTag")
                         .HasColumnType("integer")
                         .HasColumnName("name_tag");
@@ -1849,11 +1853,6 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("extern_uid");
-
-                    b.Property<string>("ExternUsername")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("extern_username");
 
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone")

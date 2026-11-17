@@ -138,6 +138,8 @@ internal sealed class AccountsBrowser
 
 	public void SignOutLocally() => m_cookies.Remove("go_session");
 
+	public void SetCookie(string name, string value) => m_cookies[name] = value;
+
 	// The form's hidden antiforgery token, as a browser would post it back
 	public static string Token(PageResponse page)
 	{

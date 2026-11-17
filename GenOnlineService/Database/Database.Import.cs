@@ -412,7 +412,7 @@ namespace Database
 		{
 			var users = new List<OldUser>();
 
-			string sql = "SELECT user_id, account_type, steam_id, discord_id, discord_username, gamereplays_id, gamereplays_username, displayname, lastlogin, "
+			string sql = "SELECT user_id, account_type, steam_id, discord_id, gamereplays_id, displayname, lastlogin, "
 				+ "favorite_color, favorite_side, favorite_map, favorite_starting_money, favorite_limit_superweapons, admin, banned, "
 				+ "elo_rating, monthly_elo_rating, elo_num_matches, ban_reason, banned_by, ban_verified_by, ban_aliases, "
 				+ $"{schema.Optional("users", "google_id")}, {schema.Optional("users", "google_email")}, {schema.Optional("users", "permissionslevel")}, "
@@ -427,9 +427,7 @@ namespace Database
 					AccountType = (int)r.Long("account_type"),
 					SteamId = r.NullableLong("steam_id"),
 					DiscordId = r.NullableLong("discord_id"),
-					DiscordUsername = r.String("discord_username"),
 					GameReplaysId = r.NullableLong("gamereplays_id"),
-					GameReplaysUsername = r.String("gamereplays_username"),
 					DisplayName = r.String("displayname"),
 					LastLogin = r.NullableDate("lastlogin"),
 					FavoriteColor = r.NullableLong("favorite_color"),
@@ -633,9 +631,9 @@ namespace Database
 			{
 				var users = Line("users (Steam, Discord, unknown)", "users");
 				var steam = Line("users.steam_id", "identities (steam)");
-				var discord = Line("users.discord_id, discord_username", "identities (discord)");
+				var discord = Line("users.discord_id", "identities (discord)");
 				var google = Line("users.google_id", "identities (google)");
-				var gameReplays = Line("users.gamereplays_id, gamereplays_username", "identities (gamereplays)");
+				var gameReplays = Line("users.gamereplays_id", "identities (gamereplays)");
 				var bans = Line("users.banned, ban_reason", "sanctions (ban, local)");
 				var audit = Line("users.banned_by, ban_verified_by, ban_aliases", "audit_log (ban)");
 				var allTime = Line("users.elo_rating, elo_num_matches", "player_ratings (all_time)");
@@ -690,7 +688,6 @@ namespace Database
 							UserID = old.Id,
 							Provider = identity.Provider,
 							ExternUid = identity.ExternUid,
-							ExternUsername = ClampOptional(identity.ExternUsername, 128, "identities", "extern_username"),
 							CreatedAt = _now
 						});
 					}
@@ -1207,9 +1204,7 @@ namespace Database
 		public int AccountType;
 		public long? SteamId;
 		public long? DiscordId;
-		public string? DiscordUsername;
 		public long? GameReplaysId;
-		public string? GameReplaysUsername;
 		public string? DisplayName;
 		public DateTime? LastLogin;
 		public long? FavoriteColor;
@@ -1244,7 +1239,6 @@ namespace Database
 	{
 		public string Provider = string.Empty;
 		public string ExternUid = string.Empty;
-		public string? ExternUsername;
 		public bool Kept = true;
 	}
 
@@ -1376,20 +1370,21 @@ namespace Database
 
 			foreach (OldUser user in KeptUsers.Values)
 			{
-				void Link(string provider, string? uid, string? username)
+				// the provider's id only, never its username (S17)
+				void Link(string provider, string? uid)
 				{
 					if (string.IsNullOrWhiteSpace(uid))
 						return;
 
-					var identity = new KeptIdentity { Provider = provider, ExternUid = uid.Trim(), ExternUsername = string.IsNullOrEmpty(username) ? null : username };
+					var identity = new KeptIdentity { Provider = provider, ExternUid = uid.Trim() };
 					Kept[user.Id].Identities.Add(identity);
 					all.Add((user, identity));
 				}
 
-				Link(IdentityProviders.Steam, user.SteamId > 0 ? user.SteamId.Value.ToString(CultureInfo.InvariantCulture) : null, null);
-				Link(IdentityProviders.Discord, user.DiscordId > 0 ? user.DiscordId.Value.ToString(CultureInfo.InvariantCulture) : null, user.DiscordUsername);
-				Link(IdentityProviders.Google, user.GoogleId, null);
-				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null, user.GameReplaysUsername);
+				Link(IdentityProviders.Steam, user.SteamId > 0 ? user.SteamId.Value.ToString(CultureInfo.InvariantCulture) : null);
+				Link(IdentityProviders.Discord, user.DiscordId > 0 ? user.DiscordId.Value.ToString(CultureInfo.InvariantCulture) : null);
+				Link(IdentityProviders.Google, user.GoogleId);
+				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null);
 			}
 
 			// the target allows one identity per provider per user; a second one on a user is reported and not kept
@@ -1573,7 +1568,7 @@ namespace Database
 	{
 		private static readonly Dictionary<string, string[]> Required = new(StringComparer.Ordinal)
 		{
-			["users"] = new[] { "user_id", "account_type", "steam_id", "discord_id", "discord_username", "gamereplays_id", "gamereplays_username", "displayname", "lastlogin",
+			["users"] = new[] { "user_id", "account_type", "steam_id", "discord_id", "gamereplays_id", "displayname", "lastlogin",
 				"favorite_color", "favorite_side", "favorite_map", "favorite_starting_money", "favorite_limit_superweapons", "admin", "banned",
 				"elo_rating", "monthly_elo_rating", "elo_num_matches", "ban_reason", "banned_by", "ban_verified_by", "ban_aliases" },
 			["user_devices"] = new[] { "user_id", "hwid_0", "hwid_1", "hwid_2", "hwid_3", "hwid_4", "hwid_5", "ip_addr" },

@@ -74,12 +74,12 @@ public class PasswordTwoFactorTests
 		var browser = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
 		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Guarded", email, "the right password")).Status);
 
-		PageResponse setup = await browser.Get("/users/two_factor/setup?ReturnUrl=%2Fdone");
+		PageResponse setup = await browser.Get("/profile/two_factor_auth?ReturnUrl=%2Fdone");
 		Assert.Equal(200, setup.Status);
 		Assert.Contains("otpauth://totp/", setup.Body);
 		string key = KeyOf(setup);
 
-		PageResponse enabled = await browser.Post("/users/two_factor/setup", new()
+		PageResponse enabled = await browser.Post("/profile/two_factor_auth", new()
 		{
 			["__go_consent_token"] = AccountsBrowser.Token(setup),
 			["code"] = Totp(key),
@@ -130,10 +130,10 @@ public class PasswordTwoFactorTests
 		if (probe == null) return;
 		var browser = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
 		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Typo", "typo@example.org", "the right password")).Status);
-		PageResponse setup = await browser.Get("/users/two_factor/setup");
+		PageResponse setup = await browser.Get("/profile/two_factor_auth");
 		string wrong = Totp(KeyOf(setup)) == "000000" ? "111111" : "000000";
 
-		PageResponse refused = await browser.Post("/users/two_factor/setup", new() { ["__go_consent_token"] = AccountsBrowser.Token(setup), ["code"] = wrong });
+		PageResponse refused = await browser.Post("/profile/two_factor_auth", new() { ["__go_consent_token"] = AccountsBrowser.Token(setup), ["code"] = wrong });
 
 		Assert.Equal(400, refused.Status);
 		Assert.Contains("Wrong code.", refused.Body);
@@ -148,10 +148,16 @@ public class PasswordTwoFactorTests
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
 
-		PageResponse anonymous = await new AccountsBrowser(probe, PasswordPagesTests.Enabled()).Get("/users/two_factor/setup");
+		PageResponse anonymous = await new AccountsBrowser(probe, PasswordPagesTests.Enabled()).Get("/profile/two_factor_auth");
 
 		Assert.Equal(302, anonymous.Status);
 		Assert.StartsWith("http://accounts.test/users/sign_in", anonymous.Location);
+
+		// the setup page lives under the profile, as GitLab's does; the old paths are gone
+		var old = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
+		Assert.Equal(404, (await old.Get("/users/two_factor/setup")).Status);
+		Assert.Equal(404, (await old.Post("/users/two_factor/setup", new())).Status);
+		Assert.Equal(404, (await old.Post("/users/two_factor/disable", new())).Status);
 	}
 
 	// the password leads to the code page; the right code signs in, a wrong one does not and counts toward the lockout
@@ -231,13 +237,13 @@ public class PasswordTwoFactorTests
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(browser, "off@example.org", "the right password")).Status);
 		Assert.Equal(302, (await SecondFactor(browser, "code", Totp(key))).Status);
 
-		PageResponse manage = await browser.Get("/users/two_factor/setup");
+		PageResponse manage = await browser.Get("/profile/two_factor_auth");
 		Assert.Equal(200, manage.Status);
 		string wrong = Totp(key) == "000000" ? "111111" : "000000";
-		Assert.Equal(400, (await browser.Post("/users/two_factor/disable", new() { ["__go_consent_token"] = AccountsBrowser.Token(manage), ["code"] = wrong })).Status);
+		Assert.Equal(400, (await browser.Post("/profile/two_factor_auth/disable", new() { ["__go_consent_token"] = AccountsBrowser.Token(manage), ["code"] = wrong })).Status);
 		Assert.True((await PasswordPagesTests.UserByEmail(probe, "off@example.org"))!.TwoFactorEnabled);
 
-		PageResponse off = await browser.Post("/users/two_factor/disable", new() { ["__go_consent_token"] = AccountsBrowser.Token(manage), ["code"] = Totp(key, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 + 1) });
+		PageResponse off = await browser.Post("/profile/two_factor_auth/disable", new() { ["__go_consent_token"] = AccountsBrowser.Token(manage), ["code"] = Totp(key, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 + 1) });
 		Assert.Equal(200, off.Status);
 		User user = (await PasswordPagesTests.UserByEmail(probe, "off@example.org"))!;
 		Assert.False(user.TwoFactorEnabled);
@@ -281,7 +287,7 @@ public class PasswordTwoFactorTests
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(moderator, "mod@example.org", "the right password")).Status);
 		PageResponse gated = await moderator.Get("/oauth/authorize" + AuthorizeQuery);
 		Assert.Equal(302, gated.Status);
-		Assert.StartsWith("/users/two_factor/setup?ReturnUrl=%2Foauth%2Fauthorize%3Fclient_id%3Dgenonline_zerohour", gated.Location);
+		Assert.StartsWith("/profile/two_factor_auth?ReturnUrl=%2Foauth%2Fauthorize%3Fclient_id%3Dgenonline_zerohour", gated.Location);
 
 		var streamer = new AccountsBrowser(probe, WithGameClient());
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(streamer, "streamer@example.org", "the right password")).Status);
@@ -308,8 +314,8 @@ public class PasswordTwoFactorTests
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(browser, "admin-off@example.org", "the right password")).Status);
 		Assert.Equal(302, (await SecondFactor(browser, "code", Totp(key))).Status);
 
-		PageResponse manage = await browser.Get("/users/two_factor/setup");
-		PageResponse refused = await browser.Post("/users/two_factor/disable", new() { ["__go_consent_token"] = AccountsBrowser.Token(manage), ["code"] = Totp(key, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 + 1) });
+		PageResponse manage = await browser.Get("/profile/two_factor_auth");
+		PageResponse refused = await browser.Post("/profile/two_factor_auth/disable", new() { ["__go_consent_token"] = AccountsBrowser.Token(manage), ["code"] = Totp(key, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 + 1) });
 
 		Assert.Equal(403, refused.Status);
 		Assert.Contains("Staff accounts keep two-factor sign-in.", refused.Body);
@@ -341,7 +347,7 @@ public class PasswordTwoFactorTests
 		{
 			PageResponse gated = await moderator.Get("/oauth/authorize" + AuthorizeQuery);
 			Assert.Equal(302, gated.Status);
-			Assert.StartsWith("/users/two_factor/setup?", gated.Location);
+			Assert.StartsWith("/profile/two_factor_auth?", gated.Location);
 		}
 	}
 

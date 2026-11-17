@@ -45,6 +45,11 @@ namespace GenOnlineService.Identity
 
 		public static PlayBan? GetPlayBan(Int64 userID) => s_banned.GetValueOrDefault(userID);
 
+		// Players who must choose a name before they play: a provider sign-up, or a name staff reset (S17)
+		private static volatile HashSet<Int64> s_nameRequired = new();
+
+		public static bool MustChooseName(Int64 userID) => s_nameRequired.Contains(userID);
+
 		private static readonly SemaphoreSlim s_reloadGate = new SemaphoreSlim(1, 1);
 
 		// Moderation calls this right after a ban as well as the reconcile tick, so reloads never overlap
@@ -80,12 +85,19 @@ namespace GenOnlineService.Identity
 					return new PlayBan(longest.Reason ?? String.Empty, longest.ExpiresAt);
 				});
 
+			HashSet<Int64> nameRequired = (await db.Users.AsNoTracking()
+				.Where(u => u.NameRequiredAt != null && u.State == UserStates.Active)
+				.Select(u => u.ID)
+				.ToListAsync()).ToHashSet();
+
 			Dictionary<Int64, string> previousInactive = s_inactive;
 			Dictionary<Int64, PlayBan> previousBanned = s_banned;
+			HashSet<Int64> previousNameRequired = s_nameRequired;
 			bool bSeeded = s_seeded;
 
 			s_inactive = inactive;
 			s_banned = banned;
+			s_nameRequired = nameRequired;
 			s_seeded = true;
 
 			// the first load only seeds, so a restart does not act on every existing ban again
@@ -105,6 +117,20 @@ namespace GenOnlineService.Identity
 				s_log.LogInformation("User {UserId} was banned: revoking game client authorizations", userID);
 				await SessionRevocation.RevokeUser(userID, true, "banned", ban);
 			}
+
+			// a name reset the API did not kick (the CLI runs apart from the service): a player still connected here is
+			// signed out now, so the next sign-in asks for the new name (S17). New accounts are never connected yet.
+			foreach (Int64 userID in nameRequired.Where(id => !previousNameRequired.Contains(id) && IsConnectedHere(id)))
+			{
+				s_log.LogInformation("User {UserId} must choose a new name: ending their sessions", userID);
+				await SessionRevocation.RevokeUser(userID, false, "name reset");
+			}
+		}
+
+		private static bool IsConnectedHere(Int64 userID)
+		{
+			return WebSocketManager.GetAllDataFromUser(userID).Count > 0
+				|| Enum.GetValues<EUserSessionType>().Any(type => type != EUserSessionType.None && GameSessions.Get(userID, type) != null);
 		}
 
 		// The block path and the startup sweep share this, so the two never diverge
@@ -417,6 +443,13 @@ namespace GenOnlineService.Identity
 			{
 				s_log.LogInformation("Refused access token of inactive user {UserId}", userID);
 				return AuthenticateResult.Fail("inactive user");
+			}
+
+			// a name reset ends what the access token still allows within one reconcile tick, CLI resets included
+			if (AccessControl.MustChooseName(userID))
+			{
+				s_log.LogInformation("Refused access token of user {UserId}, who must choose a new name", userID);
+				return AuthenticateResult.Fail("name required");
 			}
 
 			PlayBan? ban = AccessControl.GetPlayBan(userID);

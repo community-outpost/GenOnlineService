@@ -81,6 +81,9 @@ public class User
 	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
 	public DateTime? LastSignInAt { get; set; }
 	public DateTime? RenamedAt { get; set; }
+
+	// When the player was asked to choose a name (a provider sign-up, or staff reset an inappropriate one); null once chosen
+	public DateTime? NameRequiredAt { get; set; }
 }
 
 // Every earlier username of a user, written when the name changes
@@ -104,8 +107,8 @@ public class UserIdentity
 	public Int64 ID { get; set; }
 	public Int64 UserID { get; set; }
 	public string Provider { get; set; } = String.Empty;
+	// The provider's id only; no provider username is kept (S17)
 	public string ExternUid { get; set; } = String.Empty;
-	public string? ExternUsername { get; set; }
 	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
 	public DateTime? LastUsedAt { get; set; }
 }
@@ -156,6 +159,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
 		builder.Property(e => e.LastSignInAt).HasColumnName("last_sign_in_at");
 		builder.Property(e => e.RenamedAt).HasColumnName("renamed_at");
+		builder.Property(e => e.NameRequiredAt).HasColumnName("name_required_at");
 	}
 }
 
@@ -219,7 +223,6 @@ public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(32);
 		builder.Property(e => e.ExternUid).HasColumnName("extern_uid").HasMaxLength(128);
-		builder.Property(e => e.ExternUsername).HasColumnName("extern_username").HasMaxLength(128);
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 		builder.Property(e => e.LastUsedAt).HasColumnName("last_used_at");
 	}
