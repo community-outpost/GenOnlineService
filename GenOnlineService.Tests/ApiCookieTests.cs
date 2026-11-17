@@ -178,7 +178,7 @@ public class ApiCookieTests
 		await player.SignUp("Plain", "plain@example.org");
 		User plain = (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!;
 
-		foreach (string path in new[] { "/api/v1/players/search?query=Plain", $"/api/v1/players/{plain.ID}/staff_view", "/api/v1/reports/search", "/api/v1/matches/1" })
+		foreach (string path in new[] { "/api/v1/staff/overview", "/api/v1/players/search?query=Plain", $"/api/v1/players/{plain.ID}/staff_view", "/api/v1/reports/search", "/api/v1/matches/1" })
 		{
 			PageResponse response = await player.Get(path);
 			Assert.Equal(403, response.Status);

@@ -109,6 +109,49 @@ public class PortalLookTests
 		}
 	}
 
+	// The staff pages (GenOnlineService.Portal.Client) use the same prebuilt stylesheet and generals.css: every bb: and go-*
+	// class literal in their Razor and C# sources must exist there, as the pages run in the browser where no test sees them
+	[Fact]
+	public void EveryStaffPageClassIsInTheStylesheets()
+	{
+		string css = File.ReadAllText(FileOf(PortalLook.StylesheetPath));
+		string generals = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		DirectoryInfo root = new DirectoryInfo(AppContext.BaseDirectory);
+		while (root.Parent != null && !File.Exists(Path.Combine(root.FullName, "GenServices.sln")))
+		{
+			root = root.Parent;
+		}
+		string client = Path.Combine(root.FullName, "GenOnlineService.Portal.Client");
+		Assert.True(Directory.Exists(client), "the client sources are next to the solution");
+
+		var missing = new List<string>();
+		IEnumerable<string> sources = Directory.EnumerateFiles(client, "*.razor", SearchOption.AllDirectories)
+			.Concat(Directory.EnumerateFiles(client, "*.cs", SearchOption.AllDirectories))
+			.Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar));
+		foreach (string file in sources)
+		{
+			string text = File.ReadAllText(file);
+			// every bb: word wherever it stands (only classes use the prefix), and every go- word inside a class or Class
+			// attribute (go- also starts other names, such as the go-portal-session meta tag); a word joined to a Razor
+			// expression (go-x@(...)) is left to the browser check, as its full name exists only at run time
+			IEnumerable<string> bbWords = Regex.Matches(text, @"(?<![\w-])bb:[^\s""'<>@]+").Select(m => m.Value);
+			IEnumerable<string> goWords = Regex.Matches(text, @"\b[Cc]lass=""([^""]*)""").SelectMany(m => m.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+				.Where(word => Regex.IsMatch(word, "^go-[a-z0-9-]*[a-z0-9]$"));
+			foreach (string token in bbWords.Concat(goWords).Distinct())
+			{
+				if (token.StartsWith("bb:", StringComparison.Ordinal) && !css.Contains(Selector(token), StringComparison.Ordinal))
+				{
+					missing.Add(Path.GetFileName(file) + ": " + token);
+				}
+				else if (token.StartsWith("go-", StringComparison.Ordinal) && !Regex.IsMatch(generals, Regex.Escape("." + token) + @"[ :{,>\[\.]"))
+				{
+					missing.Add(Path.GetFileName(file) + ": " + token);
+				}
+			}
+		}
+		Assert.True(missing.Count == 0, "not in blazorblueprint.css or generals.css: " + String.Join(", ", missing.Distinct()));
+	}
+
 	[Fact]
 	public void EveryHelperClassIsInTheStylesheet()
 	{
@@ -137,7 +180,10 @@ public class PortalLookTests
 		Assert.Equal(200, signIn.Status);
 		Assert.Contains("href=\"/users/auth/discord?returnUrl=", signIn.Body);
 		AssertStyled(signIn.Body);
-		AssertStyled((await browser.Get("/users/sign_up")).Body);
+		AssertGoClassesDefined(signIn.Body);
+		PageResponse signUp = await browser.Get("/users/sign_up");
+		AssertStyled(signUp.Body);
+		AssertGoClassesDefined(signUp.Body);
 
 		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Styled", "styled@example.org", "a long enough password")).Status);
 		AssertStyled((await browser.Get("/profile/two_factor_auth")).Body);

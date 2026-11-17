@@ -1,4 +1,6 @@
-@* The staff player page: stock cards and tables. Sanctions go through the sanction rules of the service, the personal data needs players.inspect *@
+@* The staff player page: the page header (nav-02) with the moderation actions, stat cards (dashboard-01) for the ratings,
+   and tabs of cards with data tables (data-01) for sessions, sanctions and the personal data. Sanctions go through the
+   sanction rules of the service, the personal data needs players.inspect *@
 @page "/admin/players/{Id:long}"
 @inject PortalApi Api
 @inject ToastService Toasts
@@ -7,195 +9,238 @@
 
 @if (m_error != null)
 {
-    <BbAlert Variant="AlertVariant.Danger">
-        <BbAlertTitle>@(m_error == "not_found" ? $"No player {Id}" : "The player could not load")</BbAlertTitle>
-        <BbAlertDescription>@(m_error == "not_found" ? "No account has this id." : PortalText.Error(m_error))</BbAlertDescription>
-    </BbAlert>
+    @if (m_error == "not_found")
+    {
+        <Refusal Title="@($"No player {Id}")" Description="No account has this id." Icon="user-x" />
+    }
+    else
+    {
+        <Refusal Title="The player could not load" Description="@PortalText.Error(m_error)" Icon="circle-alert" />
+    }
 }
 else if (m_player == null)
 {
     <div class="bb:space-y-4">
-        <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
-        <BbSkeleton Class="bb:h-24 bb:w-full" />
+        <div class="bb:flex bb:items-center bb:gap-4">
+            <BbSkeleton Class="bb:h-16 bb:w-16" />
+            <div class="bb:flex-1 bb:space-y-2">
+                <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
+                <BbSkeleton Class="bb:h-4 bb:w-full bb:max-w-md" />
+            </div>
+        </div>
+        <div class="go-stats">
+            @for (int i = 0; i < 4; i++)
+            {
+                <BbSkeleton Class="go-skeleton-card" />
+            }
+        </div>
+        <BbSkeleton Class="go-skeleton-panel" />
     </div>
 }
 else
 {
     PortalPlayer player = m_player;
-    <div class="bb:w-full bb:space-y-4">
-        <BbCard>
-            <BbCardHeader>
-                <BbCardTitle As="h1" Class="bb:text-2xl" data-testid="player-name">@player.Name<span class="bb:text-muted-foreground">#@player.Tag</span></BbCardTitle>
-                <BbCardDescription>Player id @player.Id, created @PortalText.Date(player.CreatedAt), last sign-in @PortalText.Date(player.LastSignInAt)</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                <div class="bb:space-y-4">
-                    <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2">
-                        <BbBadge Variant="@(player.State == "active" ? BadgeVariant.Secondary : BadgeVariant.Destructive)">@player.State</BbBadge>
-                        <BbBadge Variant="@(player.Online ? BadgeVariant.Default : BadgeVariant.Outline)">@(player.Online ? "online" : "offline")</BbBadge>
-                        @if (player.Sanctions.Any(s => s.Active && s.Type == "ban"))
-                        {
-                            <BbBadge Variant="BadgeVariant.Destructive">banned</BbBadge>
-                        }
-                        @if (player.Sanctions.Any(s => s.Active && s.Type == "mute"))
-                        {
-                            <BbBadge Variant="BadgeVariant.Destructive">muted</BbBadge>
-                        }
-                        @if (player.Roles.Count == 0)
-                        {
-                            <BbBadge Variant="BadgeVariant.Outline">player</BbBadge>
-                        }
-                        @foreach (string role in player.Roles)
-                        {
-                            <BbBadge>@role</BbBadge>
-                        }
-                    </div>
-                    <p class="bb:text-sm">
+    int activeSanctions = player.Sanctions.Count(s => s.Active);
+    <PageHeader Description="@($"Player id {player.Id} · created {PortalText.Date(player.CreatedAt)} · last sign-in {PortalText.Date(player.LastSignInAt)}")">
+        <Title>
+            <span class="bb:flex bb:items-center bb:gap-4">
+                <BbAvatar Class="bb:h-12 bb:w-12">
+                    <BbAvatarFallback>@PortalText.Initials(player.Name)</BbAvatarFallback>
+                </BbAvatar>
+                <span data-testid="player-name">@player.Name<span class="bb:text-muted-foreground">#@player.Tag</span></span>
+            </span>
+        </Title>
+        <Below>
+            <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2 bb:pt-1">
+                <BbBadge Variant="@PortalBadges.OfPlayerState(player.State)">@player.State</BbBadge>
+                <BbBadge Variant="@(player.Online ? BadgeVariant.Secondary : BadgeVariant.Outline)">
+                    <BbBadgeIcon Name="@(player.Online ? "wifi" : "wifi-off")" />
+                    @(player.Online ? "online" : "offline")
+                </BbBadge>
+                @if (player.Sanctions.Any(s => s.Active && s.Type == "ban"))
+                {
+                    <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="gavel" />banned</BbBadge>
+                }
+                @if (player.Sanctions.Any(s => s.Active && s.Type == "mute"))
+                {
+                    <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="mic-off" />muted</BbBadge>
+                }
+                @if (player.Roles.Count == 0)
+                {
+                    <BbBadge Variant="BadgeVariant.Outline">player</BbBadge>
+                }
+                @foreach (string role in player.Roles)
+                {
+                    <BbBadge Variant="BadgeVariant.Soft"><BbBadgeIcon Name="shield" />@role</BbBadge>
+                }
+            </div>
+        </Below>
+        <Actions>
+            @if (Session.Can(PortalPermissions.Kick))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("kick"))" Disabled="@(!player.Online)">
+                    <LucideIcon Name="log-out" Class="bb:h-4 bb:w-4" />
+                    Kick
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.Mute))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("mute"))">
+                    <LucideIcon Name="mic-off" Class="bb:h-4 bb:w-4" />
+                    Mute
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.Rename))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("rename"))" Disabled="@(!player.CanRename)">
+                    <LucideIcon Name="pencil" Class="bb:h-4 bb:w-4" />
+                    Rename
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.Ban))
+            {
+                <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" OnClick="@(() => Open("ban"))" data-testid="ban">
+                    <LucideIcon Name="gavel" Class="bb:h-4 bb:w-4" />
+                    Ban
+                </BbButton>
+            }
+        </Actions>
+    </PageHeader>
+
+    <div class="go-stats">
+        <StatCard Label="Elo rating" Value="@player.EloRating.ToString()" Icon="trophy" Hint="Quickmatch, all time" />
+        <StatCard Label="Monthly Elo" Value="@player.MonthlyEloRating.ToString()" Icon="calendar" Hint="Quickmatch, this month" />
+        <StatCard Label="Rated matches" Value="@PortalText.Count(player.EloMatches)" Icon="swords" Hint="Quickmatch games counted" />
+        <StatCard Label="Active sanctions" Value="@activeSanctions.ToString()" Icon="gavel" Attention="@(activeSanctions > 0)" Hint="@($"{player.Sanctions.Count} on record")" />
+    </div>
+
+    <BbTabs DefaultValue="activity">
+        <BbTabsList>
+            <BbTabsTrigger Value="activity">Activity</BbTabsTrigger>
+            <BbTabsTrigger Value="sanctions">Sanctions (@player.Sanctions.Count)</BbTabsTrigger>
+            <BbTabsTrigger Value="signins">Sign-ins and devices</BbTabsTrigger>
+            <BbTabsTrigger Value="duplicates">Possible duplicates</BbTabsTrigger>
+        </BbTabsList>
+
+        <BbTabsContent Value="activity" Class="bb:mt-4">
+            <div class="go-dashboard">
+                <BbCard>
+                    <BbCardHeader>
+                        <BbCardTitle As="h2">Sessions</BbCardTitle>
+                        <BbCardDescription>The clients of this player connected to the service now.</BbCardDescription>
+                    </BbCardHeader>
+                    <BbCardContent>
                         @if (player.Sessions.Count == 0)
                         {
-                            <span class="bb:text-muted-foreground">No registered session.</span>
+                            <BbEmpty Size="EmptySize.Small" Title="Not connected" Description="No registered session.">
+                                <Icon>
+                                    <LucideIcon Name="plug-zap" />
+                                </Icon>
+                            </BbEmpty>
                         }
                         else
                         {
-                            <span>Sessions: @String.Join(", ", player.Sessions.Select(s => $"{s.Kind} ({s.ClientId}, since {PortalText.Date(s.RegisteredAt)})"))</span>
+                            <div class="go-list">
+                                @foreach (PortalPlayerSession session in player.Sessions)
+                                {
+                                    <div class="go-list-item">
+                                        <LucideIcon Name="@(session.Kind == "game" ? "gamepad-2" : session.Kind == "chat" ? "message-square" : "rocket")" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        <span class="bb:flex-1 bb:text-sm"><span class="go-capitalize">@session.Kind</span> <span class="bb:font-mono bb:text-xs bb:text-muted-foreground">@session.ClientId</span></span>
+                                        <span class="bb:text-xs bb:text-muted-foreground">since @PortalText.Date(session.RegisteredAt)</span>
+                                    </div>
+                                }
+                            </div>
                         }
                         @if (player.LobbyId is long lobbyID)
                         {
-                            <span>. In lobby @lobbyID.</span>
+                            <p class="bb:mt-4 bb:text-sm">In lobby <span class="bb:font-mono">@lobbyID</span>.</p>
                         }
-                    </p>
-                    @if (m_inspection is PortalInspection seen)
-                    {
-                        <p class="bb:text-sm" data-testid="last-address">
-                            Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@(seen.LastCountry != null ? $" ({seen.LastCountry})" : "")@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
-                        </p>
-                    }
-                </div>
-            </BbCardContent>
-            <BbCardFooter>
-                <div class="bb:flex bb:w-full bb:flex-wrap bb:gap-2">
-                    @if (Session.Can(PortalPermissions.Kick))
-                    {
-                        <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => Open("kick"))" Disabled="@(!player.Online)">Kick</BbButton>
-                    }
-                    @if (Session.Can(PortalPermissions.Mute))
-                    {
-                        <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => Open("mute"))">Mute</BbButton>
-                    }
-                    @if (Session.Can(PortalPermissions.Ban))
-                    {
-                        <BbButton Variant="ButtonVariant.Destructive" OnClick="@(() => Open("ban"))" data-testid="ban">Ban</BbButton>
-                    }
-                    @if (Session.Can(PortalPermissions.Rename))
-                    {
-                        <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => Open("rename"))" Disabled="@(!player.CanRename)">Rename</BbButton>
-                    }
-                </div>
-            </BbCardFooter>
-        </BbCard>
+                    </BbCardContent>
+                </BbCard>
 
-        <BbCard>
-            <BbCardHeader>
-                <BbCardTitle>Quickmatch</BbCardTitle>
-            </BbCardHeader>
-            <BbCardContent>
-                <p class="bb:text-sm">Elo rating <span class="bb:font-semibold">@player.EloRating</span>, monthly <span class="bb:font-semibold">@player.MonthlyEloRating</span>, <span class="bb:font-semibold">@player.EloMatches</span> rated matches.</p>
-            </BbCardContent>
-        </BbCard>
+                <BbCard>
+                    <BbCardHeader>
+                        <BbCardTitle As="h2">Last seen</BbCardTitle>
+                        <BbCardDescription>The address of the newest session, from the personal data.</BbCardDescription>
+                    </BbCardHeader>
+                    <BbCardContent>
+                        @if (m_inspection is PortalInspection seen)
+                        {
+                            <p class="bb:text-sm" data-testid="last-address">
+                                Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@(seen.LastCountry != null ? $" ({seen.LastCountry})" : "")@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
+                            </p>
+                        }
+                        else
+                        {
+                            <InspectionNote Permitted="@Session.Can(PortalPermissions.PlayersInspect)" Error="@m_inspectionError" />
+                        }
+                    </BbCardContent>
+                </BbCard>
+            </div>
+        </BbTabsContent>
 
-        <BbCard>
-            <BbCardHeader>
-                <BbCardTitle>Sanctions</BbCardTitle>
-                <BbCardDescription>Active and past kicks, mutes and bans. The service records who acted.</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                @if (player.Sanctions.Count == 0)
-                {
-                    <p class="bb:text-sm bb:text-muted-foreground">No sanction on record.</p>
-                }
-                else
-                {
-                    <table class="bb:w-full bb:text-sm">
-                        <thead>
-                            <tr class="bb:border-b">
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Type</th>
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">State</th>
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Reason</th>
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">By</th>
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Created</th>
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Ends</th>
-                                <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground"><span class="bb:sr-only">Actions</span></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (PortalSanction sanction in player.Sanctions)
-                            {
-                                <tr class="bb:border-b">
-                                    <td class="bb:p-2 bb:align-middle">@sanction.Type</td>
-                                    <td class="bb:p-2 bb:align-middle">
-                                        <BbBadge Variant="@(sanction.Active ? BadgeVariant.Destructive : BadgeVariant.Outline)">@StateOf(sanction)</BbBadge>
-                                    </td>
-                                    <td class="bb:p-2 bb:align-middle">@sanction.Reason</td>
-                                    <td class="bb:p-2 bb:align-middle">@(sanction.CreatedBy?.FullName ?? "system")</td>
-                                    <td class="bb:p-2 bb:align-middle">@PortalText.Date(sanction.CreatedAt)</td>
-                                    <td class="bb:p-2 bb:align-middle">@(sanction.Type == "kick" ? "" : sanction.ExpiresAt == null ? "never" : PortalText.Date(sanction.ExpiresAt))</td>
-                                    <td class="bb:p-2 bb:align-middle">
-                                        @if (sanction.Active && Session.Can(sanction.Type == "mute" ? PortalPermissions.Mute : PortalPermissions.Ban))
-                                        {
-                                            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("lift", sanction))">Lift</BbButton>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                }
-            </BbCardContent>
-        </BbCard>
-
-        @if (!Session.Can(PortalPermissions.PlayersInspect))
-        {
-            <BbAlert>
-                <BbAlertTitle>Sign-ins, devices and addresses</BbAlertTitle>
-                <BbAlertDescription>These parts need the players.inspect permission, which administrators hold.</BbAlertDescription>
-            </BbAlert>
-        }
-        else if (m_inspectionError != null)
-        {
-            <BbAlert Variant="AlertVariant.Danger">
-                <BbAlertTitle>Sign-ins, devices and addresses could not load</BbAlertTitle>
-                <BbAlertDescription>@PortalText.Error(m_inspectionError)</BbAlertDescription>
-            </BbAlert>
-        }
-        else if (m_inspection is PortalInspection inspection)
-        {
+        <BbTabsContent Value="sanctions" Class="bb:mt-4">
             <BbCard>
                 <BbCardHeader>
-                    <BbCardTitle>Sign-ins</BbCardTitle>
-                    <BbCardDescription>The accounts at sign-in providers linked to this player.</BbCardDescription>
+                    <BbCardTitle As="h2">Sanctions</BbCardTitle>
+                    <BbCardDescription>Active and past kicks, mutes and bans. The service records who acted.</BbCardDescription>
                 </BbCardHeader>
                 <BbCardContent>
-                    @if (inspection.Identities.Count == 0)
-                    {
-                        <p class="bb:text-sm bb:text-muted-foreground">No sign-in is linked.</p>
-                    }
-                    else
-                    {
-                        <table class="bb:w-full bb:text-sm">
-                            <thead>
-                                <tr class="bb:border-b">
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Provider</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">External id</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Linked</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Last used</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (PortalIdentity identity in inspection.Identities)
-                                {
-                                    <tr class="bb:border-b">
-                                        <td class="bb:p-2 bb:align-middle">@identity.Provider</td>
-                                        <td class="bb:p-2 bb:align-middle">
+                    <BbDataTable TData="PortalSanction" Data="@player.Sanctions" ShowToolbar="false" ShowPagination="@(player.Sanctions.Count > 10)" InitialPageSize="10" AriaLabel="Sanctions">
+                        <Columns>
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.Type)" Header="Type">
+                                <CellTemplate Context="sanction">
+                                    <span class="bb:inline-flex bb:items-center bb:gap-2 go-capitalize">
+                                        <LucideIcon Name="@PortalBadges.IconOfSanction(sanction.Type)" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        @sanction.Type
+                                    </span>
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => StateOf(s))" Header="State">
+                                <CellTemplate Context="sanction">
+                                    <BbBadge Variant="@PortalBadges.OfSanction(sanction.Active)">@StateOf(sanction)</BbBadge>
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.Reason)" Header="Reason" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.CreatedBy != null ? s.CreatedBy.FullName : "system")" Header="By" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => PortalText.Date(s.CreatedAt))" Header="Created" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.Type == "kick" ? "" : s.ExpiresAt == null ? "never" : PortalText.Date(s.ExpiresAt))" Header="Ends" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="long" Property="@(s => s.Id)" Header="Actions" HeaderClass="go-sr-header">
+                                <CellTemplate Context="sanction">
+                                    @if (sanction.Active && Session.Can(sanction.Type == "mute" ? PortalPermissions.Mute : PortalPermissions.Ban))
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("lift", sanction))">Lift</BbButton>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                        </Columns>
+                        <EmptyTemplate>
+                            <BbEmpty Size="EmptySize.Small" Title="A clean record" Description="No sanction on record.">
+                                <Icon>
+                                    <LucideIcon Name="shield-check" />
+                                </Icon>
+                            </BbEmpty>
+                        </EmptyTemplate>
+                    </BbDataTable>
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="signins" Class="bb:mt-4">
+            @if (m_inspection is PortalInspection inspection)
+            {
+                <div class="bb:space-y-4">
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">Sign-ins</BbCardTitle>
+                            <BbCardDescription>The accounts at sign-in providers linked to this player.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <BbDataTable TData="PortalIdentity" Data="@inspection.Identities" ShowToolbar="false" ShowPagination="false" AriaLabel="Sign-ins">
+                                <Columns>
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => i.Provider)" Header="Provider" CellClass="go-capitalize" />
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => i.ExternalId)" Header="External id">
+                                        <CellTemplate Context="identity">
                                             @if (identity.ProfileUrl != null)
                                             {
                                                 <BbLink Href="@identity.ProfileUrl" Target="_blank" ShowExternalIcon="true"><span class="bb:font-mono">@identity.ExternalId</span></BbLink>
@@ -204,137 +249,117 @@ else
                                             {
                                                 <span class="bb:font-mono">@identity.ExternalId</span>
                                             }
-                                        </td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(identity.LinkedAt)</td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(identity.LastUsedAt)</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    }
-                </BbCardContent>
-            </BbCard>
+                                        </CellTemplate>
+                                    </BbDataTableColumn>
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => PortalText.Date(i.LinkedAt))" Header="Linked" />
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => PortalText.Date(i.LastUsedAt))" Header="Last used" />
+                                </Columns>
+                                <EmptyTemplate>
+                                    <BbEmpty Size="EmptySize.Small" Title="No sign-in linked" Description="This player signs in with a password only, or not at all." />
+                                </EmptyTemplate>
+                            </BbDataTable>
+                        </BbCardContent>
+                    </BbCard>
 
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">Devices</BbCardTitle>
+                            <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows, never the value itself.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <BbDataTable TData="PortalDevice" Data="@inspection.Devices" ShowToolbar="false" ShowPagination="@(inspection.Devices.Count > 10)" InitialPageSize="10" AriaLabel="Devices">
+                                <Columns>
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Kind)" Header="Kind" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Fingerprint)" Header="Fingerprint" CellClass="bb:font-mono" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => PortalText.Date(d.FirstSeenAt))" Header="First seen" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => PortalText.Date(d.LastSeenAt))" Header="Last seen" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.LastIp)" Header="Last address" CellClass="bb:font-mono" />
+                                </Columns>
+                                <EmptyTemplate>
+                                    <BbEmpty Size="EmptySize.Small" Title="No device on record" />
+                                </EmptyTemplate>
+                            </BbDataTable>
+                        </BbCardContent>
+                    </BbCard>
+
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">IP addresses</BbCardTitle>
+                            <BbCardDescription>The addresses of the sessions of the last 90 days.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <BbDataTable TData="PortalAddress" Data="@inspection.Addresses" ShowToolbar="false" ShowPagination="@(inspection.Addresses.Count > 10)" InitialPageSize="10" AriaLabel="IP addresses">
+                                <Columns>
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Ip)" Header="Address" CellClass="bb:font-mono" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Country)" Header="Country" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Date(a.FirstSeenAt))" Header="First seen" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Date(a.LastSeenAt))" Header="Last seen" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="int" Property="@(a => a.Events)" Header="Sessions" />
+                                </Columns>
+                                <EmptyTemplate>
+                                    <BbEmpty Size="EmptySize.Small" Title="No session on record" />
+                                </EmptyTemplate>
+                            </BbDataTable>
+                        </BbCardContent>
+                    </BbCard>
+                </div>
+            }
+            else
+            {
+                <BbCard>
+                    <BbCardContent Class="bb:pt-6">
+                        <InspectionNote Permitted="@Session.Can(PortalPermissions.PlayersInspect)" Error="@m_inspectionError" />
+                    </BbCardContent>
+                </BbCard>
+            }
+        </BbTabsContent>
+
+        <BbTabsContent Value="duplicates" Class="bb:mt-4">
             <BbCard>
                 <BbCardHeader>
-                    <BbCardTitle>Devices</BbCardTitle>
-                    <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows, never the value itself.</BbCardDescription>
-                </BbCardHeader>
-                <BbCardContent>
-                    @if (inspection.Devices.Count == 0)
-                    {
-                        <p class="bb:text-sm bb:text-muted-foreground">No device on record.</p>
-                    }
-                    else
-                    {
-                        <table class="bb:w-full bb:text-sm">
-                            <thead>
-                                <tr class="bb:border-b">
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Kind</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Fingerprint</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">First seen</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Last seen</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Last address</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (PortalDevice device in inspection.Devices)
-                                {
-                                    <tr class="bb:border-b">
-                                        <td class="bb:p-2 bb:align-middle">@device.Kind</td>
-                                        <td class="bb:p-2 bb:align-middle"><span class="bb:font-mono">@device.Fingerprint</span></td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(device.FirstSeenAt)</td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(device.LastSeenAt)</td>
-                                        <td class="bb:p-2 bb:align-middle"><span class="bb:font-mono">@device.LastIp</span></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    }
-                </BbCardContent>
-            </BbCard>
-
-            <BbCard>
-                <BbCardHeader>
-                    <BbCardTitle>IP addresses</BbCardTitle>
-                    <BbCardDescription>The addresses of the sessions of the last 90 days.</BbCardDescription>
-                </BbCardHeader>
-                <BbCardContent>
-                    @if (inspection.Addresses.Count == 0)
-                    {
-                        <p class="bb:text-sm bb:text-muted-foreground">No session on record.</p>
-                    }
-                    else
-                    {
-                        <table class="bb:w-full bb:text-sm">
-                            <thead>
-                                <tr class="bb:border-b">
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Address</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Country</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">First seen</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Last seen</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Sessions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (PortalAddress address in inspection.Addresses)
-                                {
-                                    <tr class="bb:border-b">
-                                        <td class="bb:p-2 bb:align-middle"><span class="bb:font-mono">@address.Ip</span></td>
-                                        <td class="bb:p-2 bb:align-middle">@address.Country</td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(address.FirstSeenAt)</td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(address.LastSeenAt)</td>
-                                        <td class="bb:p-2 bb:align-middle">@address.Events</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    }
-                </BbCardContent>
-            </BbCard>
-
-            <BbCard>
-                <BbCardHeader>
-                    <BbCardTitle>Possible duplicate accounts</BbCardTitle>
+                    <BbCardTitle As="h2">Possible duplicate accounts</BbCardTitle>
                     <BbCardDescription>Other accounts seen on the same device (strong) or only on the same address (weak). A match is a hint: validate it manually before acting.</BbCardDescription>
                 </BbCardHeader>
                 <BbCardContent>
-                    @if (inspection.Duplicates.Count == 0)
+                    @if (m_inspection is PortalInspection found)
                     {
-                        <p class="bb:text-sm bb:text-muted-foreground">No other account shares a device or an address.</p>
+                        <BbDataTable TData="PortalDuplicate" Data="@found.Duplicates" ShowToolbar="false" ShowPagination="@(found.Duplicates.Count > 10)" InitialPageSize="10" AriaLabel="Possible duplicate accounts">
+                            <Columns>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.FullName)" Header="Player">
+                                    <CellTemplate Context="duplicate">
+                                        <BbLink Href="@PortalRoutes.PlayerPage(duplicate.Id)">@duplicate.FullName</BbLink>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.State)" Header="State">
+                                    <CellTemplate Context="duplicate">
+                                        <BbBadge Variant="@PortalBadges.OfPlayerState(duplicate.State)">@duplicate.State</BbBadge>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.Match == "device" ? $"{d.Shared} shared device value(s)" : $"{d.Shared} shared address(es)")" Header="Match" />
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.Match)" Header="Confidence">
+                                    <CellTemplate Context="duplicate">
+                                        <BbBadge Variant="@(duplicate.Match == "device" ? BadgeVariant.SoftDestructive : BadgeVariant.Outline)">@(duplicate.Match == "device" ? "strong" : "weak")</BbBadge>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => PortalText.Date(d.LastSeenAt))" Header="Last seen" />
+                            </Columns>
+                            <EmptyTemplate>
+                                <BbEmpty Size="EmptySize.Small" Title="No duplicates" Description="No other account shares a device or an address.">
+                                    <Icon>
+                                        <LucideIcon Name="users" />
+                                    </Icon>
+                                </BbEmpty>
+                            </EmptyTemplate>
+                        </BbDataTable>
                     }
                     else
                     {
-                        <table class="bb:w-full bb:text-sm">
-                            <thead>
-                                <tr class="bb:border-b">
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Player</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">State</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Match</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Confidence</th>
-                                    <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Last seen</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (PortalDuplicate duplicate in inspection.Duplicates)
-                                {
-                                    <tr class="bb:border-b">
-                                        <td class="bb:p-2 bb:align-middle"><BbLink Href="@PortalRoutes.PlayerPage(duplicate.Id)">@duplicate.FullName</BbLink></td>
-                                        <td class="bb:p-2 bb:align-middle">@duplicate.State</td>
-                                        <td class="bb:p-2 bb:align-middle">@(duplicate.Match == "device" ? $"{duplicate.Shared} shared device value(s)" : $"{duplicate.Shared} shared address(es)")</td>
-                                        <td class="bb:p-2 bb:align-middle">
-                                            <BbBadge Variant="@(duplicate.Match == "device" ? BadgeVariant.Destructive : BadgeVariant.Outline)">@(duplicate.Match == "device" ? "strong" : "weak")</BbBadge>
-                                        </td>
-                                        <td class="bb:p-2 bb:align-middle">@PortalText.Date(duplicate.LastSeenAt)</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                        <InspectionNote Permitted="@Session.Can(PortalPermissions.PlayersInspect)" Error="@m_inspectionError" />
                     }
                 </BbCardContent>
             </BbCard>
-        }
-    </div>
+        </BbTabsContent>
+    </BbTabs>
 
     <BbDialog @bind-Open="m_dialogOpen">
         <BbDialogContent>
@@ -347,7 +372,7 @@ else
                 {
                     <div class="bb:space-y-2">
                         <BbLabel For="new-name">New display name</BbLabel>
-                        <BbInput Id="new-name" @bind-Value="m_name" />
+                        <BbInput Id="new-name" @bind-Value="m_name" autocomplete="off" spellcheck="false" />
                     </div>
                 }
                 @if (m_action == "mute" || m_action == "ban")
@@ -364,7 +389,7 @@ else
                 }
                 <div class="bb:space-y-2">
                     <BbLabel For="reason">Reason@(m_action == "ban" ? "" : " (optional)")</BbLabel>
-                    <BbTextarea Id="reason" @bind-Value="m_reason" Placeholder="Kept in the audit log" />
+                    <BbTextarea Id="reason" @bind-Value="m_reason" Placeholder="Kept in the audit log…" autocomplete="off" />
                 </div>
             </div>
             <BbDialogFooter>

@@ -86,6 +86,8 @@ namespace GenOnlineService.Portal.Client
 			return m_session;
 		}
 
+		public Task<PortalAnswer<PortalOverview>> GetOverviewAsync(CancellationToken cancellationToken = default) => GetAsync<PortalOverview>(PortalRoutes.Overview, cancellationToken);
+
 		public async Task<PortalReportPage> GetReportsAsync(string status, string? search, bool newestFirst, int start, int count, CancellationToken cancellationToken)
 		{
 			string query = $"{PortalRoutes.ReportSearch}?status={Uri.EscapeDataString(status)}&{PageOf(start, count)}&sort={(newestFirst ? "desc" : "asc")}";

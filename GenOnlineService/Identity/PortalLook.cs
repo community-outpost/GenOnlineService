@@ -21,8 +21,9 @@ using System.Net;
 
 namespace GenOnlineService.Identity
 {
-	// The look of the sign-in pages: Blazor Blueprint's "Login with Cover" blueprint (login-02), dark only, in Zero Hour's
-	// navy and blue with the box art as the cover (wwwroot/portal/generals.css, poster.jpg). The markup is
+	// The look of the sign-in pages: Blazor Blueprint's "Login with Cover" blueprint (login-02), dark only, in the Swiss
+	// stone palette with the logo's gold as the one accent and the box art, without its colours, as the cover
+	// (wwwroot/portal/generals.css, poster.jpg). The markup is
 	// what BbInput, BbButton, BbLabel, BbSeparator and BbAlert render, with Lucide icons from BlazorBlueprint.Icons.Lucide's
 	// data; the package only serves its prebuilt stylesheet, so no component code runs on the server. Every bb: class used
 	// here is in that stylesheet (blazorblueprint.css 4.2.0): a library update can drop one, PortalLookTests catches it, and
@@ -32,7 +33,8 @@ namespace GenOnlineService.Identity
 	{
 		public const string ThemePath = "/portal/theme.css";
 		public const string StylesheetPath = "/_content/BlazorBlueprint.Components/blazorblueprint.css";
-		// Zero Hour's navy and blue over the stock dark theme, the split layout, the provider colours, and the go-* classes
+		// The stone palette and gold accent over the stock dark theme, IBM Plex Sans, the split layout, the provider colours,
+		// and the go-* classes
 		public const string GeneralsPath = "/portal/generals.css";
 		// the Zero Hour box art widened to landscape, the cover beside the form (generals.css .go-cover)
 		public const string PosterPath = "/portal/poster.jpg";
@@ -71,7 +73,7 @@ namespace GenOnlineService.Identity
 		{
 			if (provider == "gamereplays")
 			{
-				return $"<img src=\"{GameReplaysLogoPath}\" alt=\"\" class=\"bb:h-4 bb:w-4 bb:shrink-0\">";
+				return $"<img src=\"{GameReplaysLogoPath}\" alt=\"\" width=\"16\" height=\"16\" class=\"bb:h-4 bb:w-4 bb:shrink-0\">";
 			}
 			return s_brands.TryGetValue(provider, out string? mark)
 				? $"<svg viewBox=\"0 0 24 24\" class=\"bb:h-4 bb:w-4 bb:shrink-0\" aria-hidden=\"true\">{mark}</svg>"
@@ -84,7 +86,7 @@ namespace GenOnlineService.Identity
 		{
 			return Head(title)
 				+ "<div class=\"go-split\">"
-				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\"></a>"
+				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\" width=\"190\" height=\"69\"></a>"
 				+ "<div class=\"bb:w-full bb:max-w-sm bb:space-y-6\">"
 				+ $"<div class=\"bb:space-y-2 bb:text-center\"><h1 class=\"go-heading\">{E(title)}</h1>"
 				+ (description == null ? String.Empty : $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p>")
@@ -93,34 +95,34 @@ namespace GenOnlineService.Identity
 				+ "</div></main><div class=\"go-cover\" role=\"presentation\"></div></div></body></html>";
 		}
 
-		// The head and the opening body of every page: dark only, the theme's .dark variables with Zero Hour's colours over them
+		// The head and the opening body of every page: dark only, the theme's .dark variables with the stone palette over them
 		private static string Head(string title)
 			=> "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-				+ "<meta name=\"color-scheme\" content=\"dark\">"
+				+ "<meta name=\"color-scheme\" content=\"dark\"><meta name=\"theme-color\" content=\"#0c0a09\">"
 				+ $"<title>{E(title)} · Generals Online</title>"
 				+ $"<link rel=\"stylesheet\" href=\"{ThemePath}\"><link rel=\"stylesheet\" href=\"{StylesheetPath}\"><link rel=\"stylesheet\" href=\"{GeneralsPath}\">"
 				+ "</head><body class=\"bb:bg-background bb:text-foreground\">";
 
-		// A signed-in page of the portal (S12), after the Top Navigation Bar and Profile Edit Form blueprints (nav-01,
-		// form-03): a top bar with the logo, who is signed in and the already encoded actions on the right, then one column
-		// of cards
+		// A signed-in page of the portal (S12), after the Top Navigation Bar blueprint (nav-01) and GitLab's user settings: a
+		// top bar with the logo, who is signed in and the already encoded actions on the right, then the title over the
+		// settings sections
 		public static string AppDocument(string title, string signedInAs, string actions, string body)
 			=> Head(title)
-				+ "<header class=\"go-topbar\">"
-				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\"></a>"
+				+ "<a href=\"#content\" class=\"go-skip\">Skip to content</a><header class=\"go-topbar\">"
+				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\" width=\"190\" height=\"69\"></a>"
 				+ $"<div class=\"go-topbar-actions\"><span class=\"bb:text-sm bb:font-medium\">{E(signedInAs)}</span>{actions}</div>"
 				+ "</header>"
-				+ $"<main class=\"go-column\"><h1 class=\"go-heading\">{E(title)}</h1>{body}</main>"
+				+ $"<main id=\"content\" class=\"go-column\" tabindex=\"-1\"><h1 class=\"go-heading\">{E(title)}</h1>{body}</main>"
 				+ "</body></html>";
 
-		// A stock card: title, description, already encoded content and an optional footer of buttons on the right
+		// A settings section, as GitLab's user settings: the title and a short description in the left column, the already
+		// encoded content and an optional row of buttons on the right; sections stack with a rule between them
 		public static string Card(string title, string description, string content, string? footer = null)
-			=> "<section class=\"bb:rounded-lg bb:border bb:bg-card bb:[--bb-surface:var(--card)] bb:text-card-foreground bb:shadow-(--bb-card-shadow)\">"
-				+ $"<div class=\"bb:flex bb:flex-col bb:space-y-1.5 bb:p-6\"><h2 class=\"bb:text-xl bb:font-semibold bb:leading-none\">{E(title)}</h2>"
-				+ $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p></div>"
-				+ $"<div class=\"bb:p-6 bb:pt-0 bb:space-y-4 bb:text-sm\">{content}</div>"
+			=> "<section class=\"go-settings\">"
+				+ $"<div class=\"go-settings-intro\"><h2 class=\"go-settings-title\">{E(title)}</h2><p>{E(description)}</p></div>"
+				+ $"<div class=\"go-settings-body\">{content}"
 				+ (footer == null ? String.Empty : $"<div class=\"go-card-footer\">{footer}</div>")
-				+ "</section>";
+				+ "</div></section>";
 
 		// A small label: a role, a state
 		public static string Badge(string text, bool muted = false) => $"<span class=\"go-badge{(muted ? " go-badge-muted" : String.Empty)}\">{E(text)}</span>";

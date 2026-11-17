@@ -1,0 +1,54 @@
+@* One KPI card of the "Stat Cards" blueprint (dashboard-01) in the Swiss manner: a caption, a neutral icon, the number
+   light and large, a line under it; the number turns gold only when it waits for staff. The whole card links to the page
+   behind the number when Href is set *@
+
+<BbCard Class="go-stat" data-testid="@TestId">
+    <BbCardContent Class="bb:pt-6">
+        @if (Href != null)
+        {
+            <a href="@Href" class="go-stat-link" aria-label="@Label"></a>
+        }
+        <div class="bb:flex bb:items-center bb:justify-between bb:gap-2">
+            <p class="go-stat-label">@Label</p>
+            <div class="go-stat-icon">
+                <LucideIcon Name="@Icon" Class="bb:h-4 bb:w-4" />
+            </div>
+        </div>
+        <div class="bb:mt-2">
+            @if (Value == null)
+            {
+                <BbSkeleton Class="bb:h-8 bb:w-24" />
+            }
+            else
+            {
+                <p class="go-stat-value@(Attention ? " go-stat-value-attention" : "")">@Value</p>
+            }
+            <p class="bb:mt-1 bb:text-xs bb:text-muted-foreground">@Hint</p>
+        </div>
+    </BbCardContent>
+</BbCard>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = "";
+
+    // null shows a skeleton while the numbers load
+    [Parameter]
+    public string? Value { get; set; }
+
+    [Parameter]
+    public string? Hint { get; set; }
+
+    [Parameter]
+    public string Icon { get; set; } = "activity";
+
+    // the number waits for a staff member (open reports, unreviewed rows): it shows in the accent
+    [Parameter]
+    public bool Attention { get; set; }
+
+    [Parameter]
+    public string? Href { get; set; }
+
+    [Parameter]
+    public string? TestId { get; set; }
+}
