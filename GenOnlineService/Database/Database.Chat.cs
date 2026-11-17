@@ -430,8 +430,9 @@ namespace Database
 			return ToPage(rows, limit);
 		}
 
-		// Conversations of a user, newest first, with the last message and the unread count past the read marker
-		public static async Task<List<DirectConversation>> GetDirectConversations(AppDbContext db, long userId, int maxConversations = 50, IReadOnlyCollection<long>? excludeUserIds = null, CancellationToken cancellationToken = default)
+		// Conversations of a user, newest first, with the last message and the unread count past the read marker;
+		// includeUser picks the other users whose conversation is listed, before the limit applies
+		public static async Task<List<DirectConversation>> GetDirectConversations(AppDbContext db, long userId, int maxConversations = 50, Func<long, bool>? includeUser = null, CancellationToken cancellationToken = default)
 		{
 			var outgoing = await db.ChatMessages.AsNoTracking()
 				.Where(m => m.SenderID == userId && m.RecipientID != null)
@@ -453,7 +454,7 @@ namespace Database
 			}
 
 			List<KeyValuePair<long, long>> selected = lastAny
-				.Where(kv => excludeUserIds == null || !excludeUserIds.Contains(kv.Key))
+				.Where(kv => includeUser == null || includeUser(kv.Key))
 				.OrderByDescending(kv => kv.Value)
 				.Take(maxConversations)
 				.ToList();

@@ -315,7 +315,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `MemberUpdate` | `{member: Member}` (rename, new tag, badge change; sent to everyone who can see the user) |
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
-| `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: every direct message conversation and group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
+| `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: the user's direct message conversations with friends neither side blocked, plus staff conversations, and every group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
 | `ReadMarker` | `{channel_id}` (the user read that whole conversation on another connection; clear its unread count) |
 | `GroupCreate` | `{group: Group}` (the user was put in a group, by creating it or being added) |
 | `GroupUpdate` | `{group: Group}` (members, name or owner changed; sent to every member) |
@@ -335,7 +335,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 - No chat text in application logs or telemetry, only ids and counts. Account deletion removes or anonymises the user's messages. The privacy policy must say chat is stored, why, and for how long.
 - Every stored message (channel, lobby and direct) is kept 30 days, then purged. A report keeps its snapshot until its case is closed.
 
-**Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline recipient is stored and delivered on their next connect through `Conversations` and `GetHistory`.
+**Direct messages.** Only mutual friends exchange direct messages, and a block stops delivery. A message to an offline recipient is stored and delivered on their next connect through `Conversations` and `GetHistory`. Ending the friendship keeps the conversation stored, but `Conversations` no longer lists it, so its unread messages stop counting; it is listed again once the two are friends again.
 
 **Staff messaging.** Staff holding `chat.message_anyone` (moderators and admins) can send a direct message to any user, friend or not, and a block by that user does not stop it. The user can reply to that staff member, without being friends, for as long as the conversation holds a stored message from that staff member (30 days) and neither has blocked the other. Every staff message that uses this bypass (the two are not mutual friends, or a block exists) is written to `audit_log` with the actor, the target and the message id, never the text. When either side holds `chat.message_anyone`, a block does not hide that conversation in `Conversations` or `GetHistory`, and its messages stay reportable, so a player who blocked a staff member can still read and report what staff sent. Clients recognise staff by the author's badges.
 

@@ -208,7 +208,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// Snapshot after Friends: every direct conversation and group chat with its unread count and last message, newest activity first
-		// Direct conversations with blocked users are left out unless one side is staff, group messages of blocked members are left out
+		// Direct conversations with users who are not friends or are blocked are left out unless one side is staff, group messages of blocked members are left out
 		private async Task SendConversationsSnapshotAsync(UserSession session)
 		{
 			Int64 me = session.m_UserID;
@@ -219,8 +219,7 @@ namespace GenOnlineService.Realtime
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
 				HashSet<long> blocked = await BlockedEitherWayAsync(db, me);
-				HashSet<long> hiddenPartners = blocked.Where(other => !IsStaffConversation(me, other)).ToHashSet();
-				direct = await Database.Chat.GetDirectConversations(db, me, DirectConversationsMax, hiddenPartners);
+				direct = await ListedDirectConversationsAsync(db, me, blocked);
 				groups = await Database.Chat.GetGroupsOf(db, me);
 				groupConversations = await Database.Chat.GetGroupConversations(db, me, groups.Select(g => g.Group.ID).ToArray(), blocked);
 
@@ -245,6 +244,15 @@ namespace GenOnlineService.Realtime
 
 			ConversationInfo[] list = entries.OrderByDescending(e => e.Activity).Select(e => e.Info).ToArray();
 			await Clients.Caller.Conversations(new ConversationsEvent { Conversations = list, Groups = groups.Select(g => ToWireGroup(g, names)).ToArray() });
+		}
+
+		// The direct conversations of the Conversations snapshot, blocked being the users blocked either way with me: those with friends
+		// neither side blocked, and staff conversations whatever the friendship or block. Only friends exchange direct messages, so the
+		// conversation of a former friend stays stored but is not listed, and its unread messages no longer count
+		internal static async Task<List<Database.DirectConversation>> ListedDirectConversationsAsync(AppDbContext db, Int64 me, IReadOnlySet<long> blocked)
+		{
+			HashSet<long> friends = await Database.Social.GetFriends(db, me);
+			return await Database.Chat.GetDirectConversations(db, me, DirectConversationsMax, other => IsStaffConversation(me, other) || (friends.Contains(other) && !blocked.Contains(other)));
 		}
 
 		// True when either user holds chat.message_anyone, a block then does not hide their direct conversation
