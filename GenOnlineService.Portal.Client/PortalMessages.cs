@@ -42,6 +42,7 @@ namespace GenOnlineService.Portal.Client
 		public const string Sanctions = "api/v1/sanctions";
 		public const string Matches = "api/v1/matches";
 		public const string AntiCheat = "api/v1/anticheat_reports";
+		public const string AuditEvents = "api/v1/audit_events";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -55,6 +56,7 @@ namespace GenOnlineService.Portal.Client
 		public const string PlayersPage = "/admin/players";
 		public const string MatchesPage = "/admin/matches";
 		public const string AntiCheatPage = "/admin/anticheat";
+		public const string AuditPage = "/admin/audit";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -64,6 +66,9 @@ namespace GenOnlineService.Portal.Client
 		public static string MatchPage(long id) => MatchesPage + "/" + id;
 
 		public static string AntiCheatList(string kind) => AntiCheatPage + "/" + kind;
+
+		// the audit log with the actions on one player
+		public static string AuditOf(long target) => AuditPage + "?target=" + target;
 	}
 
 	// The permission names the pages show or hide parts by, the host checks each one again
@@ -75,6 +80,21 @@ namespace GenOnlineService.Portal.Client
 		public const string Rename = "moderation.rename";
 		public const string AnticheatReview = "anticheat.review";
 		public const string PlayersInspect = "players.inspect";
+		public const string RolesManage = "roles.manage";
+		public const string AuditRead = "audit.read";
+	}
+
+	// The audit actions the log's filter offers, in the words of the host's audit_log.action
+	public static class PortalAuditActions
+	{
+		public static readonly IReadOnlyList<string> All =
+		[
+			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
+			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
+			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
+			"token_revoke", "sa_create", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
+			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
+		];
 	}
 
 	// The review lists, in sidebar order; the short title fits the sidebar beside its counter
@@ -258,11 +278,31 @@ namespace GenOnlineService.Portal.Client
 		public int EloMatches { get; init; }
 		public IReadOnlyList<PortalSanction> Sanctions { get; init; } = [];
 
+		// Every role row with where it comes from: "local", or "upstream:<provider>" for a role that follows the sign-ins
+		// of that provider and cannot be changed here
+		public IReadOnlyList<PortalRoleGrant> RoleGrants { get; init; } = [];
+
+		// The roles the caller may grant or revoke on this player: roles.manage and the rank rule, empty otherwise
+		public IReadOnlyList<string> AssignableRoles { get; init; } = [];
+
 		// False where the sign-in provider owns the names
 		public bool CanRename { get; init; }
 
 		[JsonIgnore]
 		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	public sealed record PortalRoleGrant
+	{
+		public string Role { get; init; } = "";
+		public string Source { get; init; } = "";
+
+		[JsonIgnore]
+		public bool Local => Source == "local";
+
+		// "upstream:discord" reads discord
+		[JsonIgnore]
+		public string Provider => Source.StartsWith("upstream:", StringComparison.Ordinal) ? Source.Substring("upstream:".Length) : Source;
 	}
 
 	public sealed record PortalIdentity
@@ -411,6 +451,33 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalReviewRequest
 	{
 		public bool Reviewed { get; init; }
+	}
+
+	public sealed record PortalAuditActor
+	{
+		public long Id { get; init; }
+		public string? DisplayName { get; init; }
+	}
+
+	// One row of GET /api/v1/audit_events
+	public sealed record PortalAuditEvent
+	{
+		public long Id { get; init; }
+		public string Action { get; init; } = "";
+		public string ActorKind { get; init; } = "";
+		public string ActorName { get; init; } = "";
+		public PortalAuditActor? Actor { get; init; }
+		public string TargetKind { get; init; } = "";
+		public long? TargetId { get; init; }
+		public string? Reason { get; init; }
+		public string Source { get; init; } = "";
+		public JsonElement? Details { get; init; }
+		public DateTime CreatedAt { get; init; }
+	}
+
+	public sealed record PortalAuditPage
+	{
+		public IReadOnlyList<PortalAuditEvent> AuditEvents { get; init; } = [];
 	}
 
 	// The {error, params} body every refused call carries

@@ -62,6 +62,8 @@ namespace GenOnlineService.Portal.Client
 			"moderation.target_outranks" => "That player holds the same or a higher staff rank.",
 			"moderation.target_offline" => "That player is not connected.",
 			"moderation.reason_too_long" => "The reason is too long.",
+			"roles.rank" => "That role ranks the same as or above your own.",
+			"roles.upstream" => "That role comes from a sign-in provider and follows its sign-ins.",
 			_ => "The service answered: " + code
 		};
 	}

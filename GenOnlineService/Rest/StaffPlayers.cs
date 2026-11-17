@@ -120,6 +120,7 @@ namespace GenOnlineService.Rest
 		{
 			User? user;
 			EloData elo;
+			List<UserRole> roleRows;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken))
 			{
 				user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.ID == userID, cancellationToken);
@@ -128,6 +129,7 @@ namespace GenOnlineService.Rest
 					return Result.NotFound("user");
 				}
 				elo = (await Database.PlayerRatings.GetBulk(db, [userID])).GetValueOrDefault(userID) ?? new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
+				roleRows = await Database.Moderation.GetRoles(db, userID);
 			}
 
 			Result<SanctionsResponse> sanctions = await SanctionActions.ListAsync(dbFactory, userID, activeOnly: false);
@@ -173,6 +175,7 @@ namespace GenOnlineService.Rest
 					CreatedBy = sanction.CreatedBy is Member by ? new PortalMember { Id = by.Id, Name = by.Name, Tag = by.Tag } : null,
 					Active = sanction.Type != SanctionType.Kick && sanction.LiftedAt == null && (sanction.ExpiresAt == null || sanction.ExpiresAt > now)
 				}).ToList(),
+				RoleGrants = roleRows.Select(r => new PortalRoleGrant { Role = r.Role, Source = r.Source }).ToList(),
 				// each environment owns its names since the identity hub, so staff can always rename here
 				CanRename = true
 			});
@@ -272,7 +275,16 @@ namespace GenOnlineService.Rest
 			{
 				return RestResults.Fail(Result.Forbidden(Permissions.ModerationKick));
 			}
-			return ApiResults.Answer(await StaffPlayerActions.GetAsync(m_dbFactory, userID, HttpContext.RequestAborted));
+			Result<PortalPlayer> player = await StaffPlayerActions.GetAsync(m_dbFactory, userID, HttpContext.RequestAborted);
+			if (player.Ok && (await m_authorization.AuthorizeAsync(User, PermissionPolicies.For(Permissions.RolesManage))).Succeeded)
+			{
+				// the roles this caller may change here, by the rank rule of the roles routes
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(HttpContext.RequestAborted);
+				Database.ModerationActor actor = CallerActors.Of(User);
+				IReadOnlyList<string> assignable = RoleRules.Assignable(actor, await RoleRules.CallerRankAsync(db, actor), userID, await RoleRules.RankAsync(db, userID));
+				player = Result.Success(player.Data! with { AssignableRoles = assignable });
+			}
+			return ApiResults.Answer(player);
 		}
 
 		// The personal data of a player, players.inspect and audited before it is read

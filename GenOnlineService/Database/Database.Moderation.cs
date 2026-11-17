@@ -314,7 +314,7 @@ namespace Database
 		}
 
 		// Newest first, below afterID when set; every filter is optional
-		public static async Task<List<AuditLogEntry>> GetAuditEvents(AppDbContext db, Int64? actorID, Int64? targetID, string? action, Int64? afterID, int limit)
+		public static async Task<List<AuditLogEntry>> GetAuditEvents(AppDbContext db, Int64? actorID, Int64? targetID, string? action, Int64? afterID, int limit, string? targetKind = null)
 		{
 			IQueryable<AuditLogEntry> query = db.AuditLog.AsNoTracking();
 			if (actorID != null)
@@ -325,6 +325,10 @@ namespace Database
 			if (targetID != null)
 			{
 				query = query.Where(e => e.TargetID == targetID);
+			}
+			if (targetKind != null)
+			{
+				query = query.Where(e => e.TargetKind == targetKind);
 			}
 			if (action != null)
 			{

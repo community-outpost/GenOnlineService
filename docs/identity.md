@@ -178,6 +178,17 @@ Roles granted in Keycloak follow a person into every environment without sharing
 - **Group sync (official deployment, recommended):** the Keycloak provider entry gets a `group_sync` setting. When on, the reconcile tick polls Keycloak admin events (group membership added or removed for the mapped groups) with a Keycloak service account client that has only `view-events` and `view-users`. A change rewrites that user's `upstream:keycloak` rows at once; a removal from a staff group or an addition to `genonline-banned` also revokes the user's game sessions in that environment. A removal from `genonline-streamer` keeps the sessions and only sends the new feature list (`FeaturesUpdate`). If Keycloak is unreachable the environment keeps its last state, logs and alerts, and catches up from the last event time; it never grants anything from stale data. Admin events must be enabled in the realm.
 - Only providers marked trusted may assert roles or bans; a self-hoster's Discord sign-in never grants staff.
 
+**Rank rule for role changes.** Staff ranks:
+
+| Role | Rank | Permissions |
+| --- | --- | --- |
+| `owner` | 3 | the same as `admin` |
+| `admin` | 2 | every staff permission |
+| `moderator` | 1 | kick, mute, rename, chat moderation |
+| `streamer`, any other role | 0 | none (client features only) |
+
+A staff member with `roles.manage` (the staff pages, `PUT`/`DELETE /api/v1/players/:id/roles[/:role]`) may grant or revoke a role only when they outrank the player (as for every moderation action: never themself or a peer) and the role ranks strictly below their own highest role (otherwise `roles.rank`). A service account token acts with admin rank. So an owner manages `admin`, `moderator` and `streamer`; an admin manages `moderator` and `streamer` of players and moderators; nobody changes another owner; and `owner` is granted or revoked with the `roles` CLI only, which has no rank. The same ranks decide every other staff action (renames, kicks, mutes, bans, message deletion), so an owner outranks an admin there too. `owner` is local only: a sign-in provider's role mapping that names it is ignored (`Database.Upstream`). Only `local` rows change; a role from a sign-in provider follows its sign-ins. Each change writes a `role_grant` or `role_revoke` audit row and reloads `StaffRoles`.
+
 Effective permissions in `application` = all `user_roles` rows (local and upstream) → `StaffRoles` → `PermissionHandler`. Client features = the same roles → `Features:roles` → `Ready.features`, and `FeaturesUpdate` when the role reload changes the list.
 
 ## 5a. Display names

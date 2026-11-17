@@ -61,6 +61,9 @@ namespace Database
 
 			await using var tx = await db.Database.BeginTransactionAsync();
 
+			// owner is local only: a provider's mapping can never make anyone an owner, so it is dropped here
+			roles = roles.Where(r => r != StaffRoles.Owner).ToList();
+
 			List<UserRole> current = await db.UserRoles.AsTracking().Where(r => r.UserID == userID && r.Source == source).ToListAsync();
 			foreach (UserRole row in current.Where(r => !roles.Contains(r.Role)))
 			{

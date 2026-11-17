@@ -92,6 +92,20 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
+                @if (staff.Can(PortalPermissions.AuditRead))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Administration</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            <BbSidebarMenuItem>
+                                <BbSidebarMenuButton Href="@PortalRoutes.AuditPage" Tooltip="Audit log">
+                                    <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
+                                    <span>Audit log</span>
+                                </BbSidebarMenuButton>
+                            </BbSidebarMenuItem>
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
             }
         </BbSidebarContent>
         <BbSidebarFooter>
@@ -280,6 +294,9 @@
                 {
                     yield return ("Match " + item, null);
                 }
+                break;
+            case "audit":
+                yield return ("Audit log", null);
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);
