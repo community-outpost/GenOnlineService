@@ -155,10 +155,11 @@ namespace GenOnlineService.Portal.Client
 			return new PortalAnswer<PortalMatchPage>(page == null ? null : page with { Total = total, HasNext = hasNext }, null);
 		}
 
-		// reviewed is false, true or all
-		public async Task<PortalAnswer<PortalAntiCheatPage>> GetAntiCheatAsync(string kind, string reviewed, int start, int count, CancellationToken cancellationToken)
+		// reviewed is false, true or all; userID keeps the rows of one player
+		public async Task<PortalAnswer<PortalAntiCheatPage>> GetAntiCheatAsync(string kind, string reviewed, int start, int count, CancellationToken cancellationToken, long? userID = null)
 		{
-			(PortalAnswer<PortalAntiCheatPage> answer, int total) = await GetPageAsync<PortalAntiCheatPage>($"{PortalRoutes.AntiCheat}/{Uri.EscapeDataString(kind)}?reviewed={reviewed}&{PageOf(start, count)}", cancellationToken);
+			string player = userID is long id ? "&user_id=" + id : "";
+			(PortalAnswer<PortalAntiCheatPage> answer, int total) = await GetPageAsync<PortalAntiCheatPage>($"{PortalRoutes.AntiCheat}/{Uri.EscapeDataString(kind)}?reviewed={reviewed}{player}&{PageOf(start, count)}", cancellationToken);
 			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
 		}
 

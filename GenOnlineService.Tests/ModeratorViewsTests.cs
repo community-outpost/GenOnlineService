@@ -94,4 +94,64 @@ public class ModeratorViewsTests
 		Assert.Equal("reported_id", FieldOf(await moderator.Get("/api/v1/reports/search?reported_id=0")));
 		Assert.Equal("reporter_id", FieldOf(await moderator.Get("/api/v1/reports/search?reporter_id=-3")));
 	}
+
+	// Every anti-cheat row raised from now on keeps its time; a row stored before has none and shows the start of its match,
+	// a device row without a match shows neither. A reviewed row names who reviewed it
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AntiCheatRowsCarryTheirTimeAndTheirReviewer(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var admin = new AdminBrowser(probe);
+		await admin.SignUp("Chief", "chief@example.org");
+		User chief = await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
+		User alpha = await AddUser(probe, "Alpha", 1);
+		DateTime before = DateTime.UtcNow.AddSeconds(-1);
+		DateTime started = new DateTime(2026, 11, 1, 18, 30, 0, DateTimeKind.Utc);
+		long matchID;
+		await using (AppDbContext db = probe.Open())
+		{
+			var match = new global::Match { Name = "old game", MapName = "Alpine Assault", IsOfficialMap = true, StartedAt = started };
+			db.Matches.Add(match);
+			await db.SaveChangesAsync();
+			matchID = match.Id;
+
+			// rows of before the column, written without a time
+			db.AnticheatModuleReports.Add(new AnticheatModuleReport { UserId = alpha.ID, MatchId = matchID, ModuleName = "old.dll", ModulePath = "C:\\old.dll", ModuleSize = 1 });
+			db.AnticheatProbeReports.Add(new AnticheatProbeReport { UserId = alpha.ID, MatchId = 0, Reason = "old device" });
+			await db.SaveChangesAsync();
+
+			// rows the service raises now
+			Assert.True(await AntiCheat.FlagAccountForReview_Modules(db, alpha.ID, (ulong)matchID, [new AcModuleReport("new.dll", "C:\\new.dll", 2048)]));
+			await AntiCheat.FlagAccountForReview_SuspectProbes(db, alpha.ID, (ulong)matchID, "Missing probe response");
+			await AntiCheat.FlagAccountForReview_SuspectProbes(db, alpha.ID, 0, "new device");
+			await AntiCheat.FlagAccountForReview_NewAccount_FirstMatches(db, alpha.ID, (ulong)matchID);
+		}
+		DateTime after = DateTime.UtcNow.AddSeconds(1);
+
+		JsonElement[] modules = Rows(await admin.Get("/api/v1/anticheat_reports/modules"), "reports");
+		JsonElement fresh = modules.Single(r => r.GetProperty("module_name").GetString() == "new.dll");
+		Assert.InRange(fresh.GetProperty("reported_at").GetDateTime().ToUniversalTime(), before, after);
+		Assert.False(fresh.TryGetProperty("match_started_at", out _));
+		JsonElement old = modules.Single(r => r.GetProperty("module_name").GetString() == "old.dll");
+		Assert.False(old.TryGetProperty("reported_at", out _));
+		Assert.Equal(started, old.GetProperty("match_started_at").GetDateTime().ToUniversalTime());
+
+		Assert.InRange(Assert.Single(Rows(await admin.Get("/api/v1/anticheat_reports/probes"), "reports")).GetProperty("reported_at").GetDateTime().ToUniversalTime(), before, after);
+		Assert.InRange(Assert.Single(Rows(await admin.Get("/api/v1/anticheat_reports/new_accounts"), "reports")).GetProperty("reported_at").GetDateTime().ToUniversalTime(), before, after);
+		JsonElement[] devices = Rows(await admin.Get("/api/v1/anticheat_reports/devices"), "reports");
+		Assert.InRange(devices.Single(r => r.GetProperty("reason").GetString() == "new device").GetProperty("reported_at").GetDateTime().ToUniversalTime(), before, after);
+		JsonElement oldDevice = devices.Single(r => r.GetProperty("reason").GetString() == "old device");
+		Assert.False(oldDevice.TryGetProperty("reported_at", out _));
+		Assert.False(oldDevice.TryGetProperty("match_started_at", out _));
+
+		// reviewing keeps the row and names the reviewer
+		long oldID = old.GetProperty("id").GetInt64();
+		Assert.Equal(204, (await admin.Patch($"/api/v1/anticheat_reports/modules/{oldID}", new { reviewed = true }, await admin.Csrf())).Status);
+		JsonElement reviewed = Rows(await admin.Get("/api/v1/anticheat_reports/modules?reviewed=true"), "reports").Single();
+		Assert.Equal(chief.ID, reviewed.GetProperty("reviewed_by").GetInt64());
+		Assert.Equal("Chief", reviewed.GetProperty("reviewer").GetProperty("name").GetString());
+		Assert.Equal(JsonValueKind.Null, fresh.GetProperty("reviewer").ValueKind);
+	}
 }

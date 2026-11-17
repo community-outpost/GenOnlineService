@@ -501,10 +501,23 @@ namespace GenOnlineService.Portal.Client
 		public int? PlaylistId { get; init; }
 		public string? Method { get; init; }
 		public IReadOnlyList<int>? Sides { get; init; }
-		public DateTime? ReportedAt { get; init; }
-		public DateTime? ReviewedAt { get; init; }
 
-		public string SideList => Sides == null ? "" : String.Join(", ", Sides);
+		// when the row was raised; an older row without it carries the start of its match
+		public DateTime? ReportedAt { get; init; }
+		public DateTime? MatchStartedAt { get; init; }
+		public DateTime? ReviewedAt { get; init; }
+		public PortalMember? Reviewer { get; init; }
+
+		public string SideList => Sides == null ? "" : String.Join(", ", Sides.Select(PortalText.Side));
+	}
+
+	// One page of a review list as the address holds it: unreviewed (default), reviewed or all
+	public static class PortalReviewState
+	{
+		public const string Unreviewed = "false";
+		public static readonly IReadOnlyList<string> All = [Unreviewed, "true", "all"];
+
+		public static string FromAddress(string? reviewed) => reviewed != null && All.Contains(reviewed) ? reviewed : Unreviewed;
 	}
 
 	public sealed record PortalAntiCheatPage
