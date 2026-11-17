@@ -303,6 +303,7 @@ To rotate the data protection certificate, list the new certificate first and ke
 
 ```
 /users/sign_in, /users/sign_up, /users/sign_out, /users/password, /users/confirmation   (HTML)
+/users/sign_up/welcome (choose a name), /profile/two_factor_auth                          (HTML)
 /users/two_factor, /profile/account, /profile/applications, /profile/identities          (HTML)
 /users/auth/:provider, /users/auth/:provider/callback                                     (upstream sign-in)
 /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect, /oauth/userinfo         (OpenIddict)

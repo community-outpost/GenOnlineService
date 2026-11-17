@@ -201,6 +201,49 @@ namespace Database
 			return changes;
 		}
 
+		// The neutral name of an account that still owes a chosen one (S17): "Player" and six digits, so pending accounts
+		// spread over many names and never run out of tags
+		public static string Placeholder() => "Player" + Random.Shared.Next(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
+
+		// The name a player owes, chosen: the tag stays when the new name is free with it, otherwise a free one is drawn, so the
+		// choice never fails on a taken tag. Settles name_required_at even when the name is unchanged. False when the user is gone.
+		public static async Task<(bool Found, NameChange? Change)> Choose(AppDbContext db, Int64 userID, string name, string changedBy)
+		{
+			for (int attempt = 1; ; attempt++)
+			{
+				User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID);
+				if (user == null)
+				{
+					return (false, null);
+				}
+
+				NameChange? change = null;
+				if (!String.Equals(user.Username, name, StringComparison.Ordinal))
+				{
+					string key = NameKey.Of(name);
+					string normalized = NameNormalizer.Normalize(name);
+					int tag = user.NameTag;
+					if (await db.Users.AnyAsync(u => u.ID != userID && u.NameTag == tag && (u.NameKey == key || u.UsernameNormalized == normalized)))
+					{
+						tag = await FreeTag(db, name, userID);
+					}
+					change = Record(db, user, name, tag, changedBy);
+				}
+				user.NameRequiredAt = null;
+
+				try
+				{
+					await db.SaveChangesAsync();
+					return (true, change);
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				{
+					// another player took the name with that tag at the same moment; draw again
+					db.ChangeTracker.Clear();
+				}
+			}
+		}
+
 		// A rename where the environment owns names (self-hosted): the tag is static, and the new name with that tag must be
 		// free under the plugin's key (NameKey), so Bob#0042 and B0b#0042 never both exist. The unique index decides a race.
 		public static async Task<(LocalRenameOutcome Outcome, NameChange? Change)> RenameKeepingTag(AppDbContext db, Int64 userID, string name, string changedBy)
@@ -258,6 +301,8 @@ namespace Database
 			user.NameTag = tag;
 			user.RenamedAt = now;
 			user.UpdatedAt = now;
+			// any new name settles one the player owed; a staff name reset owes it again afterwards
+			user.NameRequiredAt = null;
 			return change;
 		}
 

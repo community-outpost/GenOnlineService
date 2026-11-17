@@ -46,6 +46,39 @@ namespace GenOnlineService.Names
 			return result;
 		}
 
+		// The player chooses the name they owe (S17), with the rules of a rename; a taken tag draws a free one instead
+		public async Task<Result<Empty>> ChooseAsync(Int64 me, string? requested)
+		{
+			string name = (requested ?? String.Empty).Trim();
+			Failure? invalid = CheckRules(me, name);
+			if (invalid != null)
+			{
+				return invalid.Value;
+			}
+
+			bool found;
+			NameChange? change;
+			try
+			{
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+				(found, change) = await Database.DisplayNames.Choose(db, me, name, $"user:{me}");
+			}
+			catch (NameTagsExhaustedException)
+			{
+				return Result.Fail(ErrorCodes.NameTaken);
+			}
+
+			if (!found)
+			{
+				return Result.NotFound("user");
+			}
+			if (change != null)
+			{
+				await RealtimeNames.PublishOne(change);
+			}
+			return Result.Success();
+		}
+
 		// Staff replace an offensive name: moderation.rename (checked by the caller), the rank rule and an audit_log row
 		public async Task<Result<Empty>> RenameByStaffAsync(Database.ModerationActor actor, Int64 target, string? requested, string? reason)
 		{

@@ -222,6 +222,8 @@ namespace GenOnlineService.Identity
 
 			services.AddScoped<UpstreamAccounts>();
 			services.AddScoped<PasswordAccounts>();
+			// the choose-a-name page renames through the same rules as every other rename; the host may have added it already
+			services.TryAddSingleton<Names.PlayerNames>();
 
 			// the consent page posts back to /oauth/authorize with an antiforgery token
 			services.AddAntiforgery(options =>

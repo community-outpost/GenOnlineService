@@ -43,17 +43,19 @@ namespace GenOnlineService.Identity
 		private readonly UserManager<User> m_users;
 		private readonly UpstreamAccounts m_upstream;
 		private readonly PasswordAccounts m_passwords;
+		private readonly Names.PlayerNames m_names;
 		private readonly IOpenIddictApplicationManager m_applications;
 		private readonly IOpenIddictAuthorizationManager m_authorizations;
 
 		public AccountsController(AccountsSettings settings, SignInManager<User> signIn, UserManager<User> users, UpstreamAccounts upstream,
-			PasswordAccounts passwords, IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations)
+			PasswordAccounts passwords, Names.PlayerNames names, IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations)
 		{
 			m_settings = settings;
 			m_signIn = signIn;
 			m_users = users;
 			m_upstream = upstream;
 			m_passwords = passwords;
+			m_names = names;
 			m_applications = applications;
 			m_authorizations = authorizations;
 		}
@@ -460,6 +462,79 @@ namespace GenOnlineService.Identity
 			return LocalRedirect(target);
 		}
 
+		// Choosing a name (S17), GitLab's post-sign-up step: a provider sign-up owes one, and so does a player whose name staff reset
+
+		private static string WelcomeUrl(string target) => $"{NameSuggestion.PagePath}?{ReturnUrlField}={Uri.EscapeDataString(target)}";
+
+		[HttpGet("~/users/sign_up/welcome")]
+		public async Task<IActionResult> WelcomePage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
+		{
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (user.NameRequiredAt == null)
+			{
+				return LocalRedirect(target);
+			}
+			return WelcomeForm(200, target, NameSuggestion.Read(HttpContext, user.ID), null);
+		}
+
+		private ContentResult WelcomeForm(int status, string target, string? displayName, string? message)
+		{
+			var body = new System.Text.StringBuilder(Message(message));
+			body.Append("<p>This is the name other players see. Choose your own; you can change it later.</p>");
+			body.Append(FormStart(NameSuggestion.PagePath, target));
+			body.Append($"<p><label>Player name <input type=\"text\" name=\"display_name\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required value=\"{WebUtility.HtmlEncode(displayName)}\"></label></p>");
+			body.Append("<p><button type=\"submit\">Continue</button></p></form>");
+			return Page(status, "Choose your player name", body.ToString());
+		}
+
+		[HttpPost("~/users/sign_up/welcome")]
+		public async Task<IActionResult> Welcome([FromForm(Name = "display_name")] string? displayName, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (user.NameRequiredAt == null)
+			{
+				return LocalRedirect(target);
+			}
+
+			Realtime.Result<Realtime.Empty> chosen = await m_names.ChooseAsync(user.ID, displayName);
+			if (!chosen.Ok)
+			{
+				string message = chosen.Code switch
+				{
+					Realtime.ErrorCodes.NameLength => $"Names must be {Realtime.RealtimeHub.NameMinLength} to {Realtime.RealtimeHub.NameMaxLength} characters.",
+					Realtime.ErrorCodes.NameWhitespace => "Names cannot start or end with a space.",
+					Realtime.ErrorCodes.NameReserved => "This name contains a reserved word.",
+					Realtime.ErrorCodes.NameTaken => "This name is taken. Please choose another.",
+					_ => "This name has characters that are not allowed."
+				};
+				return WelcomeForm(400, target, displayName, message);
+			}
+
+			NameSuggestion.Clear(HttpContext);
+			// the sign-in cookie carries the name, so it is reissued with the chosen one
+			User? renamed = await m_users.FindByIdAsync(user.ID.ToString());
+			if (renamed != null)
+			{
+				await m_signIn.RefreshSignInAsync(renamed);
+			}
+			return LocalRedirect(target);
+		}
+
 		[HttpGet("~/users/auth/{provider}")]
 		public IActionResult Challenge(string provider, [FromQuery] string? returnUrl)
 		{
@@ -547,6 +622,15 @@ namespace GenOnlineService.Identity
 
 			await m_signIn.SignInAsync(signIn.User, isPersistent: false, authenticationMethod: provider);
 			string? returnUrl = steam ? result.Properties!.GetString(SteamReturnUrlItem) : result.Properties?.RedirectUri;
+			if (signIn.User.NameRequiredAt != null)
+			{
+				// a new player chooses their name first; the provider's name only fills the box (S17)
+				if (signIn.SuggestedName != null)
+				{
+					NameSuggestion.Write(HttpContext, signIn.User.ID, signIn.SuggestedName);
+				}
+				return LocalRedirect(WelcomeUrl(SafeReturnUrl(returnUrl)));
+			}
 			return LocalRedirect(SafeReturnUrl(returnUrl));
 		}
 
@@ -555,6 +639,13 @@ namespace GenOnlineService.Identity
 		{
 			await m_signIn.SignOutAsync();
 			return Page(200, "Signed out", "<p>You are signed out.</p>");
+		}
+
+		// This authorize request again, without prompt, for a page to send the user back to
+		private string AuthorizeAgain()
+		{
+			string query = QueryString.Create((Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList()).Where(p => p.Key != Parameters.Prompt).ToList()).ToString();
+			return Request.PathBase + Request.Path + query;
 		}
 
 		[AcceptVerbs("GET", "POST", Route = "~/oauth/authorize")]
@@ -592,8 +683,18 @@ namespace GenOnlineService.Identity
 					return Forbid(Error(Errors.InteractionRequired, "Two-factor sign-in must be set up first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 				}
 
-				string query = QueryString.Create((Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList()).Where(p => p.Key != Parameters.Prompt).ToList()).ToString();
-				return LocalRedirect($"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(Request.PathBase + Request.Path + query)}");
+				return LocalRedirect($"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(AuthorizeAgain())}");
+			}
+
+			// a player who owes a name chooses it before any token, then comes back here (S17)
+			if (user.NameRequiredAt != null)
+			{
+				if (request.HasPromptValue(PromptValues.None))
+				{
+					return Forbid(Error(Errors.InteractionRequired, "The player must choose a name first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+				}
+
+				return LocalRedirect(WelcomeUrl(AuthorizeAgain()));
 			}
 
 			object application = await m_applications.FindByClientIdAsync(request.ClientId!) ?? throw new InvalidOperationException("Unknown client.");
