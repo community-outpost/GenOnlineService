@@ -43,6 +43,16 @@ namespace GenOnlineService.Identity
 	// One upstream sign-in provider: it signs people in, the environment owns their names, roles and bans
 	public sealed class UpstreamProviderSettings
 	{
+		// The name a provider's button shows when its configuration sets no display_name
+		public static string DefaultDisplayName(string provider) => provider switch
+		{
+			"discord" => "Discord",
+			"steam" => "Steam",
+			"google" => "Google",
+			"gamereplays" => "GameReplays",
+			_ => provider,
+		};
+
 		public string Name { get; init; } = String.Empty;
 		public ProviderKind Kind { get; init; } = ProviderKind.Oidc;
 		// GameReplays: the folder of authorize.php, token.php and resource.php
@@ -235,7 +245,7 @@ namespace GenOnlineService.Identity
 				Kind = UpstreamProviderSettings.KindOf(p.Key, p.GetValue<string>("kind")),
 				BaseUrl = (p.GetValue<string>("base_url") ?? String.Empty).TrimEnd('/'),
 				ApplicationKey = String.IsNullOrEmpty(p.GetValue<string>("application_key")) ? null : p.GetValue<string>("application_key"),
-				DisplayName = p.GetValue<string>("display_name") ?? p.Key,
+				DisplayName = p.GetValue<string>("display_name") ?? UpstreamProviderSettings.DefaultDisplayName(p.Key),
 				Enabled = p.GetValue<bool>("enabled"),
 				Issuer = p.GetValue<string>("issuer") ?? String.Empty,
 				ClientID = p.GetValue<string>("client_id") ?? String.Empty,

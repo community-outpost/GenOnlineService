@@ -71,29 +71,45 @@ public class PortalLookTests
 		Assert.True(File.Exists(FileOf(PortalLook.ThemePath)));
 		Assert.True(File.Exists(FileOf(PortalLook.StylesheetPath)));
 		Assert.True(File.Exists(FileOf(PortalLook.GeneralsPath)));
+		Assert.True(File.Exists(FileOf(PortalLook.PosterPath)));
+		Assert.True(File.Exists(FileOf(PortalLook.LogoPath)));
+		Assert.True(File.Exists(FileOf(PortalLook.GameReplaysLogoPath)));
 	}
 
-	// dark only, and every go-* class the pages use is defined in generals.css
+	private static readonly (string, string, string)[] s_providers = [("/a", "discord", "Discord"), ("/b", "steam", "Steam"), ("/c", "google", "Google"), ("/d", "gamereplays", "GameReplays")];
+
+	// dark only, the poster in the branded panel, every go-* class the pages use defined in generals.css, and the icons
+	// and provider marks drawn
 	[Fact]
 	public void ThePagesAreDarkWithTheGeneralsLook()
 	{
-		string page = PortalLook.Document("Title", PortalLook.Text("t"));
+		string page = PortalLook.Document("Title", PortalLook.Text("t") + PortalLook.Field("f", "F", "type=\"text\"", icon: "mail") + PortalLook.Submit("s", icon: "log-in")
+			+ PortalLook.Separator("Or continue with") + PortalLook.Providers(s_providers) + PortalLook.Alert("a"), "Description");
 		Assert.Contains("<html lang=\"en\" class=\"dark\">", page);
 		Assert.DoesNotContain("<script", page);
+		Assert.Contains("Description", page);
+		// the field, the button, three provider marks and the alert; GameReplays' logo and Generals Online's are images
+		Assert.Equal(6, Regex.Matches(page, "<svg ").Count);
+		Assert.Contains($"src=\"{PortalLook.GameReplaysLogoPath}\"", page);
+		Assert.Contains($"src=\"{PortalLook.LogoPath}\" alt=\"Generals Online\"", page);
+		Assert.Contains("Sign in with Google</a>", page);
+		Assert.Contains("fill=\"#4285F4\"", page); // Google's own colours
 
 		string generals = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		Assert.Contains($"url(\"{PortalLook.PosterPath}\")", generals);
 		foreach (string goClass in Regex.Matches(page, "class=\"([^\"]*)\"").SelectMany(m => m.Groups[1].Value.Split(' ')).Where(c => c.StartsWith("go-", StringComparison.Ordinal)).Distinct())
 		{
-			Assert.Contains("." + goClass + " {", generals);
+			Assert.Matches(new Regex(Regex.Escape("." + goClass) + "[ :{,]"), generals);
 		}
 	}
 
 	[Fact]
 	public void EveryHelperClassIsInTheStylesheet()
 	{
-		string page = PortalLook.Document("Title", PortalLook.Text("t") + PortalLook.Field("f", "F", "type=\"text\"", "v") + PortalLook.Submit("s")
-			+ PortalLook.Submit("o", "n", "v", outline: true) + PortalLook.LinkButton("/", "l") + PortalLook.LinkButton("/", "p", outline: false)
-			+ PortalLook.Link("/", "k") + PortalLook.Alert("a") + PortalLook.Alert("b", success: true) + PortalLook.Separator());
+		string page = PortalLook.Document("Title", PortalLook.Text("t") + PortalLook.Field("f", "F", "type=\"text\"", "v", icon: "mail") + PortalLook.Submit("s", icon: "log-in")
+			+ PortalLook.Submit("o", "n", "v", outline: true) + PortalLook.LinkButton("/", "l") + PortalLook.LinkButton("/", "p", outline: false, icon: "arrow-right")
+			+ PortalLook.Providers(s_providers) + PortalLook.Link("/", "k", "lead") + PortalLook.Alert("a") + PortalLook.Alert("b", success: true)
+			+ PortalLook.Separator() + PortalLook.Separator("or"), "Description");
 
 		Assert.Contains($"href=\"{PortalLook.ThemePath}\"", page);
 		Assert.Contains($"href=\"{PortalLook.StylesheetPath}\"", page);
