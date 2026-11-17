@@ -118,7 +118,7 @@ namespace GenOnlineService.Tests
 		[Fact]
 		public void ReviewKindsAreTheFourLists()
 		{
-			Assert.Equal(["new_accounts", "modules", "probes", "devices"], AntiCheatReviewKinds.All);
+			Assert.Equal(["new_accounts", "modules", "probes", "devices", "quickmatch_rules"], AntiCheatReviewKinds.All);
 			Assert.False(AntiCheatReviewKinds.IsKnown("crc"));
 			Assert.False(AntiCheatReviewKinds.IsKnown(null));
 		}
