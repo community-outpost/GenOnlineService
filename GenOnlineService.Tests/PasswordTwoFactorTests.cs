@@ -204,8 +204,16 @@ public class PasswordTwoFactorTests
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(browser, "seen2fa@example.org", "the right password")).Status);
 		Assert.Equal(old, (await PasswordPagesTests.UserByEmail(probe, "seen2fa@example.org"))!.LastSignInAt);
 
+		// wrong codes count toward the lockout until the right one resets the count; recording the sign-in keeps that reset
+		string wrong = Totp(key) == "000000" ? "111111" : "000000";
+		Assert.Equal(401, (await SecondFactor(browser, "code", wrong)).Status);
+		Assert.Equal(401, (await SecondFactor(browser, "code", wrong)).Status);
+		Assert.Equal(2, (await PasswordPagesTests.UserByEmail(probe, "seen2fa@example.org"))!.FailedSignInCount);
+
 		Assert.Equal(302, (await SecondFactor(browser, "code", Totp(key))).Status);
-		Assert.True((await PasswordPagesTests.UserByEmail(probe, "seen2fa@example.org"))!.LastSignInAt >= before);
+		User signedIn = (await PasswordPagesTests.UserByEmail(probe, "seen2fa@example.org"))!;
+		Assert.True(signedIn.LastSignInAt >= before);
+		Assert.Equal(0, signedIn.FailedSignInCount);
 	}
 
 	// the code page is only for someone who just gave the right password

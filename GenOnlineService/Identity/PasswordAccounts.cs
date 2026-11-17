@@ -163,15 +163,14 @@ namespace GenOnlineService.Identity
 		}
 
 		// Records a finished password sign-in (after the second factor when there is one) as the account's last sign-in,
-		// as provider sign-ins and game client sessions already do
+		// as provider sign-ins and game client sessions already do. Only that column is written: the caller's User may
+		// predate Identity's own save of the sign-in (the failed count reset), and saving the whole row would undo it.
 		public async Task RecordSignIn(User user)
 		{
-			user.LastSignInAt = DateTime.UtcNow;
-			IdentityResult saved = await m_users.UpdateAsync(user);
-			if (!saved.Succeeded)
-			{
-				throw new InvalidOperationException($"Recording the sign-in of user {user.ID} failed: {String.Join("; ", saved.Errors.Select(e => e.Code))}");
-			}
+			DateTime now = DateTime.UtcNow;
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			await db.Users.Where(u => u.ID == user.ID).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.LastSignInAt, now));
+			user.LastSignInAt = now;
 		}
 
 		// The address as typed (trimmed) when it is one plain address with a dotted domain, else null
