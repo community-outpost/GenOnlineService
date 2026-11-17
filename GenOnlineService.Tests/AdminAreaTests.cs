@@ -16,8 +16,10 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
 using GenOnlineService.Identity;
 using GenOnlineService.Portal;
+using GenOnlineService.Rest;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -28,6 +30,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -35,148 +38,157 @@ using Xunit;
 
 namespace GenOnlineService.Tests;
 
-// The staff pages under /admin and their cookie API under /admin/api (S12, T14b): a signed-out request and a signed-in
-// player are refused, a staff member with the right permission gets in, every change needs the antiforgery header
-// The rank probe reloads the process-wide StaffRoles cache, so this class runs alone, after the parallel tests
+// The rank probe reloads the process-wide StaffRoles cache and the bearer probe the process-wide API token cache,
+// so the classes of this collection run alone, after the parallel tests
 [CollectionDefinition(AdminAreaCollection.Name, DisableParallelization = true)]
 public sealed class AdminAreaCollection
 {
 	public const string Name = "Admin area (process-wide roles)";
 }
 
-[Collection(AdminAreaCollection.Name)]
-public class AdminAreaTests
+// The accounts pages, the staff pages and /api/v1 in one in-process pipeline, as Program wires them
+internal sealed class AdminBrowser
 {
-	// The accounts pages and the staff area in one in-process pipeline, as Program wires them
-	private sealed class AdminBrowser
+	public const string Host = "accounts.test";
+
+	private readonly RequestDelegate m_pipeline;
+	private readonly IServiceProvider m_services;
+	private readonly Dictionary<string, string> m_cookies = new();
+
+	public AdminBrowser(ProbeDatabase probe)
 	{
-		private readonly RequestDelegate m_pipeline;
-		private readonly IServiceProvider m_services;
-		private readonly Dictionary<string, string> m_cookies = new();
+		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled()) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
+		IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+		AccountsSettings accounts = AccountsSettings.Read(configuration);
 
-		public AdminBrowser(ProbeDatabase probe)
+		ServiceCollection services = new();
+		services.AddLogging();
+		services.AddSingleton(configuration);
+		var diagnostics = new System.Diagnostics.DiagnosticListener(nameof(AdminAreaTests));
+		services.AddSingleton(diagnostics);
+		services.AddSingleton<System.Diagnostics.DiagnosticSource>(diagnostics);
+		services.AddSingleton<IWebHostEnvironment>(new TestEnvironment());
+		services.AddSingleton<IHostEnvironment>(sp => sp.GetRequiredService<IWebHostEnvironment>());
+		services.AddSingleton<IDbContextFactory<AppDbContext>>(new ProbeFactory(probe));
+		services.AddSingleton(accounts);
+		services.AddApiAuthentication(signInCookie: true);
+		services.AddGenOnlineIdentity(accounts, development: true);
+		services.AddRouting();
+		services.AddControllers().AddApplicationPart(typeof(AccountsController).Assembly);
+		// the perm:<name> policies of the host; the handler maps the probe database's roles with the real role table,
+		// as the process-wide role cache (StaffRoles) would mix up the user ids of parallel probe databases
+		services.AddAuthorization();
+		services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+		services.AddSingleton<IAuthorizationHandler, ProbeRolesHandler>();
+		services.AddSingleton<IAuthorizationHandler, TokenPermissionHandler>();
+		PortalSetup.AddPortal(services);
+		m_services = services.BuildServiceProvider();
+
+		var app = new ApplicationBuilder(m_services);
+		app.UseRouting();
+		app.Use(RestSetup.StatusBodies);
+		app.UseAuthentication();
+		app.UseSignInCookieRules();
+		app.UseAuthorization();
+		app.UsePortal();
+		app.UseEndpoints(endpoints =>
 		{
-			Dictionary<string, string?> values = new(PasswordPagesTests.Enabled()) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
-			IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-			AccountsSettings accounts = AccountsSettings.Read(configuration);
+			endpoints.MapControllers();
+			endpoints.MapPortal();
+		});
+		m_pipeline = app.Build();
+	}
 
-			ServiceCollection services = new();
-			services.AddLogging();
-			services.AddSingleton(configuration);
-			var diagnostics = new System.Diagnostics.DiagnosticListener(nameof(AdminAreaTests));
-			services.AddSingleton(diagnostics);
-			services.AddSingleton<System.Diagnostics.DiagnosticSource>(diagnostics);
-			services.AddSingleton<IWebHostEnvironment>(new TestEnvironment());
-			services.AddSingleton<IHostEnvironment>(sp => sp.GetRequiredService<IWebHostEnvironment>());
-			services.AddSingleton<IDbContextFactory<AppDbContext>>(new ProbeFactory(probe));
-			services.AddSingleton(accounts);
-			services.AddGenOnlineIdentity(accounts, development: true);
-			services.AddRouting();
-			services.AddControllers().AddApplicationPart(typeof(AccountsController).Assembly);
-			// the perm:<name> policies of the host; the handler maps the probe database's roles with the real role table,
-			// as the process-wide role cache (StaffRoles) would mix up the user ids of parallel probe databases
-			services.AddAuthorization();
-			services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
-			services.AddSingleton<IAuthorizationHandler, ProbeRolesHandler>();
-			PortalSetup.AddPortal(services);
-			m_services = services.BuildServiceProvider();
+	public Task<PageResponse> Get(string path, Dictionary<string, string>? headers = null) => Send("GET", path, null, null, headers);
 
-			var app = new ApplicationBuilder(m_services);
-			app.UseRouting();
-			app.UseAuthentication();
-			app.UseAuthorization();
-			app.UsePortal();
-			app.UseEndpoints(endpoints =>
+	public Task<PageResponse> Post(string path, Dictionary<string, string> form) => Send("POST", path, form, null, null);
+
+	public Task<PageResponse> Patch(string path, object json, Dictionary<string, string>? headers = null) => Send("PATCH", path, null, json, headers);
+
+	// any method with a JSON body (POST, DELETE)
+	public Task<PageResponse> SendJson(string method, string path, object json, Dictionary<string, string>? headers = null) => Send(method, path, null, json, headers);
+
+	private async Task<PageResponse> Send(string method, string pathAndQuery, Dictionary<string, string>? form, object? json, Dictionary<string, string>? headers)
+	{
+		using IServiceScope scope = m_services.CreateScope();
+		var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+		scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext = context;
+		context.Request.Method = method;
+		context.Request.Scheme = "http";
+		context.Request.Host = new HostString(Host);
+		int query = pathAndQuery.IndexOf('?');
+		context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery.Substring(0, query);
+		context.Request.QueryString = query < 0 ? QueryString.Empty : new QueryString(pathAndQuery.Substring(query));
+		if (m_cookies.Count > 0)
+		{
+			context.Request.Headers.Cookie = String.Join("; ", m_cookies.Select(c => $"{c.Key}={c.Value}"));
+		}
+		foreach ((string name, string value) in headers ?? new Dictionary<string, string>())
+		{
+			context.Request.Headers[name] = value;
+		}
+		byte[]? body = null;
+		if (form != null)
+		{
+			body = Encoding.UTF8.GetBytes(String.Join("&", form.Select(f => $"{Uri.EscapeDataString(f.Key)}={Uri.EscapeDataString(f.Value)}")));
+			context.Request.ContentType = "application/x-www-form-urlencoded";
+		}
+		else if (json != null)
+		{
+			body = JsonSerializer.SerializeToUtf8Bytes(json);
+			context.Request.ContentType = "application/json";
+		}
+		if (body != null)
+		{
+			context.Request.ContentLength = body.Length;
+			context.Request.Body = new MemoryStream(body);
+		}
+		var responseBody = new MemoryStream();
+		context.Response.Body = responseBody;
+
+		await m_pipeline(context);
+
+		List<string> setCookies = context.Response.Headers.SetCookie.Select(c => c!).ToList();
+		foreach (string cookie in setCookies)
+		{
+			string pair = cookie.Split(';')[0];
+			int equals = pair.IndexOf('=');
+			string name = pair.Substring(0, equals);
+			string value = pair.Substring(equals + 1);
+			if (value.Length == 0 || cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase))
 			{
-				endpoints.MapControllers();
-				endpoints.MapPortal();
-			});
-			m_pipeline = app.Build();
+				m_cookies.Remove(name);
+			}
+			else
+			{
+				m_cookies[name] = value;
+			}
 		}
 
-		public Task<PageResponse> Get(string path, Dictionary<string, string>? headers = null) => Send("GET", path, null, null, headers);
+		return new PageResponse(context.Response.StatusCode, Encoding.UTF8.GetString(responseBody.ToArray()), context.Response.Headers.Location.ToString() is { Length: > 0 } l ? l : null, setCookies, context.Response.Headers.XFrameOptions.ToString());
+	}
 
-		public Task<PageResponse> Post(string path, Dictionary<string, string> form) => Send("POST", path, form, null, null);
-
-		public Task<PageResponse> Patch(string path, object json, Dictionary<string, string>? headers = null) => Send("PATCH", path, null, json, headers);
-
-		// any method with a JSON body (POST, DELETE)
-		public Task<PageResponse> SendJson(string method, string path, object json, Dictionary<string, string>? headers = null) => Send(method, path, null, json, headers);
-
-		private async Task<PageResponse> Send(string method, string pathAndQuery, Dictionary<string, string>? form, object? json, Dictionary<string, string>? headers)
+	// Signs up a password account through the real sign-up page, which signs it in
+	public async Task SignUp(string name, string email)
+	{
+		PageResponse page = await Get("/users/sign_up");
+		Assert.Equal(200, page.Status);
+		PageResponse created = await Post("/users/sign_up", new()
 		{
-			using IServiceScope scope = m_services.CreateScope();
-			var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
-			scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext = context;
-			context.Request.Method = method;
-			context.Request.Scheme = "http";
-			context.Request.Host = new HostString("accounts.test");
-			int query = pathAndQuery.IndexOf('?');
-			context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery.Substring(0, query);
-			context.Request.QueryString = query < 0 ? QueryString.Empty : new QueryString(pathAndQuery.Substring(query));
-			if (m_cookies.Count > 0)
-			{
-				context.Request.Headers.Cookie = String.Join("; ", m_cookies.Select(c => $"{c.Key}={c.Value}"));
-			}
-			foreach ((string name, string value) in headers ?? new Dictionary<string, string>())
-			{
-				context.Request.Headers[name] = value;
-			}
-			byte[]? body = null;
-			if (form != null)
-			{
-				body = Encoding.UTF8.GetBytes(String.Join("&", form.Select(f => $"{Uri.EscapeDataString(f.Key)}={Uri.EscapeDataString(f.Value)}")));
-				context.Request.ContentType = "application/x-www-form-urlencoded";
-			}
-			else if (json != null)
-			{
-				body = JsonSerializer.SerializeToUtf8Bytes(json);
-				context.Request.ContentType = "application/json";
-			}
-			if (body != null)
-			{
-				context.Request.ContentLength = body.Length;
-				context.Request.Body = new MemoryStream(body);
-			}
-			var responseBody = new MemoryStream();
-			context.Response.Body = responseBody;
+			["__go_consent_token"] = AccountsBrowser.Token(page),
+			["display_name"] = name,
+			["email"] = email,
+			["password"] = "a long enough password"
+		});
+		Assert.Equal(302, created.Status);
+	}
 
-			await m_pipeline(context);
-
-			List<string> setCookies = context.Response.Headers.SetCookie.Select(c => c!).ToList();
-			foreach (string cookie in setCookies)
-			{
-				string pair = cookie.Split(';')[0];
-				int equals = pair.IndexOf('=');
-				string name = pair.Substring(0, equals);
-				string value = pair.Substring(equals + 1);
-				if (value.Length == 0 || cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase))
-				{
-					m_cookies.Remove(name);
-				}
-				else
-				{
-					m_cookies[name] = value;
-				}
-			}
-
-			return new PageResponse(context.Response.StatusCode, Encoding.UTF8.GetString(responseBody.ToArray()), context.Response.Headers.Location.ToString() is { Length: > 0 } l ? l : null, setCookies, context.Response.Headers.XFrameOptions.ToString());
-		}
-
-		// Signs up a password account through the real sign-up page, which signs it in
-		public async Task SignUp(string name, string email)
-		{
-			PageResponse page = await Get("/users/sign_up");
-			Assert.Equal(200, page.Status);
-			PageResponse created = await Post("/users/sign_up", new()
-			{
-				["__go_consent_token"] = AccountsBrowser.Token(page),
-				["display_name"] = name,
-				["email"] = email,
-				["password"] = "a long enough password"
-			});
-			Assert.Equal(302, created.Status);
-		}
+	// The antiforgery header and token the staff pages read from the <meta> tags of their host page
+	public async Task<Dictionary<string, string>> Csrf()
+	{
+		PageResponse page = await Get("/admin/reports");
+		Assert.Equal(200, page.Status);
+		return new Dictionary<string, string> { [AdminArea.Meta(page, "csrf-header")] = AdminArea.Meta(page, "csrf-token") };
 	}
 
 	private sealed class TestEnvironment : IWebHostEnvironment
@@ -201,7 +213,9 @@ public class AdminAreaTests
 
 		protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
 		{
-			if (!Int64.TryParse(context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out Int64 userID))
+			// a token principal passes on its own claims only (TokenPermissionHandler), as in PermissionHandler
+			if (context.User.Identities.Any(i => i.IsAuthenticated && i.AuthenticationType == TokenPrincipal.AuthenticationType)
+				|| !Int64.TryParse(context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out Int64 userID))
 			{
 				return;
 			}
@@ -214,7 +228,23 @@ public class AdminAreaTests
 		}
 	}
 
-	private static async Task<User> Grant(ProbeDatabase probe, string email, string role, bool twoFactor = true)
+	// The token half of PermissionHandler: an API token passes on its own permission claims
+	private sealed class TokenPermissionHandler : AuthorizationHandler<PermissionRequirement>
+	{
+		protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
+		{
+			if (ApiTokenPrincipals.HasPermission(context.User, requirement.Permission))
+			{
+				context.Succeed(requirement);
+			}
+			return Task.CompletedTask;
+		}
+	}
+}
+
+internal static class AdminArea
+{
+	public static async Task<User> Grant(ProbeDatabase probe, string email, string role, bool twoFactor = true)
 	{
 		User user = (await PasswordPagesTests.UserByEmail(probe, email))!;
 		await using AppDbContext db = probe.Open();
@@ -228,7 +258,22 @@ public class AdminAreaTests
 		return user;
 	}
 
-	private static string ErrorOf(PageResponse response) => JsonDocument.Parse(response.Body).RootElement.GetProperty("error").GetString()!;
+	public static string ErrorOf(PageResponse response) => JsonDocument.Parse(response.Body).RootElement.GetProperty("error").GetString()!;
+
+	public static string Meta(PageResponse page, string name)
+	{
+		System.Text.RegularExpressions.Match match = Regex.Match(page.Body, "<meta name=\"" + Regex.Escape(name) + "\" content=\"([^\"]*)\"");
+		Assert.True(match.Success, "the page has no meta " + name + ": " + page.Body);
+		return WebUtility.HtmlDecode(match.Groups[1].Value);
+	}
+}
+
+// The staff pages under /admin (S12, T14b) calling /api/v1 with the sign-in cookie (T16): a signed-out request and a
+// signed-in player are refused, a staff member with the right permission gets in, every change needs the antiforgery header
+[Collection(AdminAreaCollection.Name)]
+public class AdminAreaTests
+{
+	private static readonly string[] s_staffReads = ["/api/v1/reports/search", "/api/v1/players/search?query=ab", "/api/v1/anticheat_reports/modules"];
 
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
@@ -245,13 +290,13 @@ public class AdminAreaTests
 			Assert.Equal("http://accounts.test/users/sign_in?ReturnUrl=" + Uri.EscapeDataString(page), response.Location);
 		}
 
-		foreach (string api in new[] { "/admin/api/session", "/admin/api/reports", "/admin/api/players?search=ab", "/admin/api/anticheat/modules" })
+		foreach (string api in s_staffReads)
 		{
 			PageResponse response = await browser.Get(api);
 			Assert.Equal(401, response.Status);
-			Assert.Equal("unauthorized", ErrorOf(response));
+			Assert.Equal("unauthorized", AdminArea.ErrorOf(response));
 		}
-		Assert.Equal(401, (await browser.Patch("/admin/api/reports/1", new { status = "dismissed" })).Status);
+		Assert.Equal(401, (await browser.Patch("/api/v1/reports/1", new { status = "dismissed" })).Status);
 	}
 
 	[ProbeTheory]
@@ -267,17 +312,14 @@ public class AdminAreaTests
 		Assert.Equal(403, page.Status);
 		Assert.Contains("Your account holds no staff permission.", page.Body);
 		Assert.DoesNotContain("blazor.web.js", page.Body);
+		Assert.DoesNotContain("csrf-token", page.Body);
 
-		PageResponse reports = await browser.Get("/admin/api/reports");
-		Assert.Equal(403, reports.Status);
-		Assert.Equal("forbidden", ErrorOf(reports));
-		Assert.Equal(403, (await browser.Get("/admin/api/players?search=Plain")).Status);
-		Assert.Equal(403, (await browser.Get("/admin/api/anticheat/modules")).Status);
-
-		// the session answer is the signed-in player's own, not a staff one
-		PageResponse session = await browser.Get("/admin/api/session");
-		Assert.Equal(200, session.Status);
-		Assert.False(JsonDocument.Parse(session.Body).RootElement.GetProperty("staff").GetBoolean());
+		foreach (string api in s_staffReads)
+		{
+			PageResponse response = await browser.Get(api);
+			Assert.Equal(403, response.Status);
+			Assert.Equal("forbidden", AdminArea.ErrorOf(response));
+		}
 	}
 
 	[ProbeTheory]
@@ -288,10 +330,15 @@ public class AdminAreaTests
 		if (probe == null) return;
 		var moderator = new AdminBrowser(probe);
 		await moderator.SignUp("Warden", "warden@example.org");
-		await Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		User warden = await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
 		var admin = new AdminBrowser(probe);
 		await admin.SignUp("Chief", "chief@example.org");
-		await Grant(probe, "chief@example.org", StaffRoles.Admin);
+		await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
+		// the session meta lists roles and permissions from the process-wide role cache, as the hub reads them
+		await using (AppDbContext db = probe.Open())
+		{
+			await StaffRoles.Reload(db);
+		}
 
 		// the WebAssembly shell, dark only, with the three stylesheets of the sign-in pages in their order
 		PageResponse page = await moderator.Get("/admin/reports");
@@ -302,19 +349,27 @@ public class AdminAreaTests
 		Assert.DoesNotContain("theme-init.js", page.Body);
 		Assert.Equal("DENY", page.FrameOptions);
 
-		PageResponse reports = await moderator.Get("/admin/api/reports");
+		// who is signed in comes with the page, the browser asks /api/v1 for everything else
+		JsonElement session = JsonDocument.Parse(AdminArea.Meta(page, "go-portal-session")).RootElement;
+		Assert.Equal(warden.ID, session.GetProperty("user_id").GetInt64());
+		Assert.Equal("Warden", session.GetProperty("display_name").GetString());
+		Assert.True(session.GetProperty("staff").GetBoolean());
+		Assert.Contains("moderation.kick", session.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+		Assert.NotEmpty(AdminArea.Meta(page, "csrf-token"));
+
+		PageResponse reports = await moderator.Get("/api/v1/reports/search");
 		Assert.Equal(200, reports.Status);
-		Assert.Equal(0, JsonDocument.Parse(reports.Body).RootElement.GetProperty("total").GetInt32());
-		Assert.Equal(200, (await moderator.Get("/admin/api/players?search=Chief")).Status);
+		Assert.Equal(0, JsonDocument.Parse(reports.Body).RootElement.GetProperty("reports").GetArrayLength());
+		Assert.Equal(200, (await moderator.Get("/api/v1/players/search?query=Chief")).Status);
 
 		// the anti-cheat lists need anticheat.review, which only admin holds
-		PageResponse denied = await moderator.Get("/admin/api/anticheat/modules");
+		PageResponse denied = await moderator.Get("/api/v1/anticheat_reports/modules");
 		Assert.Equal(403, denied.Status);
-		Assert.Equal("forbidden", ErrorOf(denied));
-		Assert.Equal(200, (await admin.Get("/admin/api/anticheat/modules")).Status);
+		Assert.Equal("forbidden", AdminArea.ErrorOf(denied));
+		Assert.Equal(200, (await admin.Get("/api/v1/anticheat_reports/modules")).Status);
 	}
 
-	// a change without the antiforgery header of the session answer is refused before it reaches the action
+	// a change without the antiforgery header of the host page is refused before it reaches the action
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task ChangesNeedTheAntiforgeryHeader(string provider)
@@ -323,18 +378,14 @@ public class AdminAreaTests
 		if (probe == null) return;
 		var moderator = new AdminBrowser(probe);
 		await moderator.SignUp("Warden", "warden@example.org");
-		await Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
 
-		PageResponse missing = await moderator.Patch("/admin/api/reports/999", new { status = "dismissed" });
+		PageResponse missing = await moderator.Patch("/api/v1/reports/999", new { status = "dismissed" });
 		Assert.Equal(400, missing.Status);
-		Assert.Equal("csrf", ErrorOf(missing));
-
-		JsonElement session = JsonDocument.Parse((await moderator.Get("/admin/api/session")).Body).RootElement;
-		Assert.True(session.GetProperty("staff").GetBoolean());
-		var header = new Dictionary<string, string> { [session.GetProperty("csrf_header").GetString()!] = session.GetProperty("csrf_token").GetString()! };
+		Assert.Equal("csrf", AdminArea.ErrorOf(missing));
 
 		// past the check, the action itself answers: no such report
-		PageResponse unknown = await moderator.Patch("/admin/api/reports/999", new { status = "dismissed" }, header);
+		PageResponse unknown = await moderator.Patch("/api/v1/reports/999", new { status = "dismissed" }, await moderator.Csrf());
 		Assert.Equal(404, unknown.Status);
 	}
 
@@ -347,37 +398,33 @@ public class AdminAreaTests
 		if (probe == null) return;
 		var moderator = new AdminBrowser(probe);
 		await moderator.SignUp("Warden", "warden@example.org");
-		await Grant(probe, "warden@example.org", StaffRoles.Moderator, twoFactor: false);
+		await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator, twoFactor: false);
 
 		PageResponse page = await moderator.Get("/admin/reports");
 		Assert.Equal(302, page.Status);
 		Assert.Equal("/profile/two_factor_auth?ReturnUrl=%2Fadmin%2Freports", page.Location);
 
-		PageResponse reports = await moderator.Get("/admin/api/reports");
+		PageResponse reports = await moderator.Get("/api/v1/reports/search");
 		Assert.Equal(403, reports.Status);
-		Assert.Equal(PortalSetup.TwoFactorRequired, ErrorOf(reports));
-	}
-	// ===== PROBES (verifier) =====
-	private static async Task<Dictionary<string, string>> CsrfOf(AdminBrowser browser)
-	{
-		JsonElement session = JsonDocument.Parse((await browser.Get("/admin/api/session")).Body).RootElement;
-		return new Dictionary<string, string> { [session.GetProperty("csrf_header").GetString()!] = session.GetProperty("csrf_token").GetString()! };
+		Assert.Equal(ApiAuthentication.TwoFactorRequired, AdminArea.ErrorOf(reports));
 	}
 
-	// the rank rule through /admin/api: a moderator can neither rename nor sanction an admin, and can rename a player.
+	// ===== PROBES (verifier), on the /api/v1 routes since T16 =====
+
+	// the rank rule through the cookie: a moderator can neither rename nor sanction an admin, and can rename a player.
 	// Uses the process-wide rank cache (StaffRoles.Reload), so it must not run in parallel with other probe tests
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task ProbeRankRuleHoldsThroughAdminApi(string provider)
+	public async Task ProbeRankRuleHoldsThroughTheCookie(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
 		var moderator = new AdminBrowser(probe);
 		await moderator.SignUp("Warden", "warden@example.org");
-		await Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
 		var admin = new AdminBrowser(probe);
 		await admin.SignUp("Chief", "chief@example.org");
-		User chief = await Grant(probe, "chief@example.org", StaffRoles.Admin);
+		User chief = await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
 		var player = new AdminBrowser(probe);
 		await player.SignUp("Plain", "plain@example.org");
 		User plain = (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!;
@@ -386,17 +433,17 @@ public class AdminAreaTests
 			await StaffRoles.Reload(db);
 		}
 
-		Dictionary<string, string> csrf = await CsrfOf(moderator);
-		PageResponse rename = await moderator.Patch($"/admin/api/players/{chief.ID}", new { name = "Renamed", reason = "probe" }, csrf);
+		Dictionary<string, string> csrf = await moderator.Csrf();
+		PageResponse rename = await moderator.Patch($"/api/v1/players/{chief.ID}", new { name = "Renamed", reason = "probe" }, csrf);
 		Assert.Equal(403, rename.Status);
-		Assert.Equal("moderation.target_outranks", ErrorOf(rename));
-		PageResponse mute = await moderator.SendJson("POST", $"/admin/api/players/{chief.ID}/sanctions", new { type = "mute", duration_s = 60, reason = "probe" }, csrf);
+		Assert.Equal("moderation.target_outranks", AdminArea.ErrorOf(rename));
+		PageResponse mute = await moderator.SendJson("POST", $"/api/v1/players/{chief.ID}/sanctions", new { type = "mute", duration_s = 60, reason = "probe" }, csrf);
 		Assert.Equal(403, mute.Status);
-		Assert.Equal("moderation.target_outranks", ErrorOf(mute));
+		Assert.Equal("moderation.target_outranks", AdminArea.ErrorOf(mute));
 		Assert.Equal("Chief", (await PasswordPagesTests.UserByEmail(probe, "chief@example.org"))!.Username);
 
 		// and the same moderator may act on a player
-		Assert.Equal(204, (await moderator.Patch($"/admin/api/players/{plain.ID}", new { name = "Cleaned", reason = "probe" }, csrf)).Status);
+		Assert.Equal(204, (await moderator.Patch($"/api/v1/players/{plain.ID}", new { name = "Cleaned", reason = "probe" }, csrf)).Status);
 		Assert.Equal("Cleaned", (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!.Username);
 	}
 
@@ -412,32 +459,33 @@ public class AdminAreaTests
 		User plain = (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!;
 		var moderator = new AdminBrowser(probe);
 		await moderator.SignUp("Warden", "warden@example.org");
-		await Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
 		var admin = new AdminBrowser(probe);
 		await admin.SignUp("Chief", "chief@example.org");
-		await Grant(probe, "chief@example.org", StaffRoles.Admin);
+		await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
 
-		PageResponse asPlayer = await player.Get($"/admin/api/players/{plain.ID}/inspection");
+		PageResponse asPlayer = await player.Get($"/api/v1/players/{plain.ID}/inspection");
 		Assert.Equal(403, asPlayer.Status);
-		Assert.Equal("forbidden", ErrorOf(asPlayer));
-		Assert.Equal(403, (await player.Get($"/admin/api/players/{plain.ID}")).Status);
-		PageResponse asModerator = await moderator.Get($"/admin/api/players/{plain.ID}/inspection");
+		Assert.Equal("forbidden", AdminArea.ErrorOf(asPlayer));
+		Assert.Equal(403, (await player.Get($"/api/v1/players/{plain.ID}/staff_view")).Status);
+		PageResponse asModerator = await moderator.Get($"/api/v1/players/{plain.ID}/inspection");
 		Assert.Equal(403, asModerator.Status);
-		Assert.Equal("forbidden", ErrorOf(asModerator));
+		Assert.Equal("forbidden", AdminArea.ErrorOf(asModerator));
 		Assert.Contains("players.inspect", asModerator.Body);
 		await using (AppDbContext db = probe.Open())
 		{
 			Assert.False(await db.AuditLog.AnyAsync(a => a.Action == ModerationActions.PlayerInspect));
 		}
 
-		Assert.Equal(200, (await admin.Get($"/admin/api/players/{plain.ID}/inspection")).Status);
+		Assert.Equal(200, (await moderator.Get($"/api/v1/players/{plain.ID}/staff_view")).Status);
+		Assert.Equal(200, (await admin.Get($"/api/v1/players/{plain.ID}/inspection")).Status);
 		await using (AppDbContext db = probe.Open())
 		{
 			Assert.Equal(1, await db.AuditLog.CountAsync(a => a.Action == ModerationActions.PlayerInspect));
 		}
 	}
 
-	// every change (POST, PATCH, DELETE) without the header, or with another account's token, is a 400 csrf
+	// every cookie change (POST, PATCH, DELETE) without the header, or with another account's token, is a 400 csrf
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task ProbeEveryChangeNeedsThisAccountsToken(string provider)
@@ -446,28 +494,28 @@ public class AdminAreaTests
 		if (probe == null) return;
 		var admin = new AdminBrowser(probe);
 		await admin.SignUp("Chief", "chief@example.org");
-		await Grant(probe, "chief@example.org", StaffRoles.Admin);
+		await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
 		var other = new AdminBrowser(probe);
 		await other.SignUp("Other", "other@example.org");
-		User target = await Grant(probe, "other@example.org", StaffRoles.Admin);
+		User target = await AdminArea.Grant(probe, "other@example.org", StaffRoles.Admin);
 
 		var changes = new (string Method, string Path, object Body)[]
 		{
-			("POST", $"/admin/api/players/{target.ID}/sanctions", new { type = "mute", duration_s = 60, reason = "probe" }),
-			("PATCH", $"/admin/api/players/{target.ID}", new { name = "Renamed", reason = "probe" }),
-			("DELETE", "/admin/api/sanctions/1", new { reason = "probe" }),
-			("PATCH", "/admin/api/reports/1", new { status = "dismissed" }),
-			("PATCH", "/admin/api/anticheat/modules/1", new { reviewed = true })
+			("POST", $"/api/v1/players/{target.ID}/sanctions", new { type = "mute", duration_s = 60, reason = "probe" }),
+			("PATCH", $"/api/v1/players/{target.ID}", new { name = "Renamed", reason = "probe" }),
+			("DELETE", "/api/v1/sanctions/1", new { reason = "probe" }),
+			("PATCH", "/api/v1/reports/1", new { status = "dismissed" }),
+			("PATCH", "/api/v1/anticheat_reports/modules/1", new { reviewed = true })
 		};
-		Dictionary<string, string> foreign = await CsrfOf(other);
+		Dictionary<string, string> foreign = await other.Csrf();
 		foreach ((string method, string path, object body) in changes)
 		{
 			PageResponse missing = await admin.SendJson(method, path, body);
 			Assert.Equal(400, missing.Status);
-			Assert.Equal("csrf", ErrorOf(missing));
+			Assert.Equal("csrf", AdminArea.ErrorOf(missing));
 			PageResponse stolen = await admin.SendJson(method, path, body, foreign);
 			Assert.Equal(400, stolen.Status);
-			Assert.Equal("csrf", ErrorOf(stolen));
+			Assert.Equal("csrf", AdminArea.ErrorOf(stolen));
 		}
 		await using AppDbContext db = probe.Open();
 		Assert.Equal("Other", (await db.Users.SingleAsync(u => u.ID == target.ID)).Username);

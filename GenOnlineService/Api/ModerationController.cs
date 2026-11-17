@@ -20,6 +20,7 @@ using GenOnlineService.Names;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace GenOnlineService.Api
 {
@@ -38,6 +39,7 @@ namespace GenOnlineService.Api
 		}
 
 		// Replaces an offensive name, the tag stays
+		[AllowSignInCookie]
 		[HttpPatch("~/api/v1/players/{userID:long}")]
 		public async Task<IActionResult> RenamePlayer(long userID)
 		{
@@ -72,6 +74,7 @@ namespace GenOnlineService.Api
 			return ApiResults.NoContent(await m_names.ResetNameByStaffAsync(SanctionActions.ApiActorOf(Me), userID, body?.Reason));
 		}
 
+		[AllowSignInCookie]
 		[HttpPost("~/api/v1/players/{userID:long}/sanctions")]
 		public async Task<IActionResult> CreateSanction(long userID)
 		{
@@ -100,6 +103,7 @@ namespace GenOnlineService.Api
 			return ApiResults.Answer(await SanctionActions.ListAsync(m_dbFactory, userID, activeOnly));
 		}
 
+		[AllowSignInCookie]
 		[HttpDelete("~/api/v1/sanctions/{sanctionID:long}")]
 		public async Task<IActionResult> LiftSanction(long sanctionID)
 		{
@@ -149,6 +153,56 @@ namespace GenOnlineService.Api
 			return ApiResults.Ok(await MessageActions.ListReportsAsync(m_dbFactory, filter));
 		}
 
+		// The staff queue of the staff pages: several statuses (comma separated) or all, a search, oldest (asc, default) or
+		// newest (desc) first, filtered and offset paged in the database; moderation.kick or higher
+		[AllowSignInCookie]
+		[HttpGet("~/api/v1/reports/search")]
+		public async Task<IActionResult> SearchReports([FromQuery] string? status, [FromQuery] string? search, [FromQuery] string? sort)
+		{
+			if (await RequireStaffAsync() is Failure denied)
+			{
+				return ApiResults.Fail(denied);
+			}
+
+			string[] statuses = (status ?? PlayerReportStatuses.Open).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			if (statuses.Length == 0 || statuses.Any(s => s != "all" && s != PlayerReportStatuses.Open && s != PlayerReportStatuses.Actioned && s != PlayerReportStatuses.Dismissed))
+			{
+				return ApiResults.Fail(Result.Invalid("status"));
+			}
+			if (sort != null && sort != "asc" && sort != "desc")
+			{
+				return ApiResults.Fail(Result.Invalid("sort"));
+			}
+			(Rest.OffsetPage page, Failure? pageFailure) = Rest.Paging.ReadOffset(Request);
+			if (pageFailure != null)
+			{
+				return ApiResults.Fail(pageFailure.Value);
+			}
+
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(HttpContext.RequestAborted);
+			(int total, List<PlayerReport> rows) = await Database.Chat.GetReportsPage(db, statuses.Contains("all") ? null : statuses, search, sort == "desc", page.Skip, page.PerPage, HttpContext.RequestAborted);
+			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, rows.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID }).ToHashSet());
+
+			// the fields of GET /api/v1/reports
+			Rest.Paging.WriteOffsetHeaders(HttpContext, page, total);
+			return ApiResults.Ok(new ReportsResponse
+			{
+				Reports = rows.Select(r => new ReportInfo
+				{
+					Id = r.ID,
+					Reporter = RealtimeMembers.Of(r.ReporterID, names),
+					Reported = RealtimeMembers.Of(r.ReportedUserID, names),
+					MessageId = r.MessageID?.ToString(CultureInfo.InvariantCulture),
+					Reason = r.Reason,
+					Status = r.Status,
+					CreatedAt = r.CreatedAt,
+					ResolvedAt = r.ResolvedAt,
+					ResolutionNote = r.ResolutionNote
+				}).ToArray()
+			});
+		}
+
+		[AllowSignInCookie]
 		[HttpPatch("~/api/v1/reports/{reportID:long}")]
 		public async Task<IActionResult> ResolveReport(long reportID)
 		{

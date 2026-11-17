@@ -16,6 +16,9 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
+using GenOnlineService.Identity;
+using GenOnlineService.Portal.Client;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -65,6 +68,23 @@ namespace GenOnlineService.Rest
 		public const int MinSearchLength = 2;
 		public const int MaxSearchLength = User.UsernameMaxLength;
 
+		// One audit row per staff member and player inside this window
+		private static readonly TimeSpan s_inspectionAuditWindow = TimeSpan.FromHours(1);
+
+		// The providers with a public profile page, keyed by the stored provider name
+		private static readonly Dictionary<string, string> s_profileUrls = new(StringComparer.Ordinal)
+		{
+			[IdentityProviders.Steam] = "https://steamcommunity.com/profiles/",
+			[IdentityProviders.Discord] = "https://discord.com/users/"
+		};
+
+		private static readonly (EUserSessionType SessionType, string Kind)[] s_sessionKinds =
+		{
+			(EUserSessionType.GameClient, "game"),
+			(EUserSessionType.GameLauncher, "launcher"),
+			(EUserSessionType.ChatClient, "chat")
+		};
+
 		// A part of a name of 2 to 32 characters, or a player id of any length
 		public static (string? Search, Failure? Failure) ReadSearch(string? text)
 		{
@@ -94,6 +114,115 @@ namespace GenOnlineService.Rest
 				}).ToArray()
 			});
 		}
+
+		// The account with its sessions, ratings and sanctions, nothing here is personal data beyond the public profile
+		public static async Task<Result<PortalPlayer>> GetAsync(IDbContextFactory<AppDbContext> dbFactory, long userID, CancellationToken cancellationToken = default)
+		{
+			User? user;
+			EloData elo;
+			await using (AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken))
+			{
+				user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.ID == userID, cancellationToken);
+				if (user == null)
+				{
+					return Result.NotFound("user");
+				}
+				elo = (await Database.PlayerRatings.GetBulk(db, [userID])).GetValueOrDefault(userID) ?? new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
+			}
+
+			Result<SanctionsResponse> sanctions = await SanctionActions.ListAsync(dbFactory, userID, activeOnly: false);
+			if (!sanctions.Ok)
+			{
+				return new Failure(sanctions.Code!, sanctions.Params!);
+			}
+
+			var sessions = new List<PortalPlayerSession>();
+			foreach ((EUserSessionType sessionType, string kind) in s_sessionKinds)
+			{
+				if (GameSessions.Get(userID, sessionType) is GameSessionRegistration registration)
+				{
+					sessions.Add(new PortalPlayerSession { Kind = kind, ClientId = registration.ClientID, RegisteredAt = registration.RegisteredAt });
+				}
+			}
+
+			Int64 lobbyID = WebSocketManager.GetAllDataFromUser(userID).Select(session => session.currentLobbyID).FirstOrDefault(id => id != -1, -1);
+			DateTime now = DateTime.UtcNow;
+			return Result.Success(new PortalPlayer
+			{
+				Id = user.ID,
+				Name = user.Username,
+				Tag = PlayerTags.Of(user.NameTag),
+				State = user.State,
+				CreatedAt = user.CreatedAt,
+				LastSignInAt = user.LastSignInAt,
+				Roles = StaffRoles.RolesOf(userID).Order(StringComparer.Ordinal).ToList(),
+				Online = WebSocketManager.GetSharedDataForUser(userID) != null,
+				LobbyId = lobbyID == -1 ? null : lobbyID,
+				Sessions = sessions,
+				EloRating = elo.Rating,
+				MonthlyEloRating = elo.MonthlyRating,
+				EloMatches = elo.NumMatches,
+				Sanctions = sanctions.Data!.Sanctions.Select(sanction => new PortalSanction
+				{
+					Id = sanction.Id,
+					Type = sanction.Type.ToString().ToLowerInvariant(),
+					Reason = sanction.Reason,
+					CreatedAt = sanction.CreatedAt,
+					ExpiresAt = sanction.ExpiresAt,
+					LiftedAt = sanction.LiftedAt,
+					CreatedBy = sanction.CreatedBy is Member by ? new PortalMember { Id = by.Id, Name = by.Name, Tag = by.Tag } : null,
+					Active = sanction.Type != SanctionType.Kick && sanction.LiftedAt == null && (sanction.ExpiresAt == null || sanction.ExpiresAt > now)
+				}).ToList(),
+				// each environment owns its names since the identity hub, so staff can always rename here
+				CanRename = true
+			});
+		}
+
+		// Sign-ins, devices, addresses and possible duplicates, after one audit row an hour per staff member and player
+		public static async Task<Result<PortalInspection>> InspectAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, long userID, CancellationToken cancellationToken = default)
+		{
+			await using AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken);
+			if (!await Database.Users.Exists(db, userID))
+			{
+				return Result.NotFound("user");
+			}
+
+			// the audit row is written first, a failed write shows nothing
+			await Database.Moderation.LogInspection(db, actor, userID, DateTime.UtcNow, s_inspectionAuditWindow);
+
+			List<UserIdentity> identities = await db.Identities.AsNoTracking().Where(i => i.UserID == userID).OrderBy(i => i.Provider).ToListAsync(cancellationToken);
+			Database.LastSession? last = await Database.StaffInspection.GetLastSession(db, userID, cancellationToken);
+			List<Database.InspectedDevice> devices = await Database.StaffInspection.GetDevices(db, userID, cancellationToken);
+			List<Database.InspectedAddress> addresses = await Database.StaffInspection.GetAddresses(db, userID, cancellationToken);
+			List<Database.DuplicateAccount> duplicates = await Database.StaffInspection.GetDuplicates(db, userID, cancellationToken);
+
+			return Result.Success(new PortalInspection
+			{
+				LastIp = last?.Ip,
+				LastCountry = last?.Country,
+				LastSeenAt = last?.At,
+				Identities = identities.Select(i => new PortalIdentity
+				{
+					Provider = i.Provider,
+					ExternalId = i.ExternUid,
+					LinkedAt = i.CreatedAt,
+					LastUsedAt = i.LastUsedAt,
+					ProfileUrl = s_profileUrls.TryGetValue(i.Provider, out string? prefix) ? prefix + Uri.EscapeDataString(i.ExternUid) : null
+				}).ToList(),
+				Devices = devices.Select(d => new PortalDevice { Kind = d.Kind, Fingerprint = d.Fingerprint, FirstSeenAt = d.FirstSeenAt, LastSeenAt = d.LastSeenAt, LastIp = d.LastIp }).ToList(),
+				Addresses = addresses.Select(a => new PortalAddress { Ip = a.Ip, Country = a.Country, FirstSeenAt = a.FirstSeenAt, LastSeenAt = a.LastSeenAt, Events = a.Events }).ToList(),
+				Duplicates = duplicates.Select(d => new PortalDuplicate
+				{
+					Id = d.UserID,
+					Name = d.Name,
+					Tag = PlayerTags.Of(d.NameTag),
+					State = d.State,
+					Match = d.Match,
+					Shared = d.Shared,
+					LastSeenAt = d.LastSeenAt
+				}).ToList()
+			});
+		}
 	}
 
 	// The staff search over every account, the public search of GET /api/v1/players matches a prefix of visible accounts only
@@ -110,6 +239,7 @@ namespace GenOnlineService.Rest
 			m_authorization = authorization;
 		}
 
+		[AllowSignInCookie]
 		[HttpGet("~/api/v1/players/search")]
 		public async Task<IActionResult> Search([FromQuery] string? query)
 		{
@@ -131,6 +261,27 @@ namespace GenOnlineService.Rest
 				failure = pageFailure;
 			}
 			return RestResults.Fail(failure.Value);
+		}
+
+		// The player page of the staff pages: the account, its sessions, ratings and sanctions, for any staff permission
+		[AllowSignInCookie]
+		[HttpGet("~/api/v1/players/{userID:long}/staff_view")]
+		public async Task<IActionResult> StaffView(long userID)
+		{
+			if (!await StaffAccess.IsStaffAsync(m_authorization, User))
+			{
+				return RestResults.Fail(Result.Forbidden(Permissions.ModerationKick));
+			}
+			return ApiResults.Answer(await StaffPlayerActions.GetAsync(m_dbFactory, userID, HttpContext.RequestAborted));
+		}
+
+		// The personal data of a player, players.inspect and audited before it is read
+		[AllowSignInCookie]
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.PlayersInspect)]
+		[HttpGet("~/api/v1/players/{userID:long}/inspection")]
+		public async Task<IActionResult> Inspect(long userID)
+		{
+			return ApiResults.Answer(await StaffPlayerActions.InspectAsync(m_dbFactory, CallerActors.Of(User), userID, HttpContext.RequestAborted));
 		}
 	}
 }

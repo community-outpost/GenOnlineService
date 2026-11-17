@@ -155,6 +155,7 @@ namespace GenOnlineService.Rest
 
 	// The anti-cheat review lists: new accounts in quickmatch, unrecognized modules, suspicious probes and device values
 	[ApiController]
+	[AllowSignInCookie]
 	[Authorize(Policy = PermissionPolicies.Prefix + Permissions.AnticheatReview)]
 	public sealed class AntiCheatReportsController : ControllerBase
 	{

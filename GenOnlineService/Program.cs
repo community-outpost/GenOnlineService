@@ -390,8 +390,6 @@ namespace GenOnlineService
 
 	public class Program
 	{
-		private const string BearerSchemeSelector = "go_bearer";
-
 
 		// Main lobby/websocket tick interval. See the comment at the tick timer for why 50ms is sufficient.
 		private const int c_LobbyTickIntervalMS = 50;
@@ -1208,17 +1206,8 @@ namespace GenOnlineService
 
 			builder.Services.AddSingleton<GenOnlineService.Names.PlayerNames>();
 
-			builder.Services.AddAuthentication(options =>
-			{
-				options.DefaultScheme = BearerSchemeSelector;
-			})
-			// gopat- bearer values go to the API token handler, every other bearer value to the OpenIddict access token handler
-			.AddPolicyScheme(BearerSchemeSelector, "Bearer", options =>
-			{
-				options.ForwardDefaultSelector = context => ApiTokenHandler.HasApiToken(context.Request) ? ApiTokenHandler.SchemeName : SessionTokenHandler.SchemeName;
-			})
-			.AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, null)
-			.AddScheme<AuthenticationSchemeOptions, SessionTokenHandler>(SessionTokenHandler.SchemeName, null);
+			// bearer tokens everywhere, and the sign-in cookie on the /api/v1 routes the staff pages call (T16), where accounts run
+			GenOnlineService.Api.ApiAuthentication.AddApiAuthentication(builder.Services, signInCookie: accountsSettings.Enabled);
 
 			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
 			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
@@ -1242,9 +1231,6 @@ namespace GenOnlineService
 						|| context.User.IsInRole("GameLauncher")
 						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
-
-			// REST controllers answer a failed role check with the forbidden body of section 7
-			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Api.ApiAuthorizationResultHandler>();
 
 			// OpenIddict stores cache entries without a size, so the cache has no size limit
 			builder.Services.AddMemoryCache();
@@ -1539,6 +1525,7 @@ namespace GenOnlineService
 			GenOnlineService.Failover.RealtimeFailover.UseRealtimeStandbyGate(app);
 			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
+			GenOnlineService.Api.ApiAuthentication.UseSignInCookieRules(app);
 			app.UseRealtimeRegistrationGate();
 			bool bTrustedProxiesConfigured = (builder.Configuration.GetSection("TrustedProxies").Get<string[]>() ?? Array.Empty<string>()).Any(v => !string.IsNullOrWhiteSpace(v));
 			app.Use((context, next) =>
