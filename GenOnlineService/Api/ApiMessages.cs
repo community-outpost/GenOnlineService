@@ -185,7 +185,6 @@ namespace GenOnlineService.Api
 		public string? ResolutionNote { get; init; }
 	}
 
-	[ApiFixture("patch-players.request")]
 	// POST /api/v1/players/:id/reset_name
 	public sealed record ResetNameRequest
 	{
@@ -193,6 +192,7 @@ namespace GenOnlineService.Api
 		public string? Reason { get; init; }
 	}
 
+	[ApiFixture("patch-players.request")]
 	public sealed record RenamePlayerRequest
 	{
 		public string? Name { get; init; }
