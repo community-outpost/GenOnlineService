@@ -145,9 +145,8 @@ public class MatchConfiguration : IEntityTypeConfiguration<Match>
 		entity.HasMany(e => e.Players).WithOne().HasForeignKey(p => p.MatchId).OnDelete(DeleteBehavior.Cascade);
 
 		// The service sets every new id itself (snowflake ids from MatchIdGenerator), older matches keep their sequential ids.
-		// The column keeps its identity / AUTO_INCREMENT for this release, so a copy from before the switch still writes matches
-		// while the migrated database already serves a newer copy; a later release drops it.
-		entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+		// The column has no identity / AUTO_INCREMENT: an insert without an id fails instead of taking a value next to a snowflake.
+		entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
 		entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
 		entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(Match.NameMaxLength);
 		entity.Property(e => e.LobbyType).HasColumnName("lobby_type").HasMaxLength(16).HasConversion(new LobbyTypeConverter());

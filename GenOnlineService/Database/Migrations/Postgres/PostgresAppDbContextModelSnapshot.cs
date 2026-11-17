@@ -950,11 +950,8 @@ namespace GenOnlineService.Migrations.Postgres
             modelBuilder.Entity("Match", b =>
                 {
                     b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
                         .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("AllowObservers")
                         .HasColumnType("boolean")

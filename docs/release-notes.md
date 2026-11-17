@@ -35,7 +35,7 @@ New operator routes: personal access tokens, service accounts, player roles, aud
 
 New matches get 48 bit snowflake ids made by the service: 32 bits of seconds since 2026-01-01 UTC, 5 bits of worker slot, 11 bits of sequence (`docs/schema.md`, Match ids). They are JSON numbers below 2^53 like before, never 0, and larger than every older match id, so ordering by id and `GET /api/v1/matches?after_id=` keep working. Older matches keep their ids. Player and lobby ids do not change.
 
-The migration `MatchIdWorkers` adds the `match_id_workers` table with 32 free worker slots. `matches.id` keeps its identity / `AUTO_INCREMENT` in this release, so a copy from before the switch still writes matches during a handover; a later release drops it. On MySQL/MariaDB, which runs a single copy only, an explicit id raises `AUTO_INCREMENT`: nothing may insert a match without an id once the new copy runs.
+The migration `MatchIdWorkers` adds the `match_id_workers` table with 32 free worker slots. The migration `MatchIdsWithoutIdentity` then drops the identity / `AUTO_INCREMENT` of `matches.id`. Deploy it only once no copy from before the switch runs against the database (test and live both serve snowflake ids), since such a copy can no longer write a match. On MySQL it briefly drops and re-adds the foreign keys of `match_players` and `match_publications`.
 
 ### Deploy day: Epic portal
 
