@@ -171,12 +171,13 @@ public class StaffBrowseTests
 		{
 			PageResponse all = await s.Moderator.Get("/api/v1/players/search");
 			long[] seeded = [s.Alpha.ID, s.Bravo.ID, s.Charlie.ID, s.Echo.ID, s.Delta.ID];
-			// accounts that never signed in (Delta, and the three that signed up with a password) come last, newest account first
+			// accounts that never signed in (Delta) come last; the three that signed up with a password signed in then, so they
+			// are the most recent
 			Assert.Equal(seeded, Ids(all, "players").Where(seeded.Contains));
 			DateTime?[] signedIn = Rows(all, "players").Select(r => r.GetProperty("last_sign_in_at").ValueKind == JsonValueKind.Null ? (DateTime?)null : r.GetProperty("last_sign_in_at").GetDateTime()).ToArray();
 			Assert.Equal(signedIn.Where(t => t != null).OrderByDescending(t => t), signedIn.TakeWhile(t => t != null));
 			Assert.All(signedIn.SkipWhile(t => t != null), t => Assert.Null(t));
-			Assert.Equal(s.Delta.ID, Ids(all, "players")[4]);
+			Assert.Equal(s.Delta.ID, Ids(all, "players")[^1]);
 			Assert.Equal("8", Header(all, "X-Total"));
 
 			// an empty query lists the same as none
@@ -245,7 +246,9 @@ public class StaffBrowseTests
 		Assert.DoesNotContain(s.Bravo.ID, day);
 		// a search keeps its own order: by name
 		Assert.Equal([s.Bravo.ID, s.Alpha.ID], Ids(await s.Moderator.Get("/api/v1/players/search?signed_in_within=7d&query=general"), "players"));
-		Assert.Equal([s.Alpha.ID, s.Bravo.ID, s.Charlie.ID], Ids(await s.Moderator.Get("/api/v1/players/search?signed_in_within=30d&order_by=created_at&sort=asc&filter="), "players"));
+		// the three password sign-ups signed in when they signed up, after the seeded accounts were created
+		long plain = Ids(await s.Moderator.Get("/api/v1/players/search?query=Plain"), "players").Single();
+		Assert.Equal([s.Alpha.ID, s.Bravo.ID, s.Charlie.ID, s.Warden.ID, s.Chief.ID, plain], Ids(await s.Moderator.Get("/api/v1/players/search?signed_in_within=30d&order_by=created_at&sort=asc&filter="), "players"));
 
 		Assert.Equal("filter", FieldOf(await s.Moderator.Get("/api/v1/players/search?filter=online,nobody")));
 		Assert.Equal("signed_in_within", FieldOf(await s.Moderator.Get("/api/v1/players/search?signed_in_within=1y")));
