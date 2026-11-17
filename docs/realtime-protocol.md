@@ -422,6 +422,8 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 |---|---|---|
 | `unauthorized` | | Any REST call without a valid token, session token or API token alike (HTTP 401), and the close code that refuses a realtime connection without one (section 3). The answer is the same for every reason, so a caller cannot tell an unknown token from a revoked or expired one |
 | `forbidden` | `{permission}` | Any method the caller has no permission for |
+| `csrf` | | a request with the website sign-in cookie that changes something (POST, PATCH, PUT, DELETE) on a route that accepts the cookie, without the signed-in user's antiforgery token in the RequestVerificationToken header (HTTP 400) |
+| `two_factor_required` | | any request with the website sign-in cookie by a staff account with a password and no second factor (HTTP 403) |
 | `session.build_not_accepted` | | `POST /api/v1/auth/session` when the client's build is not accepted for its app in the client registry (HTTP 403) |
 | `session.not_registered` | | The close code that refuses a game client connecting without `POST /api/v1/auth/session` first (section 3; HTTP 409 on a `/realtime` request that is not a WebSocket upgrade) |
 | `moderation.banned` | `{reason, expires_at?}` | REST calls while play banned (HTTP 403); on the realtime connection the close code when a ban starts and when a banned user connects, after a `ModerationNotice` that carries these params (section 3) |
@@ -513,6 +515,8 @@ The split: the hub carries what acts on or notifies live sessions and needs to b
 
 Conventions: base `/api/v1` on the same origin as `/realtime`, `Authorization: Bearer <access token>`, JSON bodies with the same field names as the hub, success `200` with the answer object or `204` without one, failures as in section 7. A request body on `DELETE` is optional and only carries a reason. Example bodies live in `docs/api-fixtures/`. The full REST route map (sign-in, profiles, stats, leaderboards, match history, config, tokens, admin) is in the API design; this section lists the endpoints that replace earlier hub methods.
 
+The staff routes `PATCH /api/v1/players/:id`, `POST /api/v1/players/:id/sanctions`, `DELETE /api/v1/sanctions/:id`, `GET /api/v1/reports/search` and `PATCH /api/v1/reports/:id` also accept the website sign-in cookie of the environment's own sign-in pages. Any Authorization header keeps the bearer path; a cookie change needs the antiforgery header (`csrf`); an Origin other than the host's own gets 403 `forbidden`; staff password accounts without two-factor get `two_factor_required`. Permissions, rank rule and audit (source `api`) are those of a bearer caller.
+
 ### 10.1 Social and groups
 
 | Method and path | Body | Answer | Notes |
@@ -550,6 +554,7 @@ Each endpoint is a `perm:<permission>` policy, so the service decides from the c
 | `DELETE /api/v1/messages/:id` | `{reason?}` | 204 | `chat.delete_any`; any channel, lobby, direct or group message. Follows the staff rank rule (`moderation.target_outranks`): staff delete messages of lower-ranked users and their own. No player delete, no edits. Everyone who received the message gets `MessageDelete`; history then returns a tombstone (section 4). The stored message keeps `deleted_at` only; who deleted it and why are in `audit_log` |
 | `POST /api/v1/reports` | `{message_id?, user_id?, reason?}` | `{report_id}` | exactly one of `message_id` and `user_id`. A message: never the author; a channel message by any user not blocked either way with its author, a lobby message by anyone who was a member of that lobby (until 24 h after it ends) or a player of its match, a direct message by its recipient, a group message by any other current member; one report per user per message (`report.duplicate`); the service snapshots the message, up to 10 messages before it and, before the message is purged, up to 10 messages after it in the same conversation, kept until the case is closed; reasons up to 512 characters. A player: any other user, one open report per reporter and player |
 | `GET /api/v1/reports?status=` | | `{reports: [{id, reporter: Member, reported: Member, message_id, reason, status, created_at, resolved_at, resolution_note}]}` | the staff queue for message and player reports, `moderation.kick` or higher; `message_id` is `null` for a report of a player; `status` is `open`, `actioned` or `dismissed` |
+| `GET /api/v1/reports/search?status=&search=&sort=&page=&per_page=` | | `{reports: [as GET /api/v1/reports]}`, offset paged | the staff queue paged in the database, `moderation.kick` or higher; `status` is one or more of `open`, `actioned`, `dismissed` comma separated, or `all` (default `open`); `search` matches the reason or either player's name; `sort` `asc` (default) or `desc` by creation |
 | `PATCH /api/v1/reports/:id` | `{status: "actioned"|"dismissed", resolution_note?}` | 204 | closes a report, `moderation.kick` or higher |
 
 ### 10.3 Profile, matches and playlists
