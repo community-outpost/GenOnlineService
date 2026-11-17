@@ -128,6 +128,19 @@ namespace GenOnlineService.Rest
 			}
 		}
 
+		// A list too long to count (as GitLab past 10,000 rows): the same headers without X-Total, the next page from a look ahead
+		public static void WriteOffsetHeaders(HttpContext context, OffsetPage page, bool hasNext)
+		{
+			IHeaderDictionary headers = context.Response.Headers;
+			headers["X-Page"] = page.Page.ToString(CultureInfo.InvariantCulture);
+			headers["X-Per-Page"] = page.PerPage.ToString(CultureInfo.InvariantCulture);
+			headers["X-Next-Page"] = hasNext ? (page.Page + 1).ToString(CultureInfo.InvariantCulture) : "";
+			if (hasNext)
+			{
+				headers["Link"] = $"<{LinkTo(context.Request, "page", (page.Page + 1).ToString(CultureInfo.InvariantCulture))}>; rel=\"next\"";
+			}
+		}
+
 		// Keyset pages only link forward: the next page continues after the last id of this one
 		public static void WriteKeysetNext(HttpContext context, string parameter, long? nextValue)
 		{

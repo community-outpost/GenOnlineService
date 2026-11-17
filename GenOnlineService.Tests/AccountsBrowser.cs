@@ -43,7 +43,11 @@ internal sealed class ProbeFactory : IDbContextFactory<AppDbContext>
 	public AppDbContext CreateDbContext() => m_probe.Open();
 }
 
-internal sealed record PageResponse(int Status, string Body, string? Location, List<string> SetCookies, string FrameOptions);
+internal sealed record PageResponse(int Status, string Body, string? Location, List<string> SetCookies, string FrameOptions)
+{
+	// every response header, for the paging headers of /api/v1 lists (set by AdminBrowser)
+	public Microsoft.AspNetCore.Http.IHeaderDictionary? Headers { get; init; }
+}
 
 // The accounts pages in one in-process pipeline, with a cookie jar like a browser's
 internal sealed class AccountsBrowser

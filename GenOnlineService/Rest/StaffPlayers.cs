@@ -37,6 +37,41 @@ namespace GenOnlineService.Rest
 		public string State { get; init; } = "";
 		public DateTime CreatedAt { get; init; }
 		public DateTime? LastSignInAt { get; init; }
+		// connected to this process now
+		public bool Online { get; init; }
+		// an active ban or mute
+		public bool Banned { get; init; }
+		public bool Muted { get; init; }
+		// known roles, staff and others
+		public IReadOnlyList<string> Roles { get; init; } = [];
+		// an open report, or with anticheat.review an unreviewed anti-cheat row
+		public bool Flagged { get; init; }
+		// the matches recorded with this account
+		public int Matches { get; init; }
+		// the all-time rating once the player has a rated match
+		public int? Rating { get; init; }
+	}
+
+	// ?query=&filter=&signed_in_within=&order_by=&sort= of GET /api/v1/players/search; Search is null without a query
+	public sealed record StaffPlayerListArgs
+	{
+		public string? Search { get; init; }
+		public IReadOnlySet<string> Filters { get; init; } = new HashSet<string>();
+		public TimeSpan? SignedInWithin { get; init; }
+		public string? OrderBy { get; init; }
+		public bool? Descending { get; init; }
+	}
+
+	// The filters of the staff player list, each one narrows it
+	public static class StaffPlayerFilters
+	{
+		public const string Online = "online";
+		public const string Banned = "banned";
+		public const string Muted = "muted";
+		public const string Staff = "staff";
+		public const string Flagged = "flagged";
+
+		public static readonly string[] All = [Online, Banned, Muted, Staff, Flagged];
 	}
 
 	// GET /api/v1/players/search
@@ -97,22 +132,135 @@ namespace GenOnlineService.Rest
 			return (search, null);
 		}
 
-		public static async Task<(int Total, StaffPlayerListResponse Response)> SearchAsync(IDbContextFactory<AppDbContext> dbFactory, string search, int skip, int take, CancellationToken cancellationToken = default)
+		private static readonly Dictionary<string, TimeSpan> s_signInWindows = new(StringComparer.Ordinal)
+		{
+			["24h"] = TimeSpan.FromHours(24),
+			["7d"] = TimeSpan.FromDays(7),
+			["30d"] = TimeSpan.FromDays(30)
+		};
+
+		// An absent or empty query lists every account; a query keeps the rules of ReadSearch. Every other argument is optional.
+		public static (StaffPlayerListArgs Args, Failure? Failure) ReadList(IQueryCollection query)
+		{
+			string? search = null;
+			if (query.TryGetValue("query", out var queryText) && queryText.ToString().Trim().Length > 0)
+			{
+				(search, Failure? failure) = ReadSearch(queryText);
+				if (failure != null)
+				{
+					return (new StaffPlayerListArgs(), failure);
+				}
+			}
+
+			var filters = new HashSet<string>(StringComparer.Ordinal);
+			if (query.TryGetValue("filter", out var filterText))
+			{
+				foreach (string filter in filterText.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+				{
+					if (!StaffPlayerFilters.All.Contains(filter))
+					{
+						return (new StaffPlayerListArgs(), Result.Invalid("filter"));
+					}
+					filters.Add(filter);
+				}
+			}
+
+			TimeSpan? within = null;
+			if (query.TryGetValue("signed_in_within", out var withinText) && withinText.ToString().Length > 0)
+			{
+				if (!s_signInWindows.TryGetValue(withinText.ToString(), out TimeSpan window))
+				{
+					return (new StaffPlayerListArgs(), Result.Invalid("signed_in_within"));
+				}
+				within = window;
+			}
+
+			string? orderBy = null;
+			if (query.TryGetValue("order_by", out var orderText) && orderText.ToString().Length > 0)
+			{
+				if (!Database.StaffPlayerOrders.All.Contains(orderText.ToString()))
+				{
+					return (new StaffPlayerListArgs(), Result.Invalid("order_by"));
+				}
+				orderBy = orderText.ToString();
+			}
+
+			bool? descending = null;
+			if (query.TryGetValue("sort", out var sortText) && sortText.ToString().Length > 0)
+			{
+				descending = sortText.ToString() switch
+				{
+					"asc" => false,
+					"desc" => true,
+					_ => null
+				};
+				if (descending == null)
+				{
+					return (new StaffPlayerListArgs(), Result.Invalid("sort"));
+				}
+			}
+
+			return (new StaffPlayerListArgs { Search = search, Filters = filters, SignedInWithin = within, OrderBy = orderBy, Descending = descending }, null);
+		}
+
+		// onlineIDs are this process's connected players; antiCheat is whether the caller may review anti-cheat rows
+		public static async Task<(int Total, StaffPlayerListResponse Response)> ListAsync(IDbContextFactory<AppDbContext> dbFactory, StaffPlayerListArgs args, IReadOnlySet<long> onlineIDs, bool antiCheat, DateTime utcNow, int skip, int take, CancellationToken cancellationToken = default)
 		{
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken);
-			(int total, List<Database.StaffPlayerRow> rows) = await Database.Users.StaffSearch(db, search, skip, take, cancellationToken);
-			return (total, new StaffPlayerListResponse
+			Database.StaffPlayerList list = await Database.StaffPlayerLists.ListAsync(db, new Database.StaffPlayerQuery
 			{
-				Players = rows.Select(row => new StaffPlayer
+				Term = args.Search,
+				OnlyIDs = args.Filters.Contains(StaffPlayerFilters.Online) ? onlineIDs : null,
+				Banned = args.Filters.Contains(StaffPlayerFilters.Banned),
+				Muted = args.Filters.Contains(StaffPlayerFilters.Muted),
+				Staff = args.Filters.Contains(StaffPlayerFilters.Staff),
+				Flagged = args.Filters.Contains(StaffPlayerFilters.Flagged),
+				AntiCheat = antiCheat,
+				SignedInSince = args.SignedInWithin is TimeSpan within ? utcNow - within : null,
+				OrderBy = args.OrderBy,
+				Descending = args.Descending
+			}, utcNow, skip, take, cancellationToken);
+
+			return (list.Total, new StaffPlayerListResponse
+			{
+				Players = list.Players.Select(row =>
 				{
-					Id = row.ID,
-					Name = row.Name,
-					Tag = PlayerTags.Of(row.NameTag),
-					State = row.State,
-					CreatedAt = row.CreatedAt,
-					LastSignInAt = row.LastSignInAt
+					Database.StaffPlayerFacts facts = list.Facts[row.ID];
+					return new StaffPlayer
+					{
+						Id = row.ID,
+						Name = row.Name,
+						Tag = PlayerTags.Of(row.NameTag),
+						State = row.State,
+						CreatedAt = row.CreatedAt,
+						LastSignInAt = row.LastSignInAt,
+						Online = onlineIDs.Contains(row.ID),
+						Banned = facts.Banned,
+						Muted = facts.Muted,
+						Roles = facts.Roles,
+						Flagged = facts.Flagged,
+						Matches = facts.Matches,
+						Rating = facts.Rating
+					};
 				}).ToArray()
 			});
+		}
+
+		// The players connected to this process, as the staff player page counts a player online (a shared session record)
+		public static IReadOnlySet<long> OnlineIDs()
+		{
+			var online = new HashSet<long>();
+			foreach (var byUser in WebSocketManager.GetUserDataCache().Values)
+			{
+				foreach (long userID in byUser.Keys)
+				{
+					if (WebSocketManager.GetSharedDataForUser(userID) != null)
+					{
+						online.Add(userID);
+					}
+				}
+			}
+			return online;
 		}
 
 		// The account with its sessions, ratings and sanctions, nothing here is personal data beyond the public profile
@@ -239,22 +387,24 @@ namespace GenOnlineService.Rest
 			m_authorization = authorization;
 		}
 
+		// Without a query every account, most recently signed in first; with filters, sorting and paging in the database (T17f)
 		[AllowSignInCookie]
 		[HttpGet("~/api/v1/players/search")]
-		public async Task<IActionResult> Search([FromQuery] string? query)
+		public async Task<IActionResult> Search()
 		{
 			if (!await StaffAccess.IsStaffAsync(m_authorization, User))
 			{
 				return RestResults.Fail(Result.Forbidden(Permissions.ModerationKick));
 			}
 
-			(string? search, Failure? failure) = StaffPlayerActions.ReadSearch(query);
+			(StaffPlayerListArgs args, Failure? failure) = StaffPlayerActions.ReadList(Request.Query);
 			if (failure == null)
 			{
 				(OffsetPage page, Failure? pageFailure) = Paging.ReadOffset(Request);
 				if (pageFailure == null)
 				{
-					(int total, StaffPlayerListResponse response) = await StaffPlayerActions.SearchAsync(m_dbFactory, search!, page.Skip, page.PerPage, HttpContext.RequestAborted);
+					bool antiCheat = (await m_authorization.AuthorizeAsync(User, PermissionPolicies.For(Permissions.AnticheatReview))).Succeeded;
+					(int total, StaffPlayerListResponse response) = await StaffPlayerActions.ListAsync(m_dbFactory, args, StaffPlayerActions.OnlineIDs(), antiCheat, DateTime.UtcNow, page.Skip, page.PerPage, HttpContext.RequestAborted);
 					Paging.WriteOffsetHeaders(HttpContext, page, total);
 					return RestResults.Ok(response);
 				}
