@@ -44,6 +44,27 @@ public class PortalListQueryTests
 		Assert.DoesNotContain("sort=", (new PortalPlayerQuery { Search = "gen", Sort = "asc" }).ToApiQuery());
 	}
 
+	// The report queue keeps its status, search and order in the address; the open queue, oldest first, leaves it empty
+	[Fact]
+	public void AReportViewReadsFromTheAddressAndWritesItBack()
+	{
+		PortalReportQuery query = PortalReportQuery.FromAddress("dismissed,actioned", " hack ", "desc");
+		Assert.Equal(new PortalReportQuery { Status = "actioned,dismissed", Search = "hack", NewestFirst = true }, query);
+		Assert.Equal("actioned,dismissed", query.ToAddress()["status"]);
+		Assert.Equal("hack", query.ToAddress()["q"]);
+		Assert.Equal("desc", query.ToAddress()["sort"]);
+
+		Assert.Equal("all", PortalReportQuery.FromAddress("open,all", null, null).Status);
+		Assert.All(new PortalReportQuery().ToAddress().Values, Assert.Null);
+	}
+
+	[Fact]
+	public void AnUnknownReportStatusIsTheOpenQueue()
+	{
+		Assert.Equal(new PortalReportQuery(), PortalReportQuery.FromAddress("closed", "  ", "up"));
+		Assert.Equal(new PortalReportQuery(), PortalReportQuery.FromAddress(",", null, null));
+	}
+
 	[Fact]
 	public void AnEmptyOrUnknownPlayerAddressIsTheWholeList()
 	{

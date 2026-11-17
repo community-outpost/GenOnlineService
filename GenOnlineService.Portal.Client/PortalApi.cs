@@ -88,15 +88,24 @@ namespace GenOnlineService.Portal.Client
 
 		public Task<PortalAnswer<PortalOverview>> GetOverviewAsync(CancellationToken cancellationToken = default) => GetAsync<PortalOverview>(PortalRoutes.Overview, cancellationToken);
 
-		public async Task<PortalReportPage> GetReportsAsync(string status, string? search, bool newestFirst, int start, int count, CancellationToken cancellationToken)
+		// The queue, or with reportedID / reporterID the reports against or by one player; a refusal comes back as its error code
+		public async Task<PortalAnswer<PortalReportPage>> GetReportsAsync(string status, string? search, bool newestFirst, int start, int count, CancellationToken cancellationToken, long? reportedID = null, long? reporterID = null)
 		{
 			string query = $"{PortalRoutes.ReportSearch}?status={Uri.EscapeDataString(status)}&{PageOf(start, count)}&sort={(newestFirst ? "desc" : "asc")}";
 			if (!String.IsNullOrWhiteSpace(search))
 			{
 				query += "&search=" + Uri.EscapeDataString(search);
 			}
+			if (reportedID is long reported)
+			{
+				query += "&reported_id=" + reported;
+			}
+			if (reporterID is long reporter)
+			{
+				query += "&reporter_id=" + reporter;
+			}
 			(PortalAnswer<PortalReportPage> answer, int total) = await GetPageAsync<PortalReportPage>(query, cancellationToken);
-			return answer.Value == null ? new PortalReportPage() : answer.Value with { Total = total };
+			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
 		}
 
 		public Task<PortalOutcome> ResolveReportAsync(long reportID, string status, string? note)

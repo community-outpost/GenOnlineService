@@ -729,13 +729,22 @@ namespace Database
 			return await query.OrderBy(r => r.CreatedAt).ThenBy(r => r.ID).Take(limit).ToListAsync(cancellationToken);
 		}
 
-		// One page of the staff queue without the evidence: statuses null lists every report, search matches the reason or the name of either player
-		public static async Task<(int Total, List<PlayerReport> Page)> GetReportsPage(AppDbContext db, IReadOnlyCollection<string>? statuses, string? search, bool newestFirst, int skip, int take, CancellationToken cancellationToken = default)
+		// One page of the staff queue without the evidence: statuses null lists every report, search matches the reason or the name of either player,
+		// reportedID and reporterID keep the reports against and by one player
+		public static async Task<(int Total, List<PlayerReport> Page)> GetReportsPage(AppDbContext db, IReadOnlyCollection<string>? statuses, string? search, bool newestFirst, int skip, int take, CancellationToken cancellationToken = default, long? reportedID = null, long? reporterID = null)
 		{
 			IQueryable<PlayerReport> query = db.PlayerReports.AsNoTracking();
 			if (statuses != null)
 			{
 				query = query.Where(r => statuses.Contains(r.Status));
+			}
+			if (reportedID is long reported)
+			{
+				query = query.Where(r => r.ReportedUserID == reported);
+			}
+			if (reporterID is long reporter)
+			{
+				query = query.Where(r => r.ReporterID == reporter);
 			}
 			if (!String.IsNullOrWhiteSpace(search))
 			{
@@ -760,6 +769,8 @@ namespace Database
 					Status = r.Status,
 					CreatedAt = r.CreatedAt,
 					ResolvedAt = r.ResolvedAt,
+					ResolvedByKind = r.ResolvedByKind,
+					ResolvedByID = r.ResolvedByID,
 					ResolutionNote = r.ResolutionNote
 				})
 				.ToListAsync(cancellationToken);

@@ -61,6 +61,12 @@ namespace GenOnlineService.Portal.Client
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
+		// one tab of the player page: activity, sanctions, reports, anticheat, roles, matches, signins, duplicates
+		public static string PlayerTab(long id, string tab) => PlayerPage(id) + "?tab=" + tab;
+
+		// the reports against and by a player, on the player page
+		public static string PlayerReports(long id) => PlayerTab(id, "reports");
+
 		// the player search with a name or id already typed in
 		public static string PlayersSearch(string term) => PlayersPage + "?q=" + Uri.EscapeDataString(term);
 
@@ -203,6 +209,9 @@ namespace GenOnlineService.Portal.Client
 		public string Status { get; init; } = "";
 		public DateTime CreatedAt { get; init; }
 		public DateTime? ResolvedAt { get; init; }
+		// user, service_account or cli; the player when a staff member closed it
+		public string? ResolvedByKind { get; init; }
+		public PortalMember? ResolvedBy { get; init; }
 		public string? ResolutionNote { get; init; }
 
 		// Flat values for the grid columns
@@ -210,6 +219,43 @@ namespace GenOnlineService.Portal.Client
 		public string ReporterName => Reporter.FullName;
 		[JsonIgnore]
 		public string ReportedName => Reported.FullName;
+
+		// Who closed the report, in words
+		[JsonIgnore]
+		public string? ResolverName => ResolvedBy?.FullName ?? (ResolvedByKind == null ? null : PortalText.ActorKind(ResolvedByKind));
+	}
+
+	// The report queue as the address holds it: statuses (all or a comma list), the search and the order
+	public sealed record PortalReportQuery
+	{
+		public const string DefaultStatus = "open";
+		public static readonly IReadOnlyList<string> Statuses = ["open", "actioned", "dismissed"];
+
+		public string Status { get; init; } = DefaultStatus;
+		public string? Search { get; init; }
+		public bool NewestFirst { get; init; }
+
+		// Unknown statuses fall back to the open queue, as the host would refuse them
+		public static PortalReportQuery FromAddress(string? status, string? q, string? sort)
+		{
+			string[] parts = (status ?? DefaultStatus).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			string kept = parts.Contains("all") ? "all"
+				: parts.Length > 0 && parts.All(Statuses.Contains) ? String.Join(',', Statuses.Where(parts.Contains))
+				: DefaultStatus;
+			return new PortalReportQuery
+			{
+				Status = kept,
+				Search = String.IsNullOrWhiteSpace(q) ? null : q.Trim(),
+				NewestFirst = sort == "desc"
+			};
+		}
+
+		public IReadOnlyDictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["status"] = Status == DefaultStatus ? null : Status,
+			["q"] = Search,
+			["sort"] = NewestFirst ? "desc" : null
+		};
 	}
 
 	// One page of the queue and the size of the whole filtered queue
