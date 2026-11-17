@@ -188,6 +188,26 @@ public class PasswordTwoFactorTests
 		Assert.True(browser.SignedIn);
 	}
 
+	// with two-factor on, the last sign-in is recorded once the code is right, not after the password alone
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheCodeRecordsTheLastSignIn(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(string key, _) = await SetUp(probe, "seen2fa@example.org");
+		DateTime old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+		await PasswordPagesTests.SetLastSignIn(probe, "seen2fa@example.org", old);
+		DateTime before = DateTime.UtcNow.AddSeconds(-5);
+
+		var browser = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
+		Assert.Equal(302, (await PasswordPagesTests.SignIn(browser, "seen2fa@example.org", "the right password")).Status);
+		Assert.Equal(old, (await PasswordPagesTests.UserByEmail(probe, "seen2fa@example.org"))!.LastSignInAt);
+
+		Assert.Equal(302, (await SecondFactor(browser, "code", Totp(key))).Status);
+		Assert.True((await PasswordPagesTests.UserByEmail(probe, "seen2fa@example.org"))!.LastSignInAt >= before);
+	}
+
 	// the code page is only for someone who just gave the right password
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]

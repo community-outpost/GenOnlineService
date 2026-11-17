@@ -162,6 +162,18 @@ namespace GenOnlineService.Identity
 			return new PasswordAccountResult(user, null);
 		}
 
+		// Records a finished password sign-in (after the second factor when there is one) as the account's last sign-in,
+		// as provider sign-ins and game client sessions already do
+		public async Task RecordSignIn(User user)
+		{
+			user.LastSignInAt = DateTime.UtcNow;
+			IdentityResult saved = await m_users.UpdateAsync(user);
+			if (!saved.Succeeded)
+			{
+				throw new InvalidOperationException($"Recording the sign-in of user {user.ID} failed: {String.Join("; ", saved.Errors.Select(e => e.Code))}");
+			}
+		}
+
 		// The address as typed (trimmed) when it is one plain address with a dotted domain, else null
 		private static string? ParseEmail(string? email)
 		{
