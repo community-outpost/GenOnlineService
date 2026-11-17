@@ -162,4 +162,29 @@ public class AccountPageTests
 		Assert.Contains("linked 2026-11-01, last used 2026-11-16", page.Body);
 		Assert.DoesNotContain("80351110224678913", page.Body);
 	}
+
+	// the top bar links to the staff pages for a holder of a staff role, and only for one (S12, T14b)
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task OnlyStaffSeeTheAdminLink(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser player, _) = await SignedUp(probe, "Plain", "plain@example.org");
+		(AccountsBrowser staff, User moderator) = await SignedUp(probe, "Warden", "warden@example.org");
+		await using (AppDbContext db = probe.Open())
+		{
+			db.UserRoles.Add(new UserRole { UserID = moderator.ID, Role = StaffRoles.Moderator, Source = AuthoritySources.Local, GrantedAt = DateTime.UtcNow, GrantedBy = "test" });
+			await db.SaveChangesAsync();
+		}
+
+		PageResponse playerPage = await player.Get("/profile");
+		Assert.Equal(200, playerPage.Status);
+		Assert.DoesNotContain("/admin", playerPage.Body);
+
+		PageResponse staffPage = await staff.Get("/profile");
+		Assert.Equal(200, staffPage.Status);
+		Assert.Contains("href=\"/admin/reports\"", staffPage.Body);
+		Assert.Contains(">Admin</a>", staffPage.Body);
+	}
 }

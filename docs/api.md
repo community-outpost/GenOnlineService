@@ -38,6 +38,7 @@ Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention d
 | Route | Auth | Answer and errors |
 |---|---|---|
 | `GET /api/v1/players?online=true&search=` | session | `{players: [Member]}`, offset paged; `search` is a case-insensitive name prefix of at least 2 characters; one of the two is required (`invalid_argument {field: search}`) |
+| `GET /api/v1/players/search?query=` | `moderation.kick` or higher | staff search over every account, blocked and deactivated ones included: `{players: [{id, name, tag, state, created_at, last_sign_in_at}]}`, offset paged; `query` is a part of a name in any case (2 to 32 characters) or a player id (`invalid_argument {field: query}`) |
 | `GET /api/v1/players/:id` | session | public profile `{id, name, tag, badges, created_at, elo_rating, monthly_elo_rating, elo_matches}` |
 | `GET /api/v1/players/:id/stats` | session | the player's stats |
 | `GET /api/v1/players/stats?ids=1,2,3` | session | `{stats: [...]}` in request order, unknown ids left out, at most 100 ids |
@@ -66,9 +67,28 @@ The management routes need a web session (never a game session or a `gopat-` tok
 | `GET /api/v1/players/:id/roles`, `PUT` `{roles}`, `DELETE` | `roles.manage` | `{roles}`; PUT and DELETE change the locally granted roles, roles from the sign-in provider stay |
 | `GET /api/v1/audit_events?actor_id=&target_id=&action=&after_id=&per_page=` | `audit.read` | `{audit_events}`, newest first, keyset paged |
 | `GET /api/v1/application/settings`, `PUT` | `settings.manage` | `{motd}`; PUT is partial, `null` clears a key |
+| `GET /api/v1/anticheat_reports/:kind?reviewed=&user_id=` | `anticheat.review` | `kind` is `new_accounts`, `modules`, `probes` or `devices` (`invalid_argument {field: kind}`); `{reports: [{id, kind, player: Member, match_id, module_name?, module_path?, module_size?, reason?, reviewed_at, reviewed_by}]}`, newest first, offset paged; `reviewed` is `false` (default), `true` or `all`; `match_id` is null for a report raised at sign-in |
+| `PATCH /api/v1/anticheat_reports/:kind/:id` | `anticheat.review` | body `{reviewed: true}`, 204; the row stays and gets `reviewed_at` and `reviewed_by`, an audit row `anticheat_review` is written; a row reviewed before answers 204 and changes nothing |
 | `POST /api/v1/announcements` | `announcements.send` | body `{message}`, answers `{delivered_to}`; connected clients get `Notice` `server.announcement` |
 
 Sign-out everywhere for another user is `POST /api/v1/users/:id/revoke_sessions` (`users.revoke`).
+
+## Staff pages (`/admin`)
+
+Each environment serves its own staff pages while `Accounts:enabled` (S12): a WebAssembly app under `/admin` (`/admin/reports`, `/admin/players`, `/admin/players/:id`, `/admin/matches`, `/admin/matches/:id`, `/admin/anticheat/:kind`; `/admin` opens the reports) and its cookie API under `/admin/api`. Both accept the sign-in cookie only, never a token, and `/api/v1` stays bearer-only. A page without the cookie redirects to `/users/sign_in?ReturnUrl=`; a signed-in account without `moderation.kick`, `moderation.mute` or `moderation.ban` gets a 403 page; a staff account with a password and no second factor is sent to `/profile/two_factor_auth` first. The page shell loads `/_framework/*` (the WebAssembly files) and `/_content/*`, which `MapStaticAssets` serves.
+
+| Route | Permission | Answer |
+|---|---|---|
+| `GET /admin/api/session` | signed in | `{user_id, display_name, tag, roles, permissions, staff, csrf_header, csrf_token}`; the token goes in that header on every change |
+| `GET /admin/api/reports?status=&search=&start=&count=&newest=`, `PATCH /admin/api/reports/:id` | staff | the queue and the action of `GET` and `PATCH /api/v1/reports`, filtered and paged in the database: `{reports, total}` |
+| `GET /admin/api/players?search=&start=&count=` | staff | the search of `GET /api/v1/players/search`: `{players, total}` |
+| `GET /admin/api/players/:id`, `PATCH` `{name, reason}` | staff; the rename `moderation.rename` | the account, its sessions, ratings and sanctions; the rename of `PATCH /api/v1/players/:id` |
+| `POST /admin/api/players/:id/sanctions`, `DELETE /admin/api/sanctions/:id` | as `/api/v1` | the actions of `POST /api/v1/players/:id/sanctions` and `DELETE /api/v1/sanctions/:id`, with the same rank rule |
+| `GET /admin/api/players/:id/inspection` | `players.inspect` | sign-ins, devices (fingerprints only), addresses and possible duplicate accounts; writes one `player_inspect` audit row per staff member and player an hour, before reading |
+| `GET /admin/api/matches/:id` | staff | the answer of `GET /api/v1/matches/:id` |
+| `GET /admin/api/anticheat/:kind?reviewed=&start=&count=`, `PATCH /admin/api/anticheat/:kind/:id` | `anticheat.review` | the list and review of `/api/v1/anticheat_reports`: `{reports, total}` |
+
+Errors use the `{error, params}` body of `/api/v1`; `unauthorized` (401) without the cookie, `csrf` (400) for a change without the header, `forbidden` (403) without the permission, `two_factor_required` (403) for staff who have not set up two-factor sign-in.
 
 ## Probes and operator checks
 

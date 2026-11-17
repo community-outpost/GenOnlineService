@@ -1,0 +1,143 @@
+@* One anti-cheat review list on the data grid blueprint (data-02): unreviewed rows first, each row links to the player and the match *@
+@page "/admin/anticheat/{Kind}"
+@inject PortalApi Api
+@inject ToastService Toasts
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>@(m_list?.Title ?? "Anti-cheat") · Generals Online</PageTitle>
+
+@if (!Api.Session!.Can(PortalPermissions.AnticheatReview))
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <BbAlertTitle>Administrators only</BbAlertTitle>
+        <BbAlertDescription>Your account does not hold the anticheat.review permission.</BbAlertDescription>
+    </BbAlert>
+}
+else if (m_list == null)
+{
+    <BbEmpty Title="No such list" Description="This anti-cheat review list does not exist." />
+}
+else
+{
+    <div class="bb:w-full bb:space-y-4">
+        <div>
+            <h1 class="bb:text-2xl bb:font-semibold">@m_list.Title</h1>
+            <p class="bb:text-sm bb:text-muted-foreground">@m_list.Description</p>
+        </div>
+        @if (m_error != null)
+        {
+            <BbAlert Variant="AlertVariant.Danger">
+                <BbAlertTitle>The list could not load</BbAlertTitle>
+                <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+            </BbAlert>
+        }
+        <BbDataGrid @ref="m_grid" @key="Kind" TData="PortalAntiCheatReport" ItemsProvider="@LoadAsync" ItemKey="@(r => r.Id)" InitialPageSize="20" AriaLabel="@m_list.Title">
+            <Toolbar>
+                <BbNativeSelect TValue="string" Value="@m_reviewed" ValueChanged="@OnReviewedChanged" AriaLabel="Review state" Class="bb:w-64">
+                    <option value="false">Unreviewed</option>
+                    <option value="true">Reviewed</option>
+                    <option value="all">All</option>
+                </BbNativeSelect>
+            </Toolbar>
+            <Columns>
+                <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="90px" />
+                <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Player.FullName)" Title="Player">
+                    <CellTemplate>
+                        <BbLink Href="@PortalRoutes.PlayerPage(context.Player.Id)">@(context.Player.Name.Length > 0 ? context.Player.FullName : "#" + context.Player.Id)</BbLink>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Match" Width="110px">
+                    <ChildContent Context="report">
+                        @if (report.MatchId is long matchID)
+                        {
+                            <BbLink Href="@PortalRoutes.MatchPage(matchID)">@matchID</BbLink>
+                        }
+                        else
+                        {
+                            <span class="bb:text-muted-foreground">sign-in</span>
+                        }
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+                @if (Kind == "modules")
+                {
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.ModuleName!)" Title="Module" />
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.ModulePath!)" Title="Path" />
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long?" Property="@(r => r.ModuleSize)" Title="Size" Width="110px" />
+                }
+                @if (Kind == "probes" || Kind == "devices")
+                {
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason" />
+                }
+                <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Review" Width="180px" Hideable="false">
+                    <ChildContent Context="report">
+                        @if (report.ReviewedAt is DateTime reviewed)
+                        {
+                            <span class="bb:text-xs bb:text-muted-foreground">reviewed @PortalText.Date(reviewed)</span>
+                        }
+                        else
+                        {
+                            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => ReviewAsync(report))" data-testid="mark-reviewed">Mark reviewed</BbButton>
+                        }
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+            </Columns>
+        </BbDataGrid>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Kind { get; set; } = "";
+
+    private BbDataGrid<PortalAntiCheatReport>? m_grid;
+    private PortalReviewList? m_list;
+    private string m_reviewed = "false";
+    private string? m_error;
+
+    protected override void OnParametersSet()
+    {
+        m_list = PortalReviewList.Find(Kind);
+        m_error = null;
+    }
+
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalAntiCheatReport>> LoadAsync(DataGridRequest request)
+    {
+        PortalAnswer<PortalAntiCheatPage> answer = await Api.GetAntiCheatAsync(Kind, m_reviewed, request.StartIndex, request.Count ?? 20, request.CancellationToken);
+        string? error = answer.Ok ? null : answer.Error;
+        if (error != m_error)
+        {
+            m_error = error;
+            StateHasChanged();
+        }
+
+        PortalAntiCheatPage page = answer.Value ?? new PortalAntiCheatPage();
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalAntiCheatReport> { Items = page.Reports.ToList(), TotalItemCount = page.Total };
+    }
+
+    private async Task OnReviewedChanged(string? value)
+    {
+        m_reviewed = value ?? "false";
+        if (m_grid != null)
+        {
+            await m_grid.RefreshDataAsync();
+        }
+    }
+
+    private async Task ReviewAsync(PortalAntiCheatReport report)
+    {
+        PortalOutcome outcome = await Api.ReviewAsync(Kind, report.Id);
+        if (outcome.Ok)
+        {
+            Toasts.Success($"Report #{report.Id} is reviewed.", "Marked reviewed");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Not marked");
+        }
+
+        if (m_grid != null)
+        {
+            await m_grid.RefreshDataAsync();
+        }
+    }
+}

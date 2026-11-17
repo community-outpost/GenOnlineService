@@ -41,6 +41,12 @@ namespace GenOnlineService
 		public const string AuditRead = "audit.read";
 		public const string SettingsManage = "settings.manage";
 
+		// Reads the anti-cheat review lists and marks their rows reviewed
+		public const string AnticheatReview = "anticheat.review";
+
+		// Reads the sign-ins, devices, addresses and possible duplicate accounts of a player
+		public const string PlayersInspect = "players.inspect";
+
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
 		public const string OpsDatabase = "ops.database";
@@ -49,7 +55,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -103,7 +109,9 @@ namespace GenOnlineService
 			Permissions.AnnouncementsSend,
 			Permissions.TokensManage,
 			Permissions.AuditRead,
-			Permissions.SettingsManage
+			Permissions.SettingsManage,
+			Permissions.AnticheatReview,
+			Permissions.PlayersInspect
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)
