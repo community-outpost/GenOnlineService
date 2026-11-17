@@ -34,6 +34,10 @@ public class AnticheatModuleReport
 	public string ModuleName { get; set; } = null!;
 	public string ModulePath { get; set; } = null!;
 	public Int64 ModuleSize { get; set; }
+
+	// Null until a staff member marks the row reviewed, a review never deletes the row
+	public DateTime? ReviewedAt { get; set; }
+	public Int64? ReviewedBy { get; set; }
 }
 
 // One module reported by an anticheat Type2 probe response
@@ -127,6 +131,8 @@ public class AnticheatNewAccountGame
 	public Int64 ReportId { get; set; }
 	public Int64 UserId { get; set; }
 	public Int64 MatchId { get; set; }
+	public DateTime? ReviewedAt { get; set; }
+	public Int64? ReviewedBy { get; set; }
 }
 
 public class AnticheatProbeReport
@@ -135,6 +141,25 @@ public class AnticheatProbeReport
 	public Int64 UserId { get; set; }
 	public Int64 MatchId { get; set; }
 	public string Reason { get; set; } = null!;
+	public DateTime? ReviewedAt { get; set; }
+	public Int64? ReviewedBy { get; set; }
+}
+
+// The review lists of the staff tools, one per signal
+public static class AntiCheatReviewKinds
+{
+	public const string NewAccounts = "new_accounts";
+	public const string Modules = "modules";
+
+	// Probe reports raised inside a match
+	public const string Probes = "probes";
+
+	// Probe reports raised at sign-in for a device value without its marker, stored with match 0
+	public const string Devices = "devices";
+
+	public static readonly IReadOnlyList<string> All = [NewAccounts, Modules, Probes, Devices];
+
+	public static bool IsKnown(string? kind) => kind != null && All.Contains(kind);
 }
 
 
@@ -169,6 +194,10 @@ public class AnticheatModuleReportConfiguration : IEntityTypeConfiguration<Antic
 		entity.Property(e => e.ModuleSize)
 			.HasColumnName("module_size");
 
+		entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+		entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+		entity.HasIndex(e => e.ReviewedAt).HasDatabaseName("ix_anticheat_module_reports_reviewed_at");
+
 		entity.HasIndex(e => new { e.UserId, e.MatchId, e.ModuleName })
 			.IsUnique()
 			.HasDatabaseName("ux_anticheat_module_reports_user_match_module");
@@ -192,6 +221,10 @@ public class AnticheatNewAccountGameConfiguration : IEntityTypeConfiguration<Ant
 
 		entity.Property(e => e.MatchId)
 			.HasColumnName("match_id");
+
+		entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+		entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+		entity.HasIndex(e => e.ReviewedAt).HasDatabaseName("ix_anticheat_new_account_games_reviewed_at");
 	}
 }
 
@@ -217,6 +250,10 @@ public class AnticheatProbeReportConfiguration : IEntityTypeConfiguration<Antich
 			.HasColumnName("reason")
 			.HasMaxLength(256)
 			.IsRequired();
+
+		entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+		entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+		entity.HasIndex(e => e.ReviewedAt).HasDatabaseName("ix_anticheat_probe_reports_reviewed_at");
 	}
 }
 
@@ -224,6 +261,102 @@ public class AnticheatProbeReportConfiguration : IEntityTypeConfiguration<Antich
 
 namespace Database
 {
+	// One row of a review list, the module and reason fields are set for the kinds that carry them
+	public sealed class AntiCheatReviewRow
+	{
+		public Int64 ReportID { get; init; }
+		public Int64 UserID { get; init; }
+		public Int64 MatchID { get; init; }
+		public string? ModuleName { get; init; }
+		public string? ModulePath { get; init; }
+		public Int64? ModuleSize { get; init; }
+		public string? Reason { get; init; }
+		public DateTime? ReviewedAt { get; init; }
+		public Int64? ReviewedBy { get; init; }
+	}
+
+	public enum AntiCheatMarkResult { NotFound, AlreadyReviewed, Marked }
+
+	// The staff review lists over the three anti-cheat tables, filtered and paged in the database
+	public static class AntiCheatReviews
+	{
+		private static IQueryable<AntiCheatReviewRow> Rows(AppDbContext db, string kind)
+		{
+			return kind switch
+			{
+				AntiCheatReviewKinds.NewAccounts => db.AnticheatNewAccountGames.AsNoTracking().Select(r => new AntiCheatReviewRow
+				{
+					ReportID = r.ReportId, UserID = r.UserId, MatchID = r.MatchId, ReviewedAt = r.ReviewedAt, ReviewedBy = r.ReviewedBy
+				}),
+				AntiCheatReviewKinds.Modules => db.AnticheatModuleReports.AsNoTracking().Select(r => new AntiCheatReviewRow
+				{
+					ReportID = r.ReportId, UserID = r.UserId, MatchID = r.MatchId, ModuleName = r.ModuleName, ModulePath = r.ModulePath, ModuleSize = r.ModuleSize, ReviewedAt = r.ReviewedAt, ReviewedBy = r.ReviewedBy
+				}),
+				_ => Probes(db, kind).AsNoTracking().Select(r => new AntiCheatReviewRow
+				{
+					ReportID = r.ReportId, UserID = r.UserId, MatchID = r.MatchId, Reason = r.Reason, ReviewedAt = r.ReviewedAt, ReviewedBy = r.ReviewedBy
+				})
+			};
+		}
+
+		// A sign-in device report has no match, every other probe report has one
+		private static IQueryable<AnticheatProbeReport> Probes(AppDbContext db, string kind)
+		{
+			return kind == AntiCheatReviewKinds.Devices
+				? db.AnticheatProbeReports.Where(r => r.MatchId == 0)
+				: db.AnticheatProbeReports.Where(r => r.MatchId != 0);
+		}
+
+		// Newest first, reviewed null lists both states, userID null lists every player
+		public static async Task<(int Total, List<AntiCheatReviewRow> Page)> List(AppDbContext db, string kind, bool? reviewed, Int64? userID, int skip, int take, CancellationToken cancellationToken = default)
+		{
+			IQueryable<AntiCheatReviewRow> query = Rows(db, kind);
+			if (reviewed == true)
+			{
+				query = query.Where(r => r.ReviewedAt != null);
+			}
+			else if (reviewed == false)
+			{
+				query = query.Where(r => r.ReviewedAt == null);
+			}
+			if (userID != null)
+			{
+				query = query.Where(r => r.UserID == userID);
+			}
+
+			int total = await query.CountAsync(cancellationToken);
+			List<AntiCheatReviewRow> page = await query.OrderByDescending(r => r.ReportID).Skip(skip).Take(take).ToListAsync(cancellationToken);
+			return (total, page);
+		}
+
+		public static Task<AntiCheatReviewRow?> Get(AppDbContext db, string kind, Int64 reportID, CancellationToken cancellationToken = default)
+		{
+			return Rows(db, kind).FirstOrDefaultAsync(r => r.ReportID == reportID, cancellationToken);
+		}
+
+		// Sets the reviewed state once, a row reviewed before keeps its first reviewer
+		public static async Task<AntiCheatMarkResult> MarkReviewed(AppDbContext db, string kind, Int64 reportID, Int64? reviewerID, DateTime now, CancellationToken cancellationToken = default)
+		{
+			int updated = kind switch
+			{
+				AntiCheatReviewKinds.NewAccounts => await db.AnticheatNewAccountGames
+					.Where(r => r.ReportId == reportID && r.ReviewedAt == null)
+					.ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedAt, now).SetProperty(r => r.ReviewedBy, reviewerID), cancellationToken),
+				AntiCheatReviewKinds.Modules => await db.AnticheatModuleReports
+					.Where(r => r.ReportId == reportID && r.ReviewedAt == null)
+					.ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedAt, now).SetProperty(r => r.ReviewedBy, reviewerID), cancellationToken),
+				_ => await Probes(db, kind)
+					.Where(r => r.ReportId == reportID && r.ReviewedAt == null)
+					.ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedAt, now).SetProperty(r => r.ReviewedBy, reviewerID), cancellationToken)
+			};
+			if (updated > 0)
+			{
+				return AntiCheatMarkResult.Marked;
+			}
+			return await Get(db, kind, reportID, cancellationToken) == null ? AntiCheatMarkResult.NotFound : AntiCheatMarkResult.AlreadyReviewed;
+		}
+	}
+
 	public static class AntiCheat
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(AntiCheat));

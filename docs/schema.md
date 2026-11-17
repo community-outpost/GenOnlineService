@@ -177,6 +177,7 @@ devices                   id, user_id, kind varchar(16) ('machine_guid' | 'mac' 
 session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | 'end' | 'denied'),
                           result varchar(32), client varchar(32), client_version varchar(32),
                           exe_crc varchar(16) null, ip varchar(45), country char(2) null, created_at
+                          index (ip, user_id)   -- other accounts on an address, for the staff duplicate check
                           -- retention: 90 days
 ```
 
@@ -210,7 +211,11 @@ faction_stats_daily       day date, side smallint, matches int, wins int     pk 
 ```
 anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
   report_id pk (kept), user_id, match_id, ... (columns as today, snake_case)
+  reviewed_at null, reviewed_by null (users.id)   -- set once by a staff review, the row is kept
+  index (reviewed_at)
 ```
+
+A probe report with `match_id = 0` was raised at sign-in for a device value without the marker of a genuine client. The staff tools list those as `devices` and every other probe report as `probes`.
 
 ### Machine tokens and settings
 

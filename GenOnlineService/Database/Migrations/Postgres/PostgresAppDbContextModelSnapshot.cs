@@ -50,11 +50,22 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("bigint")
                         .HasColumnName("module_size");
 
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_module_reports_reviewed_at");
 
                     b.HasIndex("UserId", "MatchId", "ModuleName")
                         .IsUnique()
@@ -76,11 +87,22 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_new_account_games_reviewed_at");
 
                     b.ToTable("anticheat_new_account_games", (string)null);
                 });
@@ -104,11 +126,22 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("character varying(256)")
                         .HasColumnName("reason");
 
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_probe_reports_reviewed_at");
 
                     b.ToTable("anticheat_probe_reports", (string)null);
                 });
@@ -1693,6 +1726,9 @@ namespace GenOnlineService.Migrations.Postgres
 
                     b.HasIndex("CreatedAt")
                         .HasDatabaseName("ix_session_events_created_at");
+
+                    b.HasIndex("Ip", "UserID")
+                        .HasDatabaseName("ix_session_events_ip_user");
 
                     b.HasIndex("UserID", "CreatedAt")
                         .HasDatabaseName("ix_session_events_user_created");

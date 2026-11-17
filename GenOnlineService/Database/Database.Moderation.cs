@@ -58,6 +58,7 @@ public static class AuditTargetKinds
 	public const string Setting = "setting";
 	public const string Announcement = "announcement";
 	public const string Lobby = "lobby";
+	public const string AnticheatReport = "anticheat_report";
 }
 
 public static class ModerationActions
@@ -80,6 +81,10 @@ public static class ModerationActions
 	public const string SettingUpdate = "setting_update";
 	public const string Announcement = "announcement";
 	public const string ConnectionLookup = "connection_lookup";
+
+	// A staff member opened the sign-ins, devices and addresses of a player
+	public const string PlayerInspect = "player_inspect";
+	public const string AnticheatReview = "anticheat_review";
 }
 
 public static class ModerationSources
@@ -494,6 +499,29 @@ namespace Database
 				db.ChangeTracker.Clear();
 			}
 			return active;
+		}
+
+		// One row per actor and player inside the window, written before the personal data is read, true when a row was written
+		public static async Task<bool> LogInspection(AppDbContext db, ModerationActor actor, Int64 target, DateTime now, TimeSpan window)
+		{
+			DateTime since = now - window;
+			bool logged = await db.AuditLog.AsNoTracking().AnyAsync(e => e.TargetKind == AuditTargetKinds.User && e.TargetID == target
+				&& e.Action == ModerationActions.PlayerInspect && e.ActorKind == actor.Kind && e.ActorID == actor.UserID && e.CreatedAt > since);
+			if (logged)
+			{
+				return false;
+			}
+
+			db.AuditLog.Add(UserEntry(actor, ModerationActions.PlayerInspect, target, null, null, now));
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+			return true;
 		}
 
 		// Writes one audit row for a non user target and throws on failure, for actions that must not happen unlogged

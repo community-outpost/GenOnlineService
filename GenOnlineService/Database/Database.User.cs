@@ -230,6 +230,8 @@ public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 
 namespace Database
 {
+	public readonly record struct StaffPlayerRow(long ID, string Name, int NameTag, string State, DateTime CreatedAt, DateTime? LastSignInAt);
+
 	public static class Users
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Users));
@@ -347,6 +349,25 @@ namespace Database
 				s_log.LogError(ex, "GetUserBanStatus failed");
 				return null;
 			}
+		}
+
+		// Staff search: the term anywhere in the name ignoring case, or the exact player id, accounts in every state
+		public static async Task<(int Total, List<StaffPlayerRow> Page)> StaffSearch(AppDbContext db, string term, int skip, int take, CancellationToken cancellationToken = default)
+		{
+			string normalized = NameNormalizer.Normalize(term);
+			long id = long.TryParse(term, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long parsed) ? parsed : 0;
+			IQueryable<User> matches = db.Users.AsNoTracking().Where(u => u.UsernameNormalized.Contains(normalized) || u.ID == id);
+
+			int total = await matches.CountAsync(cancellationToken);
+			List<StaffPlayerRow> page = await matches
+				.OrderByDescending(u => u.ID == id)
+				.ThenBy(u => u.UsernameNormalized)
+				.ThenBy(u => u.ID)
+				.Skip(skip)
+				.Take(take)
+				.Select(u => new StaffPlayerRow(u.ID, u.Username, u.NameTag, u.State, u.CreatedAt, u.LastSignInAt))
+				.ToListAsync(cancellationToken);
+			return (total, page);
 		}
 
 		public static async Task<bool> Exists(AppDbContext db, long userId)
