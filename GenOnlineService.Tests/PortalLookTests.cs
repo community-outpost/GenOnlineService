@@ -95,11 +95,17 @@ public class PortalLookTests
 		Assert.Contains("Sign in with Google</a>", page);
 		Assert.Contains("fill=\"#4285F4\"", page); // Google's own colours
 
+		Assert.Contains($"url(\"{PortalLook.PosterPath}\")", File.ReadAllText(FileOf(PortalLook.GeneralsPath)));
+		AssertGoClassesDefined(page);
+	}
+
+	// every go-* class a page uses has a rule in generals.css
+	private static void AssertGoClassesDefined(string page)
+	{
 		string generals = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
-		Assert.Contains($"url(\"{PortalLook.PosterPath}\")", generals);
 		foreach (string goClass in Regex.Matches(page, "class=\"([^\"]*)\"").SelectMany(m => m.Groups[1].Value.Split(' ')).Where(c => c.StartsWith("go-", StringComparison.Ordinal)).Distinct())
 		{
-			Assert.Matches(new Regex(Regex.Escape("." + goClass) + "[ :{,]"), generals);
+			Assert.Matches(new Regex(Regex.Escape("." + goClass) + "[ :{,>]"), generals);
 		}
 	}
 
@@ -135,6 +141,10 @@ public class PortalLookTests
 
 		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Styled", "styled@example.org", "a long enough password")).Status);
 		AssertStyled((await browser.Get("/profile/two_factor_auth")).Body);
+		PageResponse account = await browser.Get("/profile?renamed=1");
+		Assert.Equal(200, account.Status);
+		AssertStyled(account.Body);
+		AssertGoClassesDefined(account.Body);
 		await using (AppDbContext db = probe.Open())
 		{
 			User user = db.Users.AsTracking().Single(u => u.Email == "styled@example.org");

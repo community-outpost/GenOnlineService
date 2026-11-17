@@ -82,14 +82,9 @@ namespace GenOnlineService.Identity
 		// centred in the left column, and the box art as the cover on the right of a wide screen
 		public static string Document(string title, string body, string? description = null)
 		{
-			// dark only: the theme's .dark variables, with Zero Hour's colours over them
-			return "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-				+ "<meta name=\"color-scheme\" content=\"dark\">"
-				+ $"<title>{E(title)} · Generals Online</title>"
-				+ $"<link rel=\"stylesheet\" href=\"{ThemePath}\"><link rel=\"stylesheet\" href=\"{StylesheetPath}\"><link rel=\"stylesheet\" href=\"{GeneralsPath}\">"
-				+ "</head><body class=\"bb:bg-background bb:text-foreground\">"
+			return Head(title)
 				+ "<div class=\"go-split\">"
-				+ $"<main class=\"go-main\"><a href=\"/\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\"></a>"
+				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\"></a>"
 				+ "<div class=\"bb:w-full bb:max-w-sm bb:space-y-6\">"
 				+ $"<div class=\"bb:space-y-2 bb:text-center\"><h1 class=\"go-heading\">{E(title)}</h1>"
 				+ (description == null ? String.Empty : $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p>")
@@ -97,6 +92,52 @@ namespace GenOnlineService.Identity
 				+ $"<div class=\"bb:space-y-4 bb:text-sm\">{body}</div>"
 				+ "</div></main><div class=\"go-cover\" role=\"presentation\"></div></div></body></html>";
 		}
+
+		// The head and the opening body of every page: dark only, the theme's .dark variables with Zero Hour's colours over them
+		private static string Head(string title)
+			=> "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+				+ "<meta name=\"color-scheme\" content=\"dark\">"
+				+ $"<title>{E(title)} · Generals Online</title>"
+				+ $"<link rel=\"stylesheet\" href=\"{ThemePath}\"><link rel=\"stylesheet\" href=\"{StylesheetPath}\"><link rel=\"stylesheet\" href=\"{GeneralsPath}\">"
+				+ "</head><body class=\"bb:bg-background bb:text-foreground\">";
+
+		// A signed-in page of the portal (S12), after the Top Navigation Bar and Profile Edit Form blueprints (nav-01,
+		// form-03): a top bar with the logo, who is signed in and the already encoded actions on the right, then one column
+		// of cards
+		public static string AppDocument(string title, string signedInAs, string actions, string body)
+			=> Head(title)
+				+ "<header class=\"go-topbar\">"
+				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\"></a>"
+				+ $"<div class=\"go-topbar-actions\"><span class=\"bb:text-sm bb:font-medium\">{E(signedInAs)}</span>{actions}</div>"
+				+ "</header>"
+				+ $"<main class=\"go-column\"><h1 class=\"go-heading\">{E(title)}</h1>{body}</main>"
+				+ "</body></html>";
+
+		// A stock card: title, description, already encoded content and an optional footer of buttons on the right
+		public static string Card(string title, string description, string content, string? footer = null)
+			=> "<section class=\"bb:rounded-lg bb:border bb:bg-card bb:[--bb-surface:var(--card)] bb:text-card-foreground bb:shadow-(--bb-card-shadow)\">"
+				+ $"<div class=\"bb:flex bb:flex-col bb:space-y-1.5 bb:p-6\"><h2 class=\"bb:text-xl bb:font-semibold bb:leading-none\">{E(title)}</h2>"
+				+ $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p></div>"
+				+ $"<div class=\"bb:p-6 bb:pt-0 bb:space-y-4 bb:text-sm\">{content}</div>"
+				+ (footer == null ? String.Empty : $"<div class=\"go-card-footer\">{footer}</div>")
+				+ "</section>";
+
+		// A small label: a role, a state
+		public static string Badge(string text, bool muted = false) => $"<span class=\"go-badge{(muted ? " go-badge-muted" : String.Empty)}\">{E(text)}</span>";
+
+		// The initials of a name in a circle, as BbAvatar's fallback
+		public static string Avatar(string name)
+		{
+			string initials = new string(name.Where(Char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
+			return $"<span class=\"go-avatar\" aria-hidden=\"true\">{E(initials.Length == 0 ? "?" : initials)}</span>";
+		}
+
+		// A row of a card: a label on the left, already encoded content on the right
+		public static string Row(string label, string content)
+			=> $"<div class=\"go-row\"><span class=\"bb:text-muted-foreground\">{E(label)}</span><span class=\"go-row-value\">{content}</span></div>";
+
+		// A provider's mark and name, as on its sign-in button
+		public static string ProviderName(string provider, string displayName) => $"<span class=\"go-provider-name\">{ProviderMark(provider)}<span>{E(displayName)}</span></span>";
 
 		// Explanatory text in the muted colour
 		public static string Text(string encoded) => $"<p class=\"bb:text-muted-foreground bb:leading-relaxed\">{encoded}</p>";
@@ -114,15 +155,18 @@ namespace GenOnlineService.Identity
 			return $"<div class=\"go-field\"><label for=\"{E(id)}\" class=\"{LabelClass}\">{E(label)}</label>{input}</div>";
 		}
 
-		public static string Submit(string text, string? name = null, string? value = null, bool outline = false, string? icon = null)
+		// A submit button, full width in a form, its own width (narrow) in a card footer or the top bar
+		public static string Submit(string text, string? name = null, string? value = null, bool outline = false, string? icon = null, bool narrow = false)
 		{
 			string named = name == null ? String.Empty : $" name=\"{E(name)}\" value=\"{E(value)}\"";
-			return $"<button type=\"submit\"{named} class=\"{(outline ? OutlineClass : PrimaryClass)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</button>";
+			return $"<button type=\"submit\"{named} class=\"{ButtonClass(outline, narrow)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</button>";
 		}
 
-		// A link drawn as a full-width button
-		public static string LinkButton(string href, string text, bool outline = true, string? icon = null)
-			=> $"<a href=\"{E(href)}\" class=\"{(outline ? OutlineClass : PrimaryClass)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</a>";
+		// A link drawn as a button, full width unless narrow
+		public static string LinkButton(string href, string text, bool outline = true, string? icon = null, bool narrow = false)
+			=> $"<a href=\"{E(href)}\" class=\"{ButtonClass(outline, narrow)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</a>";
+
+		private static string ButtonClass(bool outline, bool narrow) => (outline ? OutlineClass : PrimaryClass) + (narrow ? " go-narrow" : String.Empty);
 
 		// The sign-in providers, as login-02's buttons under "Or continue with": full width, one under another, each in its
 		// brand's colours with its mark (an unknown provider stays an outline button)
