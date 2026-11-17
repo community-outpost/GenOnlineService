@@ -1050,3 +1050,114 @@ a.go-list-item:hover {
   width: 100%;
   height: 16rem;
 }
+
+/* the player and match lists (T17f): GitLab's filtered search above the table, a search field that takes the width, toggle
+   filters and selects beside it, wrapping on a phone */
+.go-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.go-filterbar-search {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.go-chips,
+.go-filterbar-selects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.go-select {
+  width: auto;
+  min-width: 10rem;
+}
+
+.go-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--go-text-2);
+}
+
+.go-date > span {
+  min-width: 2.25rem;
+}
+
+.go-date input {
+  width: 9.5rem;
+  color-scheme: dark;
+}
+
+.go-filterbar-hint {
+  margin: -0.5rem 0 1rem;
+  font-size: 0.8125rem;
+  color: var(--destructive);
+}
+
+.go-cell-player,
+.go-cell-badges,
+.go-cell-players {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.go-cell-players {
+  gap: 0 0.75rem;
+}
+
+.go-muted {
+  color: var(--go-text-3);
+}
+
+/* counts and durations in tabular figures, on the left edge like their column title */
+.go-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.go-dot {
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-right: 0.375rem;
+  background: currentColor;
+}
+
+/* a winner of a match reads at full strength, the other players a step down */
+.go-cell-players a {
+  opacity: 0.7;
+}
+
+.go-cell-players a.go-won {
+  opacity: 1;
+  font-weight: 500;
+}
+
+.go-icon-inline {
+  display: inline-block;
+  vertical-align: -0.125rem;
+  margin-right: 0.25rem;
+  color: var(--go-text-2);
+}
+
+@media (max-width: 47.99rem) {
+  .go-filterbar-search,
+  .go-select,
+  .go-date {
+    flex: 1 1 100%;
+  }
+
+  .go-date input {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}

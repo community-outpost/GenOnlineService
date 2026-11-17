@@ -42,6 +42,7 @@ namespace GenOnlineService.Portal.Client
 		public const string Sanctions = "api/v1/sanctions";
 		public const string Matches = "api/v1/matches";
 		public const string AntiCheat = "api/v1/anticheat_reports";
+		public const string MatchSearch = "api/v1/matches/search";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -209,6 +210,13 @@ namespace GenOnlineService.Portal.Client
 		public string State { get; init; } = "";
 		public DateTime CreatedAt { get; init; }
 		public DateTime? LastSignInAt { get; init; }
+		public bool Online { get; init; }
+		public bool Banned { get; init; }
+		public bool Muted { get; init; }
+		public IReadOnlyList<string> Roles { get; init; } = [];
+		public bool Flagged { get; init; }
+		public int Matches { get; init; }
+		public int? Rating { get; init; }
 
 		[JsonIgnore]
 		public string FullName => Tag == null ? Name : Name + "#" + Tag;
@@ -417,5 +425,135 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalError
 	{
 		public string Error { get; init; } = "";
+	}
+
+	// What the player list shows (T17f), in the address of the page (?q=&filter=&signed_in_within=&order_by=&sort=) and,
+	// with query for q, in the arguments of /api/v1/players/search
+	public sealed record PortalPlayerQuery
+	{
+		public const string Online = "online";
+		public const string Banned = "banned";
+		public const string Muted = "muted";
+		public const string Staff = "staff";
+		public const string Flagged = "flagged";
+
+		public static readonly string[] AllFilters = [Online, Banned, Muted, Staff, Flagged];
+
+		public string? Search { get; init; }
+		public IReadOnlyList<string> Filters { get; init; } = [];
+		// 24h, 7d or 30d
+		public string? SignedInWithin { get; init; }
+		// last_sign_in_at, created_at, name or matches; null is the host's order
+		public string? OrderBy { get; init; }
+		// asc or desc; null is the column's own direction
+		public string? Sort { get; init; }
+
+		public bool IsFiltered => Filters.Count > 0 || SignedInWithin != null;
+
+		// Unknown values in a typed or old address are dropped, so the list still opens
+		public static PortalPlayerQuery FromAddress(string? q, string? filter, string? signedInWithin, string? orderBy, string? sort) => new PortalPlayerQuery
+		{
+			Search = String.IsNullOrWhiteSpace(q) ? null : q.Trim(),
+			Filters = (filter ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(AllFilters.Contains).Distinct().ToList(),
+			SignedInWithin = signedInWithin is "24h" or "7d" or "30d" ? signedInWithin : null,
+			OrderBy = orderBy is "last_sign_in_at" or "created_at" or "name" or "matches" ? orderBy : null,
+			Sort = sort is "asc" or "desc" ? sort : null
+		};
+
+		// The page's address arguments; null leaves one out
+		public Dictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["q"] = Search,
+			["filter"] = Filters.Count == 0 ? null : String.Join(',', Filters),
+			["signed_in_within"] = SignedInWithin,
+			["order_by"] = OrderBy,
+			["sort"] = Sort
+		};
+
+		public string ToApiQuery() => PortalQueries.Join(new Dictionary<string, object?>(ToAddress().Where(a => a.Key != "q")) { ["query"] = Search });
+	}
+
+	// One player of a match of the staff match list
+	public sealed record PortalMatchRowPlayer
+	{
+		public long UserId { get; init; }
+		public string Name { get; init; } = "";
+		public string? Tag { get; init; }
+		public int? Team { get; init; }
+		public bool Won { get; init; }
+		public bool Desynced { get; init; }
+
+		[JsonIgnore]
+		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	// One match of /api/v1/matches/search
+	public sealed record PortalMatchRow
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public string? Type { get; init; }
+		public PortalMatchMap Map { get; init; } = new PortalMatchMap();
+		public DateTime StartedAt { get; init; }
+		public DateTime? FinishedAt { get; init; }
+		public long? DurationS { get; init; }
+		public IReadOnlyList<PortalMatchRowPlayer> Players { get; init; } = [];
+		public IReadOnlyList<string> Flags { get; init; } = [];
+	}
+
+	// Total is null when the host stopped counting (past 10,000 rows); HasNext says whether another page follows
+	public sealed record PortalMatchPage
+	{
+		public IReadOnlyList<PortalMatchRow> Matches { get; init; } = [];
+		public int? Total { get; init; }
+		public bool HasNext { get; init; }
+	}
+
+	// What the match list shows (T17f), in the address of the page and the arguments of /api/v1/matches/search alike
+	public sealed record PortalMatchQuery
+	{
+		// quick_match or custom
+		public string? Type { get; init; }
+		public string? Map { get; init; }
+		// a player id, Name#tag or a whole name
+		public string? Player { get; init; }
+		// yyyy-MM-dd, UTC; To includes its day
+		public string? From { get; init; }
+		public string? To { get; init; }
+		public bool Flagged { get; init; }
+
+		public bool IsFiltered => Type != null || Map != null || Player != null || From != null || To != null || Flagged;
+
+		public static PortalMatchQuery FromAddress(string? type, string? map, string? player, string? from, string? to, string? flagged) => new PortalMatchQuery
+		{
+			Type = type is "quick_match" or "custom" ? type : null,
+			Map = String.IsNullOrWhiteSpace(map) ? null : map.Trim(),
+			Player = String.IsNullOrWhiteSpace(player) ? null : player.Trim(),
+			From = Day(from),
+			To = Day(to),
+			Flagged = flagged == "true"
+		};
+
+		public Dictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["type"] = Type,
+			["map"] = Map,
+			["player"] = Player,
+			["from"] = From,
+			["to"] = To,
+			["flagged"] = Flagged ? "true" : null
+		};
+
+		public string ToApiQuery() => PortalQueries.Join(ToAddress());
+
+		private static string? Day(string? text) =>
+			DateTime.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text : null;
+	}
+
+	public static class PortalQueries
+	{
+		// name=value pairs without the null ones, each value escaped
+		public static string Join(IEnumerable<KeyValuePair<string, object?>> arguments) =>
+			String.Join('&', arguments.Where(a => a.Value != null).Select(a => a.Key + "=" + Uri.EscapeDataString(a.Value!.ToString()!)));
 	}
 }
