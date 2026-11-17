@@ -95,6 +95,57 @@ public class ModeratorViewsTests
 		Assert.Equal("reporter_id", FieldOf(await moderator.Get("/api/v1/reports/search?reporter_id=-3")));
 	}
 
+	// The audit log finds what a player did or what was done to them by name, within days, and names the player it targets
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AuditLogFiltersByPlayerNameAndDayAndNamesItsTarget(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var admin = new AdminBrowser(probe);
+		await admin.SignUp("Chief", "chief@example.org");
+		User chief = await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
+		User alpha = await AddUser(probe, "Alpha", 1);
+		User otherAlpha = await AddUser(probe, "Alpha", 2);
+		User bravo = await AddUser(probe, "Bravo", 3);
+		DateTime day = new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc);
+		await using (AppDbContext db = probe.Open())
+		{
+			AuditLogEntry Row(string action, long actor, long target, DateTime at) => new AuditLogEntry
+			{
+				CreatedAt = at, ActorKind = AuditActorKinds.User, ActorID = actor, Actor = "user:" + actor, Action = action,
+				TargetKind = AuditTargetKinds.User, TargetID = target, Source = "api"
+			};
+			db.AuditLog.AddRange(
+				Row("kick", chief.ID, alpha.ID, day.AddDays(-2)),
+				Row("mute", chief.ID, otherAlpha.ID, day),
+				Row("ban", chief.ID, bravo.ID, day.AddDays(1)),
+				Row("rename", alpha.ID, bravo.ID, day));
+			await db.SaveChangesAsync();
+		}
+
+		string[] Actions(PageResponse response) => Rows(response, "audit_events").Select(e => e.GetProperty("action").GetString()!).ToArray();
+
+		// a whole name is every account of that name, Name#tag one of them
+		Assert.Equal(["mute", "kick"], Actions(await admin.Get("/api/v1/audit_events?target=alpha")));
+		Assert.Equal(["kick"], Actions(await admin.Get("/api/v1/audit_events?target=" + Uri.EscapeDataString("Alpha#0001"))));
+		Assert.Equal(["rename"], Actions(await admin.Get("/api/v1/audit_events?actor=Alpha")));
+		Assert.Equal(["rename"], Actions(await admin.Get($"/api/v1/audit_events?actor={alpha.ID}&target=Bravo")));
+		Assert.Empty(Actions(await admin.Get("/api/v1/audit_events?actor=Nobody")));
+
+		// to includes its whole day
+		Assert.Equal(["rename", "mute"], Actions(await admin.Get("/api/v1/audit_events?from=2026-11-10&to=2026-11-10")));
+		Assert.Equal(["rename", "ban", "mute"], Actions(await admin.Get("/api/v1/audit_events?from=2026-11-09&to=2026-11-11")));
+
+		JsonElement ban = Rows(await admin.Get("/api/v1/audit_events?action=ban"), "audit_events").Single();
+		Assert.Equal(bravo.ID, ban.GetProperty("target").GetProperty("id").GetInt64());
+		Assert.Equal("Bravo", ban.GetProperty("target").GetProperty("display_name").GetString());
+
+		Assert.Equal("from", FieldOf(await admin.Get("/api/v1/audit_events?from=yesterday")));
+		Assert.Equal("to", FieldOf(await admin.Get("/api/v1/audit_events?to=2026-13-01")));
+		Assert.Equal("actor", FieldOf(await admin.Get("/api/v1/audit_events?actor=")));
+	}
+
 	// Every anti-cheat row raised from now on keeps its time; a row stored before has none and shows the start of its match,
 	// a device row without a match shows neither. A reviewed row names who reviewed it
 	[ProbeTheory]

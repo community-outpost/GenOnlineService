@@ -58,6 +58,28 @@ public class PortalListQueryTests
 		Assert.All(new PortalReportQuery().ToAddress().Values, Assert.Null);
 	}
 
+	// The audit log keeps players, the action and the days in the address and asks the host the same; an unknown action
+	// or a day that is not yyyy-MM-dd is left out
+	[Fact]
+	public void AnAuditViewReadsFromTheAddressAndAsksTheHostTheSame()
+	{
+		PortalAuditQuery query = PortalAuditQuery.FromAddress(" Red#0001 ", "42", "ban", "2026-11-01", "2026-11-17");
+		Assert.Equal("actor=Red%230001&target=42&action=ban&from=2026-11-01&to=2026-11-17", query.ToApiQuery());
+		Assert.Equal("Red#0001", query.ToAddress()["actor"]);
+		Assert.True(query.IsFiltered);
+
+		PortalAuditQuery dropped = PortalAuditQuery.FromAddress(" ", null, "explode", "yesterday", "2026-13-40");
+		Assert.Equal(new PortalAuditQuery(), dropped);
+		Assert.False(dropped.IsFiltered);
+		Assert.Equal("", dropped.ToApiQuery());
+	}
+
+	[Fact]
+	public void EveryAuditActionHasWords()
+	{
+		Assert.All(PortalAuditActions.All, action => Assert.NotEqual(action, PortalAuditActions.LabelOf(action)));
+	}
+
 	[Fact]
 	public void AnUnknownReportStatusIsTheOpenQueue()
 	{

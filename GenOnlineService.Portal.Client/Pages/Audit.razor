@@ -1,6 +1,7 @@
-@* The audit log: the page header (nav-02) over GitLab's filtered search (actor, target, action) and a data table (data-01)
-   of GET /api/v1/audit_events, newest first and keyset paged (newer and older pages, no page count). audit.read only;
-   ?target= (the link of each player page), ?actor= and ?action= keep the filters in the address *@
+@* The audit log: the page header (nav-02) over GitLab's filtered search (actor, target, action, days) and a data table
+   (data-01) of GET /api/v1/audit_events, newest first and keyset paged (newer and older pages, no page count). audit.read
+   only; ?actor=, ?target= (a player id, Name#tag or name; each player page links ?target=<id>), ?action=, ?from= and ?to=
+   keep the filters in the address *@
 @page "/admin/audit"
 @inject PortalApi Api
 @inject NavigationManager Navigation
@@ -19,40 +20,44 @@ else
 {
     <BbCard Class="go-filtered">
         <BbCardContent Class="bb:pt-6 bb:space-y-4">
-            <form class="go-audit-filters" @onsubmit="ApplyAsync" data-testid="audit-filters">
+            <form class="go-audit-filters" @onsubmit="Apply" data-testid="audit-filters">
                 <div class="bb:space-y-2">
-                    <BbLabel For="audit-actor">Actor player id</BbLabel>
-                    <BbInput Id="audit-actor" @bind-Value="m_actor" Placeholder="Any…" AriaInvalid="@(m_invalid ? true : null)" inputmode="numeric" autocomplete="off" />
+                    <BbLabel For="audit-actor">Done by</BbLabel>
+                    <BbInput Id="audit-actor" @bind-Value="m_actor" Placeholder="Name, Name#tag or id…" autocomplete="off" spellcheck="false" />
                 </div>
                 <div class="bb:space-y-2">
-                    <BbLabel For="audit-target">Target player id</BbLabel>
-                    <BbInput Id="audit-target" @bind-Value="m_target" Placeholder="Any…" AriaInvalid="@(m_invalid ? true : null)" inputmode="numeric" autocomplete="off" />
+                    <BbLabel For="audit-target">Done to</BbLabel>
+                    <BbInput Id="audit-target" @bind-Value="m_target" Placeholder="Name, Name#tag or id…" autocomplete="off" spellcheck="false" />
                 </div>
                 <div class="bb:space-y-2">
                     <BbLabel For="audit-action">Action</BbLabel>
                     <BbNativeSelect TValue="string" Id="audit-action" @bind-Value="m_action" Class="bb:w-full">
                         <option value="">Any action</option>
-                        @foreach (string action in PortalAuditActions.All)
+                        @foreach (string action in PortalAuditActions.All.OrderBy(PortalAuditActions.LabelOf, StringComparer.Ordinal))
                         {
-                            <option value="@action">@action</option>
+                            <option value="@action">@PortalAuditActions.LabelOf(action)</option>
                         }
                     </BbNativeSelect>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="audit-from">From (UTC)</BbLabel>
+                    <BbInput Id="audit-from" Type="InputType.Date" @bind-Value="m_from" />
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="audit-to">To (UTC)</BbLabel>
+                    <BbInput Id="audit-to" Type="InputType.Date" @bind-Value="m_to" />
                 </div>
                 <div class="go-audit-filter-buttons">
                     <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" data-testid="audit-apply">
                         <LucideIcon Name="list-filter" Class="bb:h-4 bb:w-4" />
                         Filter
                     </BbButton>
-                    @if (Filtered)
+                    @if (m_query.IsFiltered)
                     {
                         <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="Clear">Clear</BbButton>
                     }
                 </div>
             </form>
-            @if (m_invalid)
-            {
-                <p class="bb:text-sm bb:text-destructive" role="alert">A player id is a positive number.</p>
-            }
 
             @if (m_error != null)
             {
@@ -74,29 +79,33 @@ else
             {
                 <BbDataTable TData="PortalAuditEvent" Data="@m_events" ShowToolbar="false" ShowPagination="false" AriaLabel="Audit log">
                     <Columns>
-                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => PortalText.Date(e.CreatedAt))" Header="Time" CellClass="go-nowrap" />
-                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.Action)" Header="Action">
+                        <BbDataTableColumn TData="PortalAuditEvent" TValue="DateTime" Property="@(e => e.CreatedAt)" Header="Time" CellClass="go-nowrap">
                             <CellTemplate Context="entry">
-                                <BbBadge Variant="BadgeVariant.Outline" Class="bb:font-mono">@entry.Action</BbBadge>
+                                <When Value="@entry.CreatedAt" Exact="true" />
                             </CellTemplate>
                         </BbDataTableColumn>
-                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.ActorName)" Header="Actor">
+                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.Action)" Header="Action">
+                            <CellTemplate Context="entry">
+                                <BbBadge Variant="BadgeVariant.Outline" title="@entry.Action">@PortalAuditActions.LabelOf(entry.Action)</BbBadge>
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.ActorName)" Header="Done by">
                             <CellTemplate Context="entry">
                                 @if (entry.Actor is PortalAuditActor actor)
                                 {
-                                    <BbLink Href="@PortalRoutes.PlayerPage(actor.Id)">@(actor.DisplayName ?? "player " + actor.Id)</BbLink>
+                                    <BbLink Href="@PortalRoutes.PlayerPage(actor.Id)">@(actor.DisplayName ?? "Player " + actor.Id)</BbLink>
                                 }
                                 else
                                 {
-                                    <span class="bb:font-mono bb:text-xs">@entry.ActorName</span>
+                                    <span class="bb:text-muted-foreground" title="@entry.ActorName">@PortalText.ActorKind(entry.ActorKind)</span>
                                 }
                             </CellTemplate>
                         </BbDataTableColumn>
-                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.TargetKind)" Header="Target">
+                        <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.TargetKind)" Header="Done to">
                             <CellTemplate Context="entry">
-                                @if (entry.TargetKind == "user" && entry.TargetId is long player)
+                                @if (entry.Target is PortalAuditActor target)
                                 {
-                                    <BbLink Href="@PortalRoutes.PlayerPage(player)">player @player</BbLink>
+                                    <BbLink Href="@PortalRoutes.PlayerPage(target.Id)">@(target.DisplayName ?? "Player " + target.Id)</BbLink>
                                 }
                                 else
                                 {
@@ -113,7 +122,7 @@ else
                         <BbDataTableColumn TData="PortalAuditEvent" TValue="string" Property="@(e => e.Source)" Header="Source" CellClass="bb:text-muted-foreground" />
                     </Columns>
                     <EmptyTemplate>
-                        <BbEmpty Size="EmptySize.Small" Title="Nothing on record" Description="@(Filtered ? "No audit row matches these filters." : "The audit log is empty.")">
+                        <BbEmpty Size="EmptySize.Small" Title="Nothing on record" Description="@(m_query.IsFiltered ? "No audit row matches these filters. A player filter needs a whole name, Name#tag or an id." : "The audit log is empty.")">
                             <Icon>
                                 <LucideIcon Name="scroll-text" />
                             </Icon>
@@ -148,10 +157,18 @@ else
     [SupplyParameterFromQuery(Name = "action")]
     public string? Action { get; set; }
 
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? From { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")]
+    public string? To { get; set; }
+
+    private PortalAuditQuery m_query = new PortalAuditQuery();
     private string? m_actor;
     private string? m_target;
     private string? m_action;
-    private bool m_invalid;
+    private string? m_from;
+    private string? m_to;
     private string? m_error;
     private List<PortalAuditEvent>? m_events;
 
@@ -162,14 +179,14 @@ else
     // The layout renders pages only once the session is known
     private PortalSessionInfo Session => Api.Session!;
 
-    private bool Filtered => !String.IsNullOrEmpty(Actor) || !String.IsNullOrEmpty(Target) || !String.IsNullOrEmpty(Action);
-
     protected override async Task OnParametersSetAsync()
     {
-        m_actor = Actor;
-        m_target = Target;
-        m_action = Action ?? "";
-        m_invalid = false;
+        m_query = PortalAuditQuery.FromAddress(Actor, Target, Action, From, To);
+        m_actor = m_query.Actor;
+        m_target = m_query.Target;
+        m_action = m_query.Action ?? "";
+        m_from = m_query.From;
+        m_to = m_query.To;
         m_pages.Clear();
         m_after = null;
         if (Session.Can(PortalPermissions.AuditRead))
@@ -178,52 +195,19 @@ else
         }
     }
 
-    private static bool TryReadID(string? text, out long? id)
-    {
-        id = null;
-        string value = text?.Trim() ?? "";
-        if (value.Length == 0)
-        {
-            return true;
-        }
-        if (long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long parsed) && parsed > 0)
-        {
-            id = parsed;
-            return true;
-        }
-        return false;
-    }
-
     private async Task LoadAsync()
     {
-        if (!TryReadID(Actor, out long? actor) || !TryReadID(Target, out long? target))
-        {
-            m_invalid = true;
-            m_events = [];
-            return;
-        }
-
         m_events = null;
-        PortalAnswer<PortalAuditPage> answer = await Api.GetAuditAsync(actor, target, String.IsNullOrEmpty(Action) ? null : Action, m_after, PerPage, CancellationToken.None);
+        PortalAnswer<PortalAuditPage> answer = await Api.GetAuditAsync(m_query, m_after, PerPage, CancellationToken.None);
         m_error = answer.Ok ? null : answer.Error;
         m_events = answer.Value?.AuditEvents.ToList() ?? [];
     }
 
     // The filters go into the address, so a reload or a shared link keeps them
-    private Task ApplyAsync()
+    private void Apply()
     {
-        m_invalid = !TryReadID(m_actor, out long? actor) | !TryReadID(m_target, out long? target);
-        if (m_invalid)
-        {
-            return Task.CompletedTask;
-        }
-        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(PortalRoutes.AuditPage, new Dictionary<string, object?>
-        {
-            ["actor"] = actor?.ToString(),
-            ["target"] = target?.ToString(),
-            ["action"] = String.IsNullOrEmpty(m_action) ? null : m_action
-        }));
-        return Task.CompletedTask;
+        PortalAuditQuery query = PortalAuditQuery.FromAddress(m_actor, m_target, m_action, m_from, m_to);
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(PortalRoutes.AuditPage, query.ToAddress()));
     }
 
     private void Clear() => Navigation.NavigateTo(PortalRoutes.AuditPage);

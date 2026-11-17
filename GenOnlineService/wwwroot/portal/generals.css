@@ -1054,7 +1054,8 @@ a.go-list-item:hover {
 /* the audit log's filter bar: actor, target and action side by side, stacked on a phone */
 .go-audit-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  /* two players and the action, then the two days and the buttons */
+  grid-template-columns: repeat(3, minmax(0, 1fr)) repeat(2, minmax(9.5rem, auto)) auto;
   align-items: end;
   gap: 0.75rem;
 }

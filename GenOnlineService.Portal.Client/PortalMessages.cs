@@ -97,6 +97,44 @@ namespace GenOnlineService.Portal.Client
 	// The audit actions the log's filter offers, in the words of the host's audit_log.action
 	public static class PortalAuditActions
 	{
+		// An action in words for the filter and the log; an action without words shows as stored
+		public static string LabelOf(string action) => action switch
+		{
+			"role_grant" => "Role granted",
+			"role_revoke" => "Role revoked",
+			"kick" => "Kick",
+			"mute" => "Mute",
+			"unmute" => "Mute lifted",
+			"ban" => "Ban",
+			"unban" => "Ban lifted",
+			"rename" => "Rename",
+			"name_reset" => "Name reset",
+			"message_delete" => "Message deleted",
+			"message_lookup" => "Message looked up",
+			"staff_message" => "Staff message",
+			"report_view" => "Report viewed",
+			"report_close" => "Report closed",
+			"player_inspect" => "Personal data read",
+			"connection_lookup" => "Connections looked up",
+			"anticheat_review" => "Anti-cheat row reviewed",
+			"announcement" => "Announcement",
+			"setting_update" => "Setting changed",
+			"token_mint" => "Token created",
+			"token_rotate" => "Token rotated",
+			"token_revoke" => "Token revoked",
+			"sa_create" => "Service account created",
+			"sa_grant" => "Service account granted",
+			"sa_revoke" => "Service account revoked",
+			"sa_disable" => "Service account disabled",
+			"sa_enable" => "Service account enabled",
+			"password_reset" => "Password reset",
+			"two_factor_reset" => "Two-factor reset",
+			"revoke_sessions" => "Signed out everywhere",
+			"revoke_client_sessions" => "Client sessions revoked",
+			"client_add" => "Client added",
+			_ => action
+		};
+
 		public static readonly IReadOnlyList<string> All =
 		[
 			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
@@ -547,10 +585,61 @@ namespace GenOnlineService.Portal.Client
 		public PortalAuditActor? Actor { get; init; }
 		public string TargetKind { get; init; } = "";
 		public long? TargetId { get; init; }
+		// the player of a user target, with the current name
+		public PortalAuditActor? Target { get; init; }
 		public string? Reason { get; init; }
 		public string Source { get; init; } = "";
 		public JsonElement? Details { get; init; }
 		public DateTime CreatedAt { get; init; }
+	}
+
+	// The audit log as the address holds it: players by id, Name#tag or name, the action and a UTC day range
+	public sealed record PortalAuditQuery
+	{
+		public string? Actor { get; init; }
+		public string? Target { get; init; }
+		public string? Action { get; init; }
+		public string? From { get; init; }
+		public string? To { get; init; }
+
+		public bool IsFiltered => this != new PortalAuditQuery();
+
+		private static string? Clean(string? text) => String.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+		// A day that is not yyyy-MM-dd is left out, an unknown action too
+		private static string? Day(string? text) => DateTime.TryParseExact(text?.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text!.Trim() : null;
+
+		public static PortalAuditQuery FromAddress(string? actor, string? target, string? action, string? from, string? to) => new PortalAuditQuery
+		{
+			Actor = Clean(actor),
+			Target = Clean(target),
+			Action = action != null && PortalAuditActions.All.Contains(action) ? action : null,
+			From = Day(from),
+			To = Day(to)
+		};
+
+		public IReadOnlyDictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["actor"] = Actor,
+			["target"] = Target,
+			["action"] = Action,
+			["from"] = From,
+			["to"] = To
+		};
+
+		// The arguments of GET /api/v1/audit_events, without the page
+		public string ToApiQuery()
+		{
+			var parts = new List<string>();
+			foreach ((string name, string? value) in new[] { ("actor", Actor), ("target", Target), ("action", Action), ("from", From), ("to", To) })
+			{
+				if (value != null)
+				{
+					parts.Add(name + "=" + Uri.EscapeDataString(value));
+				}
+			}
+			return String.Join("&", parts);
+		}
 	}
 
 	public sealed record PortalAuditPage
