@@ -65,6 +65,7 @@ public class AccountsLanguageTests
 	// never drops a number or a name from a sentence
 	[Theory]
 	[InlineData("de")]
+	[InlineData("ru")]
 	public void EachLanguageHasEveryWordWithItsPlaceholders(string language)
 	{
 		System.Resources.ResourceSet english = AccountsText.Resources.GetResourceSet(CultureInfo.InvariantCulture, createIfNotExists: true, tryParents: false)!;
@@ -87,6 +88,7 @@ public class AccountsLanguageTests
 	// Each language's own mail: its subject, body and footer, in HTML and text, with the values filled in
 	[Theory]
 	[InlineData("de", "Bestätige deine E-Mail-Adresse", "bitte bestätige, dass diese Adresse dir gehört", "wegen deines Generals-Online-Kontos")]
+	[InlineData("ru", "Подтвердите адрес электронной почты", "Подтвердите, что этот адрес принадлежит вам", "из-за вашей учётной записи Generals Online")]
 	public void MailsAreInThePlayersLanguage(string language, string subject, string body, string footer)
 	{
 		var values = new Dictionary<string, string> { ["name"] = "Nelly#0042", ["link"] = "https://accounts.test/confirm?t=1&x=2" };
@@ -212,7 +214,9 @@ public class AccountsLanguageTests
 
 		// the browser's next choice the pages have, by preference
 		browser.Headers["Accept-Language"] = "fr-FR, ar;q=0.5, ru;q=0.8";
-		Assert.Equal("ru/ltr", Lang(await browser.Get("/users/sign_in")));
+		PageResponse russian = await browser.Get("/users/sign_in");
+		Assert.Equal("ru/ltr", Lang(russian));
+		Assert.Contains(">Войти</button>", russian.Body);
 	}
 
 	[ProbeTheory]

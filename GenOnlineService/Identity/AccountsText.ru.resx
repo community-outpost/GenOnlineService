@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Page.Title" xml:space="preserve">
+    <value>{0} · Generals Online</value>
+  </data>
+  <data name="Skip" xml:space="preserve">
+    <value>Перейти к содержимому</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>Язык</value>
+  </data>
+  <data name="Expired.Title" xml:space="preserve">
+    <value>Срок действия запроса истёк</value>
+  </data>
+  <data name="Expired.Body" xml:space="preserve">
+    <value>Срок действия страницы истёк. Вернитесь назад и попробуйте ещё раз.</value>
+  </data>
+  <data name="Continue" xml:space="preserve">
+    <value>Продолжить</value>
+  </data>
+  <data name="Field.Email" xml:space="preserve">
+    <value>Электронная почта</value>
+  </data>
+  <data name="Field.Password" xml:space="preserve">
+    <value>Пароль</value>
+  </data>
+  <data name="Field.PlayerName" xml:space="preserve">
+    <value>Имя игрока</value>
+  </data>
+  <data name="Field.DisplayName" xml:space="preserve">
+    <value>Отображаемое имя</value>
+  </data>
+  <data name="Field.Code" xml:space="preserve">
+    <value>Код</value>
+  </data>
+  <data name="SignIn.Title" xml:space="preserve">
+    <value>Вход</value>
+  </data>
+  <data name="SignIn.Description" xml:space="preserve">
+    <value>Войдите, чтобы играть в Generals Online.</value>
+  </data>
+  <data name="SignIn.Submit" xml:space="preserve">
+    <value>Войти</value>
+  </data>
+  <data name="SignIn.OrContinue" xml:space="preserve">
+    <value>Или продолжить через</value>
+  </data>
+  <data name="SignIn.WithProvider" xml:space="preserve">
+    <value>Войти через {0}</value>
+  </data>
+  <data name="SignIn.NoAccount" xml:space="preserve">
+    <value>Нет учётной записи?</value>
+  </data>
+  <data name="SignIn.SignUpLink" xml:space="preserve">
+    <value>Зарегистрироваться</value>
+  </data>
+  <data name="SignIn.WrongCredentials" xml:space="preserve">
+    <value>Неверная электронная почта или пароль.</value>
+  </data>
+  <data name="SignIn.Unavailable.Title" xml:space="preserve">
+    <value>Вход недоступен</value>
+  </data>
+  <data name="SignIn.Unavailable.Body" xml:space="preserve">
+    <value>Для этой среды не настроен ни один способ входа.</value>
+  </data>
+  <data name="Refused.Title" xml:space="preserve">
+    <value>Вход отклонён</value>
+  </data>
+  <data name="Refused.Blocked" xml:space="preserve">
+    <value>Эта учётная запись заблокирована.</value>
+  </data>
+  <data name="Refused.Deactivated" xml:space="preserve">
+    <value>Эта учётная запись деактивирована.</value>
+  </data>
+  <data name="TwoFactor.Title" xml:space="preserve">
+    <value>Двухфакторный вход</value>
+  </data>
+  <data name="TwoFactor.Description" xml:space="preserve">
+    <value>Введите код из приложения-аутентификатора.</value>
+  </data>
+  <data name="TwoFactor.CodeLabel" xml:space="preserve">
+    <value>Код из приложения-аутентификатора</value>
+  </data>
+  <data name="TwoFactor.RecoveryLabel" xml:space="preserve">
+    <value>Или код восстановления</value>
+  </data>
+  <data name="TwoFactor.WrongCode" xml:space="preserve">
+    <value>Неверный код.</value>
+  </data>
+  <data name="TwoFactor.PasswordOnly" xml:space="preserve">
+    <value>Двухфакторный вход доступен для учётных записей, которые входят по адресу электронной почты и паролю.</value>
+  </data>
+  <data name="TwoFactor.IsOn" xml:space="preserve">
+    <value>Двухфакторный вход включён.</value>
+  </data>
+  <data name="TwoFactor.IsOff" xml:space="preserve">
+    <value>Двухфакторный вход выключен.</value>
+  </data>
+  <data name="TwoFactor.OnTitle" xml:space="preserve">
+    <value>Двухфакторный вход включён</value>
+  </data>
+  <data name="TwoFactor.OffTitle" xml:space="preserve">
+    <value>Двухфакторный вход выключен</value>
+  </data>
+  <data name="TwoFactor.TurnOn" xml:space="preserve">
+    <value>Включить двухфакторный вход</value>
+  </data>
+  <data name="TwoFactor.TurnOff" xml:space="preserve">
+    <value>Выключить двухфакторный вход</value>
+  </data>
+  <data name="TwoFactor.StaffKeeps" xml:space="preserve">
+    <value>Учётные записи команды не могут отключить двухфакторный вход.</value>
+  </data>
+  <data name="TwoFactor.Setup.Title" xml:space="preserve">
+    <value>Настроить двухфакторный вход</value>
+  </data>
+  <data name="TwoFactor.Setup.Intro" xml:space="preserve">
+    <value>Добавьте эту учётную запись в приложение-аутентификатор по ссылке или ключу, затем введите показанный код.</value>
+  </data>
+  <data name="TwoFactor.Setup.Key" xml:space="preserve">
+    <value>Ключ: {0}</value>
+  </data>
+  <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
+    <value>Сохраните эти коды восстановления в надёжном месте. Каждый позволяет войти один раз без приложения; повторно они не показываются.</value>
+  </data>
+  <data name="TwoFactor.Manage" xml:space="preserve">
+    <value>Управление двухфакторным входом</value>
+  </data>
+  <data name="SignUp.Title" xml:space="preserve">
+    <value>Создать учётную запись</value>
+  </data>
+  <data name="SignUp.Description" xml:space="preserve">
+    <value>Зарегистрируйтесь с адресом электронной почты и паролем.</value>
+  </data>
+  <data name="SignUp.Submit" xml:space="preserve">
+    <value>Создать учётную запись</value>
+  </data>
+  <data name="SignUp.HaveAccount" xml:space="preserve">
+    <value>Уже есть учётная запись?</value>
+  </data>
+  <data name="SignUp.InvalidEmail" xml:space="preserve">
+    <value>Введите действительный адрес электронной почты.</value>
+  </data>
+  <data name="SignUp.EmailDenied" xml:space="preserve">
+    <value>Этот адрес электронной почты нельзя использовать.</value>
+  </data>
+  <data name="SignUp.EmailTaken" xml:space="preserve">
+    <value>Учётная запись с этим адресом электронной почты уже существует.</value>
+  </data>
+  <data name="SignUp.PasswordTooShort" xml:space="preserve">
+    <value>Пароль должен содержать не менее {0} символов.</value>
+  </data>
+  <data name="SignUp.PasswordTooLong" xml:space="preserve">
+    <value>Пароль должен содержать не более {0} символов.</value>
+  </data>
+  <data name="SignUp.Failed" xml:space="preserve">
+    <value>Не удалось зарегистрироваться.</value>
+  </data>
+  <data name="Name.Invalid" xml:space="preserve">
+    <value>Имя содержит недопустимые символы.</value>
+  </data>
+  <data name="Name.Length" xml:space="preserve">
+    <value>Имя должно содержать от {0} до {1} символов.</value>
+  </data>
+  <data name="Name.Whitespace" xml:space="preserve">
+    <value>Имя не может начинаться или заканчиваться пробелом.</value>
+  </data>
+  <data name="Name.Reserved" xml:space="preserve">
+    <value>Имя содержит зарезервированное слово.</value>
+  </data>
+  <data name="Name.Taken" xml:space="preserve">
+    <value>Это имя занято. Выберите другое.</value>
+  </data>
+  <data name="Welcome.Title" xml:space="preserve">
+    <value>Выберите имя игрока</value>
+  </data>
+  <data name="Welcome.Description" xml:space="preserve">
+    <value>Это имя видят другие игроки.</value>
+  </data>
+  <data name="Welcome.Intro" xml:space="preserve">
+    <value>Это имя видят другие игроки. Выберите своё; позже его можно изменить.</value>
+  </data>
+  <data name="Upstream.Failed.Title" xml:space="preserve">
+    <value>Не удалось войти</value>
+  </data>
+  <data name="Upstream.Failed.Body" xml:space="preserve">
+    <value>Не удалось завершить вход. Попробуйте ещё раз.</value>
+  </data>
+  <data name="Upstream.NoSignUp" xml:space="preserve">
+    <value>С этим способом входа не связана ни одна учётная запись, а регистрация закрыта.</value>
+  </data>
+  <data name="Upstream.Conflict" xml:space="preserve">
+    <value>К учётной записи уже привязан другой вход через этого провайдера. Обратитесь в поддержку.</value>
+  </data>
+  <data name="Upstream.Other" xml:space="preserve">
+    <value>Не удалось завершить вход.</value>
+  </data>
+  <data name="SignedOut.Title" xml:space="preserve">
+    <value>Вы вышли</value>
+  </data>
+  <data name="SignedOut.Body" xml:space="preserve">
+    <value>Вы вышли из учётной записи.</value>
+  </data>
+  <data name="SignOut" xml:space="preserve">
+    <value>Выйти</value>
+  </data>
+  <data name="Consent.Title" xml:space="preserve">
+    <value>Разрешить {0}?</value>
+  </data>
+  <data name="Consent.Expired" xml:space="preserve">
+    <value>Срок действия страницы истёк. Начните вход в приложении заново.</value>
+  </data>
+  <data name="Consent.Asks" xml:space="preserve">
+    <value>{0} не создано Generals Online. Приложение запрашивает:</value>
+  </data>
+  <data name="Consent.SignedInAs" xml:space="preserve">
+    <value>Вы вошли как {0}.</value>
+  </data>
+  <data name="Consent.Allow" xml:space="preserve">
+    <value>Разрешить</value>
+  </data>
+  <data name="Consent.Deny" xml:space="preserve">
+    <value>Отклонить</value>
+  </data>
+  <data name="Scope.OpenId" xml:space="preserve">
+    <value>Знать, кто вы</value>
+  </data>
+  <data name="Scope.Profile" xml:space="preserve">
+    <value>Видеть ваше имя игрока</value>
+  </data>
+  <data name="Scope.OfflineAccess" xml:space="preserve">
+    <value>Оставаться в системе, пока вы не выйдете</value>
+  </data>
+  <data name="Scope.Game" xml:space="preserve">
+    <value>Играть онлайн от вашего имени: лобби, подбор игроков и чат</value>
+  </data>
+  <data name="Account.Title" xml:space="preserve">
+    <value>Учётная запись</value>
+  </data>
+  <data name="Account.Admin" xml:space="preserve">
+    <value>Администрирование</value>
+  </data>
+  <data name="Account.Renamed" xml:space="preserve">
+    <value>Теперь ваше имя — {0}.</value>
+  </data>
+  <data name="Account.RolePlayer" xml:space="preserve">
+    <value>игрок</value>
+  </data>
+  <data name="Account.PlayerId" xml:space="preserve">
+    <value>ID игрока {0}</value>
+  </data>
+  <data name="Account.TagHint" xml:space="preserve">
+    <value>При переименовании ваш тег не меняется.</value>
+  </data>
+  <data name="Account.Save" xml:space="preserve">
+    <value>Сохранить изменения</value>
+  </data>
+  <data name="Account.Profile.Title" xml:space="preserve">
+    <value>Профиль</value>
+  </data>
+  <data name="Account.Profile.Description" xml:space="preserve">
+    <value>Имя, которое видят другие игроки. Тег после # делает его уникальным.</value>
+  </data>
+  <data name="Account.Email.Confirmed" xml:space="preserve">
+    <value>подтверждён</value>
+  </data>
+  <data name="Account.Email.NotConfirmed" xml:space="preserve">
+    <value>не подтверждён</value>
+  </data>
+  <data name="Account.Security.Title" xml:space="preserve">
+    <value>Вход и безопасность</value>
+  </data>
+  <data name="Account.Security.Description" xml:space="preserve">
+    <value>Как вы входите в Generals Online в этой среде.</value>
+  </data>
+  <data name="Account.Security.LinkedOnly" xml:space="preserve">
+    <value>Вы входите через учётные записи, привязанные ниже.</value>
+  </data>
+  <data name="Account.Linked.Title" xml:space="preserve">
+    <value>Привязанные способы входа</value>
+  </data>
+  <data name="Account.Linked.Description" xml:space="preserve">
+    <value>Учётные записи, через которые можно войти.</value>
+  </data>
+  <data name="Account.Linked.None" xml:space="preserve">
+    <value>Других способов входа не привязано.</value>
+  </data>
+  <data name="Account.Linked.When" xml:space="preserve">
+    <value>привязан {0}</value>
+  </data>
+  <data name="Account.Linked.WhenUsed" xml:space="preserve">
+    <value>привязан {0}, последнее использование {1}</value>
+  </data>
+  <data name="Mail.Confirmation.Subject" xml:space="preserve">
+    <value>Подтвердите адрес электронной почты</value>
+  </data>
+  <data name="Mail.PasswordReset.Subject" xml:space="preserve">
+    <value>Сброс пароля Generals Online</value>
+  </data>
+</root>

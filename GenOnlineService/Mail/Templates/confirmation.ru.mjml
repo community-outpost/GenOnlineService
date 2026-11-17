@@ -1,0 +1,4 @@
+        <mj-text font-size="22px" line-height="30px" font-weight="300">Подтвердите адрес электронной почты</mj-text>
+        <mj-text>Здравствуйте, {{name}}! Подтвердите, что этот адрес принадлежит вам. Для игры нужен подтверждённый адрес.</mj-text>
+        <mj-button href="{{link}}" background-color="#f0b429" color="#1c1917" border-radius="2px" font-weight="500" align="left">Подтвердить адрес</mj-button>
+        <mj-text font-size="13px" color="#78716c">Ссылка действует 24 часа. Если кнопка не работает, откройте этот адрес: {{link}}</mj-text>
