@@ -20,7 +20,6 @@ using GenOnlineService.Names;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Globalization;
 
 namespace GenOnlineService.Api
 {
@@ -185,21 +184,7 @@ namespace GenOnlineService.Api
 
 			// the fields of GET /api/v1/reports
 			Rest.Paging.WriteOffsetHeaders(HttpContext, page, total);
-			return ApiResults.Ok(new ReportsResponse
-			{
-				Reports = rows.Select(r => new ReportInfo
-				{
-					Id = r.ID,
-					Reporter = RealtimeMembers.Of(r.ReporterID, names),
-					Reported = RealtimeMembers.Of(r.ReportedUserID, names),
-					MessageId = r.MessageID?.ToString(CultureInfo.InvariantCulture),
-					Reason = r.Reason,
-					Status = r.Status,
-					CreatedAt = r.CreatedAt,
-					ResolvedAt = r.ResolvedAt,
-					ResolutionNote = r.ResolutionNote
-				}).ToArray()
-			});
+			return ApiResults.Ok(new ReportsResponse { Reports = rows.Select(r => Rest.StaffOverview.ReportOf(r, names)).ToArray() });
 		}
 
 		[AllowSignInCookie]

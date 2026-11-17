@@ -273,7 +273,7 @@ internal static class AdminArea
 [Collection(AdminAreaCollection.Name)]
 public class AdminAreaTests
 {
-	private static readonly string[] s_staffReads = ["/api/v1/reports/search", "/api/v1/players/search?query=ab", "/api/v1/anticheat_reports/modules"];
+	private static readonly string[] s_staffReads = ["/api/v1/staff/overview", "/api/v1/reports/search", "/api/v1/players/search?query=ab", "/api/v1/anticheat_reports/modules"];
 
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
@@ -547,5 +547,110 @@ public class AdminAreaTests
 		PageResponse token = await fresh.Post("/oauth/token", new() { ["grant_type"] = "password", ["username"] = "x", ["password"] = "y" });
 		Assert.DoesNotContain("\"csrf\"", token.Body);
 		Assert.Contains("unsupported_grant_type", token.Body);
+	}
+	// The staff start page (T17a), GET /api/v1/staff/overview with the sign-in cookie: the numbers and newest rows match the seeded database; the anti-cheat numbers need
+	// anticheat.review like the lists, so a moderator gets null where an admin gets the counts
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheOverviewCountsTheSeededRows(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var moderator = new AdminBrowser(probe);
+		await moderator.SignUp("Warden", "warden@example.org");
+		User warden = await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		var admin = new AdminBrowser(probe);
+		await admin.SignUp("Chief", "chief@example.org");
+		await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
+		var player = new AdminBrowser(probe);
+		await player.SignUp("Plain", "plain@example.org");
+		User plain = (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!;
+
+		DateTime now = DateTime.UtcNow;
+		DateTime dayStart = DateTime.SpecifyKind(now.Date, DateTimeKind.Utc);
+		await using (AppDbContext seed = probe.Open())
+		{
+			// two finished today, one finished yesterday, one still running
+			seed.Matches.AddRange(
+				new global::Match { Name = "today 1", StartedAt = dayStart.AddHours(-1), FinishedAt = dayStart },
+				new global::Match { Name = "today 2", StartedAt = dayStart, FinishedAt = dayStart.AddSeconds(1) },
+				new global::Match { Name = "yesterday", StartedAt = dayStart.AddHours(-3), FinishedAt = dayStart.AddHours(-2) },
+				new global::Match { Name = "running", StartedAt = dayStart });
+			for (int i = 0; i < 4; i++)
+			{
+				seed.PlayerReports.Add(new PlayerReport
+				{
+					ReporterID = warden.ID,
+					ReportedUserID = plain.ID,
+					Reason = $"Reason {i}",
+					Evidence = "{\"messages\":[]}",
+					Status = i == 3 ? PlayerReportStatuses.Dismissed : PlayerReportStatuses.Open,
+					CreatedAt = now.AddMinutes(-10 + i)
+				});
+			}
+			seed.AnticheatNewAccountGames.AddRange(new AnticheatNewAccountGame { UserId = plain.ID, MatchId = 1 }, new AnticheatNewAccountGame { UserId = plain.ID, MatchId = 2 });
+			seed.AnticheatModuleReports.AddRange(
+				new AnticheatModuleReport { UserId = plain.ID, MatchId = 1, ModuleName = "inject.dll", ModulePath = "C:\\inject.dll", ModuleSize = 1 },
+				new AnticheatModuleReport { UserId = plain.ID, MatchId = 1, ModuleName = "seen.dll", ModulePath = "C:\\seen.dll", ModuleSize = 1, ReviewedAt = now });
+			seed.AnticheatProbeReports.Add(new AnticheatProbeReport { UserId = plain.ID, MatchId = 1, Reason = "Malformed probe response" });
+			seed.AnticheatProbeReports.Add(new AnticheatProbeReport { UserId = plain.ID, MatchId = 0, Reason = "Spoofed device value" });
+			seed.Sanctions.Add(new Sanction { UserID = plain.ID, Type = SanctionTypes.Mute, Reason = "spam", CreatedByKind = AuditActorKinds.User, CreatedByID = warden.ID, CreatedAt = now.AddMinutes(-5), ExpiresAt = now.AddHours(1) });
+			seed.Sanctions.Add(new Sanction { UserID = plain.ID, Type = SanctionTypes.Ban, Reason = "cheating", CreatedByKind = AuditActorKinds.User, CreatedByID = warden.ID, CreatedAt = now.AddMinutes(-1) });
+			await seed.SaveChangesAsync();
+		}
+
+		PageResponse asModerator = await moderator.Get("/api/v1/staff/overview");
+		Assert.Equal(200, asModerator.Status);
+		JsonElement overview = JsonDocument.Parse(asModerator.Body).RootElement;
+		Assert.Equal(0, overview.GetProperty("players_online").GetInt32());
+		Assert.Equal(0, overview.GetProperty("lobbies_open").GetInt32());
+		Assert.Equal(2, overview.GetProperty("matches_today").GetInt32());
+		Assert.Equal(3, overview.GetProperty("open_reports").GetInt32());
+		Assert.True(!overview.TryGetProperty("unreviewed_anticheat", out JsonElement hidden) || hidden.ValueKind == JsonValueKind.Null);
+		Assert.True(!overview.TryGetProperty("anticheat", out JsonElement hiddenLists) || hiddenLists.ValueKind == JsonValueKind.Null);
+
+		// newest first: the dismissed report was created last
+		JsonElement[] reports = overview.GetProperty("recent_reports").EnumerateArray().ToArray();
+		Assert.Equal(["Reason 3", "Reason 2", "Reason 1", "Reason 0"], reports.Select(r => r.GetProperty("reason").GetString()));
+		Assert.Equal("dismissed", reports[0].GetProperty("status").GetString());
+		Assert.Equal("Plain", reports[0].GetProperty("reported").GetProperty("name").GetString());
+		Assert.Equal("Warden", reports[0].GetProperty("reporter").GetProperty("name").GetString());
+
+		JsonElement[] sanctions = overview.GetProperty("recent_sanctions").EnumerateArray().ToArray();
+		Assert.Equal(["ban", "mute"], sanctions.Select(s => s.GetProperty("type").GetString()));
+		Assert.Equal("Plain", sanctions[0].GetProperty("player").GetProperty("name").GetString());
+		Assert.Equal("Warden", sanctions[0].GetProperty("created_by").GetProperty("name").GetString());
+		Assert.True(sanctions[0].GetProperty("active").GetBoolean());
+		Assert.Equal("cheating", sanctions[0].GetProperty("reason").GetString());
+
+		PageResponse asAdmin = await admin.Get("/api/v1/staff/overview");
+		Assert.Equal(200, asAdmin.Status);
+		JsonElement full = JsonDocument.Parse(asAdmin.Body).RootElement;
+		Assert.Equal(5, full.GetProperty("unreviewed_anticheat").GetInt32());
+		Assert.Equal(
+			[("new_accounts", 2), ("modules", 1), ("probes", 1), ("devices", 1)],
+			full.GetProperty("anticheat").EnumerateArray().Select(q => (q.GetProperty("kind").GetString()!, q.GetProperty("unreviewed").GetInt32())));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheOverviewIsStaffOnly(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var signedOut = new AdminBrowser(probe);
+		PageResponse anonymous = await signedOut.Get("/api/v1/staff/overview");
+		Assert.Equal(401, anonymous.Status);
+		Assert.Equal("unauthorized", AdminArea.ErrorOf(anonymous));
+
+		var player = new AdminBrowser(probe);
+		await player.SignUp("Plain", "plain@example.org");
+		PageResponse refused = await player.Get("/api/v1/staff/overview");
+		Assert.Equal(403, refused.Status);
+		Assert.Equal("forbidden", AdminArea.ErrorOf(refused));
+
+		// the start page itself is behind the same gate as every staff page
+		PageResponse page = await player.Get("/admin");
+		Assert.Equal(403, page.Status);
 	}
 }
