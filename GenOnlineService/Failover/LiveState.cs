@@ -208,6 +208,9 @@ namespace GenOnlineService.Failover
 		public bool Passworded { get; init; }
 		public string Password { get; init; } = String.Empty;
 		public bool AllowObservers { get; init; }
+
+		// absent in a capture of an older copy, which never limited the side
+		public bool AllowArmySelection { get; init; } = true;
 		public LiveBuild Build { get; init; } = new();
 		public short NetworkRoomId { get; init; } = -1;
 		public int RngSeed { get; init; }
