@@ -123,6 +123,33 @@ public class MatchIdWorkersProbeTests
 
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ATakeoverReadBeforeTheHolderExtendedIsRefused(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		Assert.NotNull(probe);
+		await ReserveAllButFirst(probe);
+
+		// copy A holds slot 0 until 1_000 + Window and made no id in its last second
+		MatchIdSlot? a = await Acquire(probe, "copy-a", 1_000);
+		Assert.NotNull(a);
+		long now = 1_000 + Window + 1;
+
+		// copy B reads slot 0 as free, then copy A extends it before copy B's update runs
+		MatchIdWorker stale = await Row(probe, 0);
+		Assert.True(stale.ReservedUntil < now);
+		Assert.True(await Extend(probe, a, now + Window));
+
+		await using (AppDbContext db = probe.Open())
+		{
+			Assert.Null(await Database.MatchIdWorkers.TryTake(db, stale, "copy-b", now, Window));
+		}
+
+		MatchIdWorker row = await Row(probe, 0);
+		Assert.Equal(("copy-a", a.Generation, now + Window), (row.Holder, row.Generation, row.ReservedUntil));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task AnExtensionNeverMovesTheReservationBack(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);

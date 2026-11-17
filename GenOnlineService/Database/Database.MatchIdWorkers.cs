@@ -68,8 +68,6 @@ namespace Database
 				throw new ArgumentOutOfRangeException(nameof(windowSeconds));
 			}
 
-			string name = holder.Length > HolderMaxLength ? holder[..HolderMaxLength] : holder;
-
 			List<MatchIdWorker> free = await db.MatchIdWorkers.AsNoTracking()
 				.Where(w => w.ReservedUntil < nowSecond)
 				.OrderBy(w => w.ReservedUntil)
@@ -78,24 +76,39 @@ namespace Database
 
 			foreach (MatchIdWorker candidate in free)
 			{
-				long first = Math.Max(nowSecond, candidate.ReservedUntil + 1);
-				long until = first + windowSeconds;
-				long generation = candidate.Generation + 1;
-
-				int updated = await db.MatchIdWorkers
-					.Where(w => w.WorkerID == candidate.WorkerID && w.Generation == candidate.Generation)
-					.ExecuteUpdateAsync(s => s
-						.SetProperty(w => w.Holder, name)
-						.SetProperty(w => w.Generation, generation)
-						.SetProperty(w => w.ReservedUntil, until), cancellationToken);
-				if (updated == 1)
+				MatchIdSlot? slot = await TryTake(db, candidate, holder, nowSecond, windowSeconds, cancellationToken);
+				if (slot != null)
 				{
-					return new MatchIdSlot(candidate.WorkerID, generation, first, until);
+					return slot;
 				}
-				// another copy took this slot between the read and the update, try the next one
+				// another copy took this slot, or its holder extended it, between the read and the update: try the next one
 			}
 
 			return null;
+		}
+
+		// Takes the slot read as candidate, null when the row changed since that read. The holder's Extend keeps the generation and
+		// moves reserved_until, so both are compared: a take read before an extension must not win against it
+		public static async Task<MatchIdSlot?> TryTake(AppDbContext db, MatchIdWorker candidate, string holder, long nowSecond, int windowSeconds, CancellationToken cancellationToken = default)
+		{
+			if (candidate.ReservedUntil >= nowSecond)
+			{
+				return null;
+			}
+
+			string name = holder.Length > HolderMaxLength ? holder[..HolderMaxLength] : holder;
+			long first = Math.Max(nowSecond, candidate.ReservedUntil + 1);
+			long until = first + windowSeconds;
+			long generation = candidate.Generation + 1;
+			long readUntil = candidate.ReservedUntil;
+
+			int updated = await db.MatchIdWorkers
+				.Where(w => w.WorkerID == candidate.WorkerID && w.Generation == candidate.Generation && w.ReservedUntil == readUntil)
+				.ExecuteUpdateAsync(s => s
+					.SetProperty(w => w.Holder, name)
+					.SetProperty(w => w.Generation, generation)
+					.SetProperty(w => w.ReservedUntil, until), cancellationToken);
+			return updated == 1 ? new MatchIdSlot(candidate.WorkerID, generation, first, until) : null;
 		}
 
 		// Moves the reservation of a held slot forward to reservedUntil, false once another copy took the slot
