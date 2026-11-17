@@ -1034,11 +1034,20 @@ namespace GenOnlineService
 		// false for a quick match lobby whose playlist has allow_army_selection off: every side stays random
 		public bool AllowArmySelection { get; private set; } = true;
 
-		internal void SetAllowArmySelection(bool allow)
+		// the playlist a quick match lobby was formed from, 0 for a custom lobby
+		public int PlaylistID { get; private set; } = 0;
+
+		internal void SetQuickMatchPlaylist(int playlistID, bool allowArmySelection)
 		{
-			AllowArmySelection = allow;
+			PlaylistID = playlistID;
+			AllowArmySelection = allowArmySelection;
 			MarkLiveDirty();
 		}
+
+		// players already kept for staff review for a refused quick match request in this lobby, so a repeat costs no database write
+		private readonly ConcurrentDictionary<Int64, byte> m_QuickMatchRuleReports = new();
+
+		internal bool TryMarkQuickMatchRuleReported(Int64 userID) => m_QuickMatchRuleReports.TryAdd(userID, 0);
 
 		public UInt32 ExeCRC { get; private set; } = 0;
 		public UInt32 IniCRC { get; private set; } = 0;

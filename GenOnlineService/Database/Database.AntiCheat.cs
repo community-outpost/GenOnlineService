@@ -145,6 +145,25 @@ public class AnticheatProbeReport
 	public Int64? ReviewedBy { get; set; }
 }
 
+// A quick match request a genuine client never sends, refused and kept for staff review: one row per player and lobby
+public class AnticheatQuickMatchReport
+{
+	public Int64 ReportId { get; set; }
+	public Int64 UserId { get; set; }
+	public Int64 MatchId { get; set; }
+	public Int64 LobbyId { get; set; }
+	public int PlaylistId { get; set; }
+
+	// The hub method that asked, UpdateMySlot or UpdateSlots
+	public string Method { get; set; } = null!;
+
+	// The requested sides, comma separated
+	public string Sides { get; set; } = null!;
+	public DateTime CreatedAt { get; set; }
+	public DateTime? ReviewedAt { get; set; }
+	public Int64? ReviewedBy { get; set; }
+}
+
 // The review lists of the staff tools, one per signal
 public static class AntiCheatReviewKinds
 {
@@ -157,7 +176,10 @@ public static class AntiCheatReviewKinds
 	// Probe reports raised at sign-in for a device value without its marker, stored with match 0
 	public const string Devices = "devices";
 
-	public static readonly IReadOnlyList<string> All = [NewAccounts, Modules, Probes, Devices];
+	// Quick match requests a genuine client never sends, such as choosing an army in a random army playlist
+	public const string QuickMatchRules = "quickmatch_rules";
+
+	public static readonly IReadOnlyList<string> All = [NewAccounts, Modules, Probes, Devices, QuickMatchRules];
 
 	public static bool IsKnown(string? kind) => kind != null && All.Contains(kind);
 }
@@ -257,6 +279,48 @@ public class AnticheatProbeReportConfiguration : IEntityTypeConfiguration<Antich
 	}
 }
 
+public class AnticheatQuickMatchReportConfiguration : IEntityTypeConfiguration<AnticheatQuickMatchReport>
+{
+	public const int MethodMaxLength = 32;
+	public const int SidesMaxLength = 128;
+
+	public void Configure(EntityTypeBuilder<AnticheatQuickMatchReport> entity)
+	{
+		entity.ToTable("anticheat_quickmatch_reports");
+
+		entity.HasKey(e => e.ReportId);
+
+		entity.Property(e => e.ReportId)
+			.HasColumnName("report_id")
+			.ValueGeneratedOnAdd();
+
+		entity.Property(e => e.UserId).HasColumnName("user_id");
+		entity.Property(e => e.MatchId).HasColumnName("match_id");
+		entity.Property(e => e.LobbyId).HasColumnName("lobby_id");
+		entity.Property(e => e.PlaylistId).HasColumnName("playlist_id");
+
+		entity.Property(e => e.Method)
+			.HasColumnName("method")
+			.HasMaxLength(MethodMaxLength)
+			.IsRequired();
+
+		entity.Property(e => e.Sides)
+			.HasColumnName("sides")
+			.HasMaxLength(SidesMaxLength)
+			.IsRequired();
+
+		entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+		entity.Property(e => e.ReviewedAt).HasColumnName("reviewed_at");
+		entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+		entity.HasIndex(e => e.ReviewedAt).HasDatabaseName("ix_anticheat_quickmatch_reports_reviewed_at");
+
+		// one row per player and lobby, so a client that repeats the request does not flood the list
+		entity.HasIndex(e => new { e.UserId, e.LobbyId })
+			.IsUnique()
+			.HasDatabaseName("ux_anticheat_quickmatch_reports_user_lobby");
+	}
+}
+
 	
 
 namespace Database
@@ -271,13 +335,21 @@ namespace Database
 		public string? ModulePath { get; init; }
 		public Int64? ModuleSize { get; init; }
 		public string? Reason { get; init; }
+
+		// set for quickmatch_rules only
+		public Int64? LobbyID { get; init; }
+		public int? PlaylistID { get; init; }
+		public string? Method { get; init; }
+		public string? Sides { get; init; }
+		public DateTime? ReportedAt { get; init; }
+
 		public DateTime? ReviewedAt { get; init; }
 		public Int64? ReviewedBy { get; init; }
 	}
 
 	public enum AntiCheatMarkResult { NotFound, AlreadyReviewed, Marked }
 
-	// The staff review lists over the three anti-cheat tables, filtered and paged in the database
+	// The staff review lists over the anti-cheat tables, filtered and paged in the database
 	public static class AntiCheatReviews
 	{
 		private static IQueryable<AntiCheatReviewRow> Rows(AppDbContext db, string kind)
@@ -291,6 +363,11 @@ namespace Database
 				AntiCheatReviewKinds.Modules => db.AnticheatModuleReports.AsNoTracking().Select(r => new AntiCheatReviewRow
 				{
 					ReportID = r.ReportId, UserID = r.UserId, MatchID = r.MatchId, ModuleName = r.ModuleName, ModulePath = r.ModulePath, ModuleSize = r.ModuleSize, ReviewedAt = r.ReviewedAt, ReviewedBy = r.ReviewedBy
+				}),
+				AntiCheatReviewKinds.QuickMatchRules => db.AnticheatQuickMatchReports.AsNoTracking().Select(r => new AntiCheatReviewRow
+				{
+					ReportID = r.ReportId, UserID = r.UserId, MatchID = r.MatchId, LobbyID = r.LobbyId, PlaylistID = r.PlaylistId, Method = r.Method, Sides = r.Sides,
+					ReportedAt = r.CreatedAt, ReviewedAt = r.ReviewedAt, ReviewedBy = r.ReviewedBy
 				}),
 				_ => Probes(db, kind).AsNoTracking().Select(r => new AntiCheatReviewRow
 				{
@@ -343,6 +420,9 @@ namespace Database
 					.Where(r => r.ReportId == reportID && r.ReviewedAt == null)
 					.ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedAt, now).SetProperty(r => r.ReviewedBy, reviewerID), cancellationToken),
 				AntiCheatReviewKinds.Modules => await db.AnticheatModuleReports
+					.Where(r => r.ReportId == reportID && r.ReviewedAt == null)
+					.ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedAt, now).SetProperty(r => r.ReviewedBy, reviewerID), cancellationToken),
+				AntiCheatReviewKinds.QuickMatchRules => await db.AnticheatQuickMatchReports
 					.Where(r => r.ReportId == reportID && r.ReviewedAt == null)
 					.ExecuteUpdateAsync(s => s.SetProperty(r => r.ReviewedAt, now).SetProperty(r => r.ReviewedBy, reviewerID), cancellationToken),
 				_ => await Probes(db, kind)
@@ -470,6 +550,30 @@ namespace Database
 			}
 		}
 
+
+		// Keeps one refused quick match request per player and lobby; a repeat of the same player in the same lobby is dropped.
+		// Returns true when the row is stored (or already was), false on a real database error.
+		public static async Task<bool> FlagAccountForReview_QuickMatchRules(AppDbContext db, AnticheatQuickMatchReport report)
+		{
+			try
+			{
+				db.AnticheatQuickMatchReports.Add(report);
+				await db.SaveChangesAsync();
+				AppMetrics.RecordSecurityAction("anticheat_quickmatch_review", "success");
+				return true;
+			}
+			catch (Exception ex)
+			{
+				if (DbHelpers.IsUniqueViolation(ex))
+				{
+					return true;
+				}
+
+				AppMetrics.RecordSecurityAction("anticheat_quickmatch_review", "error");
+				s_log.LogError(ex, "FlagAccountForReview_QuickMatchRules failed");
+				return false;
+			}
+		}
 
 		public static async Task FlagAccountForReview_NewAccount_FirstMatches(
 	AppDbContext db,

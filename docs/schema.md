@@ -217,6 +217,18 @@ anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
 
 A probe report with `match_id = 0` was raised at sign-in for a device value without the marker of a genuine client. The staff tools list those as `devices` and every other probe report as `probes`.
 
+```
+anticheat_quickmatch_reports
+  report_id pk, user_id, match_id (0 before the match starts), lobby_id, playlist_id
+  method varchar(32)                  -- the refused hub method: UpdateMySlot or UpdateSlots
+  sides varchar(128)                  -- the requested sides, comma separated
+  created_at
+  reviewed_at null, reviewed_by null (users.id)
+  index (reviewed_at), unique (user_id, lobby_id)
+```
+
+A quick match request a genuine client never sends, such as a side other than random in a playlist without army selection, is refused and kept here for staff review as `quickmatch_rules`. Lobby ids are never handed out twice, so the unique key keeps one row per player and lobby however often a client repeats the request.
+
 ### Machine tokens and settings
 
 ```

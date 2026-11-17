@@ -42,6 +42,19 @@ namespace GenOnlineService.Rest
 		public long? ModuleSize { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public string? Reason { get; init; }
+
+		// quickmatch_rules: the lobby, its playlist, the hub method and the sides it asked for, and when
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public long? LobbyId { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public int? PlaylistId { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Method { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public IReadOnlyList<int>? Sides { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public DateTime? ReportedAt { get; init; }
+
 		public DateTime? ReviewedAt { get; init; }
 		public long? ReviewedBy { get; init; }
 	}
@@ -120,10 +133,27 @@ namespace GenOnlineService.Rest
 					ModulePath = row.ModulePath,
 					ModuleSize = row.ModuleSize,
 					Reason = row.Reason,
+					LobbyId = row.LobbyID,
+					PlaylistId = row.PlaylistID,
+					Method = row.Method,
+					Sides = SidesOf(row.Sides),
+					ReportedAt = row.ReportedAt,
 					ReviewedAt = row.ReviewedAt,
 					ReviewedBy = row.ReviewedBy
 				}).ToArray()
 			}, null);
+		}
+
+		// The comma separated sides of a quickmatch_rules row, null for the other kinds
+		private static IReadOnlyList<int>? SidesOf(string? sides)
+		{
+			if (sides == null)
+			{
+				return null;
+			}
+			return sides.Split(',', StringSplitOptions.RemoveEmptyEntries)
+				.Select(text => int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int side) ? (int?)side : null)
+				.OfType<int>().ToArray();
 		}
 
 		// Marks one row reviewed with an audit row, a row reviewed before stays as it is and succeeds
@@ -153,7 +183,7 @@ namespace GenOnlineService.Rest
 		}
 	}
 
-	// The anti-cheat review lists: new accounts in quickmatch, unrecognized modules, suspicious probes and device values
+	// The anti-cheat review lists: new accounts in quickmatch, unrecognized modules, suspicious probes and device values, illegal quick match requests
 	[ApiController]
 	[Authorize(Policy = PermissionPolicies.Prefix + Permissions.AnticheatReview)]
 	public sealed class AntiCheatReportsController : ControllerBase

@@ -145,6 +145,7 @@ namespace GenOnlineService
 				Password = Password,
 				AllowObservers = AllowObservers,
 				AllowArmySelection = AllowArmySelection,
+				PlaylistId = PlaylistID,
 				Build = LiveBuildOf(Build),
 				NetworkRoomId = NetworkRoomID,
 				RngSeed = RNGSeed,
@@ -244,6 +245,7 @@ namespace GenOnlineService
 			lobby.Password = live.Password ?? String.Empty;
 			lobby.AllowObservers = live.AllowObservers;
 			lobby.AllowArmySelection = live.AllowArmySelection;
+			lobby.PlaylistID = live.PlaylistId;
 			GameBuild build = GameBuildOf(live.Build ?? new LiveBuild());
 			lobby.Game = build.Game;
 			lobby.ExeCRC = build.ExeCRC;

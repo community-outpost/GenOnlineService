@@ -42,6 +42,22 @@ namespace GenOnlineService.Realtime
 			return null;
 		}
 
+		// The staff review row of a refused quick match request, the requested sides comma separated
+		public static AnticheatQuickMatchReport QuickMatchRuleReportOf(Lobby lobby, Int64 userID, string method, IEnumerable<int?> sides, DateTime now)
+		{
+			string sideList = String.Join(",", sides.OfType<int>().Select(side => side.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+			return new AnticheatQuickMatchReport
+			{
+				UserId = userID,
+				MatchId = (Int64)lobby.MatchID,
+				LobbyId = lobby.LobbyID,
+				PlaylistId = lobby.PlaylistID,
+				Method = method.Length > AnticheatQuickMatchReportConfiguration.MethodMaxLength ? method[..AnticheatQuickMatchReportConfiguration.MethodMaxLength] : method,
+				Sides = sideList.Length > AnticheatQuickMatchReportConfiguration.SidesMaxLength ? sideList[..AnticheatQuickMatchReportConfiguration.SidesMaxLength] : sideList,
+				CreatedAt = now
+			};
+		}
+
 		public static SlotState SlotStateOf(EPlayerType type) => type switch
 		{
 			EPlayerType.SLOT_OPEN => SlotState.Open,

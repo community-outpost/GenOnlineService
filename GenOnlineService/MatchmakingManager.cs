@@ -492,7 +492,7 @@ static partial class MatchmakingManager
 					true, formation.Players.Length, 12345, false, true, 10000, false, false, String.Empty, -5, false, Constants.g_DefaultCameraMaxHeight,
 					Build, ELobbyType.QuickMatch);
 				var lobby = lobbyManager.GetLobby(m_LobbyID) ?? throw new InvalidOperationException("QuickMatch lobby creation failed.");
-				lobby.SetAllowArmySelection(playlist.AllowArmySelection);
+				lobby.SetQuickMatchPlaylist(playlist.PlaylistID, playlist.AllowArmySelection);
 				foreach (var player in formation.Players) lobby.MatchedUserIDs.Add(player.m_UserID);
 				var found = new MatchFoundEvent
 				{

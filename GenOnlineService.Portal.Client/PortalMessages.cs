@@ -78,7 +78,8 @@ namespace GenOnlineService.Portal.Client
 			new PortalReviewList("new_accounts", "New accounts in quickmatch", "New accounts that played a quickmatch game."),
 			new PortalReviewList("modules", "Unrecognized modules", "Modules a game client loaded that are not on the allow list."),
 			new PortalReviewList("probes", "Suspicious probes", "Missing or malformed answers to an anti-cheat probe inside a match."),
-			new PortalReviewList("devices", "Suspicious device ids", "Sign-ins with a device value that lacks the marker of a genuine client.")
+			new PortalReviewList("devices", "Suspicious device ids", "Sign-ins with a device value that lacks the marker of a genuine client."),
+			new PortalReviewList("quickmatch_rules", "Illegal quick match actions", "Quick match requests a genuine client never sends, such as choosing an army in a random army playlist.")
 		];
 
 		public static PortalReviewList? Find(string? kind) => All.FirstOrDefault(list => list.Kind == kind);
@@ -345,7 +346,14 @@ namespace GenOnlineService.Portal.Client
 		public string? ModulePath { get; init; }
 		public long? ModuleSize { get; init; }
 		public string? Reason { get; init; }
+		public long? LobbyId { get; init; }
+		public int? PlaylistId { get; init; }
+		public string? Method { get; init; }
+		public IReadOnlyList<int>? Sides { get; init; }
+		public DateTime? ReportedAt { get; init; }
 		public DateTime? ReviewedAt { get; init; }
+
+		public string SideList => Sides == null ? "" : String.Join(", ", Sides);
 	}
 
 	public sealed record PortalAntiCheatPage

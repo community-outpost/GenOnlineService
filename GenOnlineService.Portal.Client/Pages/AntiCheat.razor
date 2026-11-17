@@ -54,7 +54,7 @@ else
                         }
                         else
                         {
-                            <span class="bb:text-muted-foreground">sign-in</span>
+                            <span class="bb:text-muted-foreground">@(Kind == "quickmatch_rules" ? "before start" : "sign-in")</span>
                         }
                     </ChildContent>
                 </BbDataGridTemplateColumn>
@@ -67,6 +67,21 @@ else
                 @if (Kind == "probes" || Kind == "devices")
                 {
                     <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason" />
+                }
+                @if (Kind == "quickmatch_rules")
+                {
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long?" Property="@(r => r.LobbyId)" Title="Lobby" Width="110px" />
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="int?" Property="@(r => r.PlaylistId)" Title="Playlist" Width="100px" />
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Method!)" Title="Request" />
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.SideList)" Title="Sides" />
+                    <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Reported" Width="170px">
+                        <ChildContent Context="report">
+                            @if (report.ReportedAt is DateTime reported)
+                            {
+                                <span class="bb:text-xs">@PortalText.Date(reported)</span>
+                            }
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
                 }
                 <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Review" Width="180px" Hideable="false">
                     <ChildContent Context="report">

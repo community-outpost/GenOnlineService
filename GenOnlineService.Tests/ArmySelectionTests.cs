@@ -15,7 +15,7 @@ public class ArmySelectionTests
 	{
 		Lobby lobby = new(9201, Session(1), "Army lobby", ELobbyState.GAME_SETUP, "Tournament Desert", "maps/tournament desert/tournament desert",
 			false, 10000, false, true, false, String.Empty, true, 1, -1, false, 310, new GameBuild("zerohour", 0, 0, EKnownAnticheatID.NONE), 2, type);
-		lobby.SetAllowArmySelection(allowArmySelection);
+		lobby.SetQuickMatchPlaylist(type == ELobbyType.QuickMatch ? 3 : 0, allowArmySelection);
 		return lobby;
 	}
 
@@ -72,7 +72,35 @@ public class ArmySelectionTests
 		Lobby restored = Lobby.FromLive(JsonSerializer.Deserialize<LobbyLive>(JsonSerializer.Serialize(stored, LiveJson.Options), LiveJson.Options)!);
 
 		Assert.False(restored.AllowArmySelection);
+		Assert.Equal(3, restored.PlaylistID);
 		Assert.NotNull(RealtimeLobbies.RefuseArmySelection(restored, [2]));
+	}
+
+	[Fact]
+	public void TheReviewRowCarriesTheLobbyPlaylistMethodAndRequestedSides()
+	{
+		Lobby lobby = NewLobby(ELobbyType.QuickMatch, allowArmySelection: false);
+		DateTime now = new DateTime(2026, 11, 17, 12, 0, 0, DateTimeKind.Utc);
+
+		AnticheatQuickMatchReport report = RealtimeLobbies.QuickMatchRuleReportOf(lobby, 77, "UpdateSlots", [null, -1, 4], now);
+
+		Assert.Equal(77, report.UserId);
+		Assert.Equal(9201, report.LobbyId);
+		Assert.Equal(3, report.PlaylistId);
+		Assert.Equal(0, report.MatchId);
+		Assert.Equal("UpdateSlots", report.Method);
+		Assert.Equal("-1,4", report.Sides);
+		Assert.Equal(now, report.CreatedAt);
+	}
+
+	[Fact]
+	public void OnlyTheFirstRefusalOfAPlayerInALobbyIsReported()
+	{
+		Lobby lobby = NewLobby(ELobbyType.QuickMatch, allowArmySelection: false);
+
+		Assert.True(lobby.TryMarkQuickMatchRuleReported(77));
+		Assert.False(lobby.TryMarkQuickMatchRuleReported(77));
+		Assert.True(lobby.TryMarkQuickMatchRuleReported(78));
 	}
 
 	[Fact]
