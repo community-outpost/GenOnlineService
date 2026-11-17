@@ -2012,7 +2012,7 @@ public async Task FinalizeACChecks()
 						using var scope = ServiceLocator.Services.CreateScope();
 						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 						await using var db = await factory.CreateDbContextAsync();
-						await Database.MatchHistory.CreatePlaceholderMatchHistory(db, this);
+						await Database.MatchHistory.CreatePlaceholderMatchHistory(db, this, scope.ServiceProvider.GetRequiredService<MatchIdGenerator>());
 					}
 					catch (Exception ex)
 					{

@@ -144,6 +144,9 @@ public class MatchConfiguration : IEntityTypeConfiguration<Match>
 
 		entity.HasMany(e => e.Players).WithOne().HasForeignKey(p => p.MatchId).OnDelete(DeleteBehavior.Cascade);
 
+		// The service sets every new id itself (snowflake ids from MatchIdGenerator), older matches keep their sequential ids.
+		// The column keeps its identity / AUTO_INCREMENT for this release, so a copy from before the switch still writes matches
+		// while the migrated database already serves a newer copy; a later release drops it.
 		entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
 		entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
 		entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(Match.NameMaxLength);
@@ -471,9 +474,11 @@ namespace Database
 			return string.Join("v", groups);
 		}
 
+		// The id comes from the match id generator (MatchIds.cs), 0 means no match history was written
 		public static async Task<ulong> CreatePlaceholderMatchHistory(
 			AppDbContext db,
-			GenOnlineService.Lobby lobby)
+			GenOnlineService.Lobby lobby,
+			MatchIdGenerator matchIds)
 		{
 			if (lobby == null)
 				return 0;
@@ -483,6 +488,7 @@ namespace Database
 				DateTime now = DateTime.UtcNow;
 				var match = new Match
 				{
+					Id = await matchIds.NextAsync(),
 					StartedAt = now,
 					OwnerUserId = lobby.Owner > 0 ? lobby.Owner : null,
 					Name = TextSanitizer.Clean(lobby.Name, Match.NameMaxLength),

@@ -158,6 +158,18 @@ lobby_ids                 id int (always 1), next_id bigint
 
 One row holds the next lobby id. A service copy reserves a block of ids with an `UPDATE` that adds the block size inside a transaction, then reads the new `next_id`; the block is the ids below it. The row lock of the update makes this atomic on MySQL/MariaDB and Postgres, so lobby ids are never reused across restarts or copies, start at 1 and stay below 2^53. The migration seeds `next_id` above the largest `lobby_id` in `chat_messages` and `connection_reports`.
 
+### Match ids
+
+```
+match_id_workers          worker_id int pk (0..31), holder varchar(128), generation bigint, reserved_until bigint
+```
+
+New match ids are 48 bit snowflakes made by the service (`MatchIds.cs`): 32 bits of seconds since 2026-01-01 00:00:00 UTC, 5 bits of worker slot, 11 bits of sequence (2048 ids per second per copy). They fit a JSON safe integer, are never 0 and are larger than every sequential match id made before, so ordering by id and the `after_id` cursor keep working; `id >> 16` is the second a match id was made. Old matches keep their ids.
+
+Each service copy holds one row of `match_id_workers`. `reserved_until` is the last second (since the same epoch) the holder may put into an id; the copy moves it ahead with an `UPDATE` conditioned on its `generation` when it needs a later second. A copy takes a row only once its `reserved_until` is in the past, raises `generation` and starts at the next second, so a copy that stopped or paused can no longer extend it and the ids of the two never meet, whatever their clocks say. The statements are portable and need no database clock. The migration seeds all 32 rows free.
+
+`matches.id` keeps its identity / `AUTO_INCREMENT` in this release so a copy from before the switch still writes matches next to a migrated database; the service always sets the id itself. A later release drops it. On MySQL/MariaDB an insert with an explicit id raises the `AUTO_INCREMENT` counter, so nothing may insert a match without an id once snowflakes are in use.
+
 ### Players and devices
 
 ```
@@ -189,7 +201,7 @@ session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | '
 ### Matches and stats
 
 ```
-matches                   id bigint pk (kept), owner_user_id, name, lobby_type, roster_type, map_name, map_path,
+matches                   id bigint pk (kept; new ids are snowflakes, see Match ids), owner_user_id, name, lobby_type, roster_type, map_name, map_path,
                           is_official_map, vanilla_teams,          -- owner_user_id null when the owner was dropped starting_cash, limit_superweapons, track_stats,
                           allow_observers, max_cam_height, exe_crc, ini_crc, started_at, finished_at null
                           index (finished_at, id), (started_at)   -- the match feed; the staff match list's date filter

@@ -1044,6 +1044,257 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("matches", (string)null);
                 });
 
+            modelBuilder.Entity("MatchIdWorker", b =>
+                {
+                    b.Property<int>("WorkerID")
+                        .HasColumnType("int")
+                        .HasColumnName("worker_id");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<string>("Holder")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("holder");
+
+                    b.Property<long>("ReservedUntil")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reserved_until");
+
+                    b.HasKey("WorkerID");
+
+                    b.ToTable("match_id_workers", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            WorkerID = 0,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 1,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 2,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 3,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 4,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 5,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 6,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 7,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 8,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 9,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 10,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 11,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 12,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 13,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 14,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 15,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 16,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 17,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 18,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 19,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 20,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 21,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 22,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 23,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 24,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 25,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 26,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 27,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 28,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 29,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 30,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 31,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        });
+                });
+
             modelBuilder.Entity("MatchPlayer", b =>
                 {
                     b.Property<long>("MatchId")
