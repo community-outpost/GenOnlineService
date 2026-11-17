@@ -966,6 +966,9 @@ namespace GenOnlineService
 		private volatile PeerTransportsOf m_peerTransports = new(null, null);
 		internal IReadOnlyList<string>? PeerTransports => m_peerTransports.Transports;
 
+		// The connection whose SetPeerTransports counts, the session's current one
+		internal object? PeerTransportsConnection => m_peerTransports.Connection;
+
 		// Stores the list when the connection is the session's current one; false for a superseded connection, whose list is dropped
 		internal bool SetPeerTransports(object connection, IEnumerable<string?>? transports)
 		{
