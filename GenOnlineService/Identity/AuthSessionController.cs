@@ -115,7 +115,7 @@ namespace GenOnlineService.Identity
 			// a new session replaces the previous one of this type: its lobby, matchmaking and socket state go
 			await SessionHelpers.SetUsedLoggedIn(userID, client.ClientID, sessionType);
 			await WebSocketManager.ClearDataFromUser(userID, sessionType);
-			GameSessions.Register(userID, sessionType, new GameSessionRegistration(authorizationID, client.ClientID, client.Game, DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
+			await GameSessions.RegisterAsync(db, userID, sessionType, new GameSessionRegistration(authorizationID, client.ClientID, client.Game, DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
 			AppMetrics.RecordAuthentication("session", client.ClientID, "success");
 
 			return Ok(new
@@ -140,14 +140,14 @@ namespace GenOnlineService.Identity
 			// only this sign-in ends, another install of the same session type keeps its session
 			if (String.IsNullOrEmpty(authorizationID))
 			{
-				GameSessions.Remove(userID, sessionType);
+				await GameSessions.RemoveAsync(userID, sessionType);
 				await SessionRevocation.CloseRealtime(userID, sessionType);
 				await WebSocketManager.ClearDataFromUser(userID, sessionType);
 				return NoContent();
 			}
 
 			// the registration goes first and the revocation before the close, so a connection still opening is refused when it checks again
-			GameSessions.RemoveSignIn(authorizationID);
+			await GameSessions.RemoveSignInAsync(authorizationID);
 			try
 			{
 				object? authorization = await m_authorizations.FindByIdAsync(authorizationID);

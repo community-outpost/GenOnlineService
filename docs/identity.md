@@ -99,7 +99,7 @@ game client           system browser                 accounts (this environment)
    |<---- session registered: display name, ws url, bans checked, device recorded ---------|
 ```
 
-- The game API accepts this environment's access tokens directly; `POST /api/v1/auth/session` registers the game session (device ids, CRCs, ban check, session event), it does not mint tokens.
+- The game API accepts this environment's access tokens directly; `POST /api/v1/auth/session` registers the game session (device ids, CRCs, ban check, session event), it does not mint tokens. The registration is stored (`game_sessions`), so every service copy and a restarted copy accept that client's realtime connection.
 - Refresh tokens rotate on every use with reuse detection (OpenIddict rolling reference tokens). This replaces the service-side rotation from `cf5f0549`.
 - Logout: `POST /oauth/revoke` plus `DELETE /api/v1/auth/session` (drops realtime).
 - The client reads the environment's issuer from its configured base URL, so one client build works against any environment or self-hosted server.

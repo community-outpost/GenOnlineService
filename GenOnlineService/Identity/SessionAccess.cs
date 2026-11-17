@@ -276,35 +276,58 @@ namespace GenOnlineService.Identity
 	// Game is the client's registered game (zerohour, generals or none), so build isolation keys on the game rather than the client id
 	public sealed record GameSessionRegistration(string AuthorizationID, string ClientID, string Game, DateTime RegisteredAt, uint? ExeCrc, uint? IniCrc, int AnticheatID);
 
-	// Game sessions registered through POST /api/v1/auth/session; in memory, so a restart asks clients to register again
+	// Game sessions registered through POST /api/v1/auth/session. The database holds them, so every copy and a restarted copy
+	// accept the realtime upgrade of a registered client (docs/realtime-failover.md); memory is this copy's cache of them, which
+	// the upgrade refreshes from the database, so the hub and lobby checks after it read it without a database call
 	public static class GameSessions
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(GameSessions));
 		private static readonly ConcurrentDictionary<(Int64, EUserSessionType), GameSessionRegistration> s_sessions = new();
 
-		public static void Register(Int64 userID, EUserSessionType sessionType, GameSessionRegistration registration)
+		public static async Task RegisterAsync(AppDbContext db, Int64 userID, EUserSessionType sessionType, GameSessionRegistration registration)
 		{
+			await Database.GameSessionStore.Save(db, userID, sessionType, registration);
 			s_sessions[(userID, sessionType)] = registration;
 		}
 
+		// This copy's cached registration, current for a client connected here
 		public static GameSessionRegistration? Get(Int64 userID, EUserSessionType sessionType)
 		{
 			return s_sessions.GetValueOrDefault((userID, sessionType));
 		}
 
-		public static bool Remove(Int64 userID, EUserSessionType sessionType)
+		// The stored registration, also cached here; the realtime upgrade reads it so a registration made on another copy counts
+		public static async Task<GameSessionRegistration?> LoadAsync(AppDbContext db, Int64 userID, EUserSessionType sessionType, CancellationToken cancellationToken = default)
 		{
-			return s_sessions.TryRemove((userID, sessionType), out _);
+			GameSessionRegistration? registration = await Database.GameSessionStore.Load(db, userID, sessionType, cancellationToken);
+			if (registration == null)
+			{
+				s_sessions.TryRemove((userID, sessionType), out _);
+			}
+			else
+			{
+				s_sessions[(userID, sessionType)] = registration;
+			}
+			return registration;
 		}
 
-		public static void RemoveSignIn(string authorizationID)
+		// Removals drop the cached entry first, so this copy refuses at once even when the database write fails
+		public static Task RemoveAsync(Int64 userID, EUserSessionType sessionType)
+		{
+			s_sessions.TryRemove((userID, sessionType), out _);
+			return Store(db => Database.GameSessionStore.Delete(db, userID, sessionType), "user " + userID);
+		}
+
+		public static Task RemoveSignInAsync(string authorizationID)
 		{
 			foreach (var entry in s_sessions.Where(e => e.Value.AuthorizationID == authorizationID))
 			{
 				s_sessions.TryRemove(entry);
 			}
+			return Store(db => Database.GameSessionStore.DeleteSignIn(db, authorizationID), "sign-in " + authorizationID);
 		}
 
-		public static void RemoveUser(Int64 userID, bool bOnlyForAuthorizations, IReadOnlySet<string>? authorizationIDs = null)
+		public static Task RemoveUserAsync(Int64 userID, bool bOnlyForAuthorizations, IReadOnlySet<string>? authorizationIDs = null)
 		{
 			foreach (var key in s_sessions.Keys.Where(k => k.Item1 == userID))
 			{
@@ -312,6 +335,30 @@ namespace GenOnlineService.Identity
 				{
 					s_sessions.TryRemove(key, out _);
 				}
+			}
+			IReadOnlyCollection<string>? only = bOnlyForAuthorizations ? (IReadOnlyCollection<string>?)authorizationIDs ?? Array.Empty<string>() : null;
+			return Store(db => Database.GameSessionStore.DeleteUser(db, userID, only), "user " + userID);
+		}
+
+		// Forgets this copy's cache, as a restarted copy or another copy starts; tests use it
+		internal static void ForgetCached() => s_sessions.Clear();
+
+		// A failed delete is logged: the cache already refuses here, and the revoked sign-in fails the upgrade's sign-in check on every copy
+		private static async Task Store(Func<AppDbContext, Task> write, string what)
+		{
+			IDbContextFactory<AppDbContext>? factory = ServiceLocator.Services?.GetService<IDbContextFactory<AppDbContext>>();
+			if (factory == null)
+			{
+				return;
+			}
+			try
+			{
+				await using AppDbContext db = await factory.CreateDbContextAsync();
+				await write(db);
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Removing the stored game session of {What} failed", what);
 			}
 		}
 	}
@@ -385,7 +432,7 @@ namespace GenOnlineService.Identity
 				s_log.LogError(ex, "Revoking authorizations of user {UserId} failed", userID);
 			}
 
-			GameSessions.RemoveUser(userID, bOnlyGameClients, revoked);
+			await GameSessions.RemoveUserAsync(userID, bOnlyGameClients, revoked);
 
 			if (ban == null)
 			{

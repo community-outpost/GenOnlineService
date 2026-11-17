@@ -46,6 +46,7 @@ Two copies need Postgres as the shared database. With MySQL or MariaDB the servi
 - Writes are pipelined and not awaited on the player's command path. On an unplanned failure the changes not yet in Redis are lost.
 - Presence (which connection of which user is on which copy, with session type) lives in Redis with an expiry, renewed by the copy holding the connection.
 - Durable data (chat, friends, groups, matches, sanctions) already lives in the database and is unaffected.
+- Game session registrations (`POST /api/v1/auth/session`) live in the database table `game_sessions`, one row per user and session type, removed with the sign-in. The hub upgrade reads the row, so a client switched to the new copy, or reconnecting after a restart, connects without registering again. Each copy keeps the rows of its connected clients in memory for the lobby and queue checks.
 
 ## Ownership
 
