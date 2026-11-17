@@ -184,10 +184,11 @@ A tombstone never shows its author or content.
 `LobbySummary` (lobby list entry, as one viewer sees it)
 
 ```json
-{"id":991,"name":"1v1 no rush","host":{"id":42,"name":"Bob","badges":[]},"state":"setup","map":{"name":"Tournament Desert","official":true},"players":1,"max_players":2,"has_password":false,"region":"eu","latency_ms":38,"anticheat":"easy_anticheat","settings":{"starting_cash":10000,"limit_superweapons":true,"vanilla_teams":false,"track_stats":true,"allow_observers":false},"build":{"exe_crc":1234567890,"ini_crc":987654321},"created_at":"2026-11-13T20:00:00Z"}
+{"id":991,"name":"1v1 no rush","host":{"id":42,"name":"Bob","badges":[]},"state":"setup","map":{"name":"Tournament Desert","official":true,"path":"maps/tournament desert/tournament desert"},"players":1,"max_players":2,"has_password":false,"region":"eu","latency_ms":38,"anticheat":"easy_anticheat","settings":{"starting_cash":10000,"limit_superweapons":true,"vanilla_teams":false,"track_stats":true,"allow_observers":false},"build":{"exe_crc":1234567890,"ini_crc":987654321},"created_at":"2026-11-13T20:00:00Z"}
 ```
 
 - `players` counts filled slots (players and AI), `max_players` counts slots that are not closed.
+- `map.path` is the `map.path` of the lobby's `LobbyState`, so a joiner can tell `JoinLobby` whether it has the map. A client reads a summary without it as one from an older service.
 - `latency_ms` is estimated per viewer, so each watcher receives its own value.
 - The list only contains custom lobbies in `setup` or `countdown` that the viewer may join: lobbies of a different build (game, executable and INI CRC, anticheat), lobbies whose host blocked the viewer and friends-only lobbies of non-friends are left out. Players only ever meet players running the same build, in custom lobbies and in matchmaking alike, so a third-party client plays with its own kind.
 
