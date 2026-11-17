@@ -81,6 +81,9 @@ public class User
 	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
 	public DateTime? LastSignInAt { get; set; }
 	public DateTime? RenamedAt { get; set; }
+
+	// When the player was asked to choose a name (a provider sign-up, or staff reset an inappropriate one); null once chosen
+	public DateTime? NameRequiredAt { get; set; }
 }
 
 // Every earlier username of a user, written when the name changes
@@ -156,6 +159,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
 		builder.Property(e => e.LastSignInAt).HasColumnName("last_sign_in_at");
 		builder.Property(e => e.RenamedAt).HasColumnName("renamed_at");
+		builder.Property(e => e.NameRequiredAt).HasColumnName("name_required_at");
 	}
 }
 

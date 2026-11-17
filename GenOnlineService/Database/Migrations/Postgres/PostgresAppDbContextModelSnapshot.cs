@@ -1750,6 +1750,10 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("character varying(255)")
                         .HasColumnName("name_key");
 
+                    b.Property<DateTime?>("NameRequiredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("name_required_at");
+
                     b.Property<int>("NameTag")
                         .HasColumnType("integer")
                         .HasColumnName("name_tag");

@@ -107,6 +107,8 @@ namespace GenOnlineService.Identity
 					{
 						Username = InitialName(externName),
 						State = UserStates.Active,
+						// the player chooses their own name before the first token (S17)
+						NameRequiredAt = now,
 						CreatedAt = now,
 						UpdatedAt = now
 					};

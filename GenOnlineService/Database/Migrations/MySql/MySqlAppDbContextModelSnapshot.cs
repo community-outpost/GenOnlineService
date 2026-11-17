@@ -1753,6 +1753,10 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("name_key")
                         .UseCollation("utf8mb4_bin");
 
+                    b.Property<DateTime?>("NameRequiredAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("name_required_at");
+
                     b.Property<int>("NameTag")
                         .HasColumnType("int")
                         .HasColumnName("name_tag");

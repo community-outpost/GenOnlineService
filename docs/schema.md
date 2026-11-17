@@ -62,6 +62,7 @@ users
   lockout_end_at          timestamp null
   failed_sign_in_count    int
   created_at, updated_at, last_sign_in_at, renamed_at null
+  name_required_at        timestamp null         -- the player owes a chosen name (provider sign-up, staff name reset); null once chosen
 
 user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
 identities                id, user_id, provider varchar(32), extern_uid varchar(128),
