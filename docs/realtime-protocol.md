@@ -78,7 +78,7 @@ The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E
 | Arguments | Every hub method and event takes exactly **one** argument: an object. Never positional parameters |
 | Field names | `snake_case` (server uses `JsonNamingPolicy.SnakeCaseLower`) |
 | Method and event names | `PascalCase` (`SendMessage`, `MessageCreate`) |
-| Ids | User, lobby and channel ids are JSON numbers (all fit in 53 bits). Message ids are strings |
+| Ids | User, lobby, match and channel ids are JSON numbers (all fit in 53 bits). New match ids are 48 bit snowflakes, larger than older ones. Message ids are strings |
 | Channel ids | Typed strings: `channel:<channel_id>`, `lobby:<lobby_id>`, `dm:<user_id>`, `group:<group_id>` |
 | Durations and times | A duration a person sees or chooses is whole seconds with `_s`; a delay the service computes for a client to wait is milliseconds with `_ms`; a point in time is ISO 8601 UTC with `_at` (`2026-11-13T20:00:00Z`). The measured `latency_ms` stays in milliseconds |
 | Binary data | Base64 strings (signalling payloads) |
