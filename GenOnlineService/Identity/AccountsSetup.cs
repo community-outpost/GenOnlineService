@@ -344,7 +344,8 @@ namespace GenOnlineService.Identity
 							.SetClientId(provider.ClientID)
 							.SetClientSecret(provider.ClientSecret)
 							.SetRedirectUri(provider.ReturnUri)
-							.AddScopes(email.Prepend(Scopes.Profile).ToArray()));
+							// openid only: no profile, so no real name (user, 2026-11-17)
+							.AddScopes(email));
 						break;
 
 					case ProviderKind.GameReplays:
