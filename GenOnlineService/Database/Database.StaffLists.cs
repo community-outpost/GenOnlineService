@@ -295,9 +295,8 @@ namespace Database
 		// Counting stops here, as GitLab stops counting a long list, so a page of a long history never counts it to the end
 		public const int TotalCap = 10_000;
 
-		// How the stored details write a desynced player: MariaDB keeps the text of MatchHistory.WriteDetails (System.Text.Json
-		// defaults), PostgreSQL stores jsonb, which is asked by containment
-		private const string DesyncedMarker = "\"desynced\":true";
+		// A desynced player's details contain this, asked by JSON containment on every provider: MySQL 8 stores its json
+		// column normalized ("desynced": true, with a space), so the text MariaDB keeps verbatim cannot be matched as text
 		private const string DesyncedJson = "{\"desynced\":true}";
 
 		public static async Task<StaffMatchList> ListAsync(AppDbContext db, StaffMatchQuery query, int skip, int take, int totalCap = TotalCap, CancellationToken cancellationToken = default)
@@ -305,7 +304,7 @@ namespace Database
 			IQueryable<global::Match> matches = db.Matches.AsNoTracking();
 			Expression<Func<MatchPlayer, bool>> desynced = db.Database.IsNpgsql()
 				? p => p.Details != null && NpgsqlJsonDbFunctionsExtensions.JsonContains(EF.Functions, p.Details, DesyncedJson)
-				: p => p.Details != null && p.Details.Contains(DesyncedMarker);
+				: p => p.Details != null && MySqlJsonDbFunctionsExtensions.JsonContains(EF.Functions, p.Details, DesyncedJson);
 			if (query.Type is ELobbyType type)
 			{
 				matches = matches.Where(m => m.LobbyType == type);
