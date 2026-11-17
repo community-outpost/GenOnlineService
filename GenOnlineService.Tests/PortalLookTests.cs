@@ -80,6 +80,22 @@ public class PortalLookTests
 
 	// dark only, the poster in the branded panel, every go-* class the pages use defined in generals.css, and the icons
 	// and provider marks drawn
+	// The sign-in pages read right to left in Arabic: their own rules place things by the start and end of a line, never by
+	// left and right, and arrows mirror
+	[Fact]
+	public void TheSignInLayoutFollowsTheReadingDirection()
+	{
+		string css = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		foreach (string selector in new[] { ".go-skip", ".go-logo", ".go-cover", ".go-field-icon", ".go-iconed", ".go-split", ".go-main", ".go-languages" })
+		{
+			foreach (System.Text.RegularExpressions.Match rule in Regex.Matches(css, Regex.Escape(selector) + @"\s*\{([^}]*)\}"))
+			{
+				Assert.DoesNotMatch(@"(^|[\s;-])(left|right)\s*:|-(left|right)\s*:", rule.Groups[1].Value);
+			}
+		}
+		Assert.Matches(@"\[dir=""rtl""\]\s*\.go-directional\s*\{\s*transform:\s*scaleX\(-1\)", css);
+	}
+
 	[Fact]
 	public void ThePagesAreDarkWithTheGeneralsLook()
 	{

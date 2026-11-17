@@ -167,7 +167,7 @@ html.dark {
 .go-skip {
   position: absolute;
   top: 0.5rem;
-  left: 0.5rem;
+  inset-inline-start: 0.5rem;
   z-index: 50;
   padding: 0.5rem 1rem;
   background: var(--card);
@@ -248,17 +248,17 @@ html.dark {
   padding: 6.5rem 1rem 2rem;
 }
 
-/* Generals Online's logo, top left of the form column */
+/* Generals Online's logo, top left of the form column (top right when the page reads right to left) */
 .go-logo {
   position: absolute;
   top: 2rem;
-  left: 1rem;
+  inset-inline-start: 1rem;
   display: block;
 }
 
 @media (min-width: 48rem) {
   .go-logo {
-    left: 2rem;
+    inset-inline-start: 2rem;
   }
 }
 
@@ -273,7 +273,7 @@ html.dark {
   display: none;
   position: relative;
   overflow: hidden;
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
 }
 
 .go-cover::before {
@@ -367,18 +367,18 @@ html.dark {
   color: var(--go-text-2);
 }
 
-/* an icon inside the left edge of a field */
+/* an icon inside the start edge of a field: the left, or the right when the page reads right to left */
 .go-field-icon {
   position: absolute;
   top: 50%;
-  left: 0.75rem;
+  inset-inline-start: 0.75rem;
   display: flex;
   transform: translateY(-50%);
   pointer-events: none;
 }
 
 .go-iconed {
-  padding-left: 2.25rem;
+  padding-inline-start: 2.25rem;
 }
 
 /* login-02's "Or continue with": a caption on the rule */

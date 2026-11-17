@@ -500,8 +500,9 @@ namespace GenOnlineService.Identity
 			body.Append(PortalLook.Field("password", T("Field.Password"), $"type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"{m_settings.Password.MinLength}\" maxlength=\"{PasswordSignInSettings.MaximumLength}\" required", icon: "lock-keyhole"));
 			if (m_settings.Password.Honeypot)
 			{
-				// people never see this field; form-filling bots fill it in
-				body.Append($"<p style=\"position:absolute;left:-10000px\" aria-hidden=\"true\"><label>Website <input type=\"text\" name=\"{HoneypotField}\" tabindex=\"-1\" autocomplete=\"off\"></label></p>");
+				// people never see this field; form-filling bots fill it in. Off the start edge, so a right-to-left page gets
+				// no scroll width from it
+				body.Append($"<p style=\"position:absolute;inset-inline-start:-10000px\" aria-hidden=\"true\"><label>Website <input type=\"text\" name=\"{HoneypotField}\" tabindex=\"-1\" autocomplete=\"off\"></label></p>");
 			}
 			body.Append(PortalLook.Submit(T("SignUp.Submit"), icon: "user-plus")).Append("</form>");
 			body.Append(PortalLook.Link($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}", T("SignIn.Title"), T("SignUp.HaveAccount")));
