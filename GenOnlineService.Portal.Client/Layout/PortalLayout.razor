@@ -92,17 +92,29 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
-                @if (staff.Can(PortalPermissions.AuditRead))
+                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage))
                 {
                     <BbSidebarGroup>
                         <BbSidebarGroupLabel>Administration</BbSidebarGroupLabel>
                         <BbSidebarMenu>
-                            <BbSidebarMenuItem>
-                                <BbSidebarMenuButton Href="@PortalRoutes.AuditPage" Tooltip="Audit log">
-                                    <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
-                                    <span>Audit log</span>
-                                </BbSidebarMenuButton>
-                            </BbSidebarMenuItem>
+                            @if (staff.Can(PortalPermissions.TokensManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.PartnersPage" Tooltip="Partners">
+                                        <LucideIcon Name="handshake" Class="bb:h-4 bb:w-4" />
+                                        <span>Partners</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.AuditRead))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AuditPage" Tooltip="Audit log">
+                                        <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
+                                        <span>Audit log</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
@@ -297,6 +309,13 @@
                 break;
             case "audit":
                 yield return ("Audit log", null);
+                break;
+            case "partners":
+                yield return ("Partners", item == null ? null : PortalRoutes.PartnersPage);
+                if (item != null)
+                {
+                    yield return ("Partner " + item, null);
+                }
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);

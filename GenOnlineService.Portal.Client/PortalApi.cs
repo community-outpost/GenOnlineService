@@ -202,6 +202,85 @@ namespace GenOnlineService.Portal.Client
 			return GetAsync<PortalAuditPage>(PortalRoutes.AuditEvents + "?" + String.Join("&", query), cancellationToken);
 		}
 
+		// Every partner, by name; tens of accounts, read page by page
+		public async Task<PortalAnswer<List<PortalPartner>>> ListPartnersAsync(CancellationToken cancellationToken = default)
+		{
+			var partners = new List<PortalPartner>();
+			for (int page = 1; ; page++)
+			{
+				PortalAnswer<PortalPartnerPage> answer = await GetAsync<PortalPartnerPage>($"{PortalRoutes.ServiceAccounts}?page={page}&per_page={MaximumPerPage}", cancellationToken);
+				if (!answer.Ok)
+				{
+					return new PortalAnswer<List<PortalPartner>>(null, answer.Error ?? "");
+				}
+				partners.AddRange(answer.Value!.ServiceAccounts);
+				if (answer.Value.ServiceAccounts.Count < MaximumPerPage)
+				{
+					return new PortalAnswer<List<PortalPartner>>(partners, null);
+				}
+			}
+		}
+
+		public Task<PortalAnswer<PortalPartner>> GetPartnerAsync(long id, CancellationToken cancellationToken = default) => GetAsync<PortalPartner>($"{PortalRoutes.ServiceAccounts}/{id}", cancellationToken);
+
+		// Every token of a partner, newest first, revoked and expired ones included
+		public async Task<PortalAnswer<List<PortalPartnerToken>>> ListPartnerTokensAsync(long id, CancellationToken cancellationToken = default)
+		{
+			var tokens = new List<PortalPartnerToken>();
+			for (int page = 1; ; page++)
+			{
+				PortalAnswer<PortalPartnerTokenPage> answer = await GetAsync<PortalPartnerTokenPage>($"{PortalRoutes.ServiceAccounts}/{id}/personal_access_tokens?page={page}&per_page={MaximumPerPage}", cancellationToken);
+				if (!answer.Ok)
+				{
+					return new PortalAnswer<List<PortalPartnerToken>>(null, answer.Error ?? "");
+				}
+				tokens.AddRange(answer.Value!.PersonalAccessTokens);
+				if (answer.Value.PersonalAccessTokens.Count < MaximumPerPage)
+				{
+					return new PortalAnswer<List<PortalPartnerToken>>(tokens, null);
+				}
+			}
+		}
+
+		public Task<PortalAnswer<PortalPartner>> CreatePartnerAsync(string name, string? description)
+		{
+			return SendForAsync<PortalPartner>(HttpMethod.Post, PortalRoutes.ServiceAccounts, new PortalCreatePartnerRequest { Name = name, Description = description });
+		}
+
+		// Grants, removals and the disable or enable in one change, each in the audit log
+		public Task<PortalAnswer<PortalPartner>> UpdatePartnerAsync(long id, PortalUpdatePartnerRequest change)
+		{
+			return SendForAsync<PortalPartner>(HttpMethod.Patch, $"{PortalRoutes.ServiceAccounts}/{id}", change);
+		}
+
+		// The answer carries the token's secret, shown once
+		public Task<PortalAnswer<PortalCreatedToken>> CreatePartnerTokenAsync(long id, PortalCreateTokenRequest token)
+		{
+			return SendForAsync<PortalCreatedToken>(HttpMethod.Post, $"{PortalRoutes.ServiceAccounts}/{id}/personal_access_tokens", token);
+		}
+
+		// Same scopes and allowed addresses; the old token keeps working for overlapMinutes, then stops
+		public Task<PortalAnswer<PortalCreatedToken>> RotatePartnerTokenAsync(long id, long tokenID, int overlapMinutes)
+		{
+			return SendForAsync<PortalCreatedToken>(HttpMethod.Post, $"{PortalRoutes.ServiceAccounts}/{id}/personal_access_tokens/{tokenID}/rotate?overlap_minutes={overlapMinutes}", new { });
+		}
+
+		public Task<PortalOutcome> RevokePartnerTokenAsync(long id, long tokenID) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.ServiceAccounts}/{id}/personal_access_tokens/{tokenID}", new { });
+
+		// False when the browser refuses the clipboard, the value is then copied by hand
+		public async Task<bool> CopyAsync(string text)
+		{
+			try
+			{
+				await m_js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+				return true;
+			}
+			catch (JSException)
+			{
+				return false;
+			}
+		}
+
 		// The same POST as the sign-out form of the accounts pages, then the static sign-in page
 		public async Task SignOutAsync()
 		{
@@ -253,28 +332,51 @@ namespace GenOnlineService.Portal.Client
 		// Every change carries the antiforgery token of the host page
 		private async Task<PortalOutcome> SendAsync<T>(HttpMethod method, string path, T body)
 		{
+			(HttpResponseMessage? response, string? error) = await SendCoreAsync(method, path, body);
+			using (response)
+			{
+				return error == null ? PortalOutcome.Success : new PortalOutcome(false, error);
+			}
+		}
+
+		// A change whose answer the page reads, such as the created account or token
+		private async Task<PortalAnswer<TResult>> SendForAsync<TResult>(HttpMethod method, string path, object body) where TResult : class
+		{
+			(HttpResponseMessage? response, string? error) = await SendCoreAsync(method, path, body);
+			using (response)
+			{
+				return error != null ? new PortalAnswer<TResult>(null, error) : new PortalAnswer<TResult>(await response!.Content.ReadFromJsonAsync<TResult>(PortalJson.Options), null);
+			}
+		}
+
+		// The answer on success, otherwise the error code; the caller disposes the answer
+		private async Task<(HttpResponseMessage? Response, string? Error)> SendCoreAsync<T>(HttpMethod method, string path, T body)
+		{
 			PortalSessionInfo? session = await LoadSessionAsync();
 			if (session == null)
 			{
-				return new PortalOutcome(false, "unauthorized");
+				return (null, "unauthorized");
 			}
 
 			using var request = new HttpRequestMessage(method, path) { Content = JsonContent.Create(body, options: PortalJson.Options) };
 			request.Headers.Add(session.CsrfHeader, session.CsrfToken);
 
-			using HttpResponseMessage response = await m_http.SendAsync(request);
+			HttpResponseMessage response = await m_http.SendAsync(request);
 			if (response.IsSuccessStatusCode)
 			{
-				return PortalOutcome.Success;
+				return (response, null);
 			}
 
-			if (response.StatusCode == HttpStatusCode.Unauthorized)
+			using (response)
 			{
-				SignIn();
-				return new PortalOutcome(false, "unauthorized");
-			}
+				if (response.StatusCode == HttpStatusCode.Unauthorized)
+				{
+					SignIn();
+					return (null, "unauthorized");
+				}
 
-			return new PortalOutcome(false, await ErrorOfAsync(response));
+				return (null, await ErrorOfAsync(response));
+			}
 		}
 
 		private static async Task<string> ErrorOfAsync(HttpResponseMessage response)

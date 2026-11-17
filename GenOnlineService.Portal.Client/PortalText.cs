@@ -70,6 +70,8 @@ namespace GenOnlineService.Portal.Client
 			"moderation.reason_too_long" => "The reason is too long.",
 			"roles.rank" => "That role ranks the same as or above your own.",
 			"roles.upstream" => "That role comes from a sign-in provider and follows its sign-ins.",
+			"conflict" => "That name is in use, or the token is already revoked, expired or rotated.",
+			"token.limit_reached" => "This owner already holds the most active tokens allowed.",
 			_ => "The service answered: " + code
 		};
 	}

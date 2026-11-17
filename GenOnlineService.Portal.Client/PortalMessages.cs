@@ -43,6 +43,7 @@ namespace GenOnlineService.Portal.Client
 		public const string Matches = "api/v1/matches";
 		public const string AntiCheat = "api/v1/anticheat_reports";
 		public const string AuditEvents = "api/v1/audit_events";
+		public const string ServiceAccounts = "api/v1/service_accounts";
 		public const string MatchSearch = "api/v1/matches/search";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
@@ -58,6 +59,7 @@ namespace GenOnlineService.Portal.Client
 		public const string MatchesPage = "/admin/matches";
 		public const string AntiCheatPage = "/admin/anticheat";
 		public const string AuditPage = "/admin/audit";
+		public const string PartnersPage = "/admin/partners";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -65,6 +67,8 @@ namespace GenOnlineService.Portal.Client
 		public static string PlayersSearch(string term) => PlayersPage + "?q=" + Uri.EscapeDataString(term);
 
 		public static string MatchPage(long id) => MatchesPage + "/" + id;
+
+		public static string PartnerPage(long id) => PartnersPage + "/" + id;
 
 		// the match list with one player's matches
 		public static string MatchesOf(long player) => MatchesPage + "?player=" + player.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -86,6 +90,18 @@ namespace GenOnlineService.Portal.Client
 		public const string PlayersInspect = "players.inspect";
 		public const string RolesManage = "roles.manage";
 		public const string AuditRead = "audit.read";
+		public const string TokensManage = "tokens.manage";
+	}
+
+	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
+	// only the CLI on the host grants (Permissions.Machine and Permissions.Privileged on the host)
+	public static class PortalPartnerPermissions
+	{
+		public static readonly IReadOnlyList<string> Grantable = ["lobbies.read", "match_history.read"];
+
+		public static readonly IReadOnlyList<string> Privileged = ["ops.database", "users.revoke"];
+
+		public static bool IsPrivileged(string permission) => Privileged.Contains(permission);
 	}
 
 	// The audit actions the log's filter offers, in the words of the host's audit_log.action
@@ -638,6 +654,81 @@ namespace GenOnlineService.Portal.Client
 
 		private static string? Day(string? text) =>
 			DateTime.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text : null;
+	}
+
+	// A partner: a service account with the permissions granted to it, as /api/v1/service_accounts answers
+	public sealed record PortalPartner
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public string? Description { get; init; }
+		public DateTime CreatedAt { get; init; }
+		public DateTime? DisabledAt { get; init; }
+		public IReadOnlyList<string> Permissions { get; init; } = [];
+	}
+
+	public sealed record PortalPartnerPage
+	{
+		public IReadOnlyList<PortalPartner> ServiceAccounts { get; init; } = [];
+	}
+
+	// A token of a partner, never its secret; revoked_at in the future is the end of a rotation overlap
+	public sealed record PortalPartnerToken
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public IReadOnlyList<string> Scopes { get; init; } = [];
+		public DateTime CreatedAt { get; init; }
+		public DateTime ExpiresAt { get; init; }
+		public DateTime? LastUsedAt { get; init; }
+		public string? LastUsedIp { get; init; }
+		public DateTime? RevokedAt { get; init; }
+		public string TokenLast4 { get; init; } = "";
+
+		// Revoked, rotated past its overlap, or expired
+		public bool IsActive(DateTime utcNow) => ExpiresAt > utcNow && (RevokedAt == null || RevokedAt > utcNow);
+	}
+
+	public sealed record PortalPartnerTokenPage
+	{
+		public IReadOnlyList<PortalPartnerToken> PersonalAccessTokens { get; init; } = [];
+	}
+
+	// The create and rotate answers, the only place the gopat- secret is ever shown
+	public sealed record PortalCreatedToken
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public DateTime ExpiresAt { get; init; }
+		public string Token { get; init; } = "";
+	}
+
+	public sealed record PortalCreatePartnerRequest
+	{
+		public string? Name { get; init; }
+		public string? Description { get; init; }
+	}
+
+	public sealed record PortalGrantChanges
+	{
+		public IReadOnlyList<string>? Add { get; init; }
+		public IReadOnlyList<string>? Remove { get; init; }
+	}
+
+	// Each part is optional; the null ones are left out of the body
+	public sealed record PortalUpdatePartnerRequest
+	{
+		public PortalGrantChanges? Grants { get; init; }
+		public bool? Disabled { get; init; }
+	}
+
+	// expires_at is a day (midnight UTC); allowed_ips holds addresses or CIDR ranges
+	public sealed record PortalCreateTokenRequest
+	{
+		public string Name { get; init; } = "";
+		public IReadOnlyList<string> Scopes { get; init; } = [];
+		public string ExpiresAt { get; init; } = "";
+		public IReadOnlyList<string>? AllowedIps { get; init; }
 	}
 
 	public static class PortalQueries
