@@ -30,13 +30,26 @@ namespace GenOnlineService
 
 		protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 		{
+			bool reportedOff = false;
 			while (!stoppingToken.IsCancellationRequested)
 			{
 				try
 				{
-					int processed = await PublishPendingMatches(stoppingToken);
-					if (processed > 0)
-						continue;
+					if (!ExternalLeaderboardsClient.IsConfigured())
+					{
+						if (!reportedOff)
+						{
+							_logger.LogWarning("External leaderboard publication is off: the ExternalLeaderboards section is not configured");
+							reportedOff = true;
+						}
+					}
+					else
+					{
+						reportedOff = false;
+						int processed = await PublishPendingMatches(stoppingToken);
+						if (processed > 0)
+							continue;
+					}
 				}
 				catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
 				{

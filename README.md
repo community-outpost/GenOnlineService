@@ -137,3 +137,5 @@ Machines (website backend, Discord bot, partners, monitoring) call the API with 
 # Observability
 
 The service can export OpenTelemetry logs, metrics, and traces over OTLP, with Sentry as an optional destination for errors, logs, and traces. See [docs/observability.md](docs/observability.md) for configuration, coverage, metric names, privacy controls, and an Alloy example.
+
+Finished matches are published to the external leaderboards (GameReplays' Strata), and ratings are read back from them, when the `ExternalLeaderboards` section sets `PostUrl`, `PostToken`, `GetUrl` (with `{playerId}`) and `GetToken`. Without the section the service publishes nothing, queues nothing to publish later, takes ratings from the stored values, and logs one warning at startup; a section that is present but incomplete is an error.
