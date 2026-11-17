@@ -63,6 +63,7 @@ users
   failed_sign_in_count    int
   created_at, updated_at, last_sign_in_at, renamed_at null
   name_required_at        timestamp null         -- the player owes a chosen name (provider sign-up, staff name reset); null once chosen
+  index (last_sign_in_at desc, id desc), (created_at, id)   -- the staff player list's sorts (StaffListIndexes, built online)
 
 user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
 identities                id, user_id, provider varchar(32), extern_uid varchar(128), created_at, last_used_at
@@ -191,6 +192,7 @@ session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | '
 matches                   id bigint pk (kept), owner_user_id, name, lobby_type, roster_type, map_name, map_path,
                           is_official_map, vanilla_teams,          -- owner_user_id null when the owner was dropped starting_cash, limit_superweapons, track_stats,
                           allow_observers, max_cam_height, exe_crc, ini_crc, started_at, finished_at null
+                          index (finished_at, id), (started_at)   -- the match feed; the staff match list's date filter
 match_players             match_id, slot smallint, user_id null, team smallint null, side int null, color int null,
                           result varchar(16) null, details json null      pk (match_id, slot)
 match_publications        match_id pk, attempts int, next_attempt_at, published_at null, last_error varchar(512) null

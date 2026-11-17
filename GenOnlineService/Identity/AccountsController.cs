@@ -155,6 +155,7 @@ namespace GenOnlineService.Identity
 
 			if (result.Error == null)
 			{
+				await m_passwords.RecordSignIn(result.User!);
 				await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: PasswordAccounts.PasswordMethod);
 				return LocalRedirect(target);
 			}
@@ -253,6 +254,10 @@ namespace GenOnlineService.Identity
 				}
 			}
 			AppMetrics.RecordAuthentication("password_two_factor", "password", result.Succeeded ? "success" : result.IsLockedOut ? "locked_out" : "failed");
+			if (result.Succeeded)
+			{
+				await m_passwords.RecordSignIn(pending);
+			}
 
 			return result.Succeeded ? LocalRedirect(target) : TwoFactorForm(401, target, "Wrong code.");
 		}
@@ -467,6 +472,7 @@ namespace GenOnlineService.Identity
 				return SignUpForm(400, target, displayName, email, message);
 			}
 
+			await m_passwords.RecordSignIn(result.User!);
 			await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: "password");
 			return LocalRedirect(target);
 		}

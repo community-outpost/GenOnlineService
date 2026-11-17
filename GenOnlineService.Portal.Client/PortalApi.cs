@@ -110,12 +110,41 @@ namespace GenOnlineService.Portal.Client
 			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
 		}
 
+		// The player list: every account without a search, filtered and sorted by the host
+		public async Task<PortalAnswer<PortalPlayerPage>> ListPlayersAsync(PortalPlayerQuery query, int start, int count, CancellationToken cancellationToken)
+		{
+			string arguments = query.ToApiQuery();
+			(PortalAnswer<PortalPlayerPage> answer, int total) = await GetPageAsync<PortalPlayerPage>($"{PortalRoutes.PlayerSearch}?{arguments}{(arguments.Length > 0 ? "&" : "")}{PageOf(start, count)}", cancellationToken);
+			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
+		}
+
 		public Task<PortalAnswer<PortalPlayer>> GetPlayerAsync(long userID) => GetAsync<PortalPlayer>($"{PortalRoutes.Players}/{userID}/staff_view");
 
 		// The host writes an audit row for this read
 		public Task<PortalAnswer<PortalInspection>> GetInspectionAsync(long userID) => GetAsync<PortalInspection>($"{PortalRoutes.Players}/{userID}/inspection");
 
 		public Task<PortalAnswer<PortalMatch>> GetMatchAsync(long matchID) => GetAsync<PortalMatch>($"{PortalRoutes.Matches}/{matchID}");
+
+		// The match list, newest first; past 10,000 rows the host does not count, the page then only knows whether one follows
+		public async Task<PortalAnswer<PortalMatchPage>> ListMatchesAsync(PortalMatchQuery query, int start, int count, CancellationToken cancellationToken)
+		{
+			string arguments = query.ToApiQuery();
+			using HttpResponseMessage response = await m_http.GetAsync($"{PortalRoutes.MatchSearch}?{arguments}{(arguments.Length > 0 ? "&" : "")}{PageOf(start, count)}", cancellationToken);
+			if (!response.IsSuccessStatusCode)
+			{
+				if (response.StatusCode == HttpStatusCode.Unauthorized)
+				{
+					SignIn();
+					return new PortalAnswer<PortalMatchPage>(null, "unauthorized");
+				}
+				return new PortalAnswer<PortalMatchPage>(null, await ErrorOfAsync(response));
+			}
+
+			PortalMatchPage? page = await response.Content.ReadFromJsonAsync<PortalMatchPage>(PortalJson.Options, cancellationToken);
+			int? total = response.Headers.TryGetValues("X-Total", out IEnumerable<string>? totals) && int.TryParse(totals.FirstOrDefault(), out int value) ? value : null;
+			bool hasNext = response.Headers.TryGetValues("X-Next-Page", out IEnumerable<string>? next) && !String.IsNullOrEmpty(next.FirstOrDefault());
+			return new PortalAnswer<PortalMatchPage>(page == null ? null : page with { Total = total, HasNext = hasNext }, null);
+		}
 
 		// reviewed is false, true or all
 		public async Task<PortalAnswer<PortalAntiCheatPage>> GetAntiCheatAsync(string kind, string reviewed, int start, int count, CancellationToken cancellationToken)
@@ -142,6 +171,35 @@ namespace GenOnlineService.Portal.Client
 		public Task<PortalOutcome> RenamePlayerAsync(long userID, string? name, string? reason)
 		{
 			return SendAsync(HttpMethod.Patch, $"{PortalRoutes.Players}/{userID}", new PortalRenameRequest { Name = name, Reason = reason });
+		}
+
+		// One local role, under the host's rank rule; each change is in the audit log
+		public Task<PortalOutcome> GrantRoleAsync(long userID, string role) => SendAsync(HttpMethod.Put, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
+
+		public Task<PortalOutcome> RevokeRoleAsync(long userID, string role) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
+
+		// Newest first; afterID continues below that row. A player id filters the actor or the target, which is then a player
+		public Task<PortalAnswer<PortalAuditPage>> GetAuditAsync(long? actorID, long? targetID, string? action, long? afterID, int perPage, CancellationToken cancellationToken)
+		{
+			var query = new List<string> { "per_page=" + Math.Clamp(perPage, 1, MaximumPerPage) };
+			if (actorID is long actor)
+			{
+				query.Add("actor_id=" + actor);
+			}
+			if (targetID is long target)
+			{
+				query.Add("target_id=" + target);
+				query.Add("target_kind=user");
+			}
+			if (!String.IsNullOrEmpty(action))
+			{
+				query.Add("action=" + Uri.EscapeDataString(action));
+			}
+			if (afterID is long after)
+			{
+				query.Add("after_id=" + after);
+			}
+			return GetAsync<PortalAuditPage>(PortalRoutes.AuditEvents + "?" + String.Join("&", query), cancellationToken);
 		}
 
 		// The same POST as the sign-out form of the accounts pages, then the static sign-in page

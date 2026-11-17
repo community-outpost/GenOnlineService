@@ -1035,6 +1035,9 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.HasKey("Id");
 
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_matches_started_at");
+
                     b.HasIndex("FinishedAt", "Id")
                         .HasDatabaseName("ix_matches_finished_at");
 
@@ -1956,6 +1959,13 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasIndex("EmailNormalized")
                         .IsUnique()
                         .HasDatabaseName("ux_users_email_normalized");
+
+                    b.HasIndex("CreatedAt", "ID")
+                        .HasDatabaseName("ix_users_created_at");
+
+                    b.HasIndex("LastSignInAt", "ID")
+                        .IsDescending()
+                        .HasDatabaseName("ix_users_last_sign_in_at");
 
                     b.HasIndex("NameKey", "NameTag")
                         .IsUnique()

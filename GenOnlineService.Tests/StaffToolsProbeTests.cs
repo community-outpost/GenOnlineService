@@ -66,6 +66,13 @@ public class StaffToolsProbeTests
 
 	private static ModerationActor Staff(long userID) => new() { Kind = AuditActorKinds.User, UserID = userID, Name = $"user:{userID}", Source = ModerationSources.Api };
 
+	// The staff search, through the player list that replaced Users.StaffSearch (T17f)
+	private static async Task<(int Total, List<StaffPlayerRow> Page)> Search(AppDbContext db, string term, int skip, int take)
+	{
+		StaffPlayerList list = await StaffPlayerLists.ListAsync(db, new StaffPlayerQuery { Term = term }, DateTime.UtcNow, skip, take);
+		return (list.Total!.Value, list.Players.ToList());
+	}
+
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task StaffSearchMatchesAnywhereInTheNameAndTheExactId(string provider)
@@ -77,23 +84,23 @@ public class StaffToolsProbeTests
 		User third = await AddUser(probe, "Tank%Rush", 3);
 		await using AppDbContext db = probe.Open();
 
-		(int total, List<StaffPlayerRow> page) = await Users.StaffSearch(db, "GENERAL", 0, 10);
+		(int total, List<StaffPlayerRow> page) = await Search(db, "GENERAL", 0, 10);
 		Assert.Equal(2, total);
 		Assert.Equal([second.ID, first.ID], page.Select(p => p.ID));
 		Assert.Equal(UserStates.Blocked, page[0].State);
 
 		// paged in the database: the second page of one holds the second name
-		(total, page) = await Users.StaffSearch(db, "general", 1, 1);
+		(total, page) = await Search(db, "general", 1, 1);
 		Assert.Equal(2, total);
 		Assert.Equal([first.ID], page.Select(p => p.ID));
 
 		// a wildcard character in the term is a plain character
-		(total, page) = await Users.StaffSearch(db, "k%r", 0, 10);
+		(total, page) = await Search(db, "k%r", 0, 10);
 		Assert.Equal([third.ID], page.Select(p => p.ID));
-		(total, _) = await Users.StaffSearch(db, "%", 0, 10);
+		(total, _) = await Search(db, "%", 0, 10);
 		Assert.Equal(1, total);
 
-		(total, page) = await Users.StaffSearch(db, third.ID.ToString(), 0, 10);
+		(total, page) = await Search(db, third.ID.ToString(), 0, 10);
 		Assert.Equal(1, total);
 		Assert.Equal(third.ID, page[0].ID);
 	}

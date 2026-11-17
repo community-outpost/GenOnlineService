@@ -42,6 +42,8 @@ namespace GenOnlineService.Portal.Client
 		public const string Sanctions = "api/v1/sanctions";
 		public const string Matches = "api/v1/matches";
 		public const string AntiCheat = "api/v1/anticheat_reports";
+		public const string AuditEvents = "api/v1/audit_events";
+		public const string MatchSearch = "api/v1/matches/search";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -55,6 +57,7 @@ namespace GenOnlineService.Portal.Client
 		public const string PlayersPage = "/admin/players";
 		public const string MatchesPage = "/admin/matches";
 		public const string AntiCheatPage = "/admin/anticheat";
+		public const string AuditPage = "/admin/audit";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -63,7 +66,13 @@ namespace GenOnlineService.Portal.Client
 
 		public static string MatchPage(long id) => MatchesPage + "/" + id;
 
+		// the match list with one player's matches
+		public static string MatchesOf(long player) => MatchesPage + "?player=" + player.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
 		public static string AntiCheatList(string kind) => AntiCheatPage + "/" + kind;
+
+		// the audit log with the actions on one player
+		public static string AuditOf(long target) => AuditPage + "?target=" + target;
 	}
 
 	// The permission names the pages show or hide parts by, the host checks each one again
@@ -75,6 +84,21 @@ namespace GenOnlineService.Portal.Client
 		public const string Rename = "moderation.rename";
 		public const string AnticheatReview = "anticheat.review";
 		public const string PlayersInspect = "players.inspect";
+		public const string RolesManage = "roles.manage";
+		public const string AuditRead = "audit.read";
+	}
+
+	// The audit actions the log's filter offers, in the words of the host's audit_log.action
+	public static class PortalAuditActions
+	{
+		public static readonly IReadOnlyList<string> All =
+		[
+			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
+			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
+			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
+			"token_revoke", "sa_create", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
+			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
+		];
 	}
 
 	// The review lists, in sidebar order; the short title fits the sidebar beside its counter
@@ -210,6 +234,13 @@ namespace GenOnlineService.Portal.Client
 		public string State { get; init; } = "";
 		public DateTime CreatedAt { get; init; }
 		public DateTime? LastSignInAt { get; init; }
+		public bool Online { get; init; }
+		public bool Banned { get; init; }
+		public bool Muted { get; init; }
+		public IReadOnlyList<string> Roles { get; init; } = [];
+		public bool Flagged { get; init; }
+		public int Matches { get; init; }
+		public int? Rating { get; init; }
 
 		[JsonIgnore]
 		public string FullName => Tag == null ? Name : Name + "#" + Tag;
@@ -259,11 +290,31 @@ namespace GenOnlineService.Portal.Client
 		public int EloMatches { get; init; }
 		public IReadOnlyList<PortalSanction> Sanctions { get; init; } = [];
 
+		// Every role row with where it comes from: "local", or "upstream:<provider>" for a role that follows the sign-ins
+		// of that provider and cannot be changed here
+		public IReadOnlyList<PortalRoleGrant> RoleGrants { get; init; } = [];
+
+		// The roles the caller may grant or revoke on this player: roles.manage and the rank rule, empty otherwise
+		public IReadOnlyList<string> AssignableRoles { get; init; } = [];
+
 		// False where the sign-in provider owns the names
 		public bool CanRename { get; init; }
 
 		[JsonIgnore]
 		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	public sealed record PortalRoleGrant
+	{
+		public string Role { get; init; } = "";
+		public string Source { get; init; } = "";
+
+		[JsonIgnore]
+		public bool Local => Source == "local";
+
+		// "upstream:discord" reads discord
+		[JsonIgnore]
+		public string Provider => Source.StartsWith("upstream:", StringComparison.Ordinal) ? Source.Substring("upstream:".Length) : Source;
 	}
 
 	public sealed record PortalIdentity
@@ -421,9 +472,178 @@ namespace GenOnlineService.Portal.Client
 		public bool Reviewed { get; init; }
 	}
 
+	public sealed record PortalAuditActor
+	{
+		public long Id { get; init; }
+		public string? DisplayName { get; init; }
+	}
+
+	// One row of GET /api/v1/audit_events
+	public sealed record PortalAuditEvent
+	{
+		public long Id { get; init; }
+		public string Action { get; init; } = "";
+		public string ActorKind { get; init; } = "";
+		public string ActorName { get; init; } = "";
+		public PortalAuditActor? Actor { get; init; }
+		public string TargetKind { get; init; } = "";
+		public long? TargetId { get; init; }
+		public string? Reason { get; init; }
+		public string Source { get; init; } = "";
+		public JsonElement? Details { get; init; }
+		public DateTime CreatedAt { get; init; }
+	}
+
+	public sealed record PortalAuditPage
+	{
+		public IReadOnlyList<PortalAuditEvent> AuditEvents { get; init; } = [];
+	}
+
 	// The {error, params} body every refused call carries
 	public sealed record PortalError
 	{
 		public string Error { get; init; } = "";
+	}
+
+	// What the player list shows (T17f), in the address of the page (?q=&filter=&signed_in_within=&order_by=&sort=) and,
+	// with query for q, in the arguments of /api/v1/players/search
+	public sealed record PortalPlayerQuery
+	{
+		public const string Online = "online";
+		public const string Banned = "banned";
+		public const string Muted = "muted";
+		public const string Staff = "staff";
+		public const string Flagged = "flagged";
+
+		public static readonly string[] AllFilters = [Online, Banned, Muted, Staff, Flagged];
+
+		public string? Search { get; init; }
+		public IReadOnlyList<string> Filters { get; init; } = [];
+		// 24h, 7d or 30d
+		public string? SignedInWithin { get; init; }
+		// last_sign_in_at, created_at, name or matches; null is the host's order
+		public string? OrderBy { get; init; }
+		// asc or desc; null is the column's own direction
+		public string? Sort { get; init; }
+
+		public bool IsFiltered => Filters.Count > 0 || SignedInWithin != null;
+
+		// Unknown values in a typed or old address are dropped, so the list still opens
+		// A direction with a search but no order is left out: the host keeps a search's own order and refuses that pair
+		public static PortalPlayerQuery FromAddress(string? q, string? filter, string? signedInWithin, string? orderBy, string? sort) => new PortalPlayerQuery
+		{
+			Search = String.IsNullOrWhiteSpace(q) ? null : q.Trim(),
+			Filters = (filter ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(AllFilters.Contains).Distinct().ToList(),
+			SignedInWithin = signedInWithin is "24h" or "7d" or "30d" ? signedInWithin : null,
+			OrderBy = orderBy is "last_sign_in_at" or "created_at" or "name" or "matches" ? orderBy : null,
+			Sort = sort is "asc" or "desc" && (String.IsNullOrWhiteSpace(q) || orderBy is "last_sign_in_at" or "created_at" or "name" or "matches") ? sort : null
+		};
+
+		// The page's address arguments; null leaves one out
+		public Dictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["q"] = Search,
+			["filter"] = Filters.Count == 0 ? null : String.Join(',', Filters),
+			["signed_in_within"] = SignedInWithin,
+			["order_by"] = OrderBy,
+			["sort"] = Search != null && OrderBy == null ? null : Sort
+		};
+
+		public string ToApiQuery() => PortalQueries.Join(new Dictionary<string, object?>(ToAddress().Where(a => a.Key != "q")) { ["query"] = Search });
+	}
+
+	// One player of a match of the staff match list
+	public sealed record PortalMatchRowPlayer
+	{
+		public long UserId { get; init; }
+		public string Name { get; init; } = "";
+		public string? Tag { get; init; }
+		public int? Team { get; init; }
+		public bool Won { get; init; }
+		public bool Desynced { get; init; }
+
+		[JsonIgnore]
+		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	// One match of /api/v1/matches/search
+	public sealed record PortalMatchRow
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public string? Type { get; init; }
+		public PortalMatchMap Map { get; init; } = new PortalMatchMap();
+		public DateTime StartedAt { get; init; }
+		public DateTime? FinishedAt { get; init; }
+		public long? DurationS { get; init; }
+		public IReadOnlyList<PortalMatchRowPlayer> Players { get; init; } = [];
+		public IReadOnlyList<string> Flags { get; init; } = [];
+
+		// What the match came to for one of its players: won, lost when another player won, no result when nobody did,
+		// in progress while it runs
+		public string ResultFor(long userID) =>
+			FinishedAt == null ? "in progress"
+			: Players.Any(p => p.UserId == userID && p.Won) ? "won"
+			: Players.Any(p => p.Won) ? "lost"
+			: "no result";
+	}
+
+	// Total is null when the host stopped counting (past 10,000 rows); HasNext says whether another page follows
+	public sealed record PortalMatchPage
+	{
+		public IReadOnlyList<PortalMatchRow> Matches { get; init; } = [];
+		public int? Total { get; init; }
+		public bool HasNext { get; init; }
+	}
+
+	// What the match list shows (T17f), in the address of the page and the arguments of /api/v1/matches/search alike
+	public sealed record PortalMatchQuery
+	{
+		// quick_match or custom
+		public string? Type { get; init; }
+		public string? Map { get; init; }
+		// a player id, Name#tag or a whole name
+		public string? Player { get; init; }
+		// yyyy-MM-dd, UTC; To includes its day
+		public string? From { get; init; }
+		public string? To { get; init; }
+		public bool Flagged { get; init; }
+
+		public bool IsFiltered => Type != null || Map != null || Player != null || From != null || To != null || Flagged;
+
+		public static PortalMatchQuery FromAddress(string? type, string? map, string? player, string? from, string? to, string? flagged) => new PortalMatchQuery
+		{
+			Type = type is "quick_match" or "custom" ? type : null,
+			Map = String.IsNullOrWhiteSpace(map) ? null : map.Trim(),
+			Player = String.IsNullOrWhiteSpace(player) ? null : player.Trim(),
+			From = Day(from),
+			To = Day(to),
+			Flagged = flagged == "true"
+		};
+
+		public Dictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["type"] = Type,
+			["map"] = Map,
+			["player"] = Player,
+			["from"] = From,
+			["to"] = To,
+			["flagged"] = Flagged ? "true" : null
+		};
+
+		public string ToApiQuery() => PortalQueries.Join(ToAddress());
+
+		// One player's matches by id, as the player page lists them
+		public static PortalMatchQuery OfPlayer(long id) => new PortalMatchQuery { Player = id.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+
+		private static string? Day(string? text) =>
+			DateTime.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text : null;
+	}
+
+	public static class PortalQueries
+	{
+		// name=value pairs without the null ones, each value escaped
+		public static string Join(IEnumerable<KeyValuePair<string, object?>> arguments) =>
+			String.Join('&', arguments.Where(a => a.Value != null).Select(a => a.Key + "=" + Uri.EscapeDataString(a.Value!.ToString()!)));
 	}
 }

@@ -139,6 +139,8 @@ public class MatchConfiguration : IEntityTypeConfiguration<Match>
 
 		// Serves the match feed: finished matches since a point in time, ordered by finish time
 		entity.HasIndex(e => new { e.FinishedAt, e.Id }).HasDatabaseName("ix_matches_finished_at");
+		// Serves the staff match list's start date filter
+		entity.HasIndex(e => e.StartedAt).HasDatabaseName("ix_matches_started_at");
 
 		entity.HasMany(e => e.Players).WithOne().HasForeignKey(p => p.MatchId).OnDelete(DeleteBehavior.Cascade);
 

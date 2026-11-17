@@ -226,6 +226,35 @@ public class PasswordPagesTests
 		Assert.NotNull((await UserByEmail(probe, "signer@example.org"))!.LockoutEndAt);
 	}
 
+	// a password sign-in (and the sign-in a sign-up does) records the account's last sign-in; a wrong password does not
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task SignInRecordsTheLastSignIn(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		DateTime before = DateTime.UtcNow.AddSeconds(-5);
+		Assert.Equal(302, (await SignUp(new AccountsBrowser(probe, Enabled()), "Seen", "seen@example.org", "the right password")).Status);
+		Assert.True((await UserByEmail(probe, "seen@example.org"))!.LastSignInAt >= before);
+
+		DateTime old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+		await SetLastSignIn(probe, "seen@example.org", old);
+		Assert.Equal(401, (await SignIn(new AccountsBrowser(probe, Enabled()), "seen@example.org", "a wrong password")).Status);
+		Assert.Equal(old, (await UserByEmail(probe, "seen@example.org"))!.LastSignInAt);
+
+		Assert.Equal(302, (await SignIn(new AccountsBrowser(probe, Enabled()), "seen@example.org", "the right password")).Status);
+		Assert.True((await UserByEmail(probe, "seen@example.org"))!.LastSignInAt >= before);
+	}
+
+	internal static async Task SetLastSignIn(ProbeDatabase probe, string email, DateTime? value)
+	{
+		await using AppDbContext db = probe.Open();
+		string normalized = NameNormalizer.Normalize(email);
+		User user = await db.Users.SingleAsync(u => u.EmailNormalized == normalized);
+		user.LastSignInAt = value;
+		await db.SaveChangesAsync();
+	}
+
 	// a blocked or deactivated account is refused once the password is right
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]

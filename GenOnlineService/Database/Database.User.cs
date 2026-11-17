@@ -139,6 +139,9 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		// closes the race between two look-alike names on one tag, which the code checks cannot
 		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
 		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
+		// the staff player list's sorts (T17f): last seen newest first (a backward scan serves the other way), and creation
+		builder.HasIndex(e => new { e.LastSignInAt, e.ID }).IsDescending(true, true).HasDatabaseName("ix_users_last_sign_in_at");
+		builder.HasIndex(e => new { e.CreatedAt, e.ID }).HasDatabaseName("ix_users_created_at");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
@@ -349,25 +352,6 @@ namespace Database
 				s_log.LogError(ex, "GetUserBanStatus failed");
 				return null;
 			}
-		}
-
-		// Staff search: the term anywhere in the name ignoring case, or the exact player id, accounts in every state
-		public static async Task<(int Total, List<StaffPlayerRow> Page)> StaffSearch(AppDbContext db, string term, int skip, int take, CancellationToken cancellationToken = default)
-		{
-			string normalized = NameNormalizer.Normalize(term);
-			long id = long.TryParse(term, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long parsed) ? parsed : 0;
-			IQueryable<User> matches = db.Users.AsNoTracking().Where(u => u.UsernameNormalized.Contains(normalized) || u.ID == id);
-
-			int total = await matches.CountAsync(cancellationToken);
-			List<StaffPlayerRow> page = await matches
-				.OrderByDescending(u => u.ID == id)
-				.ThenBy(u => u.UsernameNormalized)
-				.ThenBy(u => u.ID)
-				.Skip(skip)
-				.Take(take)
-				.Select(u => new StaffPlayerRow(u.ID, u.Username, u.NameTag, u.State, u.CreatedAt, u.LastSignInAt))
-				.ToListAsync(cancellationToken);
-			return (total, page);
 		}
 
 		public static async Task<bool> Exists(AppDbContext db, long userId)

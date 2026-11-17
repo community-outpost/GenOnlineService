@@ -159,7 +159,7 @@ namespace GenOnlineService.Realtime
 		};
 
 		// Highest priority first
-		private static readonly string[] s_priority = { StaffRoles.Admin, StaffRoles.Moderator };
+		private static readonly string[] s_priority = { StaffRoles.Owner, StaffRoles.Admin, StaffRoles.Moderator };
 
 		public static IReadOnlyDictionary<string, BadgeDefinition> Definitions
 		{
@@ -188,8 +188,18 @@ namespace GenOnlineService.Realtime
 				return Array.Empty<string>();
 			}
 
-			IReadOnlyDictionary<string, BadgeDefinition> definitions = Definitions;
-			return s_priority.Where(r => roles.Contains(r) && definitions.ContainsKey(r)).ToArray();
+			return ForRoles(roles, Definitions);
+		}
+
+		// An owner shows the admin badge unless an owner badge is defined, so clients that only know the admin badge show one
+		public static IReadOnlyList<string> ForRoles(IReadOnlyCollection<string> roles, IReadOnlyDictionary<string, BadgeDefinition> definitions)
+		{
+			HashSet<string> shown = new(roles, StringComparer.Ordinal);
+			if (shown.Contains(StaffRoles.Owner) && !definitions.ContainsKey(StaffRoles.Owner))
+			{
+				shown.Add(StaffRoles.Admin);
+			}
+			return s_priority.Where(r => shown.Contains(r) && definitions.ContainsKey(r)).ToArray();
 		}
 	}
 }

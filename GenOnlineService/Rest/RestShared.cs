@@ -38,6 +38,12 @@ namespace GenOnlineService.Rest
 		public const string TokenLimitReached = "token.limit_reached";
 		public const string Conflict = "conflict";
 		public const string MethodNotAllowed = "method_not_allowed";
+
+		// A role change the rank rule refuses: the role ranks the same as or above the caller's own
+		public const string RoleRank = "roles.rank";
+
+		// A role held only through a sign-in provider, which follows that provider's sign-ins
+		public const string RoleUpstream = "roles.upstream";
 	}
 
 	// The tag a player response carries, written like Member.tag ("0042"); null for an account without one
@@ -59,6 +65,8 @@ namespace GenOnlineService.Rest
 			[RestCodes.LinkedAccountLocked] = StatusCodes.Status409Conflict,
 			[RestCodes.Conflict] = StatusCodes.Status409Conflict,
 			[RestCodes.MethodNotAllowed] = StatusCodes.Status405MethodNotAllowed,
+			[RestCodes.RoleRank] = StatusCodes.Status403Forbidden,
+			[RestCodes.RoleUpstream] = StatusCodes.Status409Conflict,
 		};
 
 		public static int StatusOf(string code) => s_statuses.TryGetValue(code, out int status) ? status : ApiResults.StatusOf(code);
@@ -121,6 +129,19 @@ namespace GenOnlineService.Rest
 			headers["X-Page"] = page.Page.ToString(CultureInfo.InvariantCulture);
 			headers["X-Per-Page"] = page.PerPage.ToString(CultureInfo.InvariantCulture);
 			bool hasNext = (long)page.Page * page.PerPage < total;
+			headers["X-Next-Page"] = hasNext ? (page.Page + 1).ToString(CultureInfo.InvariantCulture) : "";
+			if (hasNext)
+			{
+				headers["Link"] = $"<{LinkTo(context.Request, "page", (page.Page + 1).ToString(CultureInfo.InvariantCulture))}>; rel=\"next\"";
+			}
+		}
+
+		// A list too long to count (as GitLab past 10,000 rows): the same headers without X-Total, the next page from a look ahead
+		public static void WriteOffsetHeaders(HttpContext context, OffsetPage page, bool hasNext)
+		{
+			IHeaderDictionary headers = context.Response.Headers;
+			headers["X-Page"] = page.Page.ToString(CultureInfo.InvariantCulture);
+			headers["X-Per-Page"] = page.PerPage.ToString(CultureInfo.InvariantCulture);
 			headers["X-Next-Page"] = hasNext ? (page.Page + 1).ToString(CultureInfo.InvariantCulture) : "";
 			if (hasNext)
 			{

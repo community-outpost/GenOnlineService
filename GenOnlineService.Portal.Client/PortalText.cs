@@ -24,6 +24,9 @@ namespace GenOnlineService.Portal.Client
 		// Times show in UTC, as the service stores them
 		public static string Date(DateTime? value) => value is DateTime time ? time.ToUniversalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) : "never";
 
+		// The day alone, for a column that only needs it
+		public static string Day(DateTime value) => value.ToUniversalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
 		// The activity feed's short age: "just now", "5m ago", "3h ago", "2d ago", then the date
 		public static string Ago(DateTime value, DateTime utcNow)
 		{
@@ -34,6 +37,9 @@ namespace GenOnlineService.Portal.Client
 				: age.TotalDays < 7 ? $"{(int)age.TotalDays}d ago"
 				: Date(value);
 		}
+
+		// A table's short time: the age within a week, then the day alone, so the column keeps one line
+		public static string Recent(DateTime value, DateTime utcNow) => (utcNow - value.ToUniversalTime()).TotalDays < 7 ? Ago(value, utcNow) : Day(value);
 
 		// Counts on the dashboard with a thousands separator, the same in every browser
 		public static string Count(int value) => value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
@@ -62,6 +68,8 @@ namespace GenOnlineService.Portal.Client
 			"moderation.target_outranks" => "That player holds the same or a higher staff rank.",
 			"moderation.target_offline" => "That player is not connected.",
 			"moderation.reason_too_long" => "The reason is too long.",
+			"roles.rank" => "That role ranks the same as or above your own.",
+			"roles.upstream" => "That role comes from a sign-in provider and follows its sign-ins.",
 			_ => "The service answered: " + code
 		};
 	}

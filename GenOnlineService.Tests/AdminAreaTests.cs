@@ -165,7 +165,7 @@ internal sealed class AdminBrowser
 			}
 		}
 
-		return new PageResponse(context.Response.StatusCode, Encoding.UTF8.GetString(responseBody.ToArray()), context.Response.Headers.Location.ToString() is { Length: > 0 } l ? l : null, setCookies, context.Response.Headers.XFrameOptions.ToString());
+		return new PageResponse(context.Response.StatusCode, Encoding.UTF8.GetString(responseBody.ToArray()), context.Response.Headers.Location.ToString() is { Length: > 0 } l ? l : null, setCookies, context.Response.Headers.XFrameOptions.ToString()) { Headers = context.Response.Headers };
 	}
 
 	// Signs up a password account through the real sign-up page, which signs it in
