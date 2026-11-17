@@ -175,6 +175,21 @@ public class MatchIdWorkersProbeTests
 
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheImportSequenceCheckPassesOnAFullyMigratedDatabase(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		Assert.NotNull(probe);
+
+		// the import checks every table it lists for an identity; matches has none since MatchIdsWithoutIdentity, and an imported match must not fail it
+		await using AppDbContext db = probe.Open();
+		db.Matches.Add(NewMatch("imported", 41));
+		await db.SaveChangesAsync();
+		await db.Database.OpenConnectionAsync();
+		Assert.True(await Database.Import.VerifySequences(db, new Database.ImportReport()));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task DroppingTheIdentityKeepsEveryMatchAndItsPlayers(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider, migrate: false);

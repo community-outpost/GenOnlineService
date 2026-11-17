@@ -99,9 +99,12 @@ public class StaffBrowseTests
 		return user;
 	}
 
+	private static long s_nextMatchID;
+
 	private static global::Match AddMatch(AppDbContext db, string map, ELobbyType? type, DateTime started, DateTime? finished, params (User User, string? Result, bool Desynced)[] players)
 	{
-		var match = new global::Match { Name = map + " game", LobbyType = type, MapName = map, IsOfficialMap = true, StartedAt = started, FinishedAt = finished };
+		// the service sets every match id, here they rise in the order the matches are added
+		var match = new global::Match { Id = Interlocked.Increment(ref s_nextMatchID), Name = map + " game", LobbyType = type, MapName = map, IsOfficialMap = true, StartedAt = started, FinishedAt = finished };
 		short slot = 0;
 		foreach ((User user, string? result, bool desynced) in players)
 		{
