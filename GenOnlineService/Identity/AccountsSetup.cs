@@ -416,6 +416,8 @@ namespace GenOnlineService.Identity
 					options.CallbackPath = provider.SteamHandlerPath;
 					options.SignInScheme = IdentityConstants.ExternalScheme;
 					options.ApplicationKey = provider.ApplicationKey;
+					// no attribute exchange: the SteamID64 is all we keep, and email or real names must not arrive (S17)
+					options.Attributes.Clear();
 				});
 			}
 		}

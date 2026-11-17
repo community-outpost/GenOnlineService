@@ -65,8 +65,8 @@ users
   name_required_at        timestamp null         -- the player owes a chosen name (provider sign-up, staff name reset); null once chosen
 
 user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
-identities                id, user_id, provider varchar(32), extern_uid varchar(128),
-                          extern_username varchar(128) null, created_at, last_used_at
+identities                id, user_id, provider varchar(32), extern_uid varchar(128), created_at, last_used_at
+                          the provider's id only, never its username (extern_username dropped by IdentitiesKeepIdsOnly)
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
 user_recovery_codes       id, user_id, code_hash varchar(64), created_at, used_at null
                           -- two-factor recovery codes: SHA-256 hex only, each used once; new codes replace the old
@@ -243,9 +243,9 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 | `users.active` | **not imported**: the old service never read it |
 | `users.account_type` | dropped: `Steam`/`Discord` is already recorded in `identities`; `Ghost` and `DevAccount` users are not imported (below) |
 | `users.steam_id` | `identities(provider='steam')` |
-| `users.discord_id, discord_username` | `identities(provider='discord')` |
+| `users.discord_id` | `identities(provider='discord')`; `discord_username` not imported |
 | `users.google_id, google_email` | `identities(provider='google')`; email not trusted as verified |
-| `users.gamereplays_id, gamereplays_username` | `identities(provider='gamereplays')` |
+| `users.gamereplays_id` | `identities(provider='gamereplays')`; `gamereplays_username` not imported |
 | `users.admin, permissionslevel` | **not imported**: printed in the validation report; staff re-granted by hand (`roles grant`) |
 | `users.banned, ban_reason, banned_by, ban_verified_by, ban_aliases` | `sanctions(type='ban', source='local', created_by_kind='cli', created_by_id=null, reason=ban_reason)`; the rest into one `audit_log` entry |
 | `users.elo_rating, elo_num_matches` | `player_ratings(kind='all_time')` |

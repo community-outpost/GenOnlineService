@@ -305,4 +305,38 @@ public class ChosenNamesTests
 	{
 		Assert.Equal(2, await UsersCli.RunUsers(args));
 	}
+
+	// linked accounts keep the provider's id only, like the old service: no column holds a provider's username (L18)
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task LinkedAccountsKeepOnlyTheProviderID(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User created = await ProviderSignUp(probe, "80351110224678917", "linked");
+
+		await using AppDbContext db = probe.Open();
+		string schema = provider == "postgres" ? "current_schema()" : "DATABASE()";
+		int columns = await db.Database.SqlQueryRaw<int>(
+			$"SELECT COUNT(*) AS \"Value\" FROM information_schema.columns WHERE table_schema = {schema} AND table_name = 'identities' AND column_name = 'extern_username'".Replace("\"Value\"", provider == "postgres" ? "\"Value\"" : "`Value`")).SingleAsync();
+		Assert.Equal(0, columns);
+		UserIdentity identity = await db.Identities.SingleAsync(i => i.UserID == created.ID);
+		Assert.Equal("80351110224678917", identity.ExternUid);
+	}
+
+	// Steam is asked for no attribute exchange (email, name, first, last), only the claimed id
+	[Fact]
+	public void SteamAsksForNoAttributes()
+	{
+		var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+		services.AddLogging();
+		AccountsSetup.AddSteamProviders(services.AddAuthentication(), new[] { AccountsSettings.Read(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+		{
+			["Accounts:ephemeral_keys"] = "true",
+			["Accounts:providers:steam:enabled"] = "true"
+		}).Build()).EnabledProviders.Single(p => p.Name == "steam") });
+
+		var options = services.BuildServiceProvider().GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<AspNet.Security.OpenId.Steam.SteamAuthenticationOptions>>().Get("steam");
+		Assert.Empty(options.Attributes);
+	}
 }

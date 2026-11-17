@@ -147,7 +147,6 @@ namespace GenOnlineService.Identity
 				UserID = user.ID,
 				Provider = login.LoginProvider,
 				ExternUid = login.ProviderKey,
-				ExternUsername = login.ProviderDisplayName,
 				CreatedAt = DateTime.UtcNow,
 				LastUsedAt = DateTime.UtcNow
 			});
@@ -164,7 +163,7 @@ namespace GenOnlineService.Identity
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
 			return await db.Identities.AsNoTracking().Where(i => i.UserID == user.ID)
-				.Select(i => new UserLoginInfo(i.Provider, i.ExternUid, i.ExternUsername))
+				.Select(i => new UserLoginInfo(i.Provider, i.ExternUid, null))
 				.ToListAsync(cancellationToken);
 		}
 

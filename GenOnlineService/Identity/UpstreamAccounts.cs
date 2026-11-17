@@ -135,7 +135,6 @@ namespace GenOnlineService.Identity
 				return UpstreamSignInResult.Refused(ErrorDeactivated);
 			}
 
-			identity.ExternUsername = externName;
 			identity.LastUsedAt = now;
 			user.LastSignInAt = now;
 			await db.SaveChangesAsync();

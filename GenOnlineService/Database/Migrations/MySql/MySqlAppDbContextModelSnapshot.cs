@@ -1859,11 +1859,6 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("extern_uid")
                         .UseCollation("utf8mb4_bin");
 
-                    b.Property<string>("ExternUsername")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("extern_username");
-
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("last_used_at");
