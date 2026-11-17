@@ -78,20 +78,7 @@ namespace GenOnlineService.Rest
 
 			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
 			ApiToken? old = await FindOwn(db, tokenID);
-			if (old == null)
-			{
-				return RestResults.NotFound("token");
-			}
-
-			return await Answer(async () =>
-			{
-				(ApiToken token, string secret) = await ApiTokenAdmin.Rotate(db, Settings, Actor, old,
-					() => ApiTokenAdmin.CheckOverlap(QueryValue("overlap_minutes")),
-					() => QueryValue("expires_at") is string text ? ApiTokenAdmin.ParseExpiresAt(text) : null);
-				// The change takes effect at once in this instance; other instances follow on the reconcile tick
-				await ApiTokenCache.Reload(db);
-				return RestResults.Created(CreatedOf(token, secret));
-			});
+			return old == null ? RestResults.NotFound("token") : await RotateToken(db, old);
 		}
 
 		// Revoking needs no staff permission, so a user who lost their role can still stop their own tokens
@@ -105,18 +92,7 @@ namespace GenOnlineService.Rest
 
 			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
 			ApiToken? token = await FindOwn(db, tokenID);
-			if (token == null)
-			{
-				return RestResults.NotFound("token");
-			}
-
-			return await Answer(async () =>
-			{
-				await ApiTokenAdmin.Revoke(db, Actor, token, String.Empty);
-				// The change takes effect at once in this instance; other instances follow on the reconcile tick
-				await ApiTokenCache.Reload(db);
-				return NoContent();
-			});
+			return token == null ? RestResults.NotFound("token") : await RevokeToken(db, token);
 		}
 
 		private Task<ApiToken?> FindOwn(AppDbContext db, long tokenID)

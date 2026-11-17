@@ -55,11 +55,13 @@ internal sealed class AdminBrowser
 	private readonly IServiceProvider m_services;
 	private readonly Dictionary<string, string> m_cookies = new();
 
-	public AdminBrowser(ProbeDatabase probe)
+	// extra settings add to the accounts settings, such as a registered client
+	public AdminBrowser(ProbeDatabase probe, params (string Key, string Value)[] extra)
 	{
-		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled()) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
+		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled(extra)) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
 		IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 		AccountsSettings accounts = AccountsSettings.Read(configuration);
+		Settings = accounts;
 
 		ServiceCollection services = new();
 		services.AddLogging();
@@ -98,6 +100,11 @@ internal sealed class AdminBrowser
 		});
 		m_pipeline = app.Build();
 	}
+
+	public AccountsSettings Settings { get; }
+
+	// The clients of the settings, written as Program seeds them at start
+	public Task SeedClients() => AccountsSetup.SeedClients(m_services, Settings);
 
 	public Task<PageResponse> Get(string path, Dictionary<string, string>? headers = null) => Send("GET", path, null, null, headers);
 

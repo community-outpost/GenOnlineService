@@ -53,7 +53,7 @@ Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention d
 
 ## Tokens and service accounts
 
-The management routes need a web session (never a game session or a `gopat-` token). See `docs/api-tokens.md` for the rules.
+The management routes need a web session (never a game session or a `gopat-` token): the bearer session of a registered `app` client, or on the routes marked "cookie" the staff pages' sign-in cookie. See `docs/api-tokens.md` for the rules.
 
 | Route | Auth | Answer |
 |---|---|---|
@@ -61,9 +61,12 @@ The management routes need a web session (never a game session or a `gopat-` tok
 | `GET /api/v1/personal_access_tokens/self` | `gopat-` token | the token making the request |
 | `POST /api/v1/personal_access_tokens/:id/rotate?overlap_minutes=&expires_at=` | web session with a staff permission | 201 with the new secret |
 | `DELETE /api/v1/personal_access_tokens/:id` | web session | 204 |
-| `GET /api/v1/service_accounts`, `POST` | web session, `tokens.manage` | list, create (201) |
-| `PATCH /api/v1/service_accounts/:id` | web session, `tokens.manage` | `{grants?: {add?, remove?}, disabled?}`; privileged grants stay CLI only |
-| `GET /api/v1/service_accounts/:id/personal_access_tokens`, `POST` | web session, `tokens.manage` | the account's tokens; mint (201) |
+| `GET /api/v1/service_accounts`, `POST` | web session, `tokens.manage`; cookie | list, create (201) |
+| `GET /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | one account with its permissions; `not_found {what: service_account}` |
+| `PATCH /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | `{grants?: {add?, remove?}, disabled?}`; privileged grants stay CLI only |
+| `GET /api/v1/service_accounts/:id/personal_access_tokens`, `POST` | web session, `tokens.manage`; cookie | the account's tokens; mint (201) |
+| `POST /api/v1/service_accounts/:id/personal_access_tokens/:token_id/rotate?overlap_minutes=&expires_at=` | web session, `tokens.manage`; cookie | 201 with the new secret, as the personal token rotate; a token of another owner `not_found {what: token}` |
+| `DELETE /api/v1/service_accounts/:id/personal_access_tokens/:token_id` | web session, `tokens.manage`; cookie | 204, `token_revoke` in the audit log; a token of another owner `not_found {what: token}` |
 
 ## Administration
 
@@ -81,9 +84,9 @@ Sign-out everywhere for another user is `POST /api/v1/users/:id/revoke_sessions`
 
 ## Staff pages (`/admin`)
 
-Each environment serves its own staff pages while `Accounts:enabled` (S12): a WebAssembly app under `/admin` (`/admin/reports`, `/admin/players`, `/admin/players/:id`, `/admin/matches`, `/admin/matches/:id`, `/admin/anticheat/:kind`; `/admin` is the dashboard). A page without the sign-in cookie redirects to `/users/sign_in?ReturnUrl=`; a signed-in account without `moderation.kick`, `moderation.mute` or `moderation.ban` gets a 403 page; a staff account with a password and no second factor is sent to `/profile/two_factor_auth` first. The page shell loads `/_framework/*` (the WebAssembly files) and `/_content/*`, which `MapStaticAssets` serves.
+Each environment serves its own staff pages while `Accounts:enabled` (S12): a WebAssembly app under `/admin` (`/admin/reports`, `/admin/players`, `/admin/players/:id`, `/admin/matches`, `/admin/matches/:id`, `/admin/anticheat/:kind`, `/admin/audit`, `/admin/partners`, `/admin/partners/:id`; `/admin` is the dashboard). A page without the sign-in cookie redirects to `/users/sign_in?ReturnUrl=`; a signed-in account without `moderation.kick`, `moderation.mute` or `moderation.ban` gets a 403 page; a staff account with a password and no second factor is sent to `/profile/two_factor_auth` first. The page shell loads `/_framework/*` (the WebAssembly files) and `/_content/*`, which `MapStaticAssets` serves.
 
-The host page carries who is signed in and the antiforgery token in meta tags: `go-portal-session` (`{user_id, display_name, tag, roles, permissions, staff}`), `csrf-header` and `csrf-token`. The pages then call `/api/v1` with the cookie (the cookie rule under Conventions): `GET /api/v1/staff/overview`, `GET /api/v1/players/search`, `GET /api/v1/players/:id/staff_view`, `GET /api/v1/players/:id/inspection`, `GET /api/v1/matches/:id`, `GET /api/v1/matches/search`, `GET` and `PATCH /api/v1/anticheat_reports`, `PUT` and `DELETE /api/v1/players/:id/roles/:role`, `GET /api/v1/audit_events`, and of section 10 of `docs/realtime-protocol.md` `GET /api/v1/reports/search`, `PATCH /api/v1/reports/:id`, `PATCH /api/v1/players/:id`, `POST /api/v1/players/:id/sanctions` and `DELETE /api/v1/sanctions/:id`. Those section 10 routes otherwise need a game session; `GET /api/v1/reports/search?status=&search=&sort=` is the staff queue paged in the database (`status` one or more of `open`, `actioned`, `dismissed` comma separated, or `all`, default `open`; `sort` `asc`, the default, or `desc` by creation; offset paged; `{reports}` as `GET /api/v1/reports`).
+The host page carries who is signed in and the antiforgery token in meta tags: `go-portal-session` (`{user_id, display_name, tag, roles, permissions, staff}`), `csrf-header` and `csrf-token`. The pages then call `/api/v1` with the cookie (the cookie rule under Conventions): `GET /api/v1/staff/overview`, `GET /api/v1/players/search`, `GET /api/v1/players/:id/staff_view`, `GET /api/v1/players/:id/inspection`, `GET /api/v1/matches/:id`, `GET /api/v1/matches/search`, `GET` and `PATCH /api/v1/anticheat_reports`, `PUT` and `DELETE /api/v1/players/:id/roles/:role`, `GET /api/v1/audit_events`, the service account routes under [Tokens and service accounts](#tokens-and-service-accounts), and of section 10 of `docs/realtime-protocol.md` `GET /api/v1/reports/search`, `PATCH /api/v1/reports/:id`, `PATCH /api/v1/players/:id`, `POST /api/v1/players/:id/sanctions` and `DELETE /api/v1/sanctions/:id`. Those section 10 routes otherwise need a game session; `GET /api/v1/reports/search?status=&search=&sort=` is the staff queue paged in the database (`status` one or more of `open`, `actioned`, `dismissed` comma separated, or `all`, default `open`; `sort` `asc`, the default, or `desc` by creation; offset paged; `{reports}` as `GET /api/v1/reports`).
 
 ## Probes and operator checks
 

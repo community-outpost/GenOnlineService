@@ -1,11 +1,11 @@
 # API tokens (gopat-)
 
-Status: **draft, greenfield**. Reviewed by the release session (owner of permissions) and a system design review. Nothing is built. Target location once agreed: `docs/api-tokens.md` in GenOnlineService.
+Status: **built**. The CLI (v1), the HTTP API (v2) and the staff pages' partner management in section 9 are in GenOnlineService; this document describes them and the design they follow.
 
 ## 0. Assumptions
 
 - **Greenfield deploy.** No existing game clients, no existing consumers of the old keys. User accounts may be imported, credentials are not.
-- **Humans** (superseded: Keycloak is gone, see `docs/identity.md`) sign in through Keycloak only: native PKCE in the game client, then `POST /v1/auth/login-with-idp` for service session tokens (`docs/identity-keycloak.md`). There is no LoginCode/CheckLogin flow and no website login callback.
+- **Humans** sign in through the service's own OAuth server and sign-in pages (`docs/identity.md`): native PKCE in the game client, the sign-in cookie on the website and the staff pages. There is no LoginCode/CheckLogin flow.
 - **Machines** (website backend, Discord bot, partners, monitoring) use `gopat-` tokens, the only machine credential.
 - **One `application` instance per environment**, which holds the in-memory websocket hub. The design notes what changes past one instance.
 - **Volume:** tens of service accounts, at most a few hundred tokens, machine traffic in the low hundreds of requests per second. The full active token set fits in memory.
@@ -209,16 +209,27 @@ The CLI and the routes below share one implementation (`Rest/ApiTokenAdmin.cs`),
 | `DELETE /api/v1/personal_access_tokens/:id` | web session | 204 |
 | `GET/POST /api/v1/service_accounts` | web session with `tokens.manage` | list (paged); 201 with the new account |
 | `PATCH /api/v1/service_accounts/:id` | web session with `tokens.manage` | `{grants: {add, remove}, disabled}`, the updated account |
+| `GET /api/v1/service_accounts/:id` | web session with `tokens.manage` | the account and its permissions |
 | `GET/POST /api/v1/service_accounts/:id/personal_access_tokens` | web session with `tokens.manage` | the account's tokens; 201 with a new token and its secret |
+| `POST /api/v1/service_accounts/:id/personal_access_tokens/:token_id/rotate?overlap_minutes=&expires_at=` | web session with `tokens.manage` | 201, the new token and its secret |
+| `DELETE /api/v1/service_accounts/:id/personal_access_tokens/:token_id` | web session with `tokens.manage` | 204 |
 
-- Caller must be a staff web session, a session of a registered `app` client (never a game, launcher or chat client session, never a `gopat-` token); any other caller gets `forbidden {permission: "tokens.manage"}`. A web session without any staff permission gets `forbidden {}` on the personal token routes, except `DELETE`, so a user who lost a role can still revoke their own tokens.
-- A caller only sees and changes their own personal tokens; another owner's token id answers `not_found {what: "token"}`. `/self` answers `not_found {what: "token"}` to a session.
+- Caller must be a staff web session: a session of a registered `app` client, or on the service account routes the staff pages' sign-in cookie under the cookie rules of `docs/api.md` (antiforgery header on changes, own origin only, two-factor sign-in set up); never a game, launcher or chat client session, never a `gopat-` token. Any other caller gets `forbidden {permission: "tokens.manage"}`. A web session without any staff permission gets `forbidden {}` on the personal token routes, except `DELETE`, so a user who lost a role can still revoke their own tokens.
+- A caller only sees and changes their own personal tokens; another owner's token id answers `not_found {what: "token"}`, as does a token id of another owner under `/service_accounts/:id`. `/self` answers `not_found {what: "token"}` to a session.
 - The create body is `{name, scopes: [permission], expires_at, allowed_ips?: [cidr]}`; `expires_at` is an ISO 8601 date (midnight UTC) or a UTC timestamp.
 - Privileged permissions are refused: grant and mint them through the CLI (`forbidden {permission}`). Removing a privileged grant is allowed.
 - Granting a human permission to a service account requires the caller to hold it (`forbidden {permission}`).
 - Personal tokens: scopes must be human permissions the caller holds (`forbidden {permission}`); an unknown scope is `invalid_argument {field: "scopes"}`.
 - Failures: `invalid_argument {field}` (`name`, `description`, `scopes`, `grants`, `expires_at`, `allowed_ips`, `overlap_minutes`), `token.limit_reached {max}` (422), `conflict` (409: a service account name in use, or rotating a revoked, expired or already rotated token), `not_found {what}` (`token`, `service_account`).
-- Tokens of a service account are rotated and revoked through the CLI only.
+- Tokens of a service account are rotated and revoked through the CLI or the service account routes; a token carrying a privileged permission is minted only through the CLI, and rotating one keeps its scopes.
+
+### Staff pages
+
+Staff with `tokens.manage` manage partners at `/admin/partners` (S1: partner API tokens "issued by staff from the portal"). The pages call the service account routes above with the sign-in cookie, so every rule and audit entry is the one of the HTTP API:
+
+- The partner list shows each service account's description, status, permissions, active tokens and last token use. "New partner" creates the account and grants the chosen machine permissions (`match_history.read`, `lobbies.read`).
+- A partner's page disables and enables it, grants and removes non-privileged machine permissions (privileged ones show as CLI only), and lists its tokens with scopes, status, creation, expiry and last use.
+- "New token" takes a name, scopes from the partner's non-privileged permissions, an expiry (90 days by default, at most `ApiTokens:max_lifetime_days`) and optional allowed addresses. The secret of a new or rotated token shows once, with a copy button and a warning; rotate (with an overlap of none, 1 hour or 24 hours) and revoke ask first.
 
 ### Rules for both
 

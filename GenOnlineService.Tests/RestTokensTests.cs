@@ -212,5 +212,17 @@ namespace GenOnlineService.Tests
 			Assert.Equal(ApiTokenCallers.Token, ApiTokenAdmin.CallerOf(Principal(TokenPrincipal.AuthenticationType, new Claim(ApiTokenHandler.TokenIDClaim, "3")), KindOf));
 			Assert.Equal(ApiTokenCallers.None, ApiTokenAdmin.CallerOf(new ClaimsPrincipal(new ClaimsIdentity()), KindOf));
 		}
+
+		// The staff pages' sign-in cookie, as SignInCookieHandler builds it, counts as a web session; its marker alone does not
+		[Fact]
+		public void TheSignInCookieOfAUserIsAWebSession()
+		{
+			var cookie = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "7")], "Identity.Application"));
+			cookie.AddIdentity(new ClaimsIdentity(ApiAuthentication.SignInCookieScheme));
+			Assert.Equal(ApiTokenCallers.WebSession, ApiTokenAdmin.CallerOf(cookie, KindOf));
+
+			var markerOnly = new ClaimsPrincipal(new ClaimsIdentity(ApiAuthentication.SignInCookieScheme));
+			Assert.Equal(ApiTokenCallers.None, ApiTokenAdmin.CallerOf(markerOnly, KindOf));
+		}
 	}
 }
