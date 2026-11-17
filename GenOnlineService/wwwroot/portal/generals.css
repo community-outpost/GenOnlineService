@@ -1,44 +1,195 @@
-/* Generals Online over the stock dark theme of theme.css: olive drab and khaki with an amber accent, a faint tactical
-   grid behind the card and briefing-style titles. The sign-in pages are dark only (PortalLook.Document sets .dark). */
+/* Generals Online over the stock dark theme of theme.css, as Blazor Blueprint's "Login with Cover" (login-02): Zero
+   Hour's colours (the deep navy of its menus and their bright blue), its box art as the cover, and the provider
+   buttons in their brands' colours. The shapes and type stay Blazor Blueprint's. The sign-in pages are dark only
+   (PortalLook.Document sets .dark). This file is not in a cascade layer, so it wins over blazorblueprint.css, which is. */
 
 .dark {
-  --background: oklch(0.17 0.012 110);
-  --foreground: oklch(0.93 0.02 95);
-  --card: oklch(0.21 0.016 110);
-  --card-foreground: oklch(0.93 0.02 95);
-  --popover: oklch(0.21 0.016 110);
-  --popover-foreground: oklch(0.93 0.02 95);
-  --primary: oklch(0.78 0.15 75);
-  --primary-foreground: oklch(0.18 0.02 80);
-  --secondary: oklch(0.27 0.02 110);
-  --secondary-foreground: oklch(0.93 0.02 95);
-  --muted: oklch(0.15 0.012 110);
-  --muted-foreground: oklch(0.70 0.035 95);
-  --accent: oklch(0.29 0.025 110);
-  --accent-foreground: oklch(0.93 0.02 95);
-  --border: oklch(0.36 0.03 105);
-  --input: oklch(0.36 0.03 105);
-  --ring: oklch(0.78 0.15 75);
+  --background: oklch(0.15 0.04 262);
+  --foreground: oklch(0.96 0.01 250);
+  --card: oklch(0.18 0.05 262);
+  --card-foreground: oklch(0.96 0.01 250);
+  --popover: oklch(0.18 0.05 262);
+  --popover-foreground: oklch(0.96 0.01 250);
+  --primary: oklch(0.6 0.19 258);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.24 0.06 262);
+  --secondary-foreground: oklch(0.96 0.01 250);
+  --muted: oklch(0.2 0.05 262);
+  --muted-foreground: oklch(0.74 0.04 250);
+  --accent: oklch(0.28 0.08 260);
+  --accent-foreground: oklch(0.99 0 0);
+  --border: oklch(0.34 0.08 260);
+  --input: oklch(0.34 0.08 260);
+  --ring: oklch(0.7 0.15 245);
 }
 
-/* a tactical map: thin khaki lines every 32px */
-.go-grid {
+/* login-02's grid: the form and the cover side by side on a wide screen, the form alone on a narrow one */
+.go-split {
+  display: grid;
+  min-height: 100vh;
+}
+
+@media (min-width: 64rem) {
+  .go-split {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.go-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6.5rem 2rem 2rem;
+}
+
+/* Generals Online's logo, top left of the form column */
+.go-logo {
+  position: absolute;
+  top: 1.75rem;
+  left: 2rem;
+  display: block;
+}
+
+.go-logo > img {
+  display: block;
+  height: 2.75rem;
+  width: auto;
+}
+
+/* the cover: the box art, with login-02's vignette into the muted colour */
+.go-cover {
+  display: none;
   background-image:
-    linear-gradient(color-mix(in oklch, var(--muted-foreground) 9%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklch, var(--muted-foreground) 9%, transparent) 1px, transparent 1px);
-  background-size: 32px 32px;
+    radial-gradient(ellipse at center, transparent 45%, rgb(4 10 32 / 0.85) 100%),
+    url("/portal/poster.jpg");
+  background-size: cover;
+  background-position: center;
 }
 
-.go-vignette {
-  background: radial-gradient(ellipse at center, transparent 35%, var(--muted) 100%);
+@media (min-width: 64rem) {
+  .go-main {
+    padding: 2rem;
+  }
+
+  .go-cover {
+    display: block;
+  }
 }
 
-/* the gold edge of a briefing card */
-.go-card {
-  border-top: 2px solid var(--primary);
+.go-heading {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  letter-spacing: -0.025em;
 }
 
-.go-title {
+/* a form's fields and button, more air between them than login-02's space-y-4 */
+.go-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* a label and its field, a little further apart than login-02's space-y-2 */
+.go-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+/* an icon inside the left edge of a field */
+.go-field-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  display: flex;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.go-iconed {
+  padding-left: 2.25rem;
+}
+
+/* login-02's "Or continue with": a caption on the rule */
+.go-or {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.go-or > div {
+  position: absolute;
+  inset: 50% 0 auto 0;
+}
+
+.go-or > span {
+  position: relative;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
+  background: var(--background);
+}
+
+/* the providers full width, one under another, as login-02 */
+.go-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* a provider button: its mark a little further from its name */
+.go-provider {
+  gap: 0.625rem;
+}
+
+/* each provider in its brand's colours: Discord blurple, Steam's dark navy, Google's dark-theme button and GameReplays'
+   blue (from its logo) */
+.go-provider-discord {
+  border-color: #5865f2;
+  background: #5865f2;
+  color: #fff;
+}
+
+.go-provider-discord:hover {
+  border-color: #4752c4;
+  background: #4752c4;
+  color: #fff;
+}
+
+.go-provider-steam {
+  border-color: #2a475e;
+  background: #171a21;
+  color: #fff;
+}
+
+.go-provider-steam:hover {
+  background: #2a475e;
+  color: #fff;
+}
+
+.go-provider-google {
+  border-color: #8e918f;
+  background: #131314;
+  color: #e3e3e3;
+}
+
+.go-provider-google:hover {
+  background: #1f1f20;
+  color: #e3e3e3;
+}
+
+.go-provider-gamereplays {
+  border-color: #0090d8;
+  background: #0b4f7a;
+  color: #fff;
+}
+
+.go-provider-gamereplays:hover {
+  background: #0d6197;
+  color: #fff;
 }

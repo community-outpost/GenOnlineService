@@ -62,14 +62,14 @@ namespace GenOnlineService.Identity
 
 		private string SafeReturnUrl(string? returnUrl) => !String.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : "/";
 
-		private ContentResult Page(int status, string title, string body)
+		private ContentResult Page(int status, string title, string body, string? description = null)
 		{
 			return new ContentResult
 			{
 				StatusCode = status,
 				ContentType = "text/html; charset=utf-8",
-				// the portal look (PortalLook): the login blueprint's centred card, light or dark
-				Content = PortalLook.Document(title, body)
+				// the portal look (PortalLook): Blazor Blueprint's split-screen sign-in in Zero Hour colours, dark only
+				Content = PortalLook.Document(title, body, description)
 			};
 		}
 
@@ -85,7 +85,7 @@ namespace GenOnlineService.Identity
 			Response.Headers["X-Frame-Options"] = "DENY";
 			Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
 			Response.Headers.CacheControl = "no-store";
-			return $"<form method=\"post\" action=\"{WebUtility.HtmlEncode(action)}\" class=\"bb:space-y-4\">{Hidden(tokens.FormFieldName!, tokens.RequestToken)}{Hidden(ReturnUrlField, returnUrl)}";
+			return $"<form method=\"post\" action=\"{WebUtility.HtmlEncode(action)}\" class=\"go-form\">{Hidden(tokens.FormFieldName!, tokens.RequestToken)}{Hidden(ReturnUrlField, returnUrl)}";
 		}
 
 		private Task<bool> ValidForm() => HttpContext.RequestServices.GetRequiredService<IAntiforgery>().IsRequestValidAsync(HttpContext);
@@ -118,21 +118,22 @@ namespace GenOnlineService.Identity
 			if (passwords)
 			{
 				body.Append(FormStart("/users/sign_in", target));
-				body.Append(PortalLook.Field("email", "Email", "type=\"email\" name=\"email\" autocomplete=\"username\" required", email ?? String.Empty));
-				body.Append(PortalLook.Field("password", "Password", "type=\"password\" name=\"password\" autocomplete=\"current-password\" required"));
-				body.Append(PortalLook.Submit("Sign in")).Append("</form>");
-				if (m_settings.Password.AllowSignUp)
-				{
-					body.Append(PortalLook.Link($"/users/sign_up?{ReturnUrlField}={Uri.EscapeDataString(target)}", "Create an account"));
-				}
+				body.Append(PortalLook.Field("email", "Email", "type=\"email\" name=\"email\" autocomplete=\"username\" required", email ?? String.Empty, icon: "mail"));
+				body.Append(PortalLook.Field("password", "Password", "type=\"password\" name=\"password\" autocomplete=\"current-password\" required", icon: "lock-keyhole"));
+				body.Append(PortalLook.Submit("Sign in", icon: "log-in")).Append("</form>");
 				if (providers.Count > 0)
 				{
-					body.Append(PortalLook.Separator());
+					body.Append(PortalLook.Separator("Or continue with"));
 				}
 			}
-			body.Append(String.Concat(providers.Select(p =>
-				PortalLook.LinkButton($"/users/auth/{Uri.EscapeDataString(p.Name)}?returnUrl={Uri.EscapeDataString(target)}", "Sign in with " + p.DisplayName))));
-			return Page(status, "Sign in", body.ToString());
+			body.Append(PortalLook.Providers(providers.Select(p =>
+				($"/users/auth/{Uri.EscapeDataString(p.Name)}?returnUrl={Uri.EscapeDataString(target)}", p.Name, p.DisplayName))));
+			// the way to sign up last, under the providers, as login-02
+			if (passwords && m_settings.Password.AllowSignUp)
+			{
+				body.Append(PortalLook.Link($"/users/sign_up?{ReturnUrlField}={Uri.EscapeDataString(target)}", "Sign up", "Don't have an account?"));
+			}
+			return Page(status, "Sign in", body.ToString(), "Sign in to play Generals Online.");
 		}
 
 		[HttpPost("~/users/sign_in")]
@@ -199,10 +200,10 @@ namespace GenOnlineService.Identity
 		{
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(FormStart("/users/two_factor", target));
-			body.Append(PortalLook.Field("code", "Code from your authenticator app", $"type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\""));
-			body.Append(PortalLook.Field("recovery_code", "Or a recovery code", $"type=\"text\" name=\"{RecoveryCodeField}\" autocomplete=\"off\""));
-			body.Append(PortalLook.Submit("Sign in")).Append("</form>");
-			return Page(status, "Two-factor sign-in", body.ToString());
+			body.Append(PortalLook.Field("code", "Code from your authenticator app", $"type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\"", icon: "shield-check"));
+			body.Append(PortalLook.Field("recovery_code", "Or a recovery code", $"type=\"text\" name=\"{RecoveryCodeField}\" autocomplete=\"off\"", icon: "key-round"));
+			body.Append(PortalLook.Submit("Sign in", icon: "log-in")).Append("</form>");
+			return Page(status, "Two-factor sign-in", body.ToString(), "Enter the code from your authenticator app.");
 		}
 
 		[HttpPost("~/users/two_factor")]
@@ -290,8 +291,8 @@ namespace GenOnlineService.Identity
 			{
 				var manage = new System.Text.StringBuilder("<p>Two-factor sign-in is on.</p>");
 				manage.Append(FormStart("/profile/two_factor_auth/disable", target));
-				manage.Append(PortalLook.Field("code", "Code from your authenticator app", $"type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required"));
-				manage.Append(PortalLook.Submit("Turn two-factor sign-in off", outline: true)).Append("</form>");
+				manage.Append(PortalLook.Field("code", "Code from your authenticator app", $"type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required", icon: "shield-check"));
+				manage.Append(PortalLook.Submit("Turn two-factor sign-in off", outline: true, icon: "shield-off")).Append("</form>");
 				return Page(200, "Two-factor sign-in", manage.ToString());
 			}
 
@@ -316,8 +317,8 @@ namespace GenOnlineService.Identity
 			body.Append($"<p class=\"bb:break-all\"><a href=\"{WebUtility.HtmlEncode(uri)}\" class=\"bb:text-primary bb:underline-offset-4 bb:hover:underline\">{WebUtility.HtmlEncode(uri)}</a></p>");
 			body.Append($"<p>Key: <code class=\"bb:font-mono bb:rounded-md bb:bg-muted bb:px-2 bb:py-1\">{WebUtility.HtmlEncode(grouped)}</code></p>");
 			body.Append(FormStart("/profile/two_factor_auth", target));
-			body.Append(PortalLook.Field("code", "Code", $"type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required"));
-			body.Append(PortalLook.Submit("Turn two-factor sign-in on")).Append("</form>");
+			body.Append(PortalLook.Field("code", "Code", $"type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required", icon: "shield-check"));
+			body.Append(PortalLook.Submit("Turn two-factor sign-in on", icon: "shield-check")).Append("</form>");
 			return Page(status, "Set up two-factor sign-in", body.ToString());
 		}
 
@@ -360,7 +361,7 @@ namespace GenOnlineService.Identity
 			return Page(200, "Two-factor sign-in is on",
 				PortalLook.Text("Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.")
 				+ $"<ul class=\"bb:grid bb:grid-cols-2 bb:gap-2 bb:font-mono bb:text-center bb:rounded-md bb:bg-muted bb:p-3\">{list}</ul>"
-				+ PortalLook.LinkButton(target, "Continue", outline: false));
+				+ PortalLook.LinkButton(target, "Continue", outline: false, icon: "arrow-right"));
 		}
 
 		[HttpPost("~/profile/two_factor_auth/disable")]
@@ -401,7 +402,7 @@ namespace GenOnlineService.Identity
 			await m_users.ResetAuthenticatorKeyAsync(user);
 			await m_users.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
 			await m_signIn.RefreshSignInAsync(user);
-			return Page(200, "Two-factor sign-in is off", PortalLook.LinkButton(target, "Continue", outline: false));
+			return Page(200, "Two-factor sign-in is off", PortalLook.LinkButton(target, "Continue", outline: false, icon: "arrow-right"));
 		}
 
 		[HttpGet("~/users/sign_up")]
@@ -418,17 +419,17 @@ namespace GenOnlineService.Identity
 		{
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(FormStart("/users/sign_up", target));
-			body.Append(PortalLook.Field("display_name", "Player name", "type=\"text\" name=\"display_name\" autocomplete=\"nickname\" required", displayName ?? String.Empty));
-			body.Append(PortalLook.Field("email", "Email", "type=\"email\" name=\"email\" autocomplete=\"email\" required", email ?? String.Empty));
-			body.Append(PortalLook.Field("password", "Password", $"type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"{m_settings.Password.MinLength}\" maxlength=\"{PasswordSignInSettings.MaximumLength}\" required"));
+			body.Append(PortalLook.Field("display_name", "Player name", "type=\"text\" name=\"display_name\" autocomplete=\"nickname\" required", displayName ?? String.Empty, icon: "user"));
+			body.Append(PortalLook.Field("email", "Email", "type=\"email\" name=\"email\" autocomplete=\"email\" required", email ?? String.Empty, icon: "mail"));
+			body.Append(PortalLook.Field("password", "Password", $"type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"{m_settings.Password.MinLength}\" maxlength=\"{PasswordSignInSettings.MaximumLength}\" required", icon: "lock-keyhole"));
 			if (m_settings.Password.Honeypot)
 			{
 				// people never see this field; form-filling bots fill it in
 				body.Append($"<p style=\"position:absolute;left:-10000px\" aria-hidden=\"true\"><label>Website <input type=\"text\" name=\"{HoneypotField}\" tabindex=\"-1\" autocomplete=\"off\"></label></p>");
 			}
-			body.Append(PortalLook.Submit("Create account")).Append("</form>");
-			body.Append(PortalLook.Link($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}", "I already have an account"));
-			return Page(status, "Create an account", body.ToString());
+			body.Append(PortalLook.Submit("Create account", icon: "user-plus")).Append("</form>");
+			body.Append(PortalLook.Link($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}", "Sign in", "Already have an account?"));
+			return Page(status, "Create an account", body.ToString(), "Sign up with an email address and a password.");
 		}
 
 		[HttpPost("~/users/sign_up")]
@@ -494,9 +495,9 @@ namespace GenOnlineService.Identity
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(PortalLook.Text("This is the name other players see. Choose your own; you can change it later."));
 			body.Append(FormStart(NameSuggestion.PagePath, target));
-			body.Append(PortalLook.Field("display_name", "Player name", $"type=\"text\" name=\"display_name\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required", displayName));
-			body.Append(PortalLook.Submit("Continue")).Append("</form>");
-			return Page(status, "Choose your player name", body.ToString());
+			body.Append(PortalLook.Field("display_name", "Player name", $"type=\"text\" name=\"display_name\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required", displayName, icon: "user"));
+			body.Append(PortalLook.Submit("Continue", icon: "arrow-right")).Append("</form>");
+			return Page(status, "Choose your player name", body.ToString(), "This is the name other players see.");
 		}
 
 		[HttpPost("~/users/sign_up/welcome")]
@@ -838,7 +839,7 @@ namespace GenOnlineService.Identity
 			IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> parameters = Request.HasFormContentType ? Request.Form : Request.Query;
 
 			var form = new System.Text.StringBuilder();
-			form.Append($"<form method=\"post\" action=\"{WebUtility.HtmlEncode(Request.PathBase + Request.Path)}\" class=\"bb:space-y-4\">");
+			form.Append($"<form method=\"post\" action=\"{WebUtility.HtmlEncode(Request.PathBase + Request.Path)}\" class=\"go-form\">");
 			foreach ((string key, Microsoft.Extensions.Primitives.StringValues values) in parameters.Where(p => p.Key != ConsentField && p.Key != Parameters.Prompt && p.Key != tokens.FormFieldName))
 			{
 				foreach (string? value in values)
@@ -851,7 +852,7 @@ namespace GenOnlineService.Identity
 			string scopes = String.Concat(request.GetScopes().Where(s_scopeDescriptions.ContainsKey).Select(s => $"<li>{WebUtility.HtmlEncode(s_scopeDescriptions[s])}</li>"));
 			form.Append($"<p><strong>{WebUtility.HtmlEncode(displayName)}</strong> is not made by Generals Online. It asks to:</p><ul>{scopes}</ul>");
 			form.Append($"<p>Signed in as {WebUtility.HtmlEncode(cookieUser.Identity?.Name ?? String.Empty)}.</p>");
-			form.Append(PortalLook.Submit("Allow", ConsentField, ConsentAllow)).Append(PortalLook.Submit("Deny", ConsentField, "deny", outline: true)).Append("</form>");
+			form.Append(PortalLook.Submit("Allow", ConsentField, ConsentAllow, icon: "check")).Append(PortalLook.Submit("Deny", ConsentField, "deny", outline: true, icon: "x")).Append("</form>");
 
 			// the page approves a sign-in, so it never renders inside another site's frame or a cache
 			Response.Headers["X-Frame-Options"] = "DENY";

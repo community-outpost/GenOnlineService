@@ -279,7 +279,7 @@ public class PasswordPagesTests
 		Assert.Equal(200, withPassword.Status);
 		Assert.Contains("action=\"/users/sign_in\"", withPassword.Body);
 		Assert.Contains("href=\"/users/sign_up", withPassword.Body);
-		Assert.Contains("Sign in with steam", withPassword.Body);
+		Assert.Contains("Sign in with Steam</a>", withPassword.Body);
 		Assert.Equal("DENY", withPassword.FrameOptions);
 
 		var closed = new AccountsBrowser(probe, Enabled(("Accounts:password:allow_sign_up", "false")));
