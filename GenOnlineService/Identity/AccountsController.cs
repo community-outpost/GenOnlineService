@@ -132,7 +132,7 @@ namespace GenOnlineService.Identity
 			// the way to sign up last, under the providers, as login-02
 			if (passwords && m_settings.Password.AllowSignUp)
 			{
-				body.Append(PortalLook.Link($"/users/sign_up?{ReturnUrlField}={Uri.EscapeDataString(target)}", "Sign up", "Don't have an account?"));
+				body.Append(PortalLook.Link($"/users/sign_up?{ReturnUrlField}={Uri.EscapeDataString(target)}", "Sign up", "Don’t have an account?"));
 			}
 			return Page(status, "Sign in", body.ToString(), "Sign in to play Generals Online.");
 		}

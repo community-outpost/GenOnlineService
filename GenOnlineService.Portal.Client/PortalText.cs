@@ -24,6 +24,23 @@ namespace GenOnlineService.Portal.Client
 		// Times show in UTC, as the service stores them
 		public static string Date(DateTime? value) => value is DateTime time ? time.ToUniversalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) : "never";
 
+		// The activity feed's short age: "just now", "5m ago", "3h ago", "2d ago", then the date
+		public static string Ago(DateTime value, DateTime utcNow)
+		{
+			TimeSpan age = utcNow - value.ToUniversalTime();
+			return age.TotalMinutes < 1 ? "just now"
+				: age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m ago"
+				: age.TotalDays < 1 ? $"{(int)age.TotalHours}h ago"
+				: age.TotalDays < 7 ? $"{(int)age.TotalDays}d ago"
+				: Date(value);
+		}
+
+		// Counts on the dashboard with a thousands separator, the same in every browser
+		public static string Count(int value) => value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+
+		// Two letters for an avatar: the start of the display name
+		public static string Initials(string name) => name.Length > 0 ? name.Substring(0, Math.Min(2, name.Length)).ToUpperInvariant() : "?";
+
 		// 3725 seconds reads 1:02:05
 		public static string Duration(long? seconds) => seconds is long s ? $"{s / 3600}:{s / 60 % 60:00}:{s % 60:00}" : "";
 

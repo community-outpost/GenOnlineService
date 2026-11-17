@@ -1,4 +1,5 @@
-@* One anti-cheat review list on the data grid blueprint (data-02): unreviewed rows first, each row links to the player and the match *@
+@* One anti-cheat review list: the page header (nav-02) over the data grid blueprint (data-02) in a card, with the review
+   state as a toolbar filter; unreviewed rows first, each row links to the player and the match *@
 @page "/admin/anticheat/{Kind}"
 @inject PortalApi Api
 @inject ToastService Toasts
@@ -8,86 +9,127 @@
 
 @if (!Api.Session!.Can(PortalPermissions.AnticheatReview))
 {
-    <BbAlert Variant="AlertVariant.Danger">
-        <BbAlertTitle>Administrators only</BbAlertTitle>
-        <BbAlertDescription>Your account does not hold the anticheat.review permission.</BbAlertDescription>
-    </BbAlert>
+    <Refusal Title="Administrators only" Description="Your account does not hold the anticheat.review permission." Icon="shield-x" />
 }
 else if (m_list == null)
 {
-    <BbEmpty Title="No such list" Description="This anti-cheat review list does not exist." />
+    <Refusal Title="No such list" Description="This anti-cheat review list does not exist." Icon="search-x" />
 }
 else
 {
-    <div class="bb:w-full bb:space-y-4">
-        <div>
-            <h1 class="bb:text-2xl bb:font-semibold">@m_list.Title</h1>
-            <p class="bb:text-sm bb:text-muted-foreground">@m_list.Description</p>
-        </div>
-        @if (m_error != null)
-        {
-            <BbAlert Variant="AlertVariant.Danger">
+    <PageHeader Description="@m_list.Description">
+        <Title>
+            <span class="bb:flex bb:items-center bb:gap-4">
+                <LucideIcon Name="@PortalReviewList.IconOf(m_list.Kind)" Class="bb:h-6 bb:w-6 bb:text-muted-foreground" />
+                @m_list.Title
+            </span>
+        </Title>
+        <Actions>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="RefreshAsync">
+                <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+                Refresh
+            </BbButton>
+        </Actions>
+    </PageHeader>
+
+    @if (m_error != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
                 <BbAlertTitle>The list could not load</BbAlertTitle>
                 <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
-            </BbAlert>
-        }
-        <BbDataGrid @ref="m_grid" @key="Kind" TData="PortalAntiCheatReport" ItemsProvider="@LoadAsync" ItemKey="@(r => r.Id)" InitialPageSize="20" AriaLabel="@m_list.Title">
-            <Toolbar>
-                <BbNativeSelect TValue="string" Value="@m_reviewed" ValueChanged="@OnReviewedChanged" AriaLabel="Review state" Class="bb:w-64">
-                    <option value="false">Unreviewed</option>
-                    <option value="true">Reviewed</option>
-                    <option value="all">All</option>
-                </BbNativeSelect>
-            </Toolbar>
-            <Columns>
-                <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="90px" />
-                <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Player.FullName)" Title="Player">
-                    <CellTemplate>
-                        <BbLink Href="@PortalRoutes.PlayerPage(context.Player.Id)">@(context.Player.Name.Length > 0 ? context.Player.FullName : "#" + context.Player.Id)</BbLink>
-                    </CellTemplate>
-                </BbDataGridPropertyColumn>
-                <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Match" Width="110px">
-                    <ChildContent Context="report">
-                        @if (report.MatchId is long matchID)
-                        {
-                            <BbLink Href="@PortalRoutes.MatchPage(matchID)">@matchID</BbLink>
-                        }
-                        else
-                        {
-                            <span class="bb:text-muted-foreground">sign-in</span>
-                        }
-                    </ChildContent>
-                </BbDataGridTemplateColumn>
-                @if (Kind == "modules")
-                {
-                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.ModuleName!)" Title="Module" />
-                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.ModulePath!)" Title="Path" />
-                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long?" Property="@(r => r.ModuleSize)" Title="Size" Width="110px" />
-                }
-                @if (Kind == "probes" || Kind == "devices")
-                {
-                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason" />
-                }
-                <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Review" Width="180px" Hideable="false">
-                    <ChildContent Context="report">
-                        @if (report.ReviewedAt is DateTime reviewed)
-                        {
-                            <span class="bb:text-xs bb:text-muted-foreground">reviewed @PortalText.Date(reviewed)</span>
-                        }
-                        else
-                        {
-                            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => ReviewAsync(report))" data-testid="mark-reviewed">Mark reviewed</BbButton>
-                        }
-                    </ChildContent>
-                </BbDataGridTemplateColumn>
-            </Columns>
-        </BbDataGrid>
-    </div>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    <BbCard Class="go-filtered">
+        <BbCardContent Class="bb:pt-6">
+            <BbDataGrid @ref="m_grid" @key="Kind" TData="PortalAntiCheatReport" ItemsProvider="@LoadAsync" ItemKey="@(r => r.Id)" InitialPageSize="20" AriaLabel="@m_list.Title">
+                <Toolbar>
+                    <BbNativeSelect TValue="string" Value="@m_reviewed" ValueChanged="@OnReviewedChanged" AriaLabel="Review state" Class="bb:w-40">
+                        <option value="false">Unreviewed</option>
+                        <option value="true">Reviewed</option>
+                        <option value="all">All</option>
+                    </BbNativeSelect>
+                </Toolbar>
+                <Columns>
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="90px" />
+                    <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Player.FullName)" Title="Player">
+                        <CellTemplate>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Player.Id)">@(context.Player.Name.Length > 0 ? context.Player.FullName : "#" + context.Player.Id)</BbLink>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Match" Width="110px">
+                        <ChildContent Context="report">
+                            @if (report.MatchId is long matchID)
+                            {
+                                <BbLink Href="@PortalRoutes.MatchPage(matchID)">@matchID</BbLink>
+                            }
+                            else
+                            {
+                                <BbBadge Variant="BadgeVariant.Outline">sign-in</BbBadge>
+                            }
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    @if (Kind == "modules")
+                    {
+                        <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.ModuleName!)" Title="Module">
+                            <CellTemplate>
+                                <span class="bb:font-mono">@context.ModuleName</span>
+                            </CellTemplate>
+                        </BbDataGridPropertyColumn>
+                        <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.ModulePath!)" Title="Path">
+                            <CellTemplate>
+                                <span class="bb:font-mono bb:text-xs bb:break-all">@context.ModulePath</span>
+                            </CellTemplate>
+                        </BbDataGridPropertyColumn>
+                        <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="long?" Property="@(r => r.ModuleSize)" Title="Size" Width="110px" />
+                    }
+                    @if (Kind == "probes" || Kind == "devices")
+                    {
+                        <BbDataGridPropertyColumn TData="PortalAntiCheatReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason" />
+                    }
+                    <BbDataGridTemplateColumn TData="PortalAntiCheatReport" Title="Review" Width="180px" Hideable="false">
+                        <ChildContent Context="report">
+                            @if (report.ReviewedAt is DateTime reviewed)
+                            {
+                                <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="check" />reviewed @PortalText.Date(reviewed)</BbBadge>
+                            }
+                            else
+                            {
+                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => ReviewAsync(report))" data-testid="mark-reviewed">
+                                    <LucideIcon Name="check" Class="bb:h-4 bb:w-4" />
+                                    Mark reviewed
+                                </BbButton>
+                            }
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                </Columns>
+                <EmptyTemplate>
+                    <BbEmpty Size="EmptySize.Small" Title="@(m_reviewed == "false" ? "Nothing to review" : "No rows")"
+                             Description="@(m_reviewed == "false" ? "Every row of this list has been reviewed." : "This list has no rows in this state.")">
+                        <Icon>
+                            <LucideIcon Name="shield-check" />
+                        </Icon>
+                    </BbEmpty>
+                </EmptyTemplate>
+                <LoadingTemplate>
+                    <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+                </LoadingTemplate>
+            </BbDataGrid>
+        </BbCardContent>
+    </BbCard>
 }
 
 @code {
     [Parameter]
     public string Kind { get; set; } = "";
+
+    [CascadingParameter]
+    public PortalLayout? Shell { get; set; }
 
     private BbDataGrid<PortalAntiCheatReport>? m_grid;
     private PortalReviewList? m_list;
@@ -134,10 +176,19 @@ else
         {
             Toasts.Error(PortalText.Error(outcome.Error), "Not marked");
         }
+        await RefreshAsync();
+    }
 
+    // The grid and the sidebar's unreviewed counts
+    private async Task RefreshAsync()
+    {
         if (m_grid != null)
         {
             await m_grid.RefreshDataAsync();
+        }
+        if (Shell != null)
+        {
+            await Shell.RefreshCountsAsync();
         }
     }
 }

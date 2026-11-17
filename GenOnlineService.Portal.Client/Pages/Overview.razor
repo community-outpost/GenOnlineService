@@ -1,0 +1,279 @@
+@* The staff dashboard, from Blazor Blueprint's dashboard blueprints: stat cards (dashboard-01), the newest reports as the
+   notifications panel (dashboard-04), the newest sanctions as the activity feed (dashboard-03), and the anti-cheat queues
+   as a chart beside their list (data-03). One read of GET /api/v1/staff/overview fills it *@
+@page "/admin"
+@inject PortalApi Api
+
+<PageTitle>Overview · Generals Online</PageTitle>
+
+<PageHeader Description="Generals Online right now: who is playing, what waits for staff, and the latest moderation.">
+    <Title>Overview</Title>
+    <Actions>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="LoadAsync" Loading="@m_loading" data-testid="refresh">
+            <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+            Refresh
+        </BbButton>
+        <BbButton Size="ButtonSize.Small" Href="@PortalRoutes.ReportsPage">
+            <LucideIcon Name="flag" Class="bb:h-4 bb:w-4" />
+            Open the report queue
+        </BbButton>
+    </Actions>
+</PageHeader>
+
+@if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The overview could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+
+<div class="go-stats">
+    <StatCard Label="Players online" Value="@CountOf(o => o.PlayersOnline)" Icon="users" Hint="Connected to this service now" TestId="stat-players" />
+    <StatCard Label="Lobbies open" Value="@CountOf(o => o.LobbiesOpen)" Icon="door-open" Hint="Waiting or in a match" TestId="stat-lobbies" />
+    <StatCard Label="Matches today" Value="@CountOf(o => o.MatchesToday)" Icon="swords" Hint="Finished since 00:00 UTC" Href="@PortalRoutes.MatchesPage" TestId="stat-matches" />
+    <StatCard Label="Open reports" Value="@CountOf(o => o.OpenReports)" Icon="flag" Hint="Waiting in the report queue" Attention="@(m_overview?.OpenReports > 0)" Href="@PortalRoutes.ReportsPage" TestId="stat-reports" />
+    @if (CanReview)
+    {
+        <StatCard Label="Anti-cheat to review" Value="@CountOf(o => o.UnreviewedAnticheat ?? 0)" Icon="shield-alert" Hint="Rows across the four review lists" Attention="@(m_overview?.UnreviewedAnticheat > 0)" Href="@BusiestList()" TestId="stat-anticheat" />
+    }
+</div>
+
+<div class="go-dashboard">
+    <BbCard>
+        <BbCardHeader>
+            <div class="bb:flex bb:items-center bb:justify-between bb:gap-2">
+                <div class="bb:flex bb:items-center bb:gap-2">
+                    <BbCardTitle As="h2">Recent reports</BbCardTitle>
+                    @if (m_overview?.OpenReports > 0)
+                    {
+                        <BbBadge Variant="BadgeVariant.Secondary">@PortalText.Count(m_overview.OpenReports) open</BbBadge>
+                    }
+                </div>
+                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@PortalRoutes.ReportsPage">View all</BbButton>
+            </div>
+            <BbCardDescription>The newest player reports, whatever their state.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent Class="bb:p-0">
+            @if (m_overview == null)
+            {
+                <FeedSkeleton />
+            }
+            else if (m_overview.RecentReports.Count == 0)
+            {
+                <BbEmpty Size="EmptySize.Small" Title="No reports" Description="Players have not reported anyone yet.">
+                    <Icon>
+                        <LucideIcon Name="inbox" />
+                    </Icon>
+                    <ChildContent>
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.ReportsPage">Open the report queue</BbButton>
+                    </ChildContent>
+                </BbEmpty>
+            }
+            else
+            {
+                <ul class="go-feed" data-testid="recent-reports">
+                    @foreach (PortalReport report in m_overview.RecentReports)
+                    {
+                        <li>
+                            <a href="@PortalRoutes.PlayerPage(report.Reported.Id)" class="go-feed-item">
+                                <BbAvatar Class="bb:h-9 bb:w-9 bb:shrink-0">
+                                    <BbAvatarFallback>@PortalText.Initials(report.Reported.Name)</BbAvatarFallback>
+                                </BbAvatar>
+                                <div class="bb:flex-1 bb:min-w-0 bb:space-y-1">
+                                    <div class="bb:flex bb:items-center bb:justify-between bb:gap-2">
+                                        <p class="bb:text-sm bb:font-medium bb:leading-none bb:truncate">@report.ReporterName reported @report.ReportedName</p>
+                                        <span class="bb:text-xs bb:text-muted-foreground bb:shrink-0">@PortalText.Ago(report.CreatedAt, m_now)</span>
+                                    </div>
+                                    <div class="bb:flex bb:items-center bb:justify-between bb:gap-2">
+                                        <p class="bb:text-xs bb:text-muted-foreground bb:truncate">@(String.IsNullOrEmpty(report.Reason) ? "No reason given" : report.Reason)</p>
+                                        <BbBadge Variant="@PortalBadges.OfReport(report.Status)">@report.Status</BbBadge>
+                                    </div>
+                                </div>
+                            </a>
+                        </li>
+                    }
+                </ul>
+            }
+        </BbCardContent>
+    </BbCard>
+
+    <BbCard>
+        <BbCardHeader>
+            <BbCardTitle As="h2">Recent sanctions</BbCardTitle>
+            <BbCardDescription>The newest kicks, mutes and bans, by staff and by the service.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent>
+            @if (m_overview == null)
+            {
+                <FeedSkeleton />
+            }
+            else if (m_overview.RecentSanctions.Count == 0)
+            {
+                <BbEmpty Size="EmptySize.Small" Title="No sanctions" Description="Nobody has been kicked, muted or banned yet.">
+                    <Icon>
+                        <LucideIcon Name="gavel" />
+                    </Icon>
+                    <ChildContent>
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.PlayersPage">Find a player</BbButton>
+                    </ChildContent>
+                </BbEmpty>
+            }
+            else
+            {
+                <BbTimeline Align="TimelineAlign.Left" Size="TimelineSize.Small" data-testid="recent-sanctions">
+                    @for (int i = 0; i < m_overview.RecentSanctions.Count; i++)
+                    {
+                        PortalOverviewSanction sanction = m_overview.RecentSanctions[i];
+                        <BbTimelineItem IconColor="TimelineColor.Secondary" ConnectorColor="TimelineColor.Muted"
+                                        IconSize="TimelineSize.Small"
+                                        ShowConnector="@(i < m_overview.RecentSanctions.Count - 1)">
+                            <IconContent>
+                                <LucideIcon Name="@PortalBadges.IconOfSanction(sanction.Type)" Class="bb:h-4 bb:w-4" />
+                            </IconContent>
+                            <ChildContent>
+                                <BbTimelineContent>
+                                    <BbTimelineHeader>
+                                        <BbTimelineTitle As="div" Class="bb:text-sm">
+                                            <span class="go-capitalize">@sanction.Type</span> for
+                                            <BbLink Href="@PortalRoutes.PlayerPage(sanction.Player.Id)">@sanction.Player.FullName</BbLink>
+                                        </BbTimelineTitle>
+                                    </BbTimelineHeader>
+                                    <BbTimelineDescription Class="bb:text-xs">
+                                        @(sanction.CreatedBy?.FullName ?? "the service") · @PortalText.Ago(sanction.CreatedAt, m_now)@(sanction.Reason != null ? " · " + sanction.Reason : "")
+                                        @if (sanction.Active)
+                                        {
+                                            <BbBadge Variant="BadgeVariant.SoftDestructive" Class="bb:ms-1">active</BbBadge>
+                                        }
+                                    </BbTimelineDescription>
+                                </BbTimelineContent>
+                            </ChildContent>
+                        </BbTimelineItem>
+                    }
+                </BbTimeline>
+            }
+        </BbCardContent>
+    </BbCard>
+
+    @if (CanReview)
+    {
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Anti-cheat queues</BbCardTitle>
+                <BbCardDescription>Rows no administrator has reviewed yet, per list.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent Class="bb:space-y-4">
+                @if (m_overview?.Anticheat is IReadOnlyList<PortalQueue> queues)
+                {
+                    @if (queues.Sum(q => q.Unreviewed) > 0)
+                    {
+                        <BbBarChart Data="@ChartOf(queues)" Height="180px" Horizontal="true">
+                            <BbXAxis DataKey="list" />
+                            <BbYAxis />
+                            <BbChartTooltip />
+                            <BbBar DataKey="rows" Name="Unreviewed" Color="var(--chart-2)" />
+                        </BbBarChart>
+                    }
+                    <div class="go-list" data-testid="queues">
+                        @foreach (PortalReviewList list in PortalReviewList.All)
+                        {
+                            int waiting = queues.FirstOrDefault(q => q.Kind == list.Kind)?.Unreviewed ?? 0;
+                            <a href="@PortalRoutes.AntiCheatList(list.Kind)" class="go-list-item">
+                                <LucideIcon Name="@PortalReviewList.IconOf(list.Kind)" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                <span class="bb:flex-1 bb:text-sm">@list.Title</span>
+                                <BbBadge Variant="@(waiting > 0 ? BadgeVariant.Soft : BadgeVariant.Outline)" Class="go-count">@PortalText.Count(waiting)</BbBadge>
+                            </a>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <FeedSkeleton />
+                }
+            </BbCardContent>
+        </BbCard>
+    }
+
+    <BbCard>
+        <BbCardHeader>
+            <BbCardTitle As="h2">Quick links</BbCardTitle>
+            <BbCardDescription>Jump straight to a staff tool.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent>
+            <div class="go-list">
+                <a href="@PortalRoutes.PlayersPage" class="go-list-item">
+                    <LucideIcon Name="search" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                    <span class="bb:flex-1 bb:text-sm">Find a player by name or id</span>
+                    <LucideIcon Name="chevron-right" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                </a>
+                <a href="@PortalRoutes.ReportsPage" class="go-list-item">
+                    <LucideIcon Name="flag" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                    <span class="bb:flex-1 bb:text-sm">Work through the open reports</span>
+                    <LucideIcon Name="chevron-right" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                </a>
+                <a href="@PortalRoutes.MatchesPage" class="go-list-item">
+                    <LucideIcon Name="swords" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                    <span class="bb:flex-1 bb:text-sm">Look up a match by its id</span>
+                    <LucideIcon Name="chevron-right" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                </a>
+                <a href="@PortalRoutes.AccountPage" class="go-list-item">
+                    <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                    <span class="bb:flex-1 bb:text-sm">Your own profile and two-factor sign-in</span>
+                    <LucideIcon Name="chevron-right" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                </a>
+            </div>
+        </BbCardContent>
+    </BbCard>
+</div>
+
+@code {
+    [CascadingParameter]
+    public PortalLayout? Shell { get; set; }
+
+    private PortalOverview? m_overview;
+    private string? m_error;
+    private bool m_loading;
+    private DateTime m_now = DateTime.UtcNow;
+
+    private bool CanReview => Api.Session?.Can(PortalPermissions.AnticheatReview) == true;
+
+    private sealed record QueueBar(string List, int Rows);
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        m_loading = true;
+        PortalAnswer<PortalOverview> answer = await Api.GetOverviewAsync();
+        m_loading = false;
+        m_now = DateTime.UtcNow;
+        m_error = answer.Ok ? null : answer.Error;
+        if (answer.Value != null)
+        {
+            m_overview = answer.Value;
+            // the sidebar badges show the same numbers
+            if (Shell != null)
+            {
+                await Shell.RefreshCountsAsync(m_overview);
+            }
+        }
+    }
+
+    // null until the first answer, so the card shows a skeleton
+    private string? CountOf(Func<PortalOverview, int> pick) => m_overview == null ? (m_error != null ? "?" : null) : PortalText.Count(pick(m_overview));
+
+    // the unreviewed card opens the list with the most rows waiting
+    private string BusiestList()
+    {
+        string kind = m_overview?.Anticheat?.OrderByDescending(q => q.Unreviewed).FirstOrDefault()?.Kind ?? PortalReviewList.All[0].Kind;
+        return PortalRoutes.AntiCheatList(kind);
+    }
+
+    private static List<QueueBar> ChartOf(IReadOnlyList<PortalQueue> queues) =>
+        PortalReviewList.All.Select(list => new QueueBar(list.Title, queues.FirstOrDefault(q => q.Kind == list.Kind)?.Unreviewed ?? 0)).Reverse().ToList();
+}

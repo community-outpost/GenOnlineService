@@ -1,71 +1,109 @@
-@* The data grid blueprint (data-02): toolbar with search and column visibility, header filter and sort, a row actions menu, the pagination footer *@
+@* The report queue: the page header (nav-02) over the data grid blueprint (data-02) in a card: toolbar with search and
+   column visibility, header filter and sort, a row actions menu, the pagination footer, and a dialog to close a report *@
 @page "/admin/reports"
-@page "/admin"
 @inject PortalApi Api
 @inject ToastService Toasts
+@inject NavigationManager Navigation
 @* The headless grid of the same name lives in this namespace, so its types are named one by one *@
 @using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
 
 <PageTitle>Reports · Generals Online</PageTitle>
 
+<PageHeader Description="Players report each other from the game and the chat. Close each report as actioned or dismissed; the note goes to the audit log.">
+    <Title>Reports</Title>
+    <Actions>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="RefreshAsync">
+            <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+            Refresh
+        </BbButton>
+    </Actions>
+</PageHeader>
+
 @if (!Session.Staff)
 {
-    <BbAlert Variant="AlertVariant.Danger">
-        <BbAlertTitle>Staff only</BbAlertTitle>
-        <BbAlertDescription>Your account holds no staff permission, so the report queue is closed to you.</BbAlertDescription>
-    </BbAlert>
+    <Refusal Title="Staff only" Description="Your account holds no staff permission, so the report queue is closed to you." />
 }
 else
 {
-    <div class="bb:w-full">
-        <BbDataGrid @ref="m_grid" TData="PortalReport" ItemsProvider="@LoadAsync" @bind-State="m_state" ItemKey="@(r => r.Id)"
-                    InitialPageSize="10" ShowSearch="true" SearchPlaceholder="Search reports..." AriaLabel="Reports">
-            <Toolbar>
-                <BbDataGridColumnVisibility TData="PortalReport" />
-            </Toolbar>
-            <Columns>
-                <BbDataGridPropertyColumn TData="PortalReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="80px" Hideable="false" />
-                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReportedName)" Title="Reported">
-                    <CellTemplate>
-                        <BbLink Href="@PortalRoutes.PlayerPage(context.Reported.Id)">@context.ReportedName</BbLink>
-                    </CellTemplate>
-                </BbDataGridPropertyColumn>
-                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReporterName)" Title="Reporter">
-                    <CellTemplate>
-                        <BbLink Href="@PortalRoutes.PlayerPage(context.Reporter.Id)">@context.ReporterName</BbLink>
-                    </CellTemplate>
-                </BbDataGridPropertyColumn>
-                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason" />
-                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Id="@StatusColumn" Property="@(r => r.Status)" Title="Status"
-                                          Filterable="true" FilterType="FilterFieldType.Enum" FilterOptions="@s_statusOptions">
-                    <CellTemplate>
-                        <BbBadge Variant="@BadgeOf(context.Status)">@context.Status</BbBadge>
-                    </CellTemplate>
-                </BbDataGridPropertyColumn>
-                <BbDataGridPropertyColumn TData="PortalReport" TProp="DateTime" Id="@CreatedColumn" Property="@(r => r.CreatedAt)" Title="Created" Format="yyyy-MM-dd HH:mm" Sortable="true" />
-                <BbDataGridTemplateColumn TData="PortalReport" Title="Actions" Width="80px" Hideable="false">
-                    <HeaderTemplate>
-                        <span class="bb:sr-only">Actions</span>
-                    </HeaderTemplate>
-                    <ChildContent Context="report">
-                        <BbDropdownMenu>
-                            <BbDropdownMenuTrigger>
-                                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" Class="bb:h-8 bb:w-8" AriaLabel="@($"Actions for report {report.Id}")" Disabled="@(report.Status != "open")">
-                                    <LucideIcon Name="ellipsis" Class="bb:h-4 bb:w-4" />
-                                </BbButton>
-                            </BbDropdownMenuTrigger>
-                            <BbDropdownMenuContent Align="PopoverAlign.End">
-                                <BbDropdownMenuLabel>Close report</BbDropdownMenuLabel>
-                                <BbDropdownMenuSeparator />
-                                <BbDropdownMenuItem OnClick="@(_ => Open(report, "actioned"))">Mark actioned</BbDropdownMenuItem>
-                                <BbDropdownMenuItem OnClick="@(_ => Open(report, "dismissed"))">Dismiss</BbDropdownMenuItem>
-                            </BbDropdownMenuContent>
-                        </BbDropdownMenu>
-                    </ChildContent>
-                </BbDataGridTemplateColumn>
-            </Columns>
-        </BbDataGrid>
-    </div>
+    <BbCard Class="go-filtered">
+        <BbCardContent Class="bb:pt-6">
+            <BbDataGrid @ref="m_grid" TData="PortalReport" ItemsProvider="@LoadAsync" @bind-State="m_state" ItemKey="@(r => r.Id)"
+                        InitialPageSize="10" ShowSearch="true" SearchPlaceholder="Search reason or player…" AriaLabel="Reports">
+                <Toolbar>
+                    <BbDataGridColumnVisibility TData="PortalReport" />
+                </Toolbar>
+                <Columns>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="80px" Hideable="false" />
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReportedName)" Title="Reported">
+                        <CellTemplate>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Reported.Id)">@context.ReportedName</BbLink>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReporterName)" Title="Reporter">
+                        <CellTemplate>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Reporter.Id)">@context.ReporterName</BbLink>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason">
+                        <CellTemplate>
+                            @if (String.IsNullOrEmpty(context.Reason))
+                            {
+                                <span class="bb:text-muted-foreground">No reason given</span>
+                            }
+                            else
+                            {
+                                @context.Reason
+                            }
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Id="@StatusColumn" Property="@(r => r.Status)" Title="Status"
+                                              Filterable="true" FilterType="FilterFieldType.Enum" FilterOptions="@s_statusOptions">
+                        <CellTemplate>
+                            <BbBadge Variant="@PortalBadges.OfReport(context.Status)">@context.Status</BbBadge>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="DateTime" Id="@CreatedColumn" Property="@(r => r.CreatedAt)" Title="Created" Format="yyyy-MM-dd HH:mm" Sortable="true" />
+                    <BbDataGridTemplateColumn TData="PortalReport" Title="Actions" Width="80px" Hideable="false">
+                        <HeaderTemplate>
+                            <span class="bb:sr-only">Actions</span>
+                        </HeaderTemplate>
+                        <ChildContent Context="report">
+                            <BbDropdownMenu>
+                                <BbDropdownMenuTrigger>
+                                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" Class="bb:h-8 bb:w-8" AriaLabel="@($"Actions for report {report.Id}")">
+                                        <LucideIcon Name="ellipsis" Class="bb:h-4 bb:w-4" />
+                                    </BbButton>
+                                </BbDropdownMenuTrigger>
+                                <BbDropdownMenuContent Align="PopoverAlign.End">
+                                    <BbDropdownMenuLabel>Report #@report.Id</BbDropdownMenuLabel>
+                                    <BbDropdownMenuSeparator />
+                                    <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.PlayerPage(report.Reported.Id)))">
+                                        <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                        Open the reported player
+                                    </BbDropdownMenuItem>
+                                    @if (report.Status == "open")
+                                    {
+                                        <BbDropdownMenuSeparator />
+                                        <BbDropdownMenuItem OnClick="@(_ => Open(report, "actioned"))">
+                                            <LucideIcon Name="circle-check" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                            Mark actioned
+                                        </BbDropdownMenuItem>
+                                        <BbDropdownMenuItem OnClick="@(_ => Open(report, "dismissed"))">
+                                            <LucideIcon Name="circle-x" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                            Dismiss
+                                        </BbDropdownMenuItem>
+                                    }
+                                </BbDropdownMenuContent>
+                            </BbDropdownMenu>
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                </Columns>
+                <LoadingTemplate>
+                    <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+                </LoadingTemplate>
+            </BbDataGrid>
+        </BbCardContent>
+    </BbCard>
 
     <BbDialog @bind-Open="m_dialogOpen">
         <BbDialogContent>
@@ -75,7 +113,7 @@ else
             </BbDialogHeader>
             <div class="bb:space-y-2">
                 <BbLabel For="resolution-note">Resolution note</BbLabel>
-                <BbTextarea Id="resolution-note" @bind-Value="m_note" Placeholder="What was done, for the audit log" />
+                <BbTextarea Id="resolution-note" @bind-Value="m_note" Placeholder="What was done, for the audit log…" autocomplete="off" />
             </div>
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
@@ -95,6 +133,9 @@ else
         new SelectOption<string>("actioned", "Actioned"),
         new SelectOption<string>("dismissed", "Dismissed")
     };
+
+    [CascadingParameter]
+    public PortalLayout? Shell { get; set; }
 
     private BbDataGrid<PortalReport>? m_grid;
     private BlazorBlueprint.Primitives.DataGrid.DataGridState<PortalReport> m_state = NewState();
@@ -174,17 +215,19 @@ else
             Toasts.Error(PortalText.Error(outcome.Error), "Report not closed");
         }
 
+        await RefreshAsync();
+    }
+
+    // The grid and the sidebar's open count
+    private async Task RefreshAsync()
+    {
         if (m_grid != null)
         {
             await m_grid.RefreshDataAsync();
         }
+        if (Shell != null)
+        {
+            await Shell.RefreshCountsAsync();
+        }
     }
-
-    // The stock variants, as the data blueprints use them for a status
-    private static BadgeVariant BadgeOf(string status) => status switch
-    {
-        "open" => BadgeVariant.Default,
-        "actioned" => BadgeVariant.Secondary,
-        _ => BadgeVariant.Outline
-    };
 }

@@ -1,0 +1,14 @@
+@* Three placeholder rows while a card's list loads (Skeleton) *@
+
+<div class="bb:space-y-4 bb:p-4">
+    @for (int i = 0; i < 3; i++)
+    {
+        <div class="bb:flex bb:items-center bb:gap-4">
+            <BbSkeleton Class="bb:h-9 bb:w-9" />
+            <div class="bb:flex-1 bb:space-y-2">
+                <BbSkeleton Class="bb:h-4 bb:w-3/4" />
+                <BbSkeleton Class="bb:h-3 bb:w-1/2" />
+            </div>
+        </div>
+    }
+</div>
