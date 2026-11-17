@@ -303,6 +303,43 @@ html.dark {
   }
 }
 
+/* the language switch: each language in its own words, the current one in gold; under the form, or in the top bar */
+.go-languages {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 1rem;
+  font-size: 0.8125rem;
+}
+
+.go-language {
+  color: var(--go-text-2);
+  text-underline-offset: 4px;
+}
+
+.go-language:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
+.go-language[aria-current="true"] {
+  color: var(--go-gold);
+  font-weight: 500;
+}
+
+@media (pointer: coarse), (max-width: 47.99rem) {
+  .go-language {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+
+/* an arrow points the way the text reads: mirrored on a right-to-left page */
+[dir="rtl"] .go-directional {
+  transform: scaleX(-1);
+}
+
 /* a page title: light, tight, as the Swiss H2 */
 .go-heading {
   font-size: 2rem;

@@ -86,13 +86,13 @@ namespace GenOnlineService.Identity
 			=> Challenge(new AuthenticationProperties { RedirectUri = AccountPath }, IdentityConstants.ApplicationScheme);
 
 		// The message for a refused name, on the account page and the choose-a-name page alike
-		private static string NameMessage(string? code) => code switch
+		private string NameMessage(string? code) => code switch
 		{
-			Realtime.ErrorCodes.NameLength => $"Names must be {Realtime.RealtimeHub.NameMinLength} to {Realtime.RealtimeHub.NameMaxLength} characters.",
-			Realtime.ErrorCodes.NameWhitespace => "Names cannot start or end with a space.",
-			Realtime.ErrorCodes.NameReserved => "This name contains a reserved word.",
-			Realtime.ErrorCodes.NameTaken => "This name is taken. Please choose another.",
-			_ => "This name has characters that are not allowed."
+			Realtime.ErrorCodes.NameLength => T("Name.Length", Realtime.RealtimeHub.NameMinLength, Realtime.RealtimeHub.NameMaxLength),
+			Realtime.ErrorCodes.NameWhitespace => T("Name.Whitespace"),
+			Realtime.ErrorCodes.NameReserved => T("Name.Reserved"),
+			Realtime.ErrorCodes.NameTaken => T("Name.Taken"),
+			_ => T("Name.Invalid")
 		};
 
 		private async Task<ContentResult> AccountForm(int status, User user, bool renamed, string? typed, string? error)
@@ -102,25 +102,25 @@ namespace GenOnlineService.Identity
 			var body = new StringBuilder();
 			if (renamed)
 			{
-				body.Append(PortalLook.Alert($"Your name is now {fullName}.", success: true));
+				body.Append(PortalLook.Alert(T("Account.Renamed", fullName), success: true));
 			}
 
 			// Profile: who you are, and the rename
 			IReadOnlyCollection<string> roles = StaffRoles.RolesOf(user.ID);
-			string badges = roles.Count == 0 ? PortalLook.Badge("player", muted: true) : String.Concat(roles.Select(r => PortalLook.Badge(r)));
+			string badges = roles.Count == 0 ? PortalLook.Badge(T("Account.RolePlayer"), muted: true) : String.Concat(roles.Select(r => PortalLook.Badge(r)));
 			var profile = new StringBuilder();
 			profile.Append($"<div class=\"go-profile\">{PortalLook.Avatar(user.Username)}<div>");
-			profile.Append($"<p class=\"go-profile-name\">{WebUtility.HtmlEncode(user.Username)}<span class=\"go-tag\">#{tag}</span></p>");
-			profile.Append($"<div class=\"go-badges\"><span class=\"bb:text-xs bb:text-muted-foreground\">Player id {user.ID.ToString(CultureInfo.InvariantCulture)}</span>{badges}</div>");
+			profile.Append($"<p class=\"go-profile-name\"><bdi>{WebUtility.HtmlEncode(user.Username)}<span class=\"go-tag\">#{tag}</span></bdi></p>");
+			profile.Append($"<div class=\"go-badges\"><span class=\"bb:text-xs bb:text-muted-foreground\">{WebUtility.HtmlEncode(T("Account.PlayerId", user.ID.ToString(CultureInfo.InvariantCulture)))}</span>{badges}</div>");
 			profile.Append("</div></div>");
 			profile.Append(PortalLook.Separator());
-			profile.Append(PortalLook.Field("display_name", "Display name", $"type=\"text\" name=\"{RenameField}\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required" + (error == null ? String.Empty : " aria-invalid=\"true\""), typed ?? user.Username, icon: "user"));
+			profile.Append(PortalLook.Field("display_name", T("Field.DisplayName"), $"type=\"text\" name=\"{RenameField}\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required" + (error == null ? String.Empty : " aria-invalid=\"true\""), typed ?? user.Username, icon: "user"));
 			profile.Append(error == null
-				? "<p class=\"go-field-hint\">Your tag stays the same when you rename.</p>"
+				? $"<p class=\"go-field-hint\">{WebUtility.HtmlEncode(T("Account.TagHint"))}</p>"
 				: $"<p class=\"go-field-error\" role=\"alert\">{WebUtility.HtmlEncode(error)}</p>");
 			body.Append(FormStart(AccountPath, AccountPath));
-			body.Append(PortalLook.Card("Profile", "The name other players see. The tag after the # keeps it unique.", profile.ToString(),
-				PortalLook.Submit("Save changes", icon: "check", narrow: true)));
+			body.Append(PortalLook.Card(T("Account.Profile.Title"), T("Account.Profile.Description"), profile.ToString(),
+				PortalLook.Submit(T("Account.Save"), icon: "check", narrow: true)));
 			body.Append("</form>");
 
 			// Sign-in and security: the address and the second factor of a password account
@@ -128,20 +128,20 @@ namespace GenOnlineService.Identity
 			bool hasPassword = user.PasswordHash != null;
 			if (user.Email != null)
 			{
-				security.Append(PortalLook.Row("Email", WebUtility.HtmlEncode(user.Email)
-					+ PortalLook.Badge(user.EmailConfirmedAt != null ? "confirmed" : "not confirmed", muted: user.EmailConfirmedAt == null)));
+				security.Append(PortalLook.Row(T("Field.Email"), $"<bdi>{WebUtility.HtmlEncode(user.Email)}</bdi>"
+					+ PortalLook.Badge(T(user.EmailConfirmedAt != null ? "Account.Email.Confirmed" : "Account.Email.NotConfirmed"), muted: user.EmailConfirmedAt == null)));
 			}
 			if (hasPassword && m_settings.Password.Enabled)
 			{
 				string twoFactorLink = $"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(AccountPath)}";
-				security.Append(PortalLook.Row("Two-factor sign-in", user.TwoFactorEnabled ? "Two-factor sign-in is on." : "Two-factor sign-in is off."));
-				security.Append(PortalLook.LinkButton(twoFactorLink, user.TwoFactorEnabled ? "Manage two-factor sign-in" : "Set up two-factor sign-in", icon: "shield-check", narrow: true));
+				security.Append(PortalLook.Row(T("TwoFactor.Title"), WebUtility.HtmlEncode(T(user.TwoFactorEnabled ? "TwoFactor.IsOn" : "TwoFactor.IsOff"))));
+				security.Append(PortalLook.LinkButton(twoFactorLink, T(user.TwoFactorEnabled ? "TwoFactor.Manage" : "TwoFactor.Setup.Title"), icon: "shield-check", narrow: true));
 			}
 			if (security.Length == 0)
 			{
-				security.Append(PortalLook.Text("You sign in with the accounts linked below."));
+				security.Append(PortalLook.Text(WebUtility.HtmlEncode(T("Account.Security.LinkedOnly"))));
 			}
-			body.Append(PortalLook.Card("Sign-in and security", "How you sign in to Generals Online on this environment.", security.ToString()));
+			body.Append(PortalLook.Card(T("Account.Security.Title"), T("Account.Security.Description"), security.ToString()));
 
 			// Linked sign-ins: the providers you can sign in with, by name; their ids stay private
 			var linked = new StringBuilder();
@@ -152,27 +152,29 @@ namespace GenOnlineService.Identity
 			}
 			if (identities.Count == 0)
 			{
-				linked.Append(PortalLook.Text("No other sign-in is linked."));
+				linked.Append(PortalLook.Text(WebUtility.HtmlEncode(T("Account.Linked.None"))));
 			}
 			foreach (UserIdentity identity in identities)
 			{
 				string name = m_settings.Providers.FirstOrDefault(p => p.Name == identity.Provider)?.DisplayName ?? UpstreamProviderSettings.DefaultDisplayName(identity.Provider);
-				string when = "linked " + Day(identity.CreatedAt) + (identity.LastUsedAt is DateTime used ? ", last used " + Day(used) : String.Empty);
+				string when = identity.LastUsedAt is DateTime used
+					? T("Account.Linked.WhenUsed", Day(identity.CreatedAt), Day(used))
+					: T("Account.Linked.When", Day(identity.CreatedAt));
 				linked.Append($"<div class=\"go-row\">{PortalLook.ProviderName(identity.Provider, name)}<span class=\"bb:text-xs bb:text-muted-foreground\">{WebUtility.HtmlEncode(when)}</span></div>");
 			}
-			body.Append(PortalLook.Card("Linked sign-ins", "The accounts you can sign in with.", linked.ToString()));
+			body.Append(PortalLook.Card(T("Account.Linked.Title"), T("Account.Linked.Description"), linked.ToString()));
 
 			// the staff pages (/admin) for a holder of a staff role; the page gate there checks the permission again
-			string admin = await m_passwords.IsStaff(user.ID) ? PortalLook.LinkButton(AdminPath, "Admin", icon: "shield", narrow: true) : String.Empty;
-			string signOut = FormStart("/users/sign_out", AccountPath) + PortalLook.Submit("Sign out", outline: true, icon: "log-out", narrow: true) + "</form>";
+			string admin = await m_passwords.IsStaff(user.ID) ? PortalLook.LinkButton(AdminPath, T("Account.Admin"), icon: "shield", narrow: true) : String.Empty;
+			string signOut = FormStart("/users/sign_out", AccountPath) + PortalLook.Submit(T("SignOut"), outline: true, icon: "log-out", narrow: true) + "</form>";
 			return new ContentResult
 			{
 				StatusCode = status,
 				ContentType = "text/html; charset=utf-8",
-				Content = PortalLook.AppDocument("Account", fullName, admin + signOut, body.ToString())
+				Content = PortalLook.AppDocument(T("Account.Title"), fullName, admin + signOut, body.ToString(), Language)
 			};
 		}
 
-		private static string Day(DateTime value) => value.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+		private string Day(DateTime value) => AccountsText.Day(value, Culture);
 	}
 }

@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Brand" xml:space="preserve">
+    <value>Generals Online</value>
+  </data>
+  <data name="Page.Title" xml:space="preserve">
+    <value>{0} · Generals Online</value>
+  </data>
+  <data name="Skip" xml:space="preserve">
+    <value>Skip to content</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="Expired.Title" xml:space="preserve">
+    <value>Request expired</value>
+  </data>
+  <data name="Expired.Body" xml:space="preserve">
+    <value>The page expired. Please go back and try again.</value>
+  </data>
+  <data name="Continue" xml:space="preserve">
+    <value>Continue</value>
+  </data>
+  <data name="Field.Email" xml:space="preserve">
+    <value>Email</value>
+  </data>
+  <data name="Field.Password" xml:space="preserve">
+    <value>Password</value>
+  </data>
+  <data name="Field.PlayerName" xml:space="preserve">
+    <value>Player name</value>
+  </data>
+  <data name="Field.DisplayName" xml:space="preserve">
+    <value>Display name</value>
+  </data>
+  <data name="Field.Code" xml:space="preserve">
+    <value>Code</value>
+  </data>
+  <data name="SignIn.Title" xml:space="preserve">
+    <value>Sign in</value>
+  </data>
+  <data name="SignIn.Description" xml:space="preserve">
+    <value>Sign in to play Generals Online.</value>
+  </data>
+  <data name="SignIn.Submit" xml:space="preserve">
+    <value>Sign in</value>
+  </data>
+  <data name="SignIn.OrContinue" xml:space="preserve">
+    <value>Or continue with</value>
+  </data>
+  <data name="SignIn.WithProvider" xml:space="preserve">
+    <value>Sign in with {0}</value>
+  </data>
+  <data name="SignIn.NoAccount" xml:space="preserve">
+    <value>Don’t have an account?</value>
+  </data>
+  <data name="SignIn.SignUpLink" xml:space="preserve">
+    <value>Sign up</value>
+  </data>
+  <data name="SignIn.WrongCredentials" xml:space="preserve">
+    <value>Wrong email or password.</value>
+  </data>
+  <data name="SignIn.Unavailable.Title" xml:space="preserve">
+    <value>Sign-in unavailable</value>
+  </data>
+  <data name="SignIn.Unavailable.Body" xml:space="preserve">
+    <value>No sign-in method is configured for this environment.</value>
+  </data>
+  <data name="Refused.Title" xml:space="preserve">
+    <value>Sign-in refused</value>
+  </data>
+  <data name="Refused.Blocked" xml:space="preserve">
+    <value>This account is blocked.</value>
+  </data>
+  <data name="Refused.Deactivated" xml:space="preserve">
+    <value>This account is deactivated.</value>
+  </data>
+  <data name="TwoFactor.Title" xml:space="preserve">
+    <value>Two-factor sign-in</value>
+  </data>
+  <data name="TwoFactor.Description" xml:space="preserve">
+    <value>Enter the code from your authenticator app.</value>
+  </data>
+  <data name="TwoFactor.CodeLabel" xml:space="preserve">
+    <value>Code from your authenticator app</value>
+  </data>
+  <data name="TwoFactor.RecoveryLabel" xml:space="preserve">
+    <value>Or a recovery code</value>
+  </data>
+  <data name="TwoFactor.WrongCode" xml:space="preserve">
+    <value>Wrong code.</value>
+  </data>
+  <data name="TwoFactor.PasswordOnly" xml:space="preserve">
+    <value>Two-factor sign-in is for accounts that sign in with an email address and a password.</value>
+  </data>
+  <data name="TwoFactor.IsOn" xml:space="preserve">
+    <value>Two-factor sign-in is on.</value>
+  </data>
+  <data name="TwoFactor.IsOff" xml:space="preserve">
+    <value>Two-factor sign-in is off.</value>
+  </data>
+  <data name="TwoFactor.OnTitle" xml:space="preserve">
+    <value>Two-factor sign-in is on</value>
+  </data>
+  <data name="TwoFactor.OffTitle" xml:space="preserve">
+    <value>Two-factor sign-in is off</value>
+  </data>
+  <data name="TwoFactor.TurnOn" xml:space="preserve">
+    <value>Turn two-factor sign-in on</value>
+  </data>
+  <data name="TwoFactor.TurnOff" xml:space="preserve">
+    <value>Turn two-factor sign-in off</value>
+  </data>
+  <data name="TwoFactor.StaffKeeps" xml:space="preserve">
+    <value>Staff accounts keep two-factor sign-in.</value>
+  </data>
+  <data name="TwoFactor.Setup.Title" xml:space="preserve">
+    <value>Set up two-factor sign-in</value>
+  </data>
+  <data name="TwoFactor.Setup.Intro" xml:space="preserve">
+    <value>Add this account to your authenticator app with the link or the key, then enter the code it shows.</value>
+  </data>
+  <data name="TwoFactor.Setup.Key" xml:space="preserve">
+    <value>Key: {0}</value>
+  </data>
+  <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
+    <value>Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.</value>
+  </data>
+  <data name="TwoFactor.Manage" xml:space="preserve">
+    <value>Manage two-factor sign-in</value>
+  </data>
+  <data name="SignUp.Title" xml:space="preserve">
+    <value>Create an account</value>
+  </data>
+  <data name="SignUp.Description" xml:space="preserve">
+    <value>Sign up with an email address and a password.</value>
+  </data>
+  <data name="SignUp.Submit" xml:space="preserve">
+    <value>Create account</value>
+  </data>
+  <data name="SignUp.HaveAccount" xml:space="preserve">
+    <value>Already have an account?</value>
+  </data>
+  <data name="SignUp.InvalidEmail" xml:space="preserve">
+    <value>Enter a valid email address.</value>
+  </data>
+  <data name="SignUp.EmailDenied" xml:space="preserve">
+    <value>This email address cannot be used.</value>
+  </data>
+  <data name="SignUp.EmailTaken" xml:space="preserve">
+    <value>An account with this email address already exists.</value>
+  </data>
+  <data name="SignUp.PasswordTooShort" xml:space="preserve">
+    <value>Passwords must be at least {0} characters.</value>
+  </data>
+  <data name="SignUp.PasswordTooLong" xml:space="preserve">
+    <value>Passwords must be at most {0} characters.</value>
+  </data>
+  <data name="SignUp.Failed" xml:space="preserve">
+    <value>Sign-up failed.</value>
+  </data>
+  <data name="Name.Invalid" xml:space="preserve">
+    <value>This name has characters that are not allowed.</value>
+  </data>
+  <data name="Name.Length" xml:space="preserve">
+    <value>Names must be {0} to {1} characters.</value>
+  </data>
+  <data name="Name.Whitespace" xml:space="preserve">
+    <value>Names cannot start or end with a space.</value>
+  </data>
+  <data name="Name.Reserved" xml:space="preserve">
+    <value>This name contains a reserved word.</value>
+  </data>
+  <data name="Name.Taken" xml:space="preserve">
+    <value>This name is taken. Please choose another.</value>
+  </data>
+  <data name="Welcome.Title" xml:space="preserve">
+    <value>Choose your player name</value>
+  </data>
+  <data name="Welcome.Description" xml:space="preserve">
+    <value>This is the name other players see.</value>
+  </data>
+  <data name="Welcome.Intro" xml:space="preserve">
+    <value>This is the name other players see. Choose your own; you can change it later.</value>
+  </data>
+  <data name="Upstream.Failed.Title" xml:space="preserve">
+    <value>Sign-in failed</value>
+  </data>
+  <data name="Upstream.Failed.Body" xml:space="preserve">
+    <value>The sign-in could not be completed. Please try again.</value>
+  </data>
+  <data name="Upstream.NoSignUp" xml:space="preserve">
+    <value>No account is linked to this sign-in, and sign-up is closed.</value>
+  </data>
+  <data name="Upstream.Conflict" xml:space="preserve">
+    <value>Another sign-in of this provider is already linked to the account. Please contact support.</value>
+  </data>
+  <data name="Upstream.Other" xml:space="preserve">
+    <value>The sign-in could not be completed.</value>
+  </data>
+  <data name="SignedOut.Title" xml:space="preserve">
+    <value>Signed out</value>
+  </data>
+  <data name="SignedOut.Body" xml:space="preserve">
+    <value>You are signed out.</value>
+  </data>
+  <data name="SignOut" xml:space="preserve">
+    <value>Sign out</value>
+  </data>
+  <data name="Consent.Title" xml:space="preserve">
+    <value>Allow {0}?</value>
+  </data>
+  <data name="Consent.Expired" xml:space="preserve">
+    <value>The page expired. Please start the sign-in again from the application.</value>
+  </data>
+  <data name="Consent.Asks" xml:space="preserve">
+    <value>{0} is not made by Generals Online. It asks to:</value>
+  </data>
+  <data name="Consent.SignedInAs" xml:space="preserve">
+    <value>Signed in as {0}.</value>
+  </data>
+  <data name="Consent.Allow" xml:space="preserve">
+    <value>Allow</value>
+  </data>
+  <data name="Consent.Deny" xml:space="preserve">
+    <value>Deny</value>
+  </data>
+  <data name="Scope.OpenId" xml:space="preserve">
+    <value>Know who you are</value>
+  </data>
+  <data name="Scope.Profile" xml:space="preserve">
+    <value>See your player name</value>
+  </data>
+  <data name="Scope.OfflineAccess" xml:space="preserve">
+    <value>Stay signed in until you sign out</value>
+  </data>
+  <data name="Scope.Game" xml:space="preserve">
+    <value>Play online as you: lobbies, matchmaking and chat</value>
+  </data>
+  <data name="Account.Title" xml:space="preserve">
+    <value>Account</value>
+  </data>
+  <data name="Account.Admin" xml:space="preserve">
+    <value>Admin</value>
+  </data>
+  <data name="Account.Renamed" xml:space="preserve">
+    <value>Your name is now {0}.</value>
+  </data>
+  <data name="Account.RolePlayer" xml:space="preserve">
+    <value>player</value>
+  </data>
+  <data name="Account.PlayerId" xml:space="preserve">
+    <value>Player id {0}</value>
+  </data>
+  <data name="Account.TagHint" xml:space="preserve">
+    <value>Your tag stays the same when you rename.</value>
+  </data>
+  <data name="Account.Save" xml:space="preserve">
+    <value>Save changes</value>
+  </data>
+  <data name="Account.Profile.Title" xml:space="preserve">
+    <value>Profile</value>
+  </data>
+  <data name="Account.Profile.Description" xml:space="preserve">
+    <value>The name other players see. The tag after the # keeps it unique.</value>
+  </data>
+  <data name="Account.Email.Confirmed" xml:space="preserve">
+    <value>confirmed</value>
+  </data>
+  <data name="Account.Email.NotConfirmed" xml:space="preserve">
+    <value>not confirmed</value>
+  </data>
+  <data name="Account.Security.Title" xml:space="preserve">
+    <value>Sign-in and security</value>
+  </data>
+  <data name="Account.Security.Description" xml:space="preserve">
+    <value>How you sign in to Generals Online on this environment.</value>
+  </data>
+  <data name="Account.Security.LinkedOnly" xml:space="preserve">
+    <value>You sign in with the accounts linked below.</value>
+  </data>
+  <data name="Account.Linked.Title" xml:space="preserve">
+    <value>Linked sign-ins</value>
+  </data>
+  <data name="Account.Linked.Description" xml:space="preserve">
+    <value>The accounts you can sign in with.</value>
+  </data>
+  <data name="Account.Linked.None" xml:space="preserve">
+    <value>No other sign-in is linked.</value>
+  </data>
+  <data name="Account.Linked.When" xml:space="preserve">
+    <value>linked {0}</value>
+  </data>
+  <data name="Account.Linked.WhenUsed" xml:space="preserve">
+    <value>linked {0}, last used {1}</value>
+  </data>
+  <data name="Mail.Confirmation.Subject" xml:space="preserve">
+    <value>Confirm your email address</value>
+  </data>
+  <data name="Mail.PasswordReset.Subject" xml:space="preserve">
+    <value>Reset your Generals Online password</value>
+  </data>
+</root>

@@ -85,7 +85,7 @@ public class PortalLookTests
 	{
 		string page = PortalLook.Document("Title", PortalLook.Text("t") + PortalLook.Field("f", "F", "type=\"text\"", icon: "mail") + PortalLook.Submit("s", icon: "log-in")
 			+ PortalLook.Separator("Or continue with") + PortalLook.Providers(s_providers) + PortalLook.Alert("a"), "Description");
-		Assert.Contains("<html lang=\"en\" class=\"dark\">", page);
+		Assert.Contains("<html lang=\"en\" dir=\"ltr\" class=\"dark\">", page);
 		Assert.DoesNotContain("<script", page);
 		Assert.Contains("Description", page);
 		// the field, the button, three provider marks and the alert; GameReplays' logo and Generals Online's are images

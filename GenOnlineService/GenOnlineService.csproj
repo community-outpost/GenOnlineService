@@ -97,8 +97,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- the account mails (Mail/EmailTemplates.cs): MJML bodies, their layout and plain-text twins -->
-    <EmbeddedResource Include="Mail\Templates\*.mjml;Mail\Templates\*.txt" LogicalName="GenOnlineService.Mail.Templates.%(Filename)%(Extension)" />
+    <!-- the account mails (Mail/EmailTemplates.cs): MJML bodies, their layout and plain-text twins; a language's own copy
+         is named for it (confirmation.de.mjml) and stays in the main assembly, never a satellite -->
+    <EmbeddedResource Include="Mail\Templates\*.mjml;Mail\Templates\*.txt" LogicalName="GenOnlineService.Mail.Templates.%(Filename)%(Extension)" WithCulture="false" />
   </ItemGroup>
 
   <ItemGroup>

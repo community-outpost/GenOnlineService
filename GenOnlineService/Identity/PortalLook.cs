@@ -17,10 +17,14 @@
 */
 
 using BlazorBlueprint.Icons.Lucide.Data;
+using System.Globalization;
 using System.Net;
 
 namespace GenOnlineService.Identity
 {
+	// The language of a page and where its language switch comes back to: the same page, now in the chosen language
+	public sealed record PortalLanguage(CultureInfo Culture, string ReturnUrl);
+
 	// The look of the sign-in pages: Blazor Blueprint's "Login with Cover" blueprint (login-02), dark only, in the Swiss
 	// stone palette with the logo's gold as the one accent and the box art, without its colours, as the cover
 	// (wwwroot/portal/generals.css, poster.jpg). The markup is
@@ -58,14 +62,18 @@ namespace GenOnlineService.Identity
 			["google"] = "<g transform=\"scale(0.2)\"><path fill=\"#4285F4\" d=\"M117.6,61.3636364 C117.6,57.1090909 117.218182,53.0181818 116.509091,49.0909091 L60,49.0909091 L60,72.3 L92.2909091,72.3 C90.9,79.8 86.6727273,86.1545455 80.3181818,90.4090909 L80.3181818,105.463636 L99.7090909,105.463636 C111.054545,95.0181818 117.6,79.6363636 117.6,61.3636364 L117.6,61.3636364 Z\"/><path fill=\"#34A853\" d=\"M60,120 C76.2,120 89.7818182,114.627273 99.7090909,105.463636 L80.3181818,90.4090909 C74.9454545,94.0090909 68.0727273,96.1363636 60,96.1363636 C44.3727273,96.1363636 31.1454545,85.5818182 26.4272727,71.4 L6.38181818,71.4 L6.38181818,86.9454545 C16.2545455,106.554545 36.5454545,120 60,120 L60,120 Z\"/><path fill=\"#FBBC05\" d=\"M26.4272727,71.4 C25.2272727,67.8 24.5454545,63.9545455 24.5454545,60 C24.5454545,56.0454545 25.2272727,52.2 26.4272727,48.6 L26.4272727,33.0545455 L6.38181818,33.0545455 C2.31818182,41.1545455 0,50.3181818 0,60 C0,69.6818182 2.31818182,78.8454545 6.38181818,86.9454545 L26.4272727,71.4 L26.4272727,71.4 Z\"/><path fill=\"#EA4335\" d=\"M60,23.8636364 C68.8090909,23.8636364 76.7181818,26.8909091 82.9363636,32.8363636 L100.145455,15.6272727 C89.7545455,5.94545455 76.1727273,0 60,0 C36.5454545,0 16.2545455,13.4454545 6.38181818,33.0545455 L26.4272727,48.6 C31.1454545,34.4181818 44.3727273,23.8636364 60,23.8636364 L60,23.8636364 Z\"/></g>",
 		};
 
+		private static readonly HashSet<string> s_directional = new(StringComparer.Ordinal) { "arrow-right", "log-in", "log-out" };
+
 		private static string E(string? value) => WebUtility.HtmlEncode(value ?? String.Empty);
 
 		// An inline Lucide icon by name; nothing for an unknown name
 		public static string Icon(string name, string size = "bb:h-4 bb:w-4")
 		{
 			string? content = LucideIconData.GetIcon(name);
+			// an arrow points the way the text reads, so it mirrors on a right-to-left page (generals.css .go-directional)
+			string directional = s_directional.Contains(name) ? " go-directional" : String.Empty;
 			return content == null ? String.Empty
-				: $"<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"{size} bb:shrink-0\" aria-hidden=\"true\">{content}</svg>";
+				: $"<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"{size} bb:shrink-0{directional}\" aria-hidden=\"true\">{content}</svg>";
 		}
 
 		// A provider's mark: its own for Discord, Steam, Google and GameReplays, and a sign-in arrow for any other
@@ -82,38 +90,61 @@ namespace GenOnlineService.Identity
 
 		// A whole page, as login-02: the logo top left, the title, an optional description and the already encoded body
 		// centred in the left column, and the box art as the cover on the right of a wide screen
-		public static string Document(string title, string body, string? description = null)
+		// (in English, without the language switch, when no language is given: the staff pages' refusals)
+		public static string Document(string title, string body, string? description = null, PortalLanguage? language = null)
 		{
-			return Head(title)
+			CultureInfo culture = AccountsText.Resolve(language?.Culture);
+			return Head(title, culture)
 				+ "<div class=\"go-split\">"
-				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\" width=\"190\" height=\"69\"></a>"
+				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
 				+ "<div class=\"bb:w-full bb:max-w-sm bb:space-y-6\">"
 				+ $"<div class=\"bb:space-y-2 bb:text-center\"><h1 class=\"go-heading\">{E(title)}</h1>"
 				+ (description == null ? String.Empty : $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p>")
 				+ "</div>"
 				+ $"<div class=\"bb:space-y-4 bb:text-sm\">{body}</div>"
+				+ (language == null ? String.Empty : LanguageSwitch(language))
 				+ "</div></main><div class=\"go-cover\" role=\"presentation\"></div></div></body></html>";
 		}
 
 		// The head and the opening body of every page: dark only, the theme's .dark variables with the stone palette over them
-		private static string Head(string title)
-			=> "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+		// lang and dir follow the page's language, so Arabic reads right to left
+		private static string Head(string title, CultureInfo culture)
+			=> $"<!doctype html><html lang=\"{E(culture.Name)}\" dir=\"{(AccountsText.IsRightToLeft(culture) ? "rtl" : "ltr")}\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
 				+ "<meta name=\"color-scheme\" content=\"dark\"><meta name=\"theme-color\" content=\"#0c0a09\">"
-				+ $"<title>{E(title)} · Generals Online</title>"
+				+ $"<title>{AccountsText.Format("Page.Title", culture, E(title))}</title>"
 				+ $"<link rel=\"stylesheet\" href=\"{ThemePath}\"><link rel=\"stylesheet\" href=\"{StylesheetPath}\"><link rel=\"stylesheet\" href=\"{GeneralsPath}\">"
 				+ "</head><body class=\"bb:bg-background bb:text-foreground\">";
 
 		// A signed-in page of the portal (S12), after the Top Navigation Bar blueprint (nav-01) and GitLab's user settings: a
 		// top bar with the logo, who is signed in and the already encoded actions on the right, then the title over the
 		// settings sections
-		public static string AppDocument(string title, string signedInAs, string actions, string body)
-			=> Head(title)
-				+ "<a href=\"#content\" class=\"go-skip\">Skip to content</a><header class=\"go-topbar\">"
-				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{LogoPath}\" alt=\"Generals Online\" width=\"190\" height=\"69\"></a>"
-				+ $"<div class=\"go-topbar-actions\"><span class=\"bb:text-sm bb:font-medium\">{E(signedInAs)}</span>{actions}</div>"
+		public static string AppDocument(string title, string signedInAs, string actions, string body, PortalLanguage? language = null)
+		{
+			CultureInfo culture = AccountsText.Resolve(language?.Culture);
+			return Head(title, culture)
+				+ $"<a href=\"#content\" class=\"go-skip\">{E(AccountsText.Get("Skip", culture))}</a><header class=\"go-topbar\">"
+				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{LogoPath}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
+				+ $"<div class=\"go-topbar-actions\">{(language == null ? String.Empty : LanguageSwitch(language))}<span class=\"bb:text-sm bb:font-medium\">{E(signedInAs)}</span>{actions}</div>"
 				+ "</header>"
 				+ $"<main id=\"content\" class=\"go-column\" tabindex=\"-1\"><h1 class=\"go-heading\">{E(title)}</h1>{body}</main>"
 				+ "</body></html>";
+		}
+
+		// The language switch: every language in its own name, the page's own marked current, each a link that sets the
+		// language cookie and comes back to the same page (AccountsController.SetLanguage)
+		public static string LanguageSwitch(PortalLanguage language)
+		{
+			CultureInfo current = AccountsText.Resolve(language.Culture);
+			string links = String.Concat(AccountsText.Supported.Select(c =>
+			{
+				string href = $"{LanguagePath}?culture={Uri.EscapeDataString(c.Name)}&ReturnUrl={Uri.EscapeDataString(language.ReturnUrl)}";
+				string currentMark = c.Name == current.Name ? " aria-current=\"true\"" : String.Empty;
+				return $"<a href=\"{E(href)}\" lang=\"{E(c.Name)}\" hreflang=\"{E(c.Name)}\" class=\"go-language\"{currentMark}>{E(AccountsText.NativeName(c))}</a>";
+			}));
+			return $"<nav class=\"go-languages\" aria-label=\"{E(AccountsText.Get("Language", current))}\">{links}</nav>";
+		}
+
+		public const string LanguagePath = "/users/language";
 
 		// A settings section, as GitLab's user settings: the title and a short description in the left column, the already
 		// encoded content and an optional row of buttons on the right; sections stack with a rule between them
@@ -172,10 +203,10 @@ namespace GenOnlineService.Identity
 
 		// The sign-in providers, as login-02's buttons under "Or continue with": full width, one under another, each in its
 		// brand's colours with its mark (an unknown provider stays an outline button)
-		public static string Providers(IEnumerable<(string Href, string Provider, string DisplayName)> providers)
+		public static string Providers(IEnumerable<(string Href, string Provider, string DisplayName)> providers, CultureInfo? culture = null)
 		{
 			string buttons = String.Concat(providers.Select(p =>
-				$"<a href=\"{E(p.Href)}\" class=\"{OutlineClass} go-provider go-provider-{E(p.Provider)}\">{ProviderMark(p.Provider)}Sign in with {E(p.DisplayName)}</a>"));
+				$"<a href=\"{E(p.Href)}\" class=\"{OutlineClass} go-provider go-provider-{E(p.Provider)}\">{ProviderMark(p.Provider)}{E(AccountsText.Format("SignIn.WithProvider", culture, p.DisplayName))}</a>"));
 			return buttons.Length == 0 ? String.Empty : $"<div class=\"go-providers\">{buttons}</div>";
 		}
 

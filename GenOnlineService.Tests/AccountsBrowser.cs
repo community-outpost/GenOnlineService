@@ -127,6 +127,10 @@ internal sealed class AccountsBrowser
 		int query = pathAndQuery.IndexOf('?');
 		context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery.Substring(0, query);
 		context.Request.QueryString = query < 0 ? QueryString.Empty : new QueryString(pathAndQuery.Substring(query));
+		foreach ((string name, string value) in Headers)
+		{
+			context.Request.Headers[name] = value;
+		}
 		if (m_cookies.Count > 0)
 		{
 			context.Request.Headers.Cookie = String.Join("; ", m_cookies.Select(c => $"{c.Key}={c.Value}"));
@@ -162,6 +166,11 @@ internal sealed class AccountsBrowser
 
 		return new PageResponse(context.Response.StatusCode, Encoding.UTF8.GetString(responseBody.ToArray()), context.Response.Headers.Location.ToString() is { Length: > 0 } l ? l : null, setCookies, context.Response.Headers.XFrameOptions.ToString());
 	}
+
+	// request headers every page sends, as a browser's Accept-Language
+	public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+	public string? Cookie(string name) => m_cookies.TryGetValue(name, out string? value) ? value : null;
 
 	public bool SignedIn => m_cookies.ContainsKey("go_session");
 
