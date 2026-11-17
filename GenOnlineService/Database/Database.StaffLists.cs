@@ -61,14 +61,18 @@ namespace Database
 	// What the list shows beside the account row: active sanctions, staff roles, review flags, matches and the rating
 	public sealed record StaffPlayerFacts(bool Banned, bool Muted, bool Flagged, int Matches, int? Rating, IReadOnlyList<string> Roles);
 
-	public sealed record StaffPlayerList(int Total, IReadOnlyList<StaffPlayerRow> Players, IReadOnlyDictionary<long, StaffPlayerFacts> Facts);
+	// Total is null past the count cap; HasNext says whether another page follows
+	public sealed record StaffPlayerList(int? Total, bool HasNext, IReadOnlyList<StaffPlayerRow> Players, IReadOnlyDictionary<long, StaffPlayerFacts> Facts);
 
 	// The staff list of every account (T17f), filtered, sorted and paged in the database
 	public static class StaffPlayerLists
 	{
 		private static readonly Regex s_tagged = new Regex(@"^(?<name>.+)#(?<tag>[0-9]{1,4})$", RegexOptions.CultureInvariant);
 
-		public static async Task<StaffPlayerList> ListAsync(AppDbContext db, StaffPlayerQuery query, DateTime utcNow, int skip, int take, CancellationToken cancellationToken = default)
+		// Counting stops here, as for the match list, so opening the list never counts every account
+		public const int TotalCap = 10_000;
+
+		public static async Task<StaffPlayerList> ListAsync(AppDbContext db, StaffPlayerQuery query, DateTime utcNow, int skip, int take, int totalCap = TotalCap, CancellationToken cancellationToken = default)
 		{
 			IQueryable<User> users = db.Users.AsNoTracking();
 			long termID = 0;
@@ -106,12 +110,18 @@ namespace Database
 				users = users.Where(u => u.LastSignInAt != null && u.LastSignInAt >= from);
 			}
 
-			int total = await users.CountAsync(cancellationToken);
+			int counted = await users.Take(totalCap + 1).CountAsync(cancellationToken);
 			string? order = query.OrderBy ?? (query.Term == null ? StaffPlayerOrders.LastSignInAt : null);
 			List<StaffPlayerRow> page = order == StaffPlayerOrders.LastSignInAt
-				? await BySignInAsync(users, query.Descending ?? true, skip, take, cancellationToken)
-				: await Rows(Ordered(db, users, query, termID).Skip(skip).Take(take), cancellationToken);
-			return new StaffPlayerList(total, page, await FactsOf(db, page.Select(p => p.ID).ToArray(), query.AntiCheat, utcNow, cancellationToken));
+				? await BySignInAsync(users, query.Descending ?? true, skip, take + 1, cancellationToken)
+				: await Rows(Ordered(db, users, query, termID).Skip(skip).Take(take + 1), cancellationToken);
+			// one row past the page says whether another follows
+			bool hasNext = page.Count > take;
+			if (hasNext)
+			{
+				page.RemoveAt(page.Count - 1);
+			}
+			return new StaffPlayerList(counted > totalCap ? null : counted, hasNext, page, await FactsOf(db, page.Select(p => p.ID).ToArray(), query.AntiCheat, utcNow, cancellationToken));
 		}
 
 		private static Task<List<StaffPlayerRow>> Rows(IQueryable<User> users, CancellationToken cancellationToken) =>
@@ -123,18 +133,14 @@ namespace Database
 		private static async Task<List<StaffPlayerRow>> BySignInAsync(IQueryable<User> users, bool descending, int skip, int take, CancellationToken cancellationToken)
 		{
 			IQueryable<User> signedIn = users.Where(u => u.LastSignInAt != null);
-			int signedInCount = await signedIn.CountAsync(cancellationToken);
-
-			var page = new List<StaffPlayerRow>(take);
-			if (skip < signedInCount)
-			{
-				IQueryable<User> bySignIn = descending
-					? signedIn.OrderByDescending(u => u.LastSignInAt).ThenByDescending(u => u.ID)
-					: signedIn.OrderBy(u => u.LastSignInAt).ThenBy(u => u.ID);
-				page.AddRange(await Rows(bySignIn.Skip(skip).Take(take), cancellationToken));
-			}
+			IQueryable<User> bySignIn = descending
+				? signedIn.OrderByDescending(u => u.LastSignInAt).ThenByDescending(u => u.ID)
+				: signedIn.OrderBy(u => u.LastSignInAt).ThenBy(u => u.ID);
+			List<StaffPlayerRow> page = await Rows(bySignIn.Skip(skip).Take(take), cancellationToken);
 			if (page.Count < take)
 			{
+				// the signed-in part ends on this page, so its length is known without counting it, unless the page starts past it
+				int signedInCount = page.Count > 0 || skip == 0 ? skip + page.Count : await signedIn.CountAsync(cancellationToken);
 				IQueryable<User> never = users.Where(u => u.LastSignInAt == null);
 				never = descending ? never.OrderByDescending(u => u.ID) : never.OrderBy(u => u.ID);
 				page.AddRange(await Rows(never.Skip(Math.Max(0, skip - signedInCount)).Take(take - page.Count), cancellationToken));

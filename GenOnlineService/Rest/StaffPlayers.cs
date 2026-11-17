@@ -139,11 +139,16 @@ namespace GenOnlineService.Rest
 			["30d"] = TimeSpan.FromDays(30)
 		};
 
+		// The first value of a parameter given more than once, as query binding takes it; null when absent
+		public static string? First(IQueryCollection query, string name) =>
+			query.TryGetValue(name, out var values) && values.Count > 0 ? values[0] : null;
+
 		// An absent or empty query lists every account; a query keeps the rules of ReadSearch. Every other argument is optional.
 		public static (StaffPlayerListArgs Args, Failure? Failure) ReadList(IQueryCollection query)
 		{
 			string? search = null;
-			if (query.TryGetValue("query", out var queryText) && queryText.ToString().Trim().Length > 0)
+			string? queryText = First(query, "query");
+			if (queryText != null && queryText.Trim().Length > 0)
 			{
 				(search, Failure? failure) = ReadSearch(queryText);
 				if (failure != null)
@@ -153,9 +158,9 @@ namespace GenOnlineService.Rest
 			}
 
 			var filters = new HashSet<string>(StringComparer.Ordinal);
-			if (query.TryGetValue("filter", out var filterText))
+			if (First(query, "filter") is string filterText)
 			{
-				foreach (string filter in filterText.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+				foreach (string filter in filterText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
 				{
 					if (!StaffPlayerFilters.All.Contains(filter))
 					{
@@ -166,9 +171,9 @@ namespace GenOnlineService.Rest
 			}
 
 			TimeSpan? within = null;
-			if (query.TryGetValue("signed_in_within", out var withinText) && withinText.ToString().Length > 0)
+			if (First(query, "signed_in_within") is { Length: > 0 } withinText)
 			{
-				if (!s_signInWindows.TryGetValue(withinText.ToString(), out TimeSpan window))
+				if (!s_signInWindows.TryGetValue(withinText, out TimeSpan window))
 				{
 					return (new StaffPlayerListArgs(), Result.Invalid("signed_in_within"));
 				}
@@ -176,19 +181,24 @@ namespace GenOnlineService.Rest
 			}
 
 			string? orderBy = null;
-			if (query.TryGetValue("order_by", out var orderText) && orderText.ToString().Length > 0)
+			if (First(query, "order_by") is { Length: > 0 } orderText)
 			{
-				if (!Database.StaffPlayerOrders.All.Contains(orderText.ToString()))
+				if (!Database.StaffPlayerOrders.All.Contains(orderText))
 				{
 					return (new StaffPlayerListArgs(), Result.Invalid("order_by"));
 				}
-				orderBy = orderText.ToString();
+				orderBy = orderText;
 			}
 
 			bool? descending = null;
-			if (query.TryGetValue("sort", out var sortText) && sortText.ToString().Length > 0)
+			if (First(query, "sort") is { Length: > 0 } sortText)
 			{
-				descending = sortText.ToString() switch
+				// a search keeps its own order unless order_by names one, so a direction alone would do nothing
+				if (search != null && orderBy == null)
+				{
+					return (new StaffPlayerListArgs(), Result.Invalid("sort"));
+				}
+				descending = sortText switch
 				{
 					"asc" => false,
 					"desc" => true,
@@ -204,7 +214,7 @@ namespace GenOnlineService.Rest
 		}
 
 		// onlineIDs are this process's connected players; antiCheat is whether the caller may review anti-cheat rows
-		public static async Task<(int Total, StaffPlayerListResponse Response)> ListAsync(IDbContextFactory<AppDbContext> dbFactory, StaffPlayerListArgs args, IReadOnlySet<long> onlineIDs, bool antiCheat, DateTime utcNow, int skip, int take, CancellationToken cancellationToken = default)
+		public static async Task<(Database.StaffPlayerList List, StaffPlayerListResponse Response)> ListAsync(IDbContextFactory<AppDbContext> dbFactory, StaffPlayerListArgs args, IReadOnlySet<long> onlineIDs, bool antiCheat, DateTime utcNow, int skip, int take, CancellationToken cancellationToken = default)
 		{
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken);
 			Database.StaffPlayerList list = await Database.StaffPlayerLists.ListAsync(db, new Database.StaffPlayerQuery
@@ -219,9 +229,9 @@ namespace GenOnlineService.Rest
 				SignedInSince = args.SignedInWithin is TimeSpan within ? utcNow - within : null,
 				OrderBy = args.OrderBy,
 				Descending = args.Descending
-			}, utcNow, skip, take, cancellationToken);
+			}, utcNow, skip, take, cancellationToken: cancellationToken);
 
-			return (list.Total, new StaffPlayerListResponse
+			return (list, new StaffPlayerListResponse
 			{
 				Players = list.Players.Select(row =>
 				{
@@ -404,8 +414,16 @@ namespace GenOnlineService.Rest
 				if (pageFailure == null)
 				{
 					bool antiCheat = (await m_authorization.AuthorizeAsync(User, PermissionPolicies.For(Permissions.AnticheatReview))).Succeeded;
-					(int total, StaffPlayerListResponse response) = await StaffPlayerActions.ListAsync(m_dbFactory, args, StaffPlayerActions.OnlineIDs(), antiCheat, DateTime.UtcNow, page.Skip, page.PerPage, HttpContext.RequestAborted);
-					Paging.WriteOffsetHeaders(HttpContext, page, total);
+					(Database.StaffPlayerList list, StaffPlayerListResponse response) = await StaffPlayerActions.ListAsync(m_dbFactory, args, StaffPlayerActions.OnlineIDs(), antiCheat, DateTime.UtcNow, page.Skip, page.PerPage, HttpContext.RequestAborted);
+					// past 10,000 rows the list is not counted, as the match list
+					if (list.Total is int total)
+					{
+						Paging.WriteOffsetHeaders(HttpContext, page, total);
+					}
+					else
+					{
+						Paging.WriteOffsetHeaders(HttpContext, page, list.HasNext);
+					}
 					return RestResults.Ok(response);
 				}
 				failure = pageFailure;

@@ -34,6 +34,16 @@ public class PortalListQueryTests
 		Assert.Equal("Red#0001", query.ToAddress()["q"]);
 	}
 
+	// A pasted address with a search and a direction but no order: the host refuses that pair, so the page leaves the direction out
+	[Fact]
+	public void ASearchWithoutAnOrderDropsTheDirection()
+	{
+		Assert.Null(PortalPlayerQuery.FromAddress("gen", null, null, null, "asc").Sort);
+		Assert.Equal("asc", PortalPlayerQuery.FromAddress("gen", null, null, "name", "asc").Sort);
+		Assert.Equal("asc", PortalPlayerQuery.FromAddress(null, null, null, null, "asc").Sort);
+		Assert.DoesNotContain("sort=", (new PortalPlayerQuery { Search = "gen", Sort = "asc" }).ToApiQuery());
+	}
+
 	[Fact]
 	public void AnEmptyOrUnknownPlayerAddressIsTheWholeList()
 	{

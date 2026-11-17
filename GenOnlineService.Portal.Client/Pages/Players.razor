@@ -277,7 +277,8 @@
 
     private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow>> LoadAsync(DataGridRequest request)
     {
-        PortalAnswer<PortalPlayerPage> answer = await Api.ListPlayersAsync(m_query, request.StartIndex, request.Count ?? 25, request.CancellationToken);
+        int count = request.Count ?? 25;
+        PortalAnswer<PortalPlayerPage> answer = await Api.ListPlayersAsync(m_query, request.StartIndex, count, request.CancellationToken);
         m_now = DateTime.UtcNow;
         string? error = answer.Ok ? null : answer.Error;
         if (error != m_error)
@@ -287,6 +288,9 @@
         }
 
         PortalPlayerPage page = answer.Value ?? new PortalPlayerPage();
-        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow> { Items = page.Players.ToList(), TotalItemCount = page.Total };
+        // past 10,000 accounts the host does not count (no X-Total, read as 0): a full page then means one more may follow
+        int counted = request.StartIndex + page.Players.Count;
+        int total = page.Total >= counted ? page.Total : counted + (page.Players.Count == count ? count : 0);
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow> { Items = page.Players.ToList(), TotalItemCount = total };
     }
 }

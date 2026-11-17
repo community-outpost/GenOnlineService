@@ -125,11 +125,12 @@ namespace GenOnlineService.Rest
 			return (new StaffMatchListArgs { Type = type, Map = map, Player = player, From = from, To = to, Flagged = flagged }, null);
 		}
 
-		// The trimmed value, null when absent or empty
+		// The trimmed first value, null when absent or empty
 		private static string? Text(IQueryCollection query, string name) =>
-			query.TryGetValue(name, out var value) && value.ToString().Trim() is { Length: > 0 } text ? text : null;
+			StaffPlayerActions.First(query, name)?.Trim() is { Length: > 0 } text ? text : null;
 
-		// A day (yyyy-MM-dd, the whole UTC day: from its start, or to its end) or an ISO 8601 time; a time without Z or an offset is UTC
+		// A day (yyyy-MM-dd, the whole UTC day: from its start, or to its end) or an ISO 8601 time; a time without Z or an offset is UTC.
+		// "to" the last day of the calendar has no next day to stop before, so it leaves the list open-ended.
 		private static (DateTime? Time, bool Valid) ReadTime(string? text, bool endOfDay)
 		{
 			if (text == null)
@@ -138,6 +139,10 @@ namespace GenOnlineService.Rest
 			}
 			if (DateTime.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out DateTime day))
 			{
+				if (endOfDay && day.Date == DateTime.MaxValue.Date)
+				{
+					return (null, true);
+				}
 				return (DateTime.SpecifyKind(endOfDay ? day.Date.AddDays(1) : day.Date, DateTimeKind.Utc), true);
 			}
 			if (text.Contains('T') && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset time))

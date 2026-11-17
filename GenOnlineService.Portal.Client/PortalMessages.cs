@@ -451,13 +451,14 @@ namespace GenOnlineService.Portal.Client
 		public bool IsFiltered => Filters.Count > 0 || SignedInWithin != null;
 
 		// Unknown values in a typed or old address are dropped, so the list still opens
+		// A direction with a search but no order is left out: the host keeps a search's own order and refuses that pair
 		public static PortalPlayerQuery FromAddress(string? q, string? filter, string? signedInWithin, string? orderBy, string? sort) => new PortalPlayerQuery
 		{
 			Search = String.IsNullOrWhiteSpace(q) ? null : q.Trim(),
 			Filters = (filter ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(AllFilters.Contains).Distinct().ToList(),
 			SignedInWithin = signedInWithin is "24h" or "7d" or "30d" ? signedInWithin : null,
 			OrderBy = orderBy is "last_sign_in_at" or "created_at" or "name" or "matches" ? orderBy : null,
-			Sort = sort is "asc" or "desc" ? sort : null
+			Sort = sort is "asc" or "desc" && (String.IsNullOrWhiteSpace(q) || orderBy is "last_sign_in_at" or "created_at" or "name" or "matches") ? sort : null
 		};
 
 		// The page's address arguments; null leaves one out
@@ -467,7 +468,7 @@ namespace GenOnlineService.Portal.Client
 			["filter"] = Filters.Count == 0 ? null : String.Join(',', Filters),
 			["signed_in_within"] = SignedInWithin,
 			["order_by"] = OrderBy,
-			["sort"] = Sort
+			["sort"] = Search != null && OrderBy == null ? null : Sort
 		};
 
 		public string ToApiQuery() => PortalQueries.Join(new Dictionary<string, object?>(ToAddress().Where(a => a.Key != "q")) { ["query"] = Search });

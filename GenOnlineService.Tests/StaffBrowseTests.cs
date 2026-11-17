@@ -423,6 +423,97 @@ public class StaffBrowseTests
 		Assert.Equal("page", FieldOf(await s.Moderator.Get("/api/v1/matches/search?page=0")));
 	}
 
+	// A day as far as dates go has no next day: "to" that day is open-ended; a time outside the range is refused, never a 500
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task MatchesTakeTheLargestDatesWithoutFailing(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		Seeded s = await Seed(probe);
+
+		Assert.Equal([s.M4, s.M2, s.M1, s.M3], Ids(await s.Moderator.Get("/api/v1/matches/search?to=9999-12-31"), "matches"));
+		Assert.Empty(Ids(await s.Moderator.Get("/api/v1/matches/search?from=9999-12-31"), "matches"));
+		Assert.Equal([s.M4, s.M2, s.M1, s.M3], Ids(await s.Moderator.Get("/api/v1/matches/search?from=0001-01-01&to=9999-12-31"), "matches"));
+		Assert.Equal([s.M4, s.M2, s.M1, s.M3], Ids(await s.Moderator.Get("/api/v1/matches/search?to=" + Uri.EscapeDataString("9999-12-31T23:59:59.9999999+00:00")), "matches"));
+		Assert.Equal([s.M4, s.M2, s.M1, s.M3], Ids(await s.Moderator.Get("/api/v1/matches/search?from=" + Uri.EscapeDataString("0001-01-01T00:00:00-01:00")), "matches"));
+		// past the end or before the start of the calendar once the offset is applied
+		Assert.Equal("to", FieldOf(await s.Moderator.Get("/api/v1/matches/search?to=" + Uri.EscapeDataString("9999-12-31T23:59:59-01:00"))));
+		Assert.Equal("from", FieldOf(await s.Moderator.Get("/api/v1/matches/search?from=" + Uri.EscapeDataString("0001-01-01T00:00:00+01:00"))));
+	}
+
+	// With a query the order is the search's own unless order_by names one, so a direction alone is refused rather than ignored
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task PlayersRefuseADirectionWithoutAnOrderForASearch(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		Seeded s = await Seed(probe);
+
+		Assert.Equal("sort", FieldOf(await s.Moderator.Get("/api/v1/players/search?query=general&sort=asc")));
+		Assert.Equal("sort", FieldOf(await s.Moderator.Get("/api/v1/players/search?query=general&sort=desc")));
+		Assert.Equal([s.Alpha.ID, s.Bravo.ID], Ids(await s.Moderator.Get("/api/v1/players/search?query=general&order_by=name&sort=desc"), "players"));
+		// without a query the direction applies to the last-seen order
+		Assert.Equal(200, (await s.Moderator.Get("/api/v1/players/search?sort=asc")).Status);
+	}
+
+	// A parameter given twice takes its first value, as the query binding of the search did
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ARepeatedParameterTakesItsFirstValue(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		Seeded s = await Seed(probe);
+
+		Assert.Equal([s.Bravo.ID, s.Alpha.ID], Ids(await s.Moderator.Get("/api/v1/players/search?query=GENERAL&query=echo"), "players"));
+		Assert.Equal([s.Bravo.ID], Ids(await s.Moderator.Get("/api/v1/players/search?filter=banned&filter=muted"), "players"));
+		Assert.Equal(Ids(await s.Moderator.Get("/api/v1/players/search?order_by=name"), "players"), Ids(await s.Moderator.Get("/api/v1/players/search?order_by=name&order_by=matches"), "players"));
+		Assert.Equal([s.M1, s.M3], Ids(await s.Moderator.Get("/api/v1/matches/search?map=desert&map=alpine"), "matches"));
+		Assert.Equal([s.M4, s.M1], Ids(await s.Moderator.Get("/api/v1/matches/search?type=quick_match&type=custom"), "matches"));
+	}
+
+	// The player list stops counting past the cap as the match list does, and every order pages without a gap or a repeat
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task PlayersStopCountingPastTheCap(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		await Seed(probe);
+		await using AppDbContext db = probe.Open();
+
+		StaffPlayerList capped = await StaffPlayerLists.ListAsync(db, new StaffPlayerQuery(), s_now, 0, 3, totalCap: 5);
+		Assert.Null(capped.Total);
+		Assert.True(capped.HasNext);
+		StaffPlayerList counted = await StaffPlayerLists.ListAsync(db, new StaffPlayerQuery(), s_now, 6, 3, totalCap: 8);
+		Assert.Equal(8, counted.Total);
+		Assert.False(counted.HasNext);
+		Assert.Equal(2, counted.Players.Count);
+
+		foreach (string order in StaffPlayerOrders.All)
+		{
+			foreach (bool descending in new[] { true, false })
+			{
+				var query = new StaffPlayerQuery { OrderBy = order, Descending = descending };
+				long[] whole = (await StaffPlayerLists.ListAsync(db, query, s_now, 0, 100)).Players.Select(p => p.ID).ToArray();
+				var paged = new List<long>();
+				for (int skip = 0; ; skip += 3)
+				{
+					StaffPlayerList page = await StaffPlayerLists.ListAsync(db, query, s_now, skip, 3, totalCap: 4);
+					paged.AddRange(page.Players.Select(p => p.ID));
+					if (!page.HasNext)
+					{
+						break;
+					}
+				}
+				Assert.Equal(8, whole.Length);
+				Assert.Equal(whole, paged);
+			}
+		}
+	}
+
 	// A long history is not counted to the end: past the cap the answer has no X-Total and still says whether a next page exists
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
