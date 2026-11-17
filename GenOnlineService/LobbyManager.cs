@@ -775,7 +775,9 @@ namespace GenOnlineService
 
 				(Int64, Int64) pair = PairKey(userID, peer.UserID);
 				bool peerReturning = IsReturningFromHandoverLocked(peer);
-				if ((returning || peerReturning) && m_HandoverRestartedPairs.Contains(pair))
+				// only a member still on the connection it came back on skips a pair the handover already restarted,
+				// any newer connection restarts its pairs as an ordinary reconnect does
+				if (returning && m_HandoverRestartedPairs.Contains(pair))
 				{
 					continue;
 				}
@@ -786,12 +788,18 @@ namespace GenOnlineService
 					continue;
 				}
 
-				bool handover = CancelDeferredHandoverPairLocked(pair) || returning || peerReturning;
+				CancelDeferredHandoverPairLocked(pair);
 				s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} after a reconnect", LobbyID, userID, peer.UserID);
 				RestartPairLocked(member, peer, false);
-				if (handover)
+
+				// an ordinary reconnect's restart is not the handover's one, so the other member's return restarts the pair again
+				if (returning)
 				{
 					m_HandoverRestartedPairs.Add(pair);
+				}
+				else
+				{
+					m_HandoverRestartedPairs.Remove(pair);
 				}
 			}
 
@@ -835,7 +843,12 @@ namespace GenOnlineService
 			s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} waits for the other member back from the handover", LobbyID, pair.Item1, pair.Item2);
 			DeferredHandoverPair deferred = new();
 			m_HandoverDeferredPairs[pair] = deferred;
-			deferred.Timer = Clock.CreateTimer(_ => _ = RestartDeferredHandoverPairAsync(pair, deferred), null, TimeSpan.FromMilliseconds(HandoverSignallingSettings.GraceMs), Timeout.InfiniteTimeSpan);
+
+			// the timer must not capture this flow, which holds the lobby gate: its callback takes the gate itself
+			using (ExecutionContext.SuppressFlow())
+			{
+				deferred.Timer = Clock.CreateTimer(_ => _ = RestartDeferredHandoverPairAsync(pair, deferred), null, TimeSpan.FromMilliseconds(HandoverSignallingSettings.GraceMs), Timeout.InfiniteTimeSpan);
+			}
 		}
 
 		// True when the pair waited for its second member, whose restart now covers it
@@ -850,7 +863,8 @@ namespace GenOnlineService
 			return true;
 		}
 
-		// The grace expired before the second member's SetPeerTransports: the pair restarts once for whoever is still connected
+		// The grace expired before the second member's SetPeerTransports: the pair restarts once for whoever is still connected.
+		// A lobby moving away when it fires restarts nothing; if that move is cancelled, the late member's own return restarts the pair
 		private async Task RestartDeferredHandoverPairAsync((Int64, Int64) pair, DeferredHandoverPair deferred)
 		{
 			try

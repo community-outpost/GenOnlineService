@@ -331,4 +331,68 @@ public class HandoverSignallingTests
 		await rig.AdvanceAsync(GraceMs);
 		Assert.Equal(0, rig.Count);
 	}
+
+	[Fact]
+	public async Task ANewConnectionOfAMemberRestartsItsPairsWhileTheOtherMemberIsStillLate()
+	{
+		Rig rig = new(A, B);
+		await rig.ReturnAsync(A);
+		await rig.ReturnAsync(B);
+		await rig.SetPeerTransportsAsync(A);
+		await rig.AdvanceAsync(GraceMs);
+		Assert.Equal((1, 1), (rig.To(A, B), rig.To(B, A)));
+
+		// a's new connection restarts the pair as any reconnect does, and b's SetPeerTransports after it restarts it again
+		rig.Reconnect(A);
+		await rig.SetPeerTransportsAsync(A);
+		Assert.Equal((2, 2), (rig.To(A, B), rig.To(B, A)));
+		await rig.SetPeerTransportsAsync(B);
+		Assert.Equal((3, 3), (rig.To(A, B), rig.To(B, A)));
+		await rig.AdvanceAsync(GraceMs * 2);
+		Assert.Equal(6, rig.Count);
+	}
+
+	[Fact]
+	public async Task EveryNewConnectionOfAMemberRestartsItsPairsBeforeTheOtherMembersSetPeerTransports()
+	{
+		Rig rig = new(A, B);
+		await rig.ReturnAsync(A);
+		await rig.ReturnAsync(B);
+
+		// a moved on to a new connection before its first SetPeerTransports, so it no longer counts as back from the handover
+		rig.Reconnect(A);
+		await rig.SetPeerTransportsAsync(A);
+		Assert.Equal((1, 1), (rig.To(A, B), rig.To(B, A)));
+		rig.Reconnect(A);
+		await rig.SetPeerTransportsAsync(A);
+		Assert.Equal((2, 2), (rig.To(A, B), rig.To(B, A)));
+		await rig.SetPeerTransportsAsync(B);
+		Assert.Equal((3, 3), (rig.To(A, B), rig.To(B, A)));
+		await rig.AdvanceAsync(GraceMs * 2);
+		Assert.Equal(6, rig.Count);
+	}
+
+	// The system clock with the grace shortened, its timers run on the thread pool with the flow they were created in
+	private sealed class ShortSystemClock : TimeProvider
+	{
+		public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+			TimeProvider.System.CreateTimer(callback, state, TimeSpan.FromMilliseconds(20), period);
+	}
+
+	[Fact]
+	public async Task TheGraceRestartRunsOnTheSystemClock()
+	{
+		Rig rig = new(A, B);
+		rig.Lobby.Clock = new ShortSystemClock();
+		await rig.ReturnAsync(A);
+		await rig.ReturnAsync(B);
+		await rig.SetPeerTransportsAsync(A);
+
+		long until = Environment.TickCount64 + 5000;
+		while (rig.Count < 2 && Environment.TickCount64 < until)
+		{
+			await Task.Delay(5);
+		}
+		Assert.Equal((1, 1), (rig.To(A, B), rig.To(B, A)));
+	}
 }
