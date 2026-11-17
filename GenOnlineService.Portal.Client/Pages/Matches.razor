@@ -1,0 +1,155 @@
+@* The match lookup and the match page: stock cards and the stock table, the fields of GET /api/v1/matches/:id *@
+@page "/admin/matches"
+@page "/admin/matches/{Id:long}"
+@inject PortalApi Api
+@inject NavigationManager Navigation
+
+<PageTitle>@(Id is long id ? $"Match {id}" : "Matches") · Generals Online</PageTitle>
+
+<div class="bb:w-full bb:space-y-4">
+    <BbCard>
+        <BbCardHeader>
+            <BbCardTitle As="h1">Match lookup</BbCardTitle>
+            <BbCardDescription>Open a match, running or finished, by its id.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent>
+            <form class="bb:flex bb:items-end bb:gap-2" @onsubmit="Open">
+                <div class="bb:space-y-2">
+                    <BbLabel For="match-id">Match id</BbLabel>
+                    <BbInput Id="match-id" @bind-Value="m_typed" Placeholder="12345" Class="bb:w-64" />
+                </div>
+                <BbButton Type="ButtonType.Submit">Open</BbButton>
+            </form>
+            @if (m_invalid)
+            {
+                <p class="bb:mt-2 bb:text-sm bb:text-destructive" role="alert">A match id is a positive number.</p>
+            }
+        </BbCardContent>
+    </BbCard>
+
+    @if (m_error != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <BbAlertTitle>@(m_error == "not_found" ? $"No match {Id}" : "The match could not load")</BbAlertTitle>
+            <BbAlertDescription>@(m_error == "not_found" ? "No match has this id." : PortalText.Error(m_error))</BbAlertDescription>
+        </BbAlert>
+    }
+    else if (Id != null && m_match == null)
+    {
+        <BbSkeleton Class="bb:h-24 bb:w-full" />
+    }
+    else if (m_match is PortalMatch match)
+    {
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle>Match @match.Id: @match.Name</BbCardTitle>
+                <BbCardDescription>@match.Map.Name@(match.Map.Official ? "" : " (unofficial map)")</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2 bb:text-sm">
+                    <BbBadge Variant="BadgeVariant.Secondary">@match.Type</BbBadge>
+                    @if (match.RosterType.Length > 0)
+                    {
+                        <BbBadge Variant="BadgeVariant.Outline">@match.RosterType</BbBadge>
+                    }
+                    <BbBadge Variant="@(match.FinishedAt == null ? BadgeVariant.Default : BadgeVariant.Outline)">@(match.FinishedAt == null ? "running" : "finished")</BbBadge>
+                    <span class="bb:text-muted-foreground">started @PortalText.Date(match.StartedAt)@(match.FinishedAt is DateTime finished ? ", finished " + PortalText.Date(finished) + ", lasted " + PortalText.Duration((long)(finished - match.StartedAt).TotalSeconds) : "")</span>
+                </div>
+                <p class="bb:mt-2 bb:text-xs bb:text-muted-foreground">
+                    Executable CRC <span class="bb:font-mono">@match.Build.ExeCrc.ToString("X8")</span>, INI CRC <span class="bb:font-mono">@match.Build.IniCrc.ToString("X8")</span>@(match.OwnerId is long owner ? $", owner player {owner}" : "")
+                </p>
+            </BbCardContent>
+        </BbCard>
+
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle>Players</BbCardTitle>
+                <BbCardDescription>The name is the one the player had in the match. Replay and screenshot files are listed by name, the service has no download route for them.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <table class="bb:w-full bb:text-sm">
+                    <thead>
+                        <tr class="bb:border-b">
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Player</th>
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Slot</th>
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Side</th>
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Team</th>
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Result</th>
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Played</th>
+                            <th class="bb:h-10 bb:px-2 bb:text-start bb:align-middle bb:font-medium bb:text-muted-foreground">Files</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (PortalMatchSlot slot in match.Slots.Where(s => s.State != "open" && s.State != "closed"))
+                        {
+                            <tr class="bb:border-b">
+                                <td class="bb:p-2 bb:align-middle">
+                                    @if (slot.UserId is long userID)
+                                    {
+                                        <BbLink Href="@PortalRoutes.PlayerPage(userID)">@slot.FullName</BbLink>
+                                    }
+                                    else
+                                    {
+                                        @(slot.Name.Length > 0 ? slot.Name : "none")
+                                    }
+                                </td>
+                                <td class="bb:p-2 bb:align-middle">@slot.State</td>
+                                <td class="bb:p-2 bb:align-middle">@slot.Side</td>
+                                <td class="bb:p-2 bb:align-middle">@(slot.Team is int team ? team.ToString() : "none")</td>
+                                <td class="bb:p-2 bb:align-middle">
+                                    @if (slot.Desynced)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Destructive">desynced</BbBadge>
+                                    }
+                                    else if (match.FinishedAt != null)
+                                    {
+                                        <BbBadge Variant="@(slot.Won ? BadgeVariant.Default : BadgeVariant.Outline)">@(slot.Won ? "won" : "lost")</BbBadge>
+                                    }
+                                </td>
+                                <td class="bb:p-2 bb:align-middle">@PortalText.Duration(slot.DurationS)</td>
+                                <td class="bb:p-2 bb:align-middle">
+                                    @foreach (PortalMatchFile file in slot.Files)
+                                    {
+                                        <div class="bb:text-xs"><span class="bb:text-muted-foreground">@file.Type</span> <span class="bb:font-mono">@file.Name</span></div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </BbCardContent>
+        </BbCard>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public long? Id { get; set; }
+
+    private string? m_typed;
+    private bool m_invalid;
+    private PortalMatch? m_match;
+    private string? m_error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        m_match = null;
+        m_error = null;
+        if (Id is long id)
+        {
+            m_typed = id.ToString();
+            PortalAnswer<PortalMatch> answer = await Api.GetMatchAsync(id);
+            m_match = answer.Value;
+            m_error = answer.Ok ? null : answer.Error;
+        }
+    }
+
+    private void Open()
+    {
+        m_invalid = !long.TryParse(m_typed?.Trim(), out long id) || id < 1;
+        if (!m_invalid)
+        {
+            Navigation.NavigateTo(PortalRoutes.MatchPage(id));
+        }
+    }
+}

@@ -9,9 +9,12 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY GenOnlineService/GenOnlineService.csproj GenOnlineService/
+# the staff pages (/admin) are a WebAssembly project the service references and publishes with it
+COPY GenOnlineService.Portal.Client/GenOnlineService.Portal.Client.csproj GenOnlineService.Portal.Client/
 RUN dotnet restore GenOnlineService/GenOnlineService.csproj
 
 COPY GenOnlineService/ GenOnlineService/
+COPY GenOnlineService.Portal.Client/ GenOnlineService.Portal.Client/
 # The version (git tag based, see GoResolveVersion in the csproj) is computed by the build with git describe and
 # reported by /-/health, so .git is copied after restore. Without tags the build reports 0.0.0+<commit>.
 COPY .git .git

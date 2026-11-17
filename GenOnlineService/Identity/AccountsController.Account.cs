@@ -31,6 +31,7 @@ namespace GenOnlineService.Identity
 	public sealed partial class AccountsController
 	{
 		public const string AccountPath = "/profile";
+		private const string AdminPath = "/admin/reports";
 		private const string RenameField = "display_name";
 
 		[HttpGet("~/profile")]
@@ -161,12 +162,14 @@ namespace GenOnlineService.Identity
 			}
 			body.Append(PortalLook.Card("Linked sign-ins", "The accounts you can sign in with.", linked.ToString()));
 
+			// the staff pages (/admin) for a holder of a staff role; the page gate there checks the permission again
+			string admin = await m_passwords.IsStaff(user.ID) ? PortalLook.LinkButton(AdminPath, "Admin", icon: "shield", narrow: true) : String.Empty;
 			string signOut = FormStart("/users/sign_out", AccountPath) + PortalLook.Submit("Sign out", outline: true, icon: "log-out", narrow: true) + "</form>";
 			return new ContentResult
 			{
 				StatusCode = status,
 				ContentType = "text/html; charset=utf-8",
-				Content = PortalLook.AppDocument("Account", fullName, signOut, body.ToString())
+				Content = PortalLook.AppDocument("Account", fullName, admin + signOut, body.ToString())
 			};
 		}
 

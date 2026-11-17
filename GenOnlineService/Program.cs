@@ -1223,6 +1223,12 @@ namespace GenOnlineService
 			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
 			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
 
+			// the staff pages under /admin sign in with the accounts cookie, so they exist only where accounts run (S12)
+			if (accountsSettings.Enabled)
+			{
+				GenOnlineService.Portal.PortalSetup.AddPortal(builder.Services);
+			}
+
 			// "perm:<name>" policies, shared by user sessions and API tokens
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
@@ -1543,11 +1549,18 @@ namespace GenOnlineService
 
 			app.UseAuthorization();
 
+			if (accountsSettings.Enabled)
+			{
+				GenOnlineService.Portal.PortalSetup.UsePortal(app);
+			}
+
 			app.MapControllers();
 			if (accountsSettings.Enabled)
 			{
-				// the sign-in pages' stylesheet, theme and theme script (PortalLook): wwwroot/portal and Blazor Blueprint's _content
+				// the sign-in pages' stylesheet, theme and theme script (PortalLook): wwwroot/portal and Blazor Blueprint's _content,
+				// and the WebAssembly files of the staff pages (_framework)
 				app.MapStaticAssets();
+				GenOnlineService.Portal.PortalSetup.MapPortal(app);
 			}
 			app.MapHub<GenOnlineService.Realtime.RealtimeHub>(GenOnlineService.Realtime.RealtimeHub.Path, options =>
 			{

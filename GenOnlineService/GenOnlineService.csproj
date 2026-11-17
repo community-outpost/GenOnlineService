@@ -85,6 +85,13 @@
     <!-- The look of the sign-in pages (the portal trial's static pages): rendered on the server, no WebAssembly -->
     <PackageReference Include="BlazorBlueprint.Components" Version="4.2.0" />
     <PackageReference Include="BlazorBlueprint.Icons.Lucide" Version="2.0.2" />
+    <!-- Serves the WebAssembly staff pages under /admin; no Blazor Server circuit is registered -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The browser side of the /admin staff pages (S12) -->
+    <ProjectReference Include="..\GenOnlineService.Portal.Client\GenOnlineService.Portal.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>

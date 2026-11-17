@@ -1,0 +1,192 @@
+@* The admin shell: the sidebar blueprints of the library (group, user menu in the footer) with their breadcrumb header; dark only, the logo of the sign-in pages *@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject PortalApi Api
+@inject NavigationManager Navigation
+
+<BbSidebarProvider>
+    <BbSidebar>
+        <BbSidebarHeader>
+            <a href="@PortalRoutes.AccountPage" class="go-admin-logo" aria-label="Generals Online">
+                <img src="@PortalRoutes.LogoPath" alt="Generals Online" />
+            </a>
+        </BbSidebarHeader>
+        <BbSidebarContent>
+            @if (Api.Session?.Staff == true)
+            {
+                <BbSidebarGroup>
+                    <BbSidebarGroupLabel>Moderation</BbSidebarGroupLabel>
+                    <BbSidebarMenu>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.ReportsPage" Tooltip="Reports">
+                                <LucideIcon Name="flag" Class="bb:h-4 bb:w-4" />
+                                <span>Reports</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                    </BbSidebarMenu>
+                </BbSidebarGroup>
+                <BbSidebarGroup>
+                    <BbSidebarGroupLabel>Players</BbSidebarGroupLabel>
+                    <BbSidebarMenu>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.PlayersPage" Tooltip="Player search">
+                                <LucideIcon Name="users" Class="bb:h-4 bb:w-4" />
+                                <span>Search</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                    </BbSidebarMenu>
+                </BbSidebarGroup>
+                <BbSidebarGroup>
+                    <BbSidebarGroupLabel>Matches</BbSidebarGroupLabel>
+                    <BbSidebarMenu>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.MatchesPage" Tooltip="Match lookup">
+                                <LucideIcon Name="swords" Class="bb:h-4 bb:w-4" />
+                                <span>Lookup</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                    </BbSidebarMenu>
+                </BbSidebarGroup>
+                @if (Api.Session.Can(PortalPermissions.AnticheatReview))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Anti-cheat</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            @foreach (PortalReviewList list in PortalReviewList.All)
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AntiCheatList(list.Kind)" Tooltip="@list.Title">
+                                        <LucideIcon Name="shield-alert" Class="bb:h-4 bb:w-4" />
+                                        <span>@list.Title</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
+            }
+        </BbSidebarContent>
+        <BbSidebarFooter>
+            @if (Api.Session is PortalSessionInfo session)
+            {
+                <BbDropdownMenu>
+                    <BbDropdownMenuTrigger>
+                        <BbButton Variant="ButtonVariant.Ghost" Class="bb:w-full bb:justify-start bb:gap-2 bb:px-0 bb:h-12 bb:overflow-hidden" AriaLabel="User menu">
+                            <BbAvatar Size="AvatarSize.Small">
+                                <BbAvatarFallback>@Initials(session)</BbAvatarFallback>
+                            </BbAvatar>
+                            <div class="bb:flex bb:flex-col bb:items-start bb:text-start bb:flex-1 bb:min-w-0">
+                                <span class="bb:text-sm bb:font-medium bb:truncate">@session.FullName</span>
+                                <span class="bb:text-xs bb:text-muted-foreground bb:truncate">@RoleText(session)</span>
+                            </div>
+                            <LucideIcon Name="chevrons-up-down" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                        </BbButton>
+                    </BbDropdownMenuTrigger>
+                    <BbDropdownMenuContent Side="PopoverSide.Top" Align="PopoverAlign.Start" MatchTriggerWidth="true">
+                        <div class="bb:flex bb:items-center bb:gap-2 bb:p-2">
+                            <BbAvatar Size="AvatarSize.Small">
+                                <BbAvatarFallback>@Initials(session)</BbAvatarFallback>
+                            </BbAvatar>
+                            <div class="bb:flex bb:flex-col bb:min-w-0">
+                                <span class="bb:text-sm bb:font-medium bb:truncate">@session.FullName</span>
+                                <span class="bb:text-xs bb:text-muted-foreground bb:truncate">@RoleText(session)</span>
+                            </div>
+                        </div>
+                        <BbDropdownMenuSeparator />
+                        <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.AccountPage, forceLoad: true))" data-testid="back-to-account">
+                            <LucideIcon Name="arrow-left" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Back to account
+                        </BbDropdownMenuItem>
+                        <BbDropdownMenuSeparator />
+                        <BbDropdownMenuItem Class="bb:text-destructive" OnClick="@(_ => Api.SignOutAsync())" data-testid="sign-out">
+                            <LucideIcon Name="log-out" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Log out
+                        </BbDropdownMenuItem>
+                    </BbDropdownMenuContent>
+                </BbDropdownMenu>
+            }
+        </BbSidebarFooter>
+    </BbSidebar>
+    <BbSidebarInset>
+        <header class="bb:flex bb:items-center bb:gap-2 bb:px-4 bb:py-3 bb:border-b">
+            <BbSidebarTrigger />
+            <BbSeparator Orientation="SeparatorOrientation.Vertical" Class="bb:h-4" />
+            <BbBreadcrumb>
+                <BbBreadcrumbList>
+                    <BbBreadcrumbItem>
+                        <BbBreadcrumbLink>Admin</BbBreadcrumbLink>
+                    </BbBreadcrumbItem>
+                    <BbBreadcrumbSeparator />
+                    <BbBreadcrumbItem>
+                        <BbBreadcrumbPage>@Section()</BbBreadcrumbPage>
+                    </BbBreadcrumbItem>
+                </BbBreadcrumbList>
+            </BbBreadcrumb>
+        </header>
+        <div class="bb:flex-1 bb:p-4">
+            @if (m_failed)
+            {
+                <BbAlert Variant="AlertVariant.Danger">
+                    <BbAlertTitle>The portal could not load</BbAlertTitle>
+                    <BbAlertDescription>The service did not answer. Reload the page to try again.</BbAlertDescription>
+                </BbAlert>
+            }
+            else if (Api.Session == null)
+            {
+                <div class="bb:space-y-4">
+                    <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
+                    <BbSkeleton Class="bb:h-24 bb:w-full bb:max-w-2xl" />
+                </div>
+            }
+            else
+            {
+                @Body
+            }
+        </div>
+    </BbSidebarInset>
+</BbSidebarProvider>
+
+<BbPortalHost />
+<BbToastProvider />
+
+@code {
+    private bool m_failed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Api.SessionChanged += OnChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+        try
+        {
+            await Api.LoadSessionAsync();
+        }
+        catch (HttpRequestException)
+        {
+            m_failed = true;
+        }
+    }
+
+    private static string Initials(PortalSessionInfo session) => session.DisplayName.Length > 0 ? session.DisplayName.Substring(0, Math.Min(2, session.DisplayName.Length)).ToUpperInvariant() : "?";
+
+    private static string RoleText(PortalSessionInfo session) => session.Roles.Count > 0 ? String.Join(", ", session.Roles) : "player";
+
+    // The breadcrumb names the sidebar group of the open page
+    private string Section()
+    {
+        string path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        return path.StartsWith(PortalRoutes.PlayersPage, StringComparison.Ordinal) ? "Players"
+            : path.StartsWith(PortalRoutes.MatchesPage, StringComparison.Ordinal) ? "Matches"
+            : path.StartsWith(PortalRoutes.AntiCheatPage, StringComparison.Ordinal) ? "Anti-cheat"
+            : "Reports";
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Api.SessionChanged -= OnChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

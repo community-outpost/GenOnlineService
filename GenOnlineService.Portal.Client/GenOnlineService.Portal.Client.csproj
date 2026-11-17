@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64;ARM64</Platforms>
+    <!-- The browser runs this assembly, so the solution platform never selects a processor here -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <NoDefaultLaunchSettingsFile>true</NoDefaultLaunchSettingsFile>
+    <StaticWebAssetProjectMode>Default</StaticWebAssetProjectMode>
+    <!-- The pages format nothing by culture, so the ICU data stays out of the download -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.15" />
+    <PackageReference Include="BlazorBlueprint.Components" Version="4.2.0" />
+    <PackageReference Include="BlazorBlueprint.Icons.Lucide" Version="2.0.2" />
+  </ItemGroup>
+
+</Project>

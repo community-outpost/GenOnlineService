@@ -1,0 +1,27 @@
+@using GenOnlineService.Identity
+@* The HTML document of the staff pages: dark only, the same three stylesheets in the same order as the sign-in pages (PortalLook) *@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <base href="/" />
+    <title>Admin · Generals Online</title>
+    <link rel="stylesheet" href="@PortalLook.ThemePath" />
+    <link rel="stylesheet" href="@PortalLook.StylesheetPath" />
+    <link rel="stylesheet" href="@PortalLook.GeneralsPath" />
+    @Head
+</head>
+<body class="bb:bg-background bb:text-foreground">
+    @ChildContent
+</body>
+</html>
+
+@code {
+    [Parameter]
+    public RenderFragment? Head { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

@@ -1,0 +1,15 @@
+@* The root of the WebAssembly pages: the browser renders them, the server holds no circuit and no page state *@
+<PortalDocument>
+    <Head>
+        <HeadOutlet @rendermode="s_browserOnly" />
+    </Head>
+    <ChildContent>
+        <Routes @rendermode="s_browserOnly" />
+        <script src="_framework/blazor.web.js"></script>
+    </ChildContent>
+</PortalDocument>
+
+@code {
+    // No prerender: the pages read the visitor's data, which only the browser asks for
+    private static readonly IComponentRenderMode s_browserOnly = new InteractiveWebAssemblyRenderMode(prerender: false);
+}

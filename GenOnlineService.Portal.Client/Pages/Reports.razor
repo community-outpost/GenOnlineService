@@ -1,0 +1,190 @@
+@* The data grid blueprint (data-02): toolbar with search and column visibility, header filter and sort, a row actions menu, the pagination footer *@
+@page "/admin/reports"
+@page "/admin"
+@inject PortalApi Api
+@inject ToastService Toasts
+@* The headless grid of the same name lives in this namespace, so its types are named one by one *@
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>Reports · Generals Online</PageTitle>
+
+@if (!Session.Staff)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <BbAlertTitle>Staff only</BbAlertTitle>
+        <BbAlertDescription>Your account holds no staff permission, so the report queue is closed to you.</BbAlertDescription>
+    </BbAlert>
+}
+else
+{
+    <div class="bb:w-full">
+        <BbDataGrid @ref="m_grid" TData="PortalReport" ItemsProvider="@LoadAsync" @bind-State="m_state" ItemKey="@(r => r.Id)"
+                    InitialPageSize="10" ShowSearch="true" SearchPlaceholder="Search reports..." AriaLabel="Reports">
+            <Toolbar>
+                <BbDataGridColumnVisibility TData="PortalReport" />
+            </Toolbar>
+            <Columns>
+                <BbDataGridPropertyColumn TData="PortalReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="80px" Hideable="false" />
+                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReportedName)" Title="Reported">
+                    <CellTemplate>
+                        <BbLink Href="@PortalRoutes.PlayerPage(context.Reported.Id)">@context.ReportedName</BbLink>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReporterName)" Title="Reporter">
+                    <CellTemplate>
+                        <BbLink Href="@PortalRoutes.PlayerPage(context.Reporter.Id)">@context.ReporterName</BbLink>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason" />
+                <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Id="@StatusColumn" Property="@(r => r.Status)" Title="Status"
+                                          Filterable="true" FilterType="FilterFieldType.Enum" FilterOptions="@s_statusOptions">
+                    <CellTemplate>
+                        <BbBadge Variant="@BadgeOf(context.Status)">@context.Status</BbBadge>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalReport" TProp="DateTime" Id="@CreatedColumn" Property="@(r => r.CreatedAt)" Title="Created" Format="yyyy-MM-dd HH:mm" Sortable="true" />
+                <BbDataGridTemplateColumn TData="PortalReport" Title="Actions" Width="80px" Hideable="false">
+                    <HeaderTemplate>
+                        <span class="bb:sr-only">Actions</span>
+                    </HeaderTemplate>
+                    <ChildContent Context="report">
+                        <BbDropdownMenu>
+                            <BbDropdownMenuTrigger>
+                                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" Class="bb:h-8 bb:w-8" AriaLabel="@($"Actions for report {report.Id}")" Disabled="@(report.Status != "open")">
+                                    <LucideIcon Name="ellipsis" Class="bb:h-4 bb:w-4" />
+                                </BbButton>
+                            </BbDropdownMenuTrigger>
+                            <BbDropdownMenuContent Align="PopoverAlign.End">
+                                <BbDropdownMenuLabel>Close report</BbDropdownMenuLabel>
+                                <BbDropdownMenuSeparator />
+                                <BbDropdownMenuItem OnClick="@(_ => Open(report, "actioned"))">Mark actioned</BbDropdownMenuItem>
+                                <BbDropdownMenuItem OnClick="@(_ => Open(report, "dismissed"))">Dismiss</BbDropdownMenuItem>
+                            </BbDropdownMenuContent>
+                        </BbDropdownMenu>
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+            </Columns>
+        </BbDataGrid>
+    </div>
+
+    <BbDialog @bind-Open="m_dialogOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>@(m_status == "actioned" ? "Mark" : "Dismiss") report #@m_closing?.Id@(m_status == "actioned" ? " actioned" : "")</BbDialogTitle>
+                <BbDialogDescription>@m_closing?.ReporterName reported @m_closing?.ReportedName: @m_closing?.Reason</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-2">
+                <BbLabel For="resolution-note">Resolution note</BbLabel>
+                <BbTextarea Id="resolution-note" @bind-Value="m_note" Placeholder="What was done, for the audit log" />
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="ResolveAsync" Loading="@m_saving">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    private const string StatusColumn = "status";
+    private const string CreatedColumn = "created";
+
+    private static readonly SelectOption<string>[] s_statusOptions =
+    {
+        new SelectOption<string>("open", "Open"),
+        new SelectOption<string>("actioned", "Actioned"),
+        new SelectOption<string>("dismissed", "Dismissed")
+    };
+
+    private BbDataGrid<PortalReport>? m_grid;
+    private BlazorBlueprint.Primitives.DataGrid.DataGridState<PortalReport> m_state = NewState();
+    private bool m_dialogOpen;
+    private bool m_saving;
+    private PortalReport? m_closing;
+    private string m_status = "actioned";
+    private string? m_note;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    // The queue opens on the open reports, like GET /api/v1/reports without a status
+    private static BlazorBlueprint.Primitives.DataGrid.DataGridState<PortalReport> NewState()
+    {
+        var state = new BlazorBlueprint.Primitives.DataGrid.DataGridState<PortalReport>();
+        state.Filtering.SetFilter(StatusColumn, new FilterCondition { Field = StatusColumn, Operator = FilterOperator.Equals, Value = "open" });
+        return state;
+    }
+
+    // The grid asks for one page, the host filters, sorts and pages the queue
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalReport>> LoadAsync(DataGridRequest request)
+    {
+        bool newestFirst = request.SortDefinitions.Any(s => s.ColumnId == CreatedColumn && s.Direction == SortDirection.Descending);
+        PortalReportPage page = await Api.GetReportsAsync(StatusOf(request), request.SearchText, newestFirst, request.StartIndex, request.Count ?? 10, request.CancellationToken);
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalReport> { Items = page.Reports.ToList(), TotalItemCount = page.Total };
+    }
+
+    // No status filter lists every report, one or more statuses list those
+    private static string StatusOf(DataGridRequest request)
+    {
+        if (!request.Filters.TryGetValue(StatusColumn, out FilterCondition? filter))
+        {
+            return "all";
+        }
+
+        string[] values = filter.Value switch
+        {
+            string single => new[] { single },
+            IEnumerable<string> many => many.ToArray(),
+            _ => Array.Empty<string>()
+        };
+
+        if (filter.Operator is FilterOperator.NotEquals or FilterOperator.NotIn)
+        {
+            values = s_statusOptions.Select(o => o.Value).Except(values).ToArray();
+        }
+        return values.Length == 0 ? "all" : String.Join(',', values);
+    }
+
+    private void Open(PortalReport report, string status)
+    {
+        m_closing = report;
+        m_status = status;
+        m_note = null;
+        m_dialogOpen = true;
+    }
+
+    private async Task ResolveAsync()
+    {
+        if (m_closing == null)
+        {
+            return;
+        }
+
+        m_saving = true;
+        PortalOutcome outcome = await Api.ResolveReportAsync(m_closing.Id, m_status, String.IsNullOrWhiteSpace(m_note) ? null : m_note);
+        m_saving = false;
+        m_dialogOpen = false;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success($"Report #{m_closing.Id} is {m_status}.", "Report closed");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Report not closed");
+        }
+
+        if (m_grid != null)
+        {
+            await m_grid.RefreshDataAsync();
+        }
+    }
+
+    // The stock variants, as the data blueprints use them for a status
+    private static BadgeVariant BadgeOf(string status) => status switch
+    {
+        "open" => BadgeVariant.Default,
+        "actioned" => BadgeVariant.Secondary,
+        _ => BadgeVariant.Outline
+    };
+}

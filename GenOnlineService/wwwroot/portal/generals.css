@@ -335,3 +335,20 @@
   color: var(--muted-foreground);
 }
 
+
+/* the staff pages (/admin): the logo heads the sidebar, and shrinks to the icon rail's width when it collapses */
+.go-admin-logo {
+  display: flex;
+  align-items: center;
+  height: 2.5rem;
+  overflow: hidden;
+}
+
+.go-admin-logo > img {
+  display: block;
+  height: 2rem;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
+}

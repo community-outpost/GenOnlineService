@@ -1,0 +1,63 @@
+@* The staff player search on the data grid blueprint (data-02): the host matches the name part or the id and pages in the database *@
+@page "/admin/players"
+@inject PortalApi Api
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>Players · Generals Online</PageTitle>
+
+<div class="bb:w-full bb:space-y-4">
+    <div>
+        <h1 class="bb:text-2xl bb:font-semibold">Player search</h1>
+        <p class="bb:text-sm bb:text-muted-foreground">A part of a display name, any case, of at least 2 characters, or a player id.</p>
+    </div>
+    @if (m_error != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <BbAlertTitle>Search failed</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </BbAlert>
+    }
+    <BbDataGrid TData="PortalPlayerRow" ItemsProvider="@LoadAsync" ItemKey="@(p => p.Id)"
+                InitialPageSize="20" ShowSearch="true" SearchPlaceholder="Name or player id..." AriaLabel="Players">
+        <Columns>
+            <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="long" Property="@(p => p.Id)" Title="Id" Width="100px" />
+            <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => p.FullName)" Title="Player">
+                <CellTemplate>
+                    <BbLink Href="@PortalRoutes.PlayerPage(context.Id)" data-testid="player-link">@context.FullName</BbLink>
+                </CellTemplate>
+            </BbDataGridPropertyColumn>
+            <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => p.State)" Title="State">
+                <CellTemplate>
+                    <BbBadge Variant="@(context.State == "active" ? BadgeVariant.Secondary : BadgeVariant.Destructive)">@context.State</BbBadge>
+                </CellTemplate>
+            </BbDataGridPropertyColumn>
+            <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Date(p.CreatedAt))" Title="Created" />
+            <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Date(p.LastSignInAt))" Title="Last sign-in" />
+        </Columns>
+    </BbDataGrid>
+</div>
+
+@code {
+    private string? m_error;
+
+    // An empty or too short term lists nothing, the host refuses it
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow>> LoadAsync(DataGridRequest request)
+    {
+        string search = request.SearchText?.Trim() ?? "";
+        PortalPlayerPage page = new PortalPlayerPage();
+        string? error = null;
+        if (search.Length >= 2 || (long.TryParse(search, out long id) && id > 0))
+        {
+            PortalAnswer<PortalPlayerPage> answer = await Api.SearchPlayersAsync(search, request.StartIndex, request.Count ?? 20, request.CancellationToken);
+            page = answer.Value ?? page;
+            error = answer.Ok ? null : answer.Error;
+        }
+
+        if (error != m_error)
+        {
+            m_error = error;
+            StateHasChanged();
+        }
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow> { Items = page.Players.ToList(), TotalItemCount = page.Total };
+    }
+}
