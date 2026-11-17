@@ -66,6 +66,7 @@ public class AccountsLanguageTests
 	[Theory]
 	[InlineData("de")]
 	[InlineData("ru")]
+	[InlineData("ar")]
 	public void EachLanguageHasEveryWordWithItsPlaceholders(string language)
 	{
 		System.Resources.ResourceSet english = AccountsText.Resources.GetResourceSet(CultureInfo.InvariantCulture, createIfNotExists: true, tryParents: false)!;
@@ -89,6 +90,7 @@ public class AccountsLanguageTests
 	[Theory]
 	[InlineData("de", "Bestätige deine E-Mail-Adresse", "bitte bestätige, dass diese Adresse dir gehört", "wegen deines Generals-Online-Kontos")]
 	[InlineData("ru", "Подтвердите адрес электронной почты", "Подтвердите, что этот адрес принадлежит вам", "из-за вашей учётной записи Generals Online")]
+	[InlineData("ar", "أكّد عنوان بريدك الإلكتروني", "يُرجى تأكيد أن هذا العنوان يخصك", "بسبب حسابك في Generals Online")]
 	public void MailsAreInThePlayersLanguage(string language, string subject, string body, string footer)
 	{
 		var values = new Dictionary<string, string> { ["name"] = "Nelly#0042", ["link"] = "https://accounts.test/confirm?t=1&x=2" };
@@ -99,6 +101,12 @@ public class AccountsLanguageTests
 		Assert.Contains(footer, System.Net.WebUtility.HtmlDecode(mail.Html));
 		Assert.Contains("https://accounts.test/confirm?t=1&amp;x=2", mail.Html);
 		Assert.Contains($"lang=\"{language}\"", mail.Html);
+		// Arabic mails read right to left, their text and button on the right
+		if (language == "ar")
+		{
+			Assert.Contains("dir=\"rtl\"", mail.Html);
+			Assert.Contains("direction:rtl", mail.Html.Replace(" ", String.Empty));
+		}
 
 		EmailMessage reset = EmailTemplates.Render(EmailTemplates.PasswordReset, "player@example.org", values, CultureInfo.GetCultureInfo(language));
 		Assert.Equal(AccountsText.Get("Mail.PasswordReset.Subject", CultureInfo.GetCultureInfo(language)), reset.Subject);
@@ -238,6 +246,7 @@ public class AccountsLanguageTests
 		// Arabic reads right to left, over the browser's German
 		PageResponse page = await browser.Get("/users/sign_up");
 		Assert.Equal("ar/rtl", Lang(page));
+		Assert.Contains("<title>إنشاء حساب · Generals Online</title>", page.Body);
 		Assert.Contains("lang=\"ar\" hreflang=\"ar\" class=\"go-language\" aria-current=\"true\"", page.Body);
 
 		// a refused form comes back in the same language
