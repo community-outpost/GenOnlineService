@@ -74,12 +74,11 @@ namespace GenOnlineService.Identity
 			return roles.Any(StaffRoles.IsStaff);
 		}
 
-		// Staff signed in with a password alone must set up two-factor sign-in before any token is issued
-		public async Task<bool> MustSetUpTwoFactor(User user, System.Security.Claims.ClaimsPrincipal cookie)
+		// Staff with a password and no second factor set it up before any token is issued, whatever the cookie says about
+		// how it signed in: Identity rebuilds the cookie every minute and its claims are not evidence
+		public async Task<bool> MustSetUpTwoFactor(User user)
 		{
-			return !user.TwoFactorEnabled
-				&& cookie.FindFirst(System.Security.Claims.ClaimTypes.AuthenticationMethod)?.Value == PasswordMethod
-				&& await IsStaff(user.ID);
+			return !user.TwoFactorEnabled && user.PasswordHash != null && await IsStaff(user.ID);
 		}
 
 		public async Task<PasswordAccountResult> SignUp(string? displayName, string? email, string? password, string? honeypot)

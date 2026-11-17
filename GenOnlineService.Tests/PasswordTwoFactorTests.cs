@@ -315,4 +315,57 @@ public class PasswordTwoFactorTests
 		Assert.Contains("Staff accounts keep two-factor sign-in.", refused.Body);
 		Assert.True((await PasswordPagesTests.UserByEmail(probe, "admin-off@example.org"))!.TwoFactorEnabled);
 	}
+
+	// the gate does not depend on how the cookie says it signed in: re-validating the cookie (every minute in service,
+	// at once here) rebuilds it, and a password-only moderator still gets no code
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheStaffGateSurvivesCookieRevalidation(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		static void RevalidateAlways(Microsoft.Extensions.DependencyInjection.IServiceCollection services)
+			=> Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.PostConfigure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(services, o => o.ValidationInterval = TimeSpan.Zero);
+		var signUp = new AccountsBrowser(probe, WithGameClient(), RevalidateAlways);
+		await AccountsSetup.SeedClients(signUp.Services, signUp.Settings);
+		Assert.Equal(302, (await PasswordPagesTests.SignUp(signUp, "Mod", "revalidated@example.org", "the right password")).Status);
+		await MakeStaff(probe, "revalidated@example.org", "moderator");
+
+		var moderator = new AccountsBrowser(probe, WithGameClient(), RevalidateAlways);
+		Assert.Equal(302, (await PasswordPagesTests.SignIn(moderator, "revalidated@example.org", "the right password")).Status);
+		await using (AppDbContext db = probe.Open())
+		{
+			await ClientRegistry.Reload(db);
+		}
+		for (int request = 0; request < 2; request++)
+		{
+			PageResponse gated = await moderator.Get("/oauth/authorize" + AuthorizeQuery);
+			Assert.Equal(302, gated.Status);
+			Assert.StartsWith("/users/two_factor/setup?", gated.Location);
+		}
+	}
+
+	// wrong recovery codes count toward the lockout, and a locked account takes no recovery code
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task RecoveryCodesFollowTheLockout(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(_, List<string> codes) = await SetUp(probe, "locked-codes@example.org");
+
+		var browser = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
+		Assert.Equal(302, (await PasswordPagesTests.SignIn(browser, "locked-codes@example.org", "the right password")).Status);
+		for (int attempt = 1; attempt <= 5; attempt++)
+		{
+			Assert.Equal(401, (await SecondFactor(browser, "recovery_code", "wrong-code-" + attempt)).Status);
+		}
+		Assert.NotNull((await PasswordPagesTests.UserByEmail(probe, "locked-codes@example.org"))!.LockoutEndAt);
+
+		Assert.Equal(401, (await SecondFactor(browser, "recovery_code", codes[0])).Status);
+		Assert.False(browser.SignedIn);
+		await using AppDbContext db = probe.Open();
+		User user = (await PasswordPagesTests.UserByEmail(probe, "locked-codes@example.org"))!;
+		Assert.Equal(10, await db.UserRecoveryCodes.CountAsync(c => c.UserID == user.ID && c.UsedAt == null));
+	}
 }

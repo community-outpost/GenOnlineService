@@ -200,7 +200,25 @@ namespace GenOnlineService.Identity
 			});
 
 			// a blocked user's stamp is rotated, so their website cookie stops within a minute
-			services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(1));
+			services.Configure<SecurityStampValidatorOptions>(options =>
+			{
+				options.ValidationInterval = TimeSpan.FromMinutes(1);
+				// the rebuilt cookie keeps how it signed in (the method and amr), which Identity's rebuild drops
+				options.OnRefreshingPrincipal = context =>
+				{
+					if (context.NewPrincipal?.Identity is System.Security.Claims.ClaimsIdentity rebuilt && context.CurrentPrincipal != null)
+					{
+						foreach (System.Security.Claims.Claim claim in context.CurrentPrincipal.Claims.Where(c => c.Type == System.Security.Claims.ClaimTypes.AuthenticationMethod || c.Type == "amr"))
+						{
+							if (!rebuilt.HasClaim(claim.Type, claim.Value))
+							{
+								rebuilt.AddClaim(new System.Security.Claims.Claim(claim.Type, claim.Value));
+							}
+						}
+					}
+					return Task.CompletedTask;
+				};
+			});
 
 			services.AddScoped<UpstreamAccounts>();
 			services.AddScoped<PasswordAccounts>();

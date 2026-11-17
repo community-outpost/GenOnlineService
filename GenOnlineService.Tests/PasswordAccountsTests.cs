@@ -282,4 +282,34 @@ public class PasswordAccountsTests
 		Assert.True((await users.SetTwoFactorEnabledAsync(user, true)).Succeeded);
 		Assert.True(await users.GetTwoFactorEnabledAsync((await users.FindByIdAsync(user.ID.ToString()))!));
 	}
+
+	// Identity writes the user it holds; a block, a rename or a role decision made meanwhile elsewhere stays
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task IdentityWritesKeepFieldsOwnedElsewhere(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(IServiceProvider services, User user) = await Account(probe, "stale@example.org");
+		UserManager<User> users = services.GetRequiredService<UserManager<User>>();
+		User stale = (await users.FindByIdAsync(user.ID.ToString()))!;
+
+		await using (AppDbContext db = probe.Open())
+		{
+			await db.Users.Where(u => u.ID == user.ID).ExecuteUpdateAsync(s => s
+				.SetProperty(u => u.State, UserStates.Blocked)
+				.SetProperty(u => u.Username, "Renamed")
+				.SetProperty(u => u.UsernameNormalized, "RENAMED")
+				.SetProperty(u => u.NameKey, "renamed")
+				.SetProperty(u => u.NameTag, 4321));
+		}
+
+		Assert.True((await users.AccessFailedAsync(stale)).Succeeded);
+
+		await using AppDbContext check = probe.Open();
+		User row = await check.Users.SingleAsync(u => u.ID == user.ID);
+		Assert.Equal(UserStates.Blocked, row.State);
+		Assert.Equal(("Renamed", 4321, "renamed"), (row.Username, row.NameTag, row.NameKey));
+		Assert.Equal(1, row.FailedSignInCount);
+	}
 }

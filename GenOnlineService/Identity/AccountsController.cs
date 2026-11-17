@@ -212,17 +212,37 @@ namespace GenOnlineService.Identity
 			}
 
 			string target = SafeReturnUrl(returnUrl);
-			if (await m_signIn.GetTwoFactorAuthenticationUserAsync() == null)
+			User? pending = await m_signIn.GetTwoFactorAuthenticationUserAsync();
+			if (pending == null)
 			{
 				return LocalRedirect($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}");
 			}
 
-			// both count a wrong code toward the lockout and sign in with amr mfa
+			// both sign in with amr mfa. Identity's authenticator sign-in counts a wrong code toward the lockout and
+			// refuses while locked; its recovery code sign-in does neither, so that is done here.
 			string authenticator = (code ?? String.Empty).Replace(" ", String.Empty);
 			string recovery = (recoveryCode ?? String.Empty).Trim();
-			Microsoft.AspNetCore.Identity.SignInResult result = authenticator.Length > 0
-				? await m_signIn.TwoFactorAuthenticatorSignInAsync(authenticator, isPersistent: false, rememberClient: false)
-				: recovery.Length > 0 ? await m_signIn.TwoFactorRecoveryCodeSignInAsync(recovery) : Microsoft.AspNetCore.Identity.SignInResult.Failed;
+			Microsoft.AspNetCore.Identity.SignInResult result;
+			if (authenticator.Length > 0)
+			{
+				result = await m_signIn.TwoFactorAuthenticatorSignInAsync(authenticator, isPersistent: false, rememberClient: false);
+			}
+			else if (await m_users.IsLockedOutAsync(pending))
+			{
+				result = Microsoft.AspNetCore.Identity.SignInResult.LockedOut;
+			}
+			else
+			{
+				result = recovery.Length > 0 ? await m_signIn.TwoFactorRecoveryCodeSignInAsync(recovery) : Microsoft.AspNetCore.Identity.SignInResult.Failed;
+				if (result.Succeeded)
+				{
+					await m_users.ResetAccessFailedCountAsync(pending);
+				}
+				else
+				{
+					await m_users.AccessFailedAsync(pending);
+				}
+			}
 			AppMetrics.RecordAuthentication("password_two_factor", "password", result.Succeeded ? "success" : result.IsLockedOut ? "locked_out" : "failed");
 
 			return result.Succeeded ? LocalRedirect(target) : TwoFactorForm(401, target, "Wrong code.");
@@ -564,8 +584,8 @@ namespace GenOnlineService.Identity
 				return Forbid(Error(Errors.AccessDenied, "This account cannot sign in."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 			}
 
-			// staff signed in with a password alone set up two-factor sign-in first, then come back here
-			if (await m_passwords.MustSetUpTwoFactor(user, cookie.Principal!))
+			// staff with a password and no second factor set it up first, then come back here
+			if (await m_passwords.MustSetUpTwoFactor(user))
 			{
 				if (request.HasPromptValue(PromptValues.None))
 				{
