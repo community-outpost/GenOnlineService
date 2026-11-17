@@ -67,6 +67,8 @@
     <!-- SMTP for account mail (Mail:delivery_method smtp); 4.x, not the week-old 5.0.0 (T4 research, 2026-11-17) -->
     <PackageReference Include="MailKit" Version="4.18.2" />
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
+    <!-- MJML mail templates compiled in the service, so the build and the image need no Node.js (MIT) -->
+    <PackageReference Include="Mjml.Net" Version="4.15.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
@@ -92,6 +94,11 @@
     <PackageReference Include="BlazorBlueprint.Icons.Lucide" Version="2.0.2" />
     <!-- Serves the WebAssembly staff pages under /admin; no Blazor Server circuit is registered -->
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the account mails (Mail/EmailTemplates.cs): MJML bodies, their layout and plain-text twins -->
+    <EmbeddedResource Include="Mail\Templates\*.mjml;Mail\Templates\*.txt" LogicalName="GenOnlineService.Mail.Templates.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

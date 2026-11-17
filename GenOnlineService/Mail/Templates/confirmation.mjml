@@ -1,0 +1,4 @@
+        <mj-text font-size="22px" line-height="30px" font-weight="300">Confirm your email address</mj-text>
+        <mj-text>Hello {{name}}, please confirm that this address is yours. You need a confirmed address to play.</mj-text>
+        <mj-button href="{{link}}" background-color="#f0b429" color="#1c1917" border-radius="2px" font-weight="500" align="left">Confirm email address</mj-button>
+        <mj-text font-size="13px" color="#78716c">The link works for 24 hours. If the button does not work, open this address: {{link}}</mj-text>
