@@ -1,6 +1,7 @@
 @* The staff player page: the page header (nav-02) with the moderation actions, stat cards (dashboard-01) for the ratings,
    and tabs of cards with data tables (data-01) for sessions, sanctions and the personal data. Sanctions go through the
-   sanction rules of the service, the personal data needs players.inspect *@
+   sanction rules of the service, the personal data needs players.inspect, granting and revoking roles roles.manage
+   under the host's rank rule *@
 @page "/admin/players/{Id:long}"
 @inject PortalApi Api
 @inject ToastService Toasts
@@ -76,6 +77,13 @@ else
             </div>
         </Below>
         <Actions>
+            @if (Session.Can(PortalPermissions.AuditRead))
+            {
+                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@PortalRoutes.AuditOf(player.Id)" data-testid="player-audit">
+                    <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
+                    Audit log
+                </BbButton>
+            }
             @if (Session.Can(PortalPermissions.Kick))
             {
                 <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("kick"))" Disabled="@(!player.Online)">
@@ -118,6 +126,7 @@ else
         <BbTabsList>
             <BbTabsTrigger Value="activity">Activity</BbTabsTrigger>
             <BbTabsTrigger Value="sanctions">Sanctions (@player.Sanctions.Count)</BbTabsTrigger>
+            <BbTabsTrigger Value="roles">Roles (@player.RoleGrants.Count)</BbTabsTrigger>
             <BbTabsTrigger Value="signins">Sign-ins and devices</BbTabsTrigger>
             <BbTabsTrigger Value="duplicates">Possible duplicates</BbTabsTrigger>
         </BbTabsList>
@@ -222,6 +231,83 @@ else
                             </BbEmpty>
                         </EmptyTemplate>
                     </BbDataTable>
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="roles" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Staff roles</BbCardTitle>
+                    <BbCardDescription>Local roles are granted here or with the roles CLI. A role from a sign-in provider follows that provider’s sign-ins and cannot be changed here. Every change is in the audit log.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent Class="bb:space-y-4">
+                    <BbDataTable TData="PortalRoleGrant" Data="@player.RoleGrants" ShowToolbar="false" ShowPagination="false" AriaLabel="Staff roles">
+                        <Columns>
+                            <BbDataTableColumn TData="PortalRoleGrant" TValue="string" Property="@(g => g.Role)" Header="Role">
+                                <CellTemplate Context="grant">
+                                    <span class="bb:inline-flex bb:items-center bb:gap-2" data-testid="role-row">
+                                        <LucideIcon Name="shield" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        @grant.Role
+                                    </span>
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalRoleGrant" TValue="string" Property="@(g => g.Source)" Header="Source">
+                                <CellTemplate Context="grant">
+                                    @if (grant.Local)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline">local</BbBadge>
+                                    }
+                                    else
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="link" />from <span class="go-capitalize">@grant.Provider</span></BbBadge>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalRoleGrant" TValue="string" Property="@(g => g.Role)" Header="Actions" HeaderClass="go-sr-header">
+                                <CellTemplate Context="grant">
+                                    @if (grant.Local && player.AssignableRoles.Contains(grant.Role))
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OpenRevoke(grant.Role))" data-testid="revoke-role">Revoke</BbButton>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                        </Columns>
+                        <EmptyTemplate>
+                            <BbEmpty Size="EmptySize.Small" Title="A player" Description="No staff role, local or from a sign-in provider.">
+                                <Icon>
+                                    <LucideIcon Name="shield-off" />
+                                </Icon>
+                            </BbEmpty>
+                        </EmptyTemplate>
+                    </BbDataTable>
+
+                    @if (Session.Can(PortalPermissions.RolesManage))
+                    {
+                        string[] grantable = Grantable(player);
+                        @if (player.AssignableRoles.Count == 0)
+                        {
+                            <p class="bb:text-sm bb:text-muted-foreground" data-testid="roles-out-of-reach">You can change the roles of players you outrank only, and only roles below your own rank.</p>
+                        }
+                        else if (grantable.Length > 0)
+                        {
+                            <form class="bb:flex bb:flex-wrap bb:items-end bb:gap-2" @onsubmit="GrantAsync">
+                                <div class="bb:space-y-2">
+                                    <BbLabel For="grant-role">Grant a role</BbLabel>
+                                    <BbNativeSelect TValue="string" Id="grant-role" Value="@GrantChoice(grantable)" ValueChanged="@((string value) => m_grantRole = value)" Class="bb:w-40">
+                                        @foreach (string role in grantable)
+                                        {
+                                            <option value="@role">@role</option>
+                                        }
+                                    </BbNativeSelect>
+                                </div>
+                                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Loading="@m_granting" data-testid="grant-role">
+                                    <LucideIcon Name="shield-plus" Class="bb:h-4 bb:w-4" />
+                                    Grant
+                                </BbButton>
+                            </form>
+                        }
+                    }
                 </BbCardContent>
             </BbCard>
         </BbTabsContent>
@@ -387,14 +473,17 @@ else
                         </BbNativeSelect>
                     </div>
                 }
-                <div class="bb:space-y-2">
-                    <BbLabel For="reason">Reason@(m_action == "ban" ? "" : " (optional)")</BbLabel>
-                    <BbTextarea Id="reason" @bind-Value="m_reason" Placeholder="Kept in the audit log…" autocomplete="off" />
-                </div>
+                @if (m_action != "revoke_role")
+                {
+                    <div class="bb:space-y-2">
+                        <BbLabel For="reason">Reason@(m_action == "ban" ? "" : " (optional)")</BbLabel>
+                        <BbTextarea Id="reason" @bind-Value="m_reason" Placeholder="Kept in the audit log…" autocomplete="off" />
+                    </div>
+                }
             </div>
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
-                <BbButton Variant="@(m_action == "ban" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
+                <BbButton Variant="@(m_action == "ban" || m_action == "revoke_role" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
             </BbDialogFooter>
         </BbDialogContent>
     </BbDialog>
@@ -427,6 +516,9 @@ else
     private string? m_name;
     private string? m_duration;
     private string? m_reason;
+    private string? m_role;
+    private string? m_grantRole;
+    private bool m_granting;
 
     // The layout renders pages only once the session is known
     private PortalSessionInfo Session => Api.Session!;
@@ -459,6 +551,7 @@ else
     private string TitleOf(PortalPlayer player) => m_action switch
     {
         "lift" => $"Lift the {m_lifting?.Type} of {player.FullName}",
+        "revoke_role" => $"Revoke {m_role} from {player.FullName}",
         "rename" => $"Rename {player.FullName}",
         _ => $"{char.ToUpperInvariant(m_action[0])}{m_action.Substring(1)} {player.FullName}"
     };
@@ -469,6 +562,7 @@ else
         "mute" => "The player stays connected and cannot send chat messages until the mute ends.",
         "ban" => "The player cannot play until the ban ends or is lifted. A ban needs a reason.",
         "rename" => "Replaces an offensive name. The tag stays.",
+        "revoke_role" => "The player loses this role and its permissions at once. The change is in the audit log.",
         _ => "The sanction ends now and stays on record."
     };
 
@@ -490,6 +584,7 @@ else
         m_saving = true;
         PortalOutcome outcome = m_action switch
         {
+            "revoke_role" => await Api.RevokeRoleAsync(Id, m_role!),
             "lift" => await Api.LiftSanctionAsync(m_lifting!.Id, reason),
             "rename" => await Api.RenamePlayerAsync(Id, m_name, reason),
             "kick" => await Api.CreateSanctionAsync(Id, m_action, null, reason),
@@ -501,6 +596,44 @@ else
         if (outcome.Ok)
         {
             Toasts.Success("The change is saved and in the audit log.", "Done");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Not done");
+        }
+        await LoadAsync();
+    }
+
+    // Revoking asks first; the dialog carries no reason, the roles routes take none
+    private void OpenRevoke(string role)
+    {
+        m_role = role;
+        Open("revoke_role");
+    }
+
+    // The roles the caller may grant that the player does not hold locally yet
+    private static string[] Grantable(PortalPlayer player) => player.AssignableRoles.Where(role => !player.RoleGrants.Any(g => g.Local && g.Role == role)).ToArray();
+
+    // The chosen role, or the first one offered until a choice is made
+    private string GrantChoice(string[] grantable) => m_grantRole != null && grantable.Contains(m_grantRole) ? m_grantRole : grantable[0];
+
+    private async Task GrantAsync()
+    {
+        string[] grantable = m_player == null ? [] : Grantable(m_player);
+        if (grantable.Length == 0)
+        {
+            return;
+        }
+
+        string role = GrantChoice(grantable);
+        m_granting = true;
+        PortalOutcome outcome = await Api.GrantRoleAsync(Id, role);
+        m_granting = false;
+        m_grantRole = null;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success($"{role} is granted and in the audit log.", "Done");
         }
         else
         {

@@ -144,6 +144,35 @@ namespace GenOnlineService.Portal.Client
 			return SendAsync(HttpMethod.Patch, $"{PortalRoutes.Players}/{userID}", new PortalRenameRequest { Name = name, Reason = reason });
 		}
 
+		// One local role, under the host's rank rule; each change is in the audit log
+		public Task<PortalOutcome> GrantRoleAsync(long userID, string role) => SendAsync(HttpMethod.Put, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
+
+		public Task<PortalOutcome> RevokeRoleAsync(long userID, string role) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
+
+		// Newest first; afterID continues below that row. A player id filters the actor or the target, which is then a player
+		public Task<PortalAnswer<PortalAuditPage>> GetAuditAsync(long? actorID, long? targetID, string? action, long? afterID, int perPage, CancellationToken cancellationToken)
+		{
+			var query = new List<string> { "per_page=" + Math.Clamp(perPage, 1, MaximumPerPage) };
+			if (actorID is long actor)
+			{
+				query.Add("actor_id=" + actor);
+			}
+			if (targetID is long target)
+			{
+				query.Add("target_id=" + target);
+				query.Add("target_kind=user");
+			}
+			if (!String.IsNullOrEmpty(action))
+			{
+				query.Add("action=" + Uri.EscapeDataString(action));
+			}
+			if (afterID is long after)
+			{
+				query.Add("after_id=" + after);
+			}
+			return GetAsync<PortalAuditPage>(PortalRoutes.AuditEvents + "?" + String.Join("&", query), cancellationToken);
+		}
+
 		// The same POST as the sign-out form of the accounts pages, then the static sign-in page
 		public async Task SignOutAsync()
 		{
