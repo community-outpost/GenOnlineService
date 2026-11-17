@@ -130,6 +130,6 @@ During the overlap, version N and N+1 run together:
 
 - `realtime_lease` holds one row (`id` 1) with `holder`, `epoch`, `expires_at`, plus `standby` and `standby_expires_at` (the standby renews its own entry each interval, so the holder knows whom to hand over to) and `handover_requested_at` (set by `GenOnlineService realtime handover`). Every change is one conditional `UPDATE` against `now()` or `UTC_TIMESTAMP(6)`.
 - The holder counts its own deadline from before it sent the renewal, so it stops serving no later than the database expiry. Readiness compares with that deadline on every request, so a stalled lease loop stops serving too.
-- A standby refuses the hub upgrade and `/api` calls with `503 service.unavailable {what: standby}` and `Retry-After: 1`; `/-/` routes and sign-in stay served.
+- A standby refuses `/api` calls with `503 service.unavailable {what: standby}` and `Retry-After: 1`, and a realtime connection after the handshake with `ServerSwitching {retry_after_ms: 1000}` and the close `service.unavailable` (an HTTP status on the upgrade would reach clients behind the Cloudflare tunnel only as a bare 502); `/-/` routes and sign-in stay served.
 - Without step 3 there is no in-sync check: a live standby entry is enough to hand over. Lobbies and the queue end on the old copy as on a restart, members reconnect to the new copy and get snapshots.
 - If the target dies during the handover, the old copy does not take the lease back yet (step 4).
