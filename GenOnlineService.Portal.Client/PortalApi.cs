@@ -110,12 +110,41 @@ namespace GenOnlineService.Portal.Client
 			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
 		}
 
+		// The player list: every account without a search, filtered and sorted by the host
+		public async Task<PortalAnswer<PortalPlayerPage>> ListPlayersAsync(PortalPlayerQuery query, int start, int count, CancellationToken cancellationToken)
+		{
+			string arguments = query.ToApiQuery();
+			(PortalAnswer<PortalPlayerPage> answer, int total) = await GetPageAsync<PortalPlayerPage>($"{PortalRoutes.PlayerSearch}?{arguments}{(arguments.Length > 0 ? "&" : "")}{PageOf(start, count)}", cancellationToken);
+			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
+		}
+
 		public Task<PortalAnswer<PortalPlayer>> GetPlayerAsync(long userID) => GetAsync<PortalPlayer>($"{PortalRoutes.Players}/{userID}/staff_view");
 
 		// The host writes an audit row for this read
 		public Task<PortalAnswer<PortalInspection>> GetInspectionAsync(long userID) => GetAsync<PortalInspection>($"{PortalRoutes.Players}/{userID}/inspection");
 
 		public Task<PortalAnswer<PortalMatch>> GetMatchAsync(long matchID) => GetAsync<PortalMatch>($"{PortalRoutes.Matches}/{matchID}");
+
+		// The match list, newest first; past 10,000 rows the host does not count, the page then only knows whether one follows
+		public async Task<PortalAnswer<PortalMatchPage>> ListMatchesAsync(PortalMatchQuery query, int start, int count, CancellationToken cancellationToken)
+		{
+			string arguments = query.ToApiQuery();
+			using HttpResponseMessage response = await m_http.GetAsync($"{PortalRoutes.MatchSearch}?{arguments}{(arguments.Length > 0 ? "&" : "")}{PageOf(start, count)}", cancellationToken);
+			if (!response.IsSuccessStatusCode)
+			{
+				if (response.StatusCode == HttpStatusCode.Unauthorized)
+				{
+					SignIn();
+					return new PortalAnswer<PortalMatchPage>(null, "unauthorized");
+				}
+				return new PortalAnswer<PortalMatchPage>(null, await ErrorOfAsync(response));
+			}
+
+			PortalMatchPage? page = await response.Content.ReadFromJsonAsync<PortalMatchPage>(PortalJson.Options, cancellationToken);
+			int? total = response.Headers.TryGetValues("X-Total", out IEnumerable<string>? totals) && int.TryParse(totals.FirstOrDefault(), out int value) ? value : null;
+			bool hasNext = response.Headers.TryGetValues("X-Next-Page", out IEnumerable<string>? next) && !String.IsNullOrEmpty(next.FirstOrDefault());
+			return new PortalAnswer<PortalMatchPage>(page == null ? null : page with { Total = total, HasNext = hasNext }, null);
+		}
 
 		// reviewed is false, true or all
 		public async Task<PortalAnswer<PortalAntiCheatPage>> GetAntiCheatAsync(string kind, string reviewed, int start, int count, CancellationToken cancellationToken)
