@@ -38,6 +38,12 @@ namespace GenOnlineService.Rest
 		public const string TokenLimitReached = "token.limit_reached";
 		public const string Conflict = "conflict";
 		public const string MethodNotAllowed = "method_not_allowed";
+
+		// A role change the rank rule refuses: the role ranks the same as or above the caller's own
+		public const string RoleRank = "roles.rank";
+
+		// A role held only through a sign-in provider, which follows that provider's sign-ins
+		public const string RoleUpstream = "roles.upstream";
 	}
 
 	// The tag a player response carries, written like Member.tag ("0042"); null for an account without one
@@ -59,6 +65,8 @@ namespace GenOnlineService.Rest
 			[RestCodes.LinkedAccountLocked] = StatusCodes.Status409Conflict,
 			[RestCodes.Conflict] = StatusCodes.Status409Conflict,
 			[RestCodes.MethodNotAllowed] = StatusCodes.Status405MethodNotAllowed,
+			[RestCodes.RoleRank] = StatusCodes.Status403Forbidden,
+			[RestCodes.RoleUpstream] = StatusCodes.Status409Conflict,
 		};
 
 		public static int StatusOf(string code) => s_statuses.TryGetValue(code, out int status) ? status : ApiResults.StatusOf(code);

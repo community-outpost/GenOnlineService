@@ -58,10 +58,11 @@ namespace GenOnlineService.Rest
 		public IReadOnlyList<AuditEvent> AuditEvents { get; init; } = [];
 	}
 
-	// ?actor_id=&target_id=&action=&after_id=&per_page=; after_id continues below that id
-	public sealed record AuditEventsQuery(long? ActorID, long? TargetID, string? Action, long? AfterID, int PerPage)
+	// ?actor_id=&target_id=&target_kind=&action=&after_id=&per_page=; after_id continues below that id
+	public sealed record AuditEventsQuery(long? ActorID, long? TargetID, string? Action, long? AfterID, int PerPage, string? TargetKind = null)
 	{
 		public const int MaximumActionLength = 64;
+		public const int MaximumTargetKindLength = 32;
 
 		public static (AuditEventsQuery? Query, Failure? Failure) Read(HttpRequest request)
 		{
@@ -74,14 +75,12 @@ namespace GenOnlineService.Rest
 				return (null, failure);
 			}
 
-			string? action = null;
-			if (request.Query.TryGetValue("action", out var actionText))
+			(string? action, Failure? actionFailure) = ReadText(request, "action", MaximumActionLength);
+			(string? targetKind, Failure? kindFailure) = ReadText(request, "target_kind", MaximumTargetKindLength);
+			failure = actionFailure ?? kindFailure;
+			if (failure != null)
 			{
-				action = actionText.ToString();
-				if (action.Length == 0 || action.Length > MaximumActionLength)
-				{
-					return (null, Result.Invalid("action"));
-				}
+				return (null, failure);
 			}
 
 			int perPage = OffsetPage.DefaultPerPage;
@@ -90,7 +89,18 @@ namespace GenOnlineService.Rest
 				return (null, Result.Invalid("per_page"));
 			}
 
-			return (new AuditEventsQuery(actorID, targetID, action, afterID, perPage), null);
+			return (new AuditEventsQuery(actorID, targetID, action, afterID, perPage, targetKind), null);
+		}
+
+		// Absent is no filter; present must be 1 to maximumLength characters
+		private static (string? Value, Failure? Failure) ReadText(HttpRequest request, string name, int maximumLength)
+		{
+			if (!request.Query.TryGetValue(name, out var text))
+			{
+				return (null, null);
+			}
+			string value = text.ToString();
+			return value.Length == 0 || value.Length > maximumLength ? (null, Result.Invalid(name)) : (value, null);
 		}
 
 		private static (long? Value, Failure? Failure) ReadID(HttpRequest request, string name)
@@ -116,6 +126,8 @@ namespace GenOnlineService.Rest
 			m_dbFactory = dbFactory;
 		}
 
+		// The audit log page of the staff area reads this with the sign-in cookie
+		[AllowSignInCookie]
 		[HttpGet("~/api/v1/audit_events")]
 		public async Task<IActionResult> List()
 		{
@@ -126,7 +138,7 @@ namespace GenOnlineService.Rest
 			}
 
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-			List<AuditLogEntry> rows = await Database.Moderation.GetAuditEvents(db, query!.ActorID, query.TargetID, query.Action, query.AfterID, query.PerPage);
+			List<AuditLogEntry> rows = await Database.Moderation.GetAuditEvents(db, query!.ActorID, query.TargetID, query.Action, query.AfterID, query.PerPage, query.TargetKind);
 
 			List<long> userIDs = rows.Where(IsUserActor).Select(r => r.ActorID!.Value).Distinct().ToList();
 			Dictionary<long, string> names = await db.Users.AsNoTracking()

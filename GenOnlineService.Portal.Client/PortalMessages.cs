@@ -258,11 +258,31 @@ namespace GenOnlineService.Portal.Client
 		public int EloMatches { get; init; }
 		public IReadOnlyList<PortalSanction> Sanctions { get; init; } = [];
 
+		// Every role row with where it comes from: "local", or "upstream:<provider>" for a role that follows the sign-ins
+		// of that provider and cannot be changed here
+		public IReadOnlyList<PortalRoleGrant> RoleGrants { get; init; } = [];
+
+		// The roles the caller may grant or revoke on this player: roles.manage and the rank rule, empty otherwise
+		public IReadOnlyList<string> AssignableRoles { get; init; } = [];
+
 		// False where the sign-in provider owns the names
 		public bool CanRename { get; init; }
 
 		[JsonIgnore]
 		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	public sealed record PortalRoleGrant
+	{
+		public string Role { get; init; } = "";
+		public string Source { get; init; } = "";
+
+		[JsonIgnore]
+		public bool Local => Source == "local";
+
+		// "upstream:discord" reads discord
+		[JsonIgnore]
+		public string Provider => Source.StartsWith("upstream:", StringComparison.Ordinal) ? Source.Substring("upstream:".Length) : Source;
 	}
 
 	public sealed record PortalIdentity
