@@ -760,6 +760,13 @@ namespace GenOnlineService.Identity
 				return Forbid(Error(Errors.InvalidGrant, "The account is banned from playing."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 			}
 
+			// a player whose name staff reset signs in again and chooses one first (S17); this holds even when revoking
+			// their sign-ins failed. A new account never gets this far: authorize issues no code before the name.
+			if (request.IsRefreshTokenGrantType() && user.NameRequiredAt != null)
+			{
+				return Forbid(Error(Errors.InvalidGrant, "The player must choose a new name."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+			}
+
 			// the name is read again so a rename reaches the next access token
 			ClaimsIdentity identity = BuildIdentity(user, result.Principal!.GetScopes());
 			identity.SetAuthorizationId(result.Principal!.GetAuthorizationId());

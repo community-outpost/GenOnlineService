@@ -339,4 +339,48 @@ public class ChosenNamesTests
 		var options = services.BuildServiceProvider().GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<AspNet.Security.OpenId.Steam.SteamAuthenticationOptions>>().Get("steam");
 		Assert.Empty(options.Attributes);
 	}
+
+	// a refresh grant needs the name chosen too: a player whose name was reset cannot keep refreshing under the
+	// placeholder even when the revocation of their sign-ins failed
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ARefreshIsRefusedWhileANameMustBeChosen(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser browser, User user) = await OwingPlayer(probe, "refresher@example.org");
+		Assert.Equal(302, (await Choose(browser, "Refresher")).Status);
+
+		string verifier = "a-code-verifier-long-enough-for-pkce-0123456789-abcdefghij";
+		string challenge = Base64UrlEncode(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(verifier)));
+		string query = $"?client_id=genonline_zerohour&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback&scope=openid%20offline_access%20game&state=s&code_challenge={challenge}&code_challenge_method=S256";
+		PageResponse authorized = await browser.Get("/oauth/authorize" + query);
+		string code = System.Web.HttpUtility.ParseQueryString(new Uri(authorized.Location!).Query)["code"]!;
+
+		PageResponse issued = await browser.Post("/oauth/token", new()
+		{
+			["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = "http://127.0.0.1/callback",
+			["client_id"] = "genonline_zerohour", ["code_verifier"] = verifier
+		});
+		Assert.Equal(200, issued.Status);
+		string refresh = System.Text.Json.JsonDocument.Parse(issued.Body).RootElement.GetProperty("refresh_token").GetString()!;
+
+		// the refresh still works while nothing is owed
+		PageResponse refreshed = await browser.Post("/oauth/token", new() { ["grant_type"] = "refresh_token", ["refresh_token"] = refresh, ["client_id"] = "genonline_zerohour" });
+		Assert.Equal(200, refreshed.Status);
+		refresh = System.Text.Json.JsonDocument.Parse(refreshed.Body).RootElement.GetProperty("refresh_token").GetString()!;
+
+		await using (AppDbContext db = probe.Open())
+		{
+			User owing = await db.Users.AsTracking().SingleAsync(u => u.ID == user.ID);
+			owing.NameRequiredAt = DateTime.UtcNow;
+			await db.SaveChangesAsync();
+		}
+
+		PageResponse refused = await browser.Post("/oauth/token", new() { ["grant_type"] = "refresh_token", ["refresh_token"] = refresh, ["client_id"] = "genonline_zerohour" });
+		Assert.Equal(400, refused.Status);
+		Assert.Equal("invalid_grant", System.Text.Json.JsonDocument.Parse(refused.Body).RootElement.GetProperty("error").GetString());
+	}
+
+	private static string Base64UrlEncode(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
