@@ -261,7 +261,7 @@ namespace GenOnlineService.Identity
 
 		private const string TotpIssuer = "Generals Online";
 
-		[HttpGet("~/users/two_factor/setup")]
+		[HttpGet("~/profile/two_factor_auth")]
 		public async Task<IActionResult> TwoFactorSetupPage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
 		{
 			if (!m_settings.Password.Enabled)
@@ -282,7 +282,7 @@ namespace GenOnlineService.Identity
 			if (user.TwoFactorEnabled)
 			{
 				var manage = new System.Text.StringBuilder("<p>Two-factor sign-in is on.</p>");
-				manage.Append(FormStart("/users/two_factor/disable", target));
+				manage.Append(FormStart("/profile/two_factor_auth/disable", target));
 				manage.Append($"<p><label>Code from your authenticator app <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required></label></p>");
 				manage.Append("<p><button type=\"submit\">Turn two-factor sign-in off</button></p></form>");
 				return Page(200, "Two-factor sign-in", manage.ToString());
@@ -308,13 +308,13 @@ namespace GenOnlineService.Identity
 			body.Append("<p>Add this account to your authenticator app with the link or the key, then enter the code it shows.</p>");
 			body.Append($"<p><a href=\"{WebUtility.HtmlEncode(uri)}\">{WebUtility.HtmlEncode(uri)}</a></p>");
 			body.Append($"<p>Key: <code>{WebUtility.HtmlEncode(grouped)}</code></p>");
-			body.Append(FormStart("/users/two_factor/setup", target));
+			body.Append(FormStart("/profile/two_factor_auth", target));
 			body.Append($"<p><label>Code <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required></label></p>");
 			body.Append("<p><button type=\"submit\">Turn two-factor sign-in on</button></p></form>");
 			return Page(status, "Set up two-factor sign-in", body.ToString());
 		}
 
-		[HttpPost("~/users/two_factor/setup")]
+		[HttpPost("~/profile/two_factor_auth")]
 		public async Task<IActionResult> TwoFactorSetup([FromForm(Name = CodeField)] string? code, [FromForm(Name = ReturnUrlField)] string? returnUrl)
 		{
 			if (!m_settings.Password.Enabled)
@@ -334,7 +334,7 @@ namespace GenOnlineService.Identity
 			}
 			if (user.TwoFactorEnabled || !await m_users.HasPasswordAsync(user))
 			{
-				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+				return LocalRedirect($"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(target)}");
 			}
 
 			string token = (code ?? String.Empty).Replace(" ", String.Empty);
@@ -354,7 +354,7 @@ namespace GenOnlineService.Identity
 				$"<p>Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.</p><ul>{list}</ul><p><a href=\"{WebUtility.HtmlEncode(target)}\">Continue</a></p>");
 		}
 
-		[HttpPost("~/users/two_factor/disable")]
+		[HttpPost("~/profile/two_factor_auth/disable")]
 		public async Task<IActionResult> TwoFactorDisable([FromForm(Name = CodeField)] string? code, [FromForm(Name = ReturnUrlField)] string? returnUrl)
 		{
 			if (!m_settings.Password.Enabled)
@@ -374,7 +374,7 @@ namespace GenOnlineService.Identity
 			}
 			if (!user.TwoFactorEnabled)
 			{
-				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+				return LocalRedirect($"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(target)}");
 			}
 			if (await m_passwords.IsStaff(user.ID))
 			{
@@ -593,7 +593,7 @@ namespace GenOnlineService.Identity
 				}
 
 				string query = QueryString.Create((Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList()).Where(p => p.Key != Parameters.Prompt).ToList()).ToString();
-				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(Request.PathBase + Request.Path + query)}");
+				return LocalRedirect($"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(Request.PathBase + Request.Path + query)}");
 			}
 
 			object application = await m_applications.FindByClientIdAsync(request.ClientId!) ?? throw new InvalidOperationException("Unknown client.");
