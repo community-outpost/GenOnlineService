@@ -146,17 +146,233 @@ namespace GenOnlineService.Identity
 
 			if (result.Error == null)
 			{
-				await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: "password");
+				await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: PasswordAccounts.PasswordMethod);
 				return LocalRedirect(target);
+			}
+
+			if (result.Error == PasswordAccounts.ErrorTwoFactorRequired)
+			{
+				// the right password only earns the code page: the same short-lived cookie Identity's own two-factor
+				// sign-in reads (its Name claim is the user id)
+				var pending = new ClaimsIdentity(IdentityConstants.TwoFactorUserIdScheme);
+				pending.AddClaim(new Claim(ClaimTypes.Name, result.User!.ID.ToString()));
+				await HttpContext.SignInAsync(IdentityConstants.TwoFactorUserIdScheme, new ClaimsPrincipal(pending));
+				return LocalRedirect($"/users/two_factor?{ReturnUrlField}={Uri.EscapeDataString(target)}");
 			}
 
 			return result.Error switch
 			{
 				PasswordAccounts.ErrorBlocked => Page(403, "Sign-in refused", "<p>This account is blocked.</p>"),
 				PasswordAccounts.ErrorDeactivated => Page(403, "Sign-in refused", "<p>This account is deactivated.</p>"),
-				PasswordAccounts.ErrorTwoFactorRequired => Page(403, "Sign-in refused", "<p>This account needs a second factor, which this server cannot ask for yet.</p>"),
 				_ => SignInForm(401, target, email, "Wrong email or password.")
 			};
+		}
+
+		// Second factor: a code from the authenticator app or a recovery code, after the right password
+
+		private const string CodeField = "code";
+		private const string RecoveryCodeField = "recovery_code";
+
+		[HttpGet("~/users/two_factor")]
+		public async Task<IActionResult> TwoFactorPage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			string target = SafeReturnUrl(returnUrl);
+			if (await m_signIn.GetTwoFactorAuthenticationUserAsync() == null)
+			{
+				return LocalRedirect($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+			return TwoFactorForm(200, target, null);
+		}
+
+		private ContentResult TwoFactorForm(int status, string target, string? message)
+		{
+			var body = new System.Text.StringBuilder(Message(message));
+			body.Append(FormStart("/users/two_factor", target));
+			body.Append($"<p><label>Code from your authenticator app <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\"></label></p>");
+			body.Append($"<p><label>Or a recovery code <input type=\"text\" name=\"{RecoveryCodeField}\" autocomplete=\"off\"></label></p>");
+			body.Append("<p><button type=\"submit\">Sign in</button></p></form>");
+			return Page(status, "Two-factor sign-in", body.ToString());
+		}
+
+		[HttpPost("~/users/two_factor")]
+		public async Task<IActionResult> TwoFactor([FromForm(Name = CodeField)] string? code, [FromForm(Name = RecoveryCodeField)] string? recoveryCode,
+			[FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			if (await m_signIn.GetTwoFactorAuthenticationUserAsync() == null)
+			{
+				return LocalRedirect($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+
+			// both count a wrong code toward the lockout and sign in with amr mfa
+			string authenticator = (code ?? String.Empty).Replace(" ", String.Empty);
+			string recovery = (recoveryCode ?? String.Empty).Trim();
+			Microsoft.AspNetCore.Identity.SignInResult result = authenticator.Length > 0
+				? await m_signIn.TwoFactorAuthenticatorSignInAsync(authenticator, isPersistent: false, rememberClient: false)
+				: recovery.Length > 0 ? await m_signIn.TwoFactorRecoveryCodeSignInAsync(recovery) : Microsoft.AspNetCore.Identity.SignInResult.Failed;
+			AppMetrics.RecordAuthentication("password_two_factor", "password", result.Succeeded ? "success" : result.IsLockedOut ? "locked_out" : "failed");
+
+			return result.Succeeded ? LocalRedirect(target) : TwoFactorForm(401, target, "Wrong code.");
+		}
+
+		// Setting up an authenticator app: the key, a first code, then the recovery codes once
+
+		private async Task<User?> CookieUser()
+		{
+			AuthenticateResult cookie = await HttpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+			return cookie.Succeeded ? await m_users.GetUserAsync(cookie.Principal!) : null;
+		}
+
+		private IActionResult SignInFirst(string target)
+			=> Challenge(new AuthenticationProperties { RedirectUri = $"{Request.PathBase}{Request.Path}?{ReturnUrlField}={Uri.EscapeDataString(target)}" }, IdentityConstants.ApplicationScheme);
+
+		private const string TotpIssuer = "Generals Online";
+
+		[HttpGet("~/users/two_factor/setup")]
+		public async Task<IActionResult> TwoFactorSetupPage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (!await m_users.HasPasswordAsync(user))
+			{
+				return Page(403, "Two-factor sign-in", "<p>Two-factor sign-in is for accounts that sign in with an email address and a password.</p>");
+			}
+
+			if (user.TwoFactorEnabled)
+			{
+				var manage = new System.Text.StringBuilder("<p>Two-factor sign-in is on.</p>");
+				manage.Append(FormStart("/users/two_factor/disable", target));
+				manage.Append($"<p><label>Code from your authenticator app <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required></label></p>");
+				manage.Append("<p><button type=\"submit\">Turn two-factor sign-in off</button></p></form>");
+				return Page(200, "Two-factor sign-in", manage.ToString());
+			}
+
+			return await TwoFactorSetupForm(200, user, target, null);
+		}
+
+		private async Task<ContentResult> TwoFactorSetupForm(int status, User user, string target, string? message)
+		{
+			string? key = await m_users.GetAuthenticatorKeyAsync(user);
+			if (String.IsNullOrEmpty(key))
+			{
+				await m_users.ResetAuthenticatorKeyAsync(user);
+				key = await m_users.GetAuthenticatorKeyAsync(user);
+			}
+
+			string label = Uri.EscapeDataString($"{TotpIssuer}:{Database.DisplayNames.Format(user.Username, user.NameTag)}");
+			string uri = $"otpauth://totp/{label}?secret={key}&issuer={Uri.EscapeDataString(TotpIssuer)}&digits=6";
+			string grouped = String.Join(' ', Enumerable.Range(0, (key!.Length + 3) / 4).Select(i => key.Substring(i * 4, Math.Min(4, key.Length - i * 4))));
+
+			var body = new System.Text.StringBuilder(Message(message));
+			body.Append("<p>Add this account to your authenticator app with the link or the key, then enter the code it shows.</p>");
+			body.Append($"<p><a href=\"{WebUtility.HtmlEncode(uri)}\">{WebUtility.HtmlEncode(uri)}</a></p>");
+			body.Append($"<p>Key: <code>{WebUtility.HtmlEncode(grouped)}</code></p>");
+			body.Append(FormStart("/users/two_factor/setup", target));
+			body.Append($"<p><label>Code <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required></label></p>");
+			body.Append("<p><button type=\"submit\">Turn two-factor sign-in on</button></p></form>");
+			return Page(status, "Set up two-factor sign-in", body.ToString());
+		}
+
+		[HttpPost("~/users/two_factor/setup")]
+		public async Task<IActionResult> TwoFactorSetup([FromForm(Name = CodeField)] string? code, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (user.TwoFactorEnabled || !await m_users.HasPasswordAsync(user))
+			{
+				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+
+			string token = (code ?? String.Empty).Replace(" ", String.Empty);
+			if (!await m_users.VerifyTwoFactorTokenAsync(user, m_users.Options.Tokens.AuthenticatorTokenProvider, token))
+			{
+				return await TwoFactorSetupForm(400, user, target, "Wrong code.");
+			}
+
+			await m_users.SetTwoFactorEnabledAsync(user, true);
+			IEnumerable<string> codes = await m_users.GenerateNewTwoFactorRecoveryCodesAsync(user, 10) ?? Array.Empty<string>();
+			// the security stamp changed; keep this browser signed in
+			await m_signIn.RefreshSignInAsync(user);
+
+			string list = String.Concat(codes.Select(c => $"<li><code>{WebUtility.HtmlEncode(c)}</code></li>"));
+			Response.Headers.CacheControl = "no-store";
+			return Page(200, "Two-factor sign-in is on",
+				$"<p>Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.</p><ul>{list}</ul><p><a href=\"{WebUtility.HtmlEncode(target)}\">Continue</a></p>");
+		}
+
+		[HttpPost("~/users/two_factor/disable")]
+		public async Task<IActionResult> TwoFactorDisable([FromForm(Name = CodeField)] string? code, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (!user.TwoFactorEnabled)
+			{
+				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+			if (await m_passwords.IsStaff(user.ID))
+			{
+				return Page(403, "Two-factor sign-in", "<p>Staff accounts keep two-factor sign-in.</p>");
+			}
+
+			string token = (code ?? String.Empty).Replace(" ", String.Empty);
+			if (!await m_users.VerifyTwoFactorTokenAsync(user, m_users.Options.Tokens.AuthenticatorTokenProvider, token))
+			{
+				return Page(400, "Two-factor sign-in", "<p role=\"alert\">Wrong code.</p>");
+			}
+
+			// a new key and no recovery codes, so nothing of the old setup works again
+			await m_users.SetTwoFactorEnabledAsync(user, false);
+			await m_users.ResetAuthenticatorKeyAsync(user);
+			await m_users.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
+			await m_signIn.RefreshSignInAsync(user);
+			return Page(200, "Two-factor sign-in is off", $"<p><a href=\"{WebUtility.HtmlEncode(target)}\">Continue</a></p>");
 		}
 
 		[HttpGet("~/users/sign_up")]
@@ -346,6 +562,18 @@ namespace GenOnlineService.Identity
 			{
 				await m_signIn.SignOutAsync();
 				return Forbid(Error(Errors.AccessDenied, "This account cannot sign in."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+			}
+
+			// staff signed in with a password alone set up two-factor sign-in first, then come back here
+			if (await m_passwords.MustSetUpTwoFactor(user, cookie.Principal!))
+			{
+				if (request.HasPromptValue(PromptValues.None))
+				{
+					return Forbid(Error(Errors.InteractionRequired, "Two-factor sign-in must be set up first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+				}
+
+				string query = QueryString.Create((Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList()).Where(p => p.Key != Parameters.Prompt).ToList()).ToString();
+				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(Request.PathBase + Request.Path + query)}");
 			}
 
 			object application = await m_applications.FindByClientIdAsync(request.ClientId!) ?? throw new InvalidOperationException("Unknown client.");

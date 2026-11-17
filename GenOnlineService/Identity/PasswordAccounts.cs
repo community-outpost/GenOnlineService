@@ -18,6 +18,7 @@
 
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using System.Net.Mail;
 
 namespace GenOnlineService.Identity
@@ -47,16 +48,38 @@ namespace GenOnlineService.Identity
 		public const string ErrorDeactivated = UpstreamAccounts.ErrorDeactivated;
 		public const string ErrorTwoFactorRequired = "two_factor_required";
 
+		// The authentication method of a cookie signed in with a password alone
+		public const string PasswordMethod = "password";
+
 		private static readonly ILogger s_log = AppLog.For(typeof(PasswordAccounts));
 		private readonly PasswordSignInSettings m_settings;
 		private readonly UserManager<User> m_users;
 		private readonly SignInManager<User> m_signIn;
+		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 
-		public PasswordAccounts(AccountsSettings settings, UserManager<User> users, SignInManager<User> signIn)
+		public PasswordAccounts(AccountsSettings settings, UserManager<User> users, SignInManager<User> signIn, IDbContextFactory<AppDbContext> dbFactory)
 		{
 			m_settings = settings.Password;
 			m_users = users;
 			m_signIn = signIn;
+			m_dbFactory = dbFactory;
+		}
+
+		// Staff hold a role that grants permissions or a rank; read from the database, not the few-second cache, so a
+		// fresh grant counts at once, and a failed read fails the request instead of passing as "not staff"
+		public async Task<bool> IsStaff(Int64 userID)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			List<string> roles = await db.UserRoles.Where(r => r.UserID == userID).Select(r => r.Role).ToListAsync();
+			return roles.Any(StaffRoles.IsStaff);
+		}
+
+		// Staff signed in with a password alone must set up two-factor sign-in before any token is issued
+		public async Task<bool> MustSetUpTwoFactor(User user, System.Security.Claims.ClaimsPrincipal cookie)
+		{
+			return !user.TwoFactorEnabled
+				&& cookie.FindFirst(System.Security.Claims.ClaimTypes.AuthenticationMethod)?.Value == PasswordMethod
+				&& await IsStaff(user.ID);
 		}
 
 		public async Task<PasswordAccountResult> SignUp(string? displayName, string? email, string? password, string? honeypot)

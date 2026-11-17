@@ -169,22 +169,35 @@ namespace GenOnlineService.Identity
 				})
 				.AddUserStore<GoUserStore>()
 				.AddPasswordValidator<MaximumLengthPasswordValidator>()
+				.AddTokenProvider<AuthenticatorTokenProvider<User>>(TokenOptions.DefaultAuthenticatorProvider)
 				.AddSignInManager();
 
 			// Identity's own user validator would refuse a second "Player": display names are not unique (Name#tag)
 			services.RemoveAll<IUserValidator<User>>();
 			services.AddScoped<IUserValidator<User>, GoUserValidator>();
 
-			services.AddAuthentication().AddIdentityCookies(cookies => cookies.ApplicationCookie?.Configure(options =>
+			services.AddAuthentication().AddIdentityCookies(cookies =>
 			{
-				options.LoginPath = "/users/sign_in";
-				options.LogoutPath = "/users/sign_out";
-				options.AccessDeniedPath = "/users/sign_in";
-				options.Cookie.Name = "go_session";
-				options.Cookie.SameSite = SameSiteMode.Lax;
-				options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
-				options.ExpireTimeSpan = TimeSpan.FromDays(14);
-			}));
+				cookies.ApplicationCookie?.Configure(options =>
+				{
+					options.LoginPath = "/users/sign_in";
+					options.LogoutPath = "/users/sign_out";
+					options.AccessDeniedPath = "/users/sign_in";
+					options.Cookie.Name = "go_session";
+					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+					options.ExpireTimeSpan = TimeSpan.FromDays(14);
+				});
+
+				// who gave the right password and still owes the second factor, for 5 minutes
+				cookies.TwoFactorUserIdCookie?.Configure(options =>
+				{
+					options.Cookie.Name = "go_two_factor";
+					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+				});
+			});
 
 			// a blocked user's stamp is rotated, so their website cookie stops within a minute
 			services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(1));
