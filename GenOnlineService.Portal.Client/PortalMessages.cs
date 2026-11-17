@@ -21,7 +21,7 @@ using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Portal.Client
 {
-	// The portal endpoints answer in the same snake_case JSON as /api/v1
+	// The pages read /api/v1, which answers in snake_case JSON
 	public static class PortalJson
 	{
 		public static readonly JsonSerializerOptions Options = new JsonSerializerOptions
@@ -31,15 +31,16 @@ namespace GenOnlineService.Portal.Client
 		};
 	}
 
-	// The paths the browser calls with the sign-in cookie, and the pages the host gates
+	// The /api/v1 paths the browser calls with the sign-in cookie (the routes marked [AllowSignInCookie]), and the pages the host gates
 	public static class PortalRoutes
 	{
-		public const string Session = "admin/api/session";
-		public const string Reports = "admin/api/reports";
-		public const string Players = "admin/api/players";
-		public const string Sanctions = "admin/api/sanctions";
-		public const string Matches = "admin/api/matches";
-		public const string AntiCheat = "admin/api/anticheat";
+		public const string Reports = "api/v1/reports";
+		public const string ReportSearch = "api/v1/reports/search";
+		public const string Players = "api/v1/players";
+		public const string PlayerSearch = "api/v1/players/search";
+		public const string Sanctions = "api/v1/sanctions";
+		public const string Matches = "api/v1/matches";
+		public const string AntiCheat = "api/v1/anticheat_reports";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -85,7 +86,7 @@ namespace GenOnlineService.Portal.Client
 		public static PortalReviewList? Find(string? kind) => All.FirstOrDefault(list => list.Kind == kind);
 	}
 
-	// Who is signed in, what they may do, and the anti-forgery token every change must carry
+	// Who is signed in, what they may do, and the anti-forgery token every change must carry, all from the host page
 	public sealed record PortalSessionInfo
 	{
 		public long UserId { get; init; }
@@ -94,7 +95,10 @@ namespace GenOnlineService.Portal.Client
 		public IReadOnlyList<string> Roles { get; init; } = [];
 		public IReadOnlyList<string> Permissions { get; init; } = [];
 		public bool Staff { get; init; }
+		// from the page's own csrf meta tags, not from the session JSON
+		[JsonIgnore]
 		public string CsrfHeader { get; init; } = "";
+		[JsonIgnore]
 		public string CsrfToken { get; init; } = "";
 
 		[JsonIgnore]

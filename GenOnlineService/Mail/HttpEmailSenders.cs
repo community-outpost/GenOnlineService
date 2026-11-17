@@ -34,8 +34,8 @@ namespace GenOnlineService.Mail
 			DeliveryMethod.Resend => new ResendEmailSender(settings, http),
 			DeliveryMethod.Mailgun => new MailgunEmailSender(settings, http),
 			DeliveryMethod.Cloudflare => new CloudflareEmailSender(settings, http),
-			// MailKit arrives with the SMTP slice of T4a
-			_ => throw new NotSupportedException($"Mail:delivery_method {settings.DeliveryMethod} has no sender yet.")
+			DeliveryMethod.Smtp => new SmtpEmailSender(settings),
+			_ => throw new NotSupportedException($"Mail:delivery_method {settings.DeliveryMethod} has no sender.")
 		};
 	}
 

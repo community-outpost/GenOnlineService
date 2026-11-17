@@ -258,7 +258,8 @@ namespace GenOnlineService.Identity
 			long total = 0;
 			while (true)
 			{
-				List<string> batch = await ids.Take(BatchSize).ToListAsync();
+				// any batch is fine, the loop repeats until nothing is left; the order only keeps EF's 10102 warning out of the log
+				List<string> batch = await ids.OrderBy(id => id).Take(BatchSize).ToListAsync();
 				if (batch.Count == 0)
 				{
 					return total;
