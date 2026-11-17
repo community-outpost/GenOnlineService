@@ -20,6 +20,8 @@ using GenOnlineService.Names;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace GenOnlineService.Api
 {
@@ -57,6 +59,7 @@ namespace GenOnlineService.Api
 
 		// Flags an inappropriate name: a placeholder replaces it, the player chooses a new one at their next sign-in, which
 		// this forces by ending every sign-in (S17)
+		[AllowSignInCookie]
 		[HttpPost("~/api/v1/players/{userID:long}/reset_name")]
 		public async Task<IActionResult> ResetPlayerName(long userID)
 		{
@@ -120,6 +123,8 @@ namespace GenOnlineService.Api
 			return ApiResults.NoContent(await SanctionActions.LiftAsync(m_dbFactory, Me, sanctionID, body?.Reason, RequirePermissionAsync));
 		}
 
+		// The report queue of the staff pages deletes a reported message with the sign-in cookie
+		[AllowSignInCookie]
 		[HttpDelete("~/api/v1/messages/{messageID}")]
 		public async Task<IActionResult> DeleteMessage(string messageID)
 		{
@@ -182,9 +187,32 @@ namespace GenOnlineService.Api
 			(int total, List<PlayerReport> rows) = await Database.Chat.GetReportsPage(db, statuses.Contains("all") ? null : statuses, search, sort == "desc", page.Skip, page.PerPage, HttpContext.RequestAborted);
 			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, rows.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID }).ToHashSet());
 
-			// the fields of GET /api/v1/reports
+			// the page leaves the evidence out, so it is read for the message reports of this page only
+			long[] messageReports = rows.Where(r => r.MessageID != null).Select(r => r.ID).ToArray();
+			Dictionary<long, string> evidence = messageReports.Length == 0
+				? new Dictionary<long, string>()
+				: await db.PlayerReports.AsNoTracking().Where(r => messageReports.Contains(r.ID)).Select(r => new { r.ID, r.Evidence }).ToDictionaryAsync(r => r.ID, r => r.Evidence, HttpContext.RequestAborted);
+
+			// the fields of GET /api/v1/reports, and the reported message's text so staff see what a message report is about
 			Rest.Paging.WriteOffsetHeaders(HttpContext, page, total);
-			return ApiResults.Ok(new ReportsResponse { Reports = rows.Select(r => Rest.StaffOverview.ReportOf(r, names)).ToArray() });
+			return ApiResults.Ok(new ReportsResponse
+			{
+				Reports = rows.Select(r => Rest.StaffOverview.ReportOf(r, names) with { MessageContent = evidence.TryGetValue(r.ID, out string? stored) ? ReportedContentOf(stored) : null }).ToArray()
+			});
+		}
+
+		// The message of a message report's evidence ({message, before, after}); null for evidence that does not parse
+		private static string? ReportedContentOf(string stored)
+		{
+			try
+			{
+				return JsonNode.Parse(stored) is JsonObject evidence && evidence["message"] is JsonObject message
+					&& message["content"] is JsonValue content && content.TryGetValue(out string? text) ? text : null;
+			}
+			catch (JsonException)
+			{
+				return null;
+			}
 		}
 
 		[AllowSignInCookie]

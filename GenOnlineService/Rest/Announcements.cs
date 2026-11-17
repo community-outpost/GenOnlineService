@@ -84,6 +84,8 @@ namespace GenOnlineService.Rest
 			m_dbFactory = dbFactory;
 		}
 
+		// The announcements page of the staff pages takes the sign-in cookie too
+		[AllowSignInCookie]
 		[HttpPost("~/api/v1/announcements")]
 		public async Task<IActionResult> Post([FromBody] AnnouncementRequest? body)
 		{

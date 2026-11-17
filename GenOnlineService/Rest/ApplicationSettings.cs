@@ -90,6 +90,8 @@ namespace GenOnlineService.Rest
 			m_dbFactory = dbFactory;
 		}
 
+		// The settings page of the staff pages takes the sign-in cookie too
+		[AllowSignInCookie]
 		[HttpGet("~/api/v1/application/settings")]
 		public async Task<IActionResult> Get()
 		{
@@ -97,6 +99,7 @@ namespace GenOnlineService.Rest
 			return RestResults.Ok(await Answer(db));
 		}
 
+		[AllowSignInCookie]
 		[HttpPut("~/api/v1/application/settings")]
 		public async Task<IActionResult> Put([FromBody] JsonNode? body)
 		{
