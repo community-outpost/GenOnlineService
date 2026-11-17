@@ -354,6 +354,14 @@ namespace GenOnlineService.Portal.Client
 		public DateTime? LiftedAt { get; init; }
 		public PortalMember? CreatedBy { get; init; }
 		public bool Active { get; init; }
+
+		// who lifted it (user, service_account or cli, and the player when staff did) and why, null until lifted
+		public string? LiftedByKind { get; init; }
+		public PortalMember? LiftedBy { get; init; }
+		public string? LiftReason { get; init; }
+
+		[JsonIgnore]
+		public string? LifterName => LiftedBy?.FullName ?? (LiftedByKind == null ? null : PortalText.ActorKind(LiftedByKind));
 	}
 
 	// The player page every staff member sees: the account, its sessions, ratings and sanctions

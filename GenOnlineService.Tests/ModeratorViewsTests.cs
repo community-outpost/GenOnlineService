@@ -95,6 +95,44 @@ public class ModeratorViewsTests
 		Assert.Equal("reporter_id", FieldOf(await moderator.Get("/api/v1/reports/search?reporter_id=-3")));
 	}
 
+	// The staff player page says who lifted a sanction and why; a sanction still running or lifted by the CLI says what it can
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task StaffViewSaysWhoLiftedASanctionAndWhy(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var moderator = new AdminBrowser(probe);
+		await moderator.SignUp("Warden", "warden@example.org");
+		User warden = await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		User alpha = await AddUser(probe, "Alpha", 1);
+		await using (AppDbContext db = probe.Open())
+		{
+			db.Sanctions.AddRange(
+				new Sanction { UserID = alpha.ID, Type = SanctionTypes.Ban, Reason = "cheating", CreatedByKind = AuditActorKinds.User, CreatedByID = warden.ID, CreatedAt = s_now.AddDays(-3),
+					LiftedAt = s_now.AddDays(-1), LiftedByKind = AuditActorKinds.User, LiftedByID = warden.ID, LiftReason = "appeal accepted" },
+				new Sanction { UserID = alpha.ID, Type = SanctionTypes.Mute, Reason = "spam", CreatedByKind = AuditActorKinds.Cli, CreatedAt = s_now.AddDays(-2),
+					LiftedAt = s_now.AddDays(-2).AddHours(1), LiftedByKind = AuditActorKinds.Cli },
+				new Sanction { UserID = alpha.ID, Type = SanctionTypes.Mute, Reason = "again", CreatedByKind = AuditActorKinds.User, CreatedByID = warden.ID, CreatedAt = s_now, ExpiresAt = s_now.AddHours(1) });
+			await db.SaveChangesAsync();
+		}
+
+		JsonElement[] sanctions = Rows(await moderator.Get($"/api/v1/players/{alpha.ID}/staff_view"), "sanctions");
+		JsonElement ban = sanctions.Single(s => s.GetProperty("reason").GetString() == "cheating");
+		Assert.Equal("user", ban.GetProperty("lifted_by_kind").GetString());
+		Assert.Equal("Warden", ban.GetProperty("lifted_by").GetProperty("name").GetString());
+		Assert.Equal("appeal accepted", ban.GetProperty("lift_reason").GetString());
+
+		JsonElement cliLift = sanctions.Single(s => s.GetProperty("reason").GetString() == "spam");
+		Assert.Equal("cli", cliLift.GetProperty("lifted_by_kind").GetString());
+		Assert.False(cliLift.TryGetProperty("lifted_by", out JsonElement cliLifter) && cliLifter.ValueKind != JsonValueKind.Null);
+		Assert.False(cliLift.TryGetProperty("lift_reason", out JsonElement cliReason) && cliReason.ValueKind != JsonValueKind.Null);
+
+		JsonElement running = sanctions.Single(s => s.GetProperty("reason").GetString() == "again");
+		Assert.True(running.GetProperty("active").GetBoolean());
+		Assert.False(running.TryGetProperty("lifted_by_kind", out JsonElement runningKind) && runningKind.ValueKind != JsonValueKind.Null);
+	}
+
 	// The audit log finds what a player did or what was done to them by name, within days, and names the player it targets
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
