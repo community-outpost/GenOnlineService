@@ -171,7 +171,7 @@ public class StaffRolesCookieTests
 		PageResponse none = await admin.SendJson("DELETE", $"/api/v1/players/{plain.ID}/roles/moderator", s_empty, csrf);
 		Assert.Equal(404, none.Status);
 		Assert.Equal("not_found", AdminArea.ErrorOf(none));
-		Assert.Equal(400, (await admin.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/owner", s_empty, csrf)).Status);
+		Assert.Equal(400, (await admin.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/overlord", s_empty, csrf)).Status);
 
 		// staff without roles.manage are refused whatever their rank over the player
 		PageResponse withoutPermission = await moderator.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/streamer", s_empty, await moderator.Csrf());
@@ -263,7 +263,7 @@ public class StaffRolesCookieTests
 		PageResponse put = await caller.SendJson("PUT", roles, new { roles = new[] { "Moderator", "streamer" } }, bearer);
 		Assert.Equal(200, put.Status);
 		Assert.Equal("{\"roles\":[\"moderator\",\"streamer\"]}", put.Body);
-		Assert.Equal(400, (await caller.SendJson("PUT", roles, new { roles = new[] { "owner" } }, bearer)).Status);
+		Assert.Equal(400, (await caller.SendJson("PUT", roles, new { roles = new[] { "overlord" } }, bearer)).Status);
 		Assert.Equal(204, (await caller.SendJson("DELETE", roles, s_empty, bearer)).Status);
 		Assert.Empty(await RolesOf(probe, plain.ID));
 		Assert.Equal(404, (await caller.Get("/api/v1/players/999999/roles", bearer)).Status);
@@ -332,5 +332,129 @@ public class StaffRolesCookieTests
 		PageResponse viaToken = await new AdminBrowser(probe).Get($"/api/v1/audit_events?target_id={plain.ID}&action=role_grant", bearer);
 		Assert.Equal(200, viaToken.Status);
 		Assert.Equal(2, JsonDocument.Parse(viaToken.Body).RootElement.GetProperty("audit_events").GetArrayLength());
+	}
+
+	// The owner role (L69): rank 3 over admin, admin's permissions, granted with the CLI only, never by a provider
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AnOwnerGrantsAndRevokesAdminButNeverOwner(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser owner, User boss) = await StaffAsync(probe, "Boss", "owner");
+		(_, User other) = await StaffAsync(probe, "Other", "owner");
+		User plain = await PlayerAsync(probe, "Plain");
+		Dictionary<string, string> csrf = await owner.Csrf();
+
+		JsonElement view = JsonDocument.Parse((await owner.Get($"/api/v1/players/{plain.ID}/staff_view")).Body).RootElement;
+		Assert.Equal(["admin", "moderator", "streamer"], Strings(view.GetProperty("assignable_roles")));
+
+		PageResponse granted = await owner.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/admin", s_empty, csrf);
+		Assert.Equal(200, granted.Status);
+		Assert.Equal(["admin"], Strings(JsonDocument.Parse(granted.Body).RootElement.GetProperty("roles")));
+		Assert.True(StaffRoles.HasPermission(plain.ID, Permissions.RolesManage));
+		Assert.Equal(204, (await owner.SendJson("DELETE", $"/api/v1/players/{plain.ID}/roles/admin", s_empty, csrf)).Status);
+		Assert.Empty(await RolesOf(probe, plain.ID));
+		Assert.Equal([ModerationActions.RoleGrant, ModerationActions.RoleRevoke], (await RoleAudit(probe, plain.ID)).Select(e => e.Action));
+
+		// owner itself ranks at the caller's own rank, so nobody grants it through the API
+		PageResponse ownerRole = await owner.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/owner", s_empty, csrf);
+		Assert.Equal(403, ownerRole.Status);
+		Assert.Equal("roles.rank", AdminArea.ErrorOf(ownerRole));
+
+		// another owner is a peer, the owner themself is out of reach
+		PageResponse onPeer = await owner.SendJson("PUT", $"/api/v1/players/{other.ID}/roles/streamer", s_empty, csrf);
+		Assert.Equal(403, onPeer.Status);
+		Assert.Equal("moderation.target_outranks", AdminArea.ErrorOf(onPeer));
+		PageResponse onSelf = await owner.SendJson("DELETE", $"/api/v1/players/{boss.ID}/roles/owner", s_empty, csrf);
+		Assert.Equal(400, onSelf.Status);
+		Assert.Equal("invalid_argument", AdminArea.ErrorOf(onSelf));
+		Assert.Empty(JsonDocument.Parse((await owner.Get($"/api/v1/players/{other.ID}/staff_view")).Body).RootElement.GetProperty("assignable_roles").EnumerateArray());
+		Assert.Equal(["owner"], (await RolesOf(probe, other.ID)).Select(r => r.Role));
+		Assert.Equal(["owner"], (await RolesOf(probe, boss.ID)).Select(r => r.Role));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task OwnerStaysOutOfReachOfAdminsAndServiceAccounts(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		(_, User peer) = await StaffAsync(probe, "Peer", StaffRoles.Admin);
+		(_, User boss) = await StaffAsync(probe, "Boss", "owner");
+		User plain = await PlayerAsync(probe, "Plain");
+		Dictionary<string, string> csrf = await admin.Csrf();
+
+		// previous behaviour: an admin grants moderator to a player, and is refused admin and on another admin
+		Assert.Equal(200, (await admin.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/moderator", s_empty, csrf)).Status);
+		Assert.Equal("roles.rank", AdminArea.ErrorOf(await admin.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/admin", s_empty, csrf)));
+		Assert.Equal("moderation.target_outranks", AdminArea.ErrorOf(await admin.SendJson("DELETE", $"/api/v1/players/{peer.ID}/roles/admin", s_empty, csrf)));
+		Assert.Equal(["moderator", "streamer"], Strings(JsonDocument.Parse((await admin.Get($"/api/v1/players/{plain.ID}/staff_view")).Body).RootElement.GetProperty("assignable_roles")));
+
+		// an owner outranks an admin
+		PageResponse onOwner = await admin.SendJson("PUT", $"/api/v1/players/{boss.ID}/roles/streamer", s_empty, csrf);
+		Assert.Equal(403, onOwner.Status);
+		Assert.Equal("moderation.target_outranks", AdminArea.ErrorOf(onOwner));
+		Assert.Equal("roles.rank", AdminArea.ErrorOf(await admin.SendJson("PUT", $"/api/v1/players/{plain.ID}/roles/owner", s_empty, csrf)));
+
+		// a service account keeps admin rank: owner is never assignable through the API
+		Dictionary<string, string> bearer = await ServiceToken(probe, Permissions.RolesManage);
+		PageResponse viaToken = await new AdminBrowser(probe).SendJson("PUT", $"/api/v1/players/{plain.ID}/roles", new { roles = new[] { "owner" } }, bearer);
+		Assert.Equal(403, viaToken.Status);
+		Assert.Equal("roles.rank", AdminArea.ErrorOf(viaToken));
+		Assert.Equal(403, (await new AdminBrowser(probe).SendJson("DELETE", $"/api/v1/players/{boss.ID}/roles", s_empty, bearer)).Status);
+		Assert.Equal(["owner"], (await RolesOf(probe, boss.ID)).Select(r => r.Role));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AnOwnerRenamesAnAdminAsTheModerationRankRuleAllows(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser owner, _) = await StaffAsync(probe, "Boss", "owner");
+		(AdminBrowser admin, User chief) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		(_, User other) = await StaffAsync(probe, "Other", "owner");
+		// staff renames read the process-wide role cache
+		await using (AppDbContext db = probe.Open())
+		{
+			await StaffRoles.Reload(db);
+		}
+
+		Assert.Equal(204, (await owner.Patch($"/api/v1/players/{chief.ID}", new { name = "Renamed", reason = "probe" }, await owner.Csrf())).Status);
+		PageResponse onOwner = await admin.Patch($"/api/v1/players/{other.ID}", new { name = "Renamed", reason = "probe" }, await admin.Csrf());
+		Assert.Equal(403, onOwner.Status);
+		Assert.Equal("moderation.target_outranks", AdminArea.ErrorOf(onOwner));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AProviderSignInNeverGrantsOwner(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User plain = await PlayerAsync(probe, "Plain");
+		string source = AuthoritySources.Upstream("discord");
+
+		await using (AppDbContext db = probe.Open())
+		{
+			Database.Upstream.Changes changes = await Database.Upstream.Apply(db, plain.ID, source, ["owner", "moderator"], false, "");
+			Assert.Equal(["moderator"], changes.RolesAdded);
+		}
+		Assert.Equal([("moderator", source)], (await RolesOf(probe, plain.ID)).Select(r => (r.Role, r.Source)));
+		Assert.DoesNotContain(await RoleAudit(probe, plain.ID), e => e.Details!.Contains("owner"));
+	}
+
+	[Fact]
+	public void AnOwnerHoldsEveryAdminPermissionAndTheTopRank()
+	{
+		Assert.True(StaffRoles.IsKnown(StaffRoles.Owner));
+		Assert.True(StaffRoles.IsStaff("owner"));
+		Assert.Equal(StaffRoles.PermissionsFor([StaffRoles.Admin]).Order(), StaffRoles.PermissionsFor(["owner"]).Order());
+		Assert.Equal(3, StaffRoles.RankOf(["owner"]));
+		Assert.Equal((2, 1, 0), (StaffRoles.RankOf([StaffRoles.Admin]), StaffRoles.RankOf([StaffRoles.Moderator]), StaffRoles.RankOf([StaffRoles.Streamer])));
+		Assert.Equal(ClientFeatures.Defaults[StaffRoles.Admin], ClientFeatures.Defaults["owner"]);
+		Assert.Equal((IReadOnlyList<string>?)["owner"], Rest.RoleRules.Normalize(["Owner"]).Roles);
 	}
 }

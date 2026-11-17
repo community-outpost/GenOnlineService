@@ -44,7 +44,8 @@ namespace GenOnlineService
 		{
 			[StaffRoles.Streamer] = new[] { StatsExporter, Observer },
 			[StaffRoles.Moderator] = new[] { StatsExporter, Observer },
-			[StaffRoles.Admin] = new[] { StatsExporter, Observer }
+			[StaffRoles.Admin] = new[] { StatsExporter, Observer },
+			[StaffRoles.Owner] = new[] { StatsExporter, Observer }
 		};
 
 		private static volatile IReadOnlyDictionary<string, string[]> s_featuresByRole = new Dictionary<string, string[]>(StringComparer.Ordinal);

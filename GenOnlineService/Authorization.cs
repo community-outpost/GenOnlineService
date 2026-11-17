@@ -86,6 +86,10 @@ namespace GenOnlineService
 		public const string Moderator = "moderator";
 		public const string Admin = "admin";
 
+		// The top rank: admin's permissions, and the only rank above admin, so an owner manages admins. Granted with the
+		// roles CLI only (nobody outranks it), and never by a sign-in provider (Database.Upstream drops it)
+		public const string Owner = "owner";
+
 		// Streamer grants no permission and no rank, it only switches on client features through Features:roles
 		public const string Streamer = "streamer";
 
@@ -118,16 +122,19 @@ namespace GenOnlineService
 		{
 			[Moderator] = new HashSet<string>(s_moderatorPermissions, StringComparer.Ordinal),
 			[Admin] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal),
+			[Owner] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal),
 			[Streamer] = new HashSet<string>(StringComparer.Ordinal)
 		};
 
 		// Staff rank decides who may moderate whom, a role the code does not know ranks as a player
 		public const int AdminRank = 2;
+		public const int OwnerRank = 3;
 
 		private static readonly Dictionary<string, int> s_roleRanks = new(StringComparer.Ordinal)
 		{
 			[Moderator] = 1,
-			[Admin] = AdminRank
+			[Admin] = AdminRank,
+			[Owner] = OwnerRank
 		};
 
 		private static volatile Dictionary<Int64, HashSet<string>> s_permissionsByUser = new();

@@ -71,7 +71,7 @@ namespace GenOnlineService.Tests
 		}
 
 		[Theory]
-		[InlineData("owner")]
+		[InlineData("overlord")]
 		[InlineData("")]
 		[InlineData(null)]
 		public void UnknownRoleNamesTheRolesField(string? role)

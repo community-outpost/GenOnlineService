@@ -71,7 +71,8 @@ namespace GenOnlineService.Rest
 		public static async Task<int> CallerRankAsync(AppDbContext db, Database.ModerationActor actor) => AccountOf(actor) is long id ? await RankAsync(db, id) : StaffRoles.AdminRank;
 
 		// The rank rule of role changes, the moderation rank rule applied to roles: the caller outranks the player (so
-		// never acts on themself or a peer), and every role granted or revoked ranks strictly below the caller's own
+		// never acts on themself or a peer), and every role granted or revoked ranks strictly below the caller's own.
+		// So an owner manages admins, an admin moderators and streamers, and owner itself is granted with the CLI only
 		public static Failure? Check(Database.ModerationActor actor, int actorRank, long target, int targetRank, IEnumerable<string> changed)
 		{
 			Failure? failure = Names.PlayerNames.CheckStaff(AccountOf(actor), actorRank, target, targetRank, null);
