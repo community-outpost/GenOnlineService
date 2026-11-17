@@ -173,6 +173,30 @@ namespace GenOnlineService.Identity
 			user.LastSignInAt = now;
 		}
 
+		// After a self-service password reset (the new password and stamp are saved by Identity): the lockout ends and the
+		// reset is audited with the player as the actor, as the operator's reset is with the CLI (UserResets). Only these
+		// columns are written, never the caller's copy of the row.
+		public async Task RecordSelfReset(Int64 userID)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			await using var transaction = await db.Database.BeginTransactionAsync();
+			await db.Users.Where(u => u.ID == userID).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.LockoutEndAt, (DateTime?)null).SetProperty(u => u.FailedSignInCount, 0));
+			db.AuditLog.Add(new AuditLogEntry
+			{
+				CreatedAt = DateTime.UtcNow,
+				ActorKind = AuditActorKinds.User,
+				ActorID = userID,
+				Actor = $"user:{userID}",
+				Action = UserResets.PasswordResetAction,
+				TargetKind = AuditTargetKinds.User,
+				TargetID = userID,
+				Source = "web",
+				Details = "{}"
+			});
+			await db.SaveChangesAsync();
+			await transaction.CommitAsync();
+		}
+
 		// The address as typed (trimmed) when it is one plain address with a dotted domain, else null
 		private static string? ParseEmail(string? email)
 		{

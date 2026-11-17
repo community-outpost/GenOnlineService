@@ -127,6 +127,11 @@ namespace GenOnlineService.Identity
 				body.Append(PortalLook.Field("email", "Email", "type=\"email\" name=\"email\" autocomplete=\"username\" required", email ?? String.Empty, icon: "mail"));
 				body.Append(PortalLook.Field("password", "Password", "type=\"password\" name=\"password\" autocomplete=\"current-password\" required", icon: "lock-keyhole"));
 				body.Append(PortalLook.Submit("Sign in", icon: "log-in")).Append("</form>");
+				// self-service reset needs mail; without it an operator resets (users password-reset)
+				if (m_mail.Enabled)
+				{
+					body.Append(PortalLook.Link(ResetRequestPath, "Forgot your password?"));
+				}
 				if (providers.Count > 0)
 				{
 					body.Append(PortalLook.Separator("Or continue with"));
