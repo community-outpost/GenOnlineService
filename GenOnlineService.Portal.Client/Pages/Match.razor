@@ -14,7 +14,7 @@
             All matches
         </BbButton>
         <form class="bb:flex bb:items-center bb:gap-2" @onsubmit="Open">
-            <BbInput Id="match-id" @bind-Value="m_typed" Placeholder="Match id…" AriaLabel="Match id" AriaInvalid="@(m_invalid ? true : null)" Class="bb:h-8 bb:w-48 go-id" inputmode="numeric" autocomplete="off" />
+            <BbInput Id="match-id" @bind-Value="m_typed" Placeholder="Match id…" AriaLabel="Match id" AriaInvalid="@(m_invalid ? true : null)" Class="bb:h-8 bb:w-40 go-id" inputmode="numeric" autocomplete="off" />
             <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small">
                 <LucideIcon Name="search" Class="bb:h-4 bb:w-4" />
                 Open
