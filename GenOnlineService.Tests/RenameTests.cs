@@ -131,25 +131,36 @@ namespace GenOnlineService.Tests
 			}
 		}
 
-		[Fact]
-		public async Task StaffRenameNeedsModerationRename()
+		private static ModerationController DeniedController(DenyAll authorization) => new(null!, authorization, null!)
 		{
-			DenyAll authorization = new();
-			ModerationController controller = new(null!, authorization, null!)
+			ControllerContext = new ControllerContext
 			{
-				ControllerContext = new ControllerContext
-				{
-					HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, "7") }, "test")) }
-				}
-			};
+				HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, "7") }, "test")) }
+			}
+		};
 
-			IActionResult answer = await controller.RenamePlayer(8);
-
+		private static void AssertNeedsModerationRename(IActionResult answer, DenyAll authorization)
+		{
 			JsonResult json = Assert.IsType<JsonResult>(answer);
 			Assert.Equal(403, json.StatusCode);
 			ApiError error = Assert.IsType<ApiError>(json.Value);
 			Assert.Equal(ErrorCodes.Forbidden, error.Error);
 			Assert.Equal(new[] { PermissionPolicies.For(Permissions.ModerationRename) }, authorization.Policies);
+		}
+
+		[Fact]
+		public async Task StaffRenameNeedsModerationRename()
+		{
+			DenyAll authorization = new();
+			AssertNeedsModerationRename(await DeniedController(authorization).RenamePlayer(8), authorization);
+		}
+
+		// POST /api/v1/players/:id/reset_name: the same permission as a staff rename, checked before anything is read
+		[Fact]
+		public async Task ANameResetNeedsModerationRename()
+		{
+			DenyAll authorization = new();
+			AssertNeedsModerationRename(await DeniedController(authorization).ResetPlayerName(8), authorization);
 		}
 
 		[Fact]

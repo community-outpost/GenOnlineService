@@ -193,6 +193,28 @@ public class ChosenNamesTests
 		Assert.Equal("/done", done.Location);
 	}
 
+	// a name shaped like the placeholder (Player and six digits) is not a choice: it would settle the debt and still look
+	// owed; any other name with Player in it stays allowed
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task APlaceholderShapedNameIsNotAChoice(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser browser, _) = await OwingPlayer(probe, "shape@example.org");
+
+		foreach (string shaped in new[] { "Player123456", "player000042" })
+		{
+			PageResponse refused = await Choose(browser, shaped);
+			Assert.Equal(400, refused.Status);
+			Assert.Contains("This name contains a reserved word.", refused.Body);
+		}
+		Assert.NotNull((await PasswordPagesTests.UserByEmail(probe, "shape@example.org"))!.NameRequiredAt);
+
+		Assert.Equal(302, (await Choose(browser, "Player1234")).Status);
+		Assert.Null((await PasswordPagesTests.UserByEmail(probe, "shape@example.org"))!.NameRequiredAt);
+	}
+
 	// another player already holds the name with this tag: the chosen name draws a free tag instead of failing
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]

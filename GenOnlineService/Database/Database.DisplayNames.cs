@@ -205,6 +205,10 @@ namespace Database
 		// spread over many names and never run out of tags
 		public static string Placeholder() => "Player" + Random.Shared.Next(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
 
+		// "Player" and six digits in any case: the shape of Placeholder, which a player cannot choose as the name they owe
+		public static bool IsPlaceholderShaped(string name)
+			=> name.Length == 12 && name.StartsWith("Player", StringComparison.OrdinalIgnoreCase) && name.AsSpan(6).IndexOfAnyExceptInRange('0', '9') < 0;
+
 		// The name a player owes, chosen: the tag stays when the new name is free with it, otherwise a free one is drawn, so the
 		// choice never fails on a taken tag. Settles name_required_at even when the name is unchanged. False when the user is gone.
 		public static async Task<(bool Found, NameChange? Change)> Choose(AppDbContext db, Int64 userID, string name, string changedBy)

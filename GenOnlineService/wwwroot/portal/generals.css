@@ -193,3 +193,145 @@
   background: #0d6197;
   color: #fff;
 }
+
+/* The portal's signed-in pages (S12): Top Navigation Bar (nav-01) and Profile Edit Form (form-03) */
+
+.go-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.go-topbar-logo > img {
+  display: block;
+  height: 2.25rem;
+  width: auto;
+}
+
+.go-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.go-topbar-actions form {
+  margin: 0;
+}
+
+/* one column of cards */
+.go-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+.go-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0 1.5rem 1.5rem;
+}
+
+/* a button its own width: in a card footer or the top bar */
+.go-narrow {
+  width: auto;
+}
+
+.go-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.go-badge-muted {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.go-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 9999px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+/* the profile's name and its tag */
+.go-profile {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.go-profile-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.go-tag {
+  color: var(--muted-foreground);
+}
+
+.go-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+/* a label and its value on one line of a card */
+.go-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.go-row-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.go-provider-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+/* a field's message under it: the rule it broke */
+.go-field-error {
+  font-size: 0.875rem;
+  color: var(--destructive);
+}
+
+.go-field-hint {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+

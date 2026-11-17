@@ -34,7 +34,7 @@ namespace GenOnlineService.Identity
 	// The accounts profile: sign-in pages, upstream providers and the OpenIddict passthrough endpoints
 	// Not an [ApiController]: cookie sign-in must redirect to the sign-in page instead of answering 401
 	[ApiExplorerSettings(IgnoreApi = true)]
-	public sealed class AccountsController : ControllerBase
+	public sealed partial class AccountsController : ControllerBase
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(AccountsController));
 
@@ -60,7 +60,8 @@ namespace GenOnlineService.Identity
 			m_authorizations = authorizations;
 		}
 
-		private string SafeReturnUrl(string? returnUrl) => !String.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : "/";
+		// a page reached without a return address (or with a foreign one) goes on to the account page, since nothing serves /
+		private string SafeReturnUrl(string? returnUrl) => !String.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : AccountPath;
 
 		private ContentResult Page(int status, string title, string body, string? description = null)
 		{
@@ -522,15 +523,7 @@ namespace GenOnlineService.Identity
 			Realtime.Result<Realtime.Empty> chosen = await m_names.ChooseAsync(user.ID, displayName);
 			if (!chosen.Ok)
 			{
-				string message = chosen.Code switch
-				{
-					Realtime.ErrorCodes.NameLength => $"Names must be {Realtime.RealtimeHub.NameMinLength} to {Realtime.RealtimeHub.NameMaxLength} characters.",
-					Realtime.ErrorCodes.NameWhitespace => "Names cannot start or end with a space.",
-					Realtime.ErrorCodes.NameReserved => "This name contains a reserved word.",
-					Realtime.ErrorCodes.NameTaken => "This name is taken. Please choose another.",
-					_ => "This name has characters that are not allowed."
-				};
-				return WelcomeForm(400, target, displayName, message);
+				return WelcomeForm(400, target, displayName, NameMessage(chosen.Code));
 			}
 
 			NameSuggestion.Clear(HttpContext);
