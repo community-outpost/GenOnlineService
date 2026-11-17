@@ -447,6 +447,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `lobby.slot_occupied` | `{index}` | `SetSlotState` on a player slot |
 | `lobby.not_ready` | `{missing: [user_id]}` | `StartGame` |
 | `lobby.mesh_incomplete` | `{missing: [user_id]}` | `StartGame` |
+| `lobby.army_selection_disabled` | | `UpdateMySlot` and `UpdateSlots` in a quick match lobby whose playlist has `allow_army_selection` false, when a side other than -1 (random) is asked for; nothing changes |
 | `matchmaking.not_queued`, `matchmaking.already_queued` | | Matchmaking methods |
 | `matchmaking.invalid_playlist` | `{playlist_id}` | `JoinQueue` |
 | `matchmaking.too_few_maps` | `{min}` | `JoinQueue` |
