@@ -105,6 +105,10 @@ else
                     <LucideIcon Name="pencil" Class="bb:h-4 bb:w-4" />
                     Rename
                 </BbButton>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("reset_name"))" Disabled="@(!player.CanRename)" data-testid="reset-name">
+                    <LucideIcon Name="eraser" Class="bb:h-4 bb:w-4" />
+                    Reset name
+                </BbButton>
             }
             @if (Session.Can(PortalPermissions.Ban))
             {
@@ -595,7 +599,7 @@ else
             </div>
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
-                <BbButton Variant="@(m_action == "ban" || m_action == "revoke_role" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
+                <BbButton Variant="@(m_action == "ban" || m_action == "revoke_role" || m_action == "reset_name" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
             </BbDialogFooter>
         </BbDialogContent>
     </BbDialog>
@@ -703,6 +707,7 @@ else
         "lift" => $"Lift the {m_lifting?.Type} of {player.FullName}",
         "revoke_role" => $"Revoke {m_role} from {player.FullName}",
         "rename" => $"Rename {player.FullName}",
+        "reset_name" => $"Reset the name of {player.FullName}",
         _ => $"{char.ToUpperInvariant(m_action[0])}{m_action.Substring(1)} {player.FullName}"
     };
 
@@ -712,6 +717,7 @@ else
         "mute" => "The player stays connected and cannot send chat messages until the mute ends.",
         "ban" => "The player cannot play until the ban ends or is lifted. A ban needs a reason.",
         "rename" => "Replaces an offensive name. The tag stays.",
+        "reset_name" => "A placeholder replaces the name and every sign-in of the player ends now. The player picks a new name at the next sign-in.",
         "revoke_role" => "The player loses this role and its permissions at once. The change is in the audit log.",
         _ => "The sanction ends now and stays on record."
     };
@@ -737,6 +743,7 @@ else
             "revoke_role" => await Api.RevokeRoleAsync(Id, m_role!),
             "lift" => await Api.LiftSanctionAsync(m_lifting!.Id, reason),
             "rename" => await Api.RenamePlayerAsync(Id, m_name, reason),
+            "reset_name" => await Api.ResetNameAsync(Id, reason),
             "kick" => await Api.CreateSanctionAsync(Id, m_action, null, reason),
             _ => await Api.CreateSanctionAsync(Id, m_action, duration, reason)
         };

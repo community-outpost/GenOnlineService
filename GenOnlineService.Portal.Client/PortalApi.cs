@@ -173,6 +173,34 @@ namespace GenOnlineService.Portal.Client
 			return SendAsync(HttpMethod.Patch, $"{PortalRoutes.Players}/{userID}", new PortalRenameRequest { Name = name, Reason = reason });
 		}
 
+		// A placeholder replaces the name and the player picks a new one at the next sign-in, which the host forces
+		public Task<PortalOutcome> ResetNameAsync(long userID, string? reason)
+		{
+			return SendAsync(HttpMethod.Post, $"{PortalRoutes.Players}/{userID}/reset_name", new PortalReasonRequest { Reason = reason });
+		}
+
+		// A reported message, the id as the report names it
+		public Task<PortalOutcome> DeleteMessageAsync(string messageID, string? reason)
+		{
+			return SendAsync(HttpMethod.Delete, $"{PortalRoutes.Messages}/{Uri.EscapeDataString(messageID)}", new PortalReasonRequest { Reason = reason });
+		}
+
+		public Task<PortalAnswer<PortalSettings>> GetSettingsAsync() => GetAsync<PortalSettings>(PortalRoutes.Settings);
+
+		// An empty message of the day clears it; the answer is the settings as saved
+		public Task<PortalAnswer<PortalSettings>> SaveSettingsAsync(string? motd)
+		{
+			// an explicit null clears the row, a dictionary writes it where the options would leave a null property out
+			var body = new Dictionary<string, string?> { ["motd"] = String.IsNullOrEmpty(motd) ? null : motd };
+			return SendForAsync<Dictionary<string, string?>, PortalSettings>(HttpMethod.Put, PortalRoutes.Settings, body);
+		}
+
+		// Goes to every connected player at once
+		public Task<PortalAnswer<PortalAnnouncementResult>> SendAnnouncementAsync(string message)
+		{
+			return SendForAsync<PortalAnnouncementRequest, PortalAnnouncementResult>(HttpMethod.Post, PortalRoutes.Announcements, new PortalAnnouncementRequest { Message = message });
+		}
+
 		// One local role, under the host's rank rule; each change is in the audit log
 		public Task<PortalOutcome> GrantRoleAsync(long userID, string role) => SendAsync(HttpMethod.Put, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
 
@@ -253,28 +281,51 @@ namespace GenOnlineService.Portal.Client
 		// Every change carries the antiforgery token of the host page
 		private async Task<PortalOutcome> SendAsync<T>(HttpMethod method, string path, T body)
 		{
+			(PortalOutcome outcome, HttpResponseMessage? response) = await SendRequestAsync(method, path, body);
+			response?.Dispose();
+			return outcome;
+		}
+
+		// A change whose answer has a body, read on success
+		private async Task<PortalAnswer<TAnswer>> SendForAsync<T, TAnswer>(HttpMethod method, string path, T body) where TAnswer : class
+		{
+			(PortalOutcome outcome, HttpResponseMessage? response) = await SendRequestAsync(method, path, body);
+			using (response)
+			{
+				return outcome.Ok && response != null
+					? new PortalAnswer<TAnswer>(await response.Content.ReadFromJsonAsync<TAnswer>(PortalJson.Options), null)
+					: new PortalAnswer<TAnswer>(null, outcome.Error);
+			}
+		}
+
+		// The response comes back on success only, for the caller to read and dispose
+		private async Task<(PortalOutcome Outcome, HttpResponseMessage? Response)> SendRequestAsync<T>(HttpMethod method, string path, T body)
+		{
 			PortalSessionInfo? session = await LoadSessionAsync();
 			if (session == null)
 			{
-				return new PortalOutcome(false, "unauthorized");
+				return (new PortalOutcome(false, "unauthorized"), null);
 			}
 
 			using var request = new HttpRequestMessage(method, path) { Content = JsonContent.Create(body, options: PortalJson.Options) };
 			request.Headers.Add(session.CsrfHeader, session.CsrfToken);
 
-			using HttpResponseMessage response = await m_http.SendAsync(request);
+			HttpResponseMessage response = await m_http.SendAsync(request);
 			if (response.IsSuccessStatusCode)
 			{
-				return PortalOutcome.Success;
+				return (PortalOutcome.Success, response);
 			}
 
-			if (response.StatusCode == HttpStatusCode.Unauthorized)
+			using (response)
 			{
-				SignIn();
-				return new PortalOutcome(false, "unauthorized");
-			}
+				if (response.StatusCode == HttpStatusCode.Unauthorized)
+				{
+					SignIn();
+					return (new PortalOutcome(false, "unauthorized"), null);
+				}
 
-			return new PortalOutcome(false, await ErrorOfAsync(response));
+				return (new PortalOutcome(false, await ErrorOfAsync(response)), null);
+			}
 		}
 
 		private static async Task<string> ErrorOfAsync(HttpResponseMessage response)

@@ -1,0 +1,121 @@
+@* The message of the day: the page header (nav-02) over an editor card and a preview card of GET and PUT
+   /api/v1/application/settings. settings.manage only; each save is in the audit log *@
+@page "/admin/settings"
+@inject PortalApi Api
+@inject ToastService Toasts
+
+<PageTitle>Message of the day · Generals Online</PageTitle>
+
+<PageHeader Description="The game shows players the message of the day. Each change is in the audit log.">
+    <Title>Message of the day</Title>
+</PageHeader>
+
+@if (!Session.Can(PortalPermissions.SettingsManage))
+{
+    <Refusal Title="Message of the day" Description="Changing the message of the day needs the settings.manage permission." Icon="lock" />
+}
+else if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The settings could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+else if (m_saved == null)
+{
+    <BbSkeleton Class="go-skeleton-panel" />
+}
+else
+{
+    <div class="go-dashboard">
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Edit</BbCardTitle>
+                <BbCardDescription>Plain text, at most @MaximumLength characters; {0} stands for the number of players online. Leave it empty to show the default message of the service (data/motd.txt).</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent Class="bb:space-y-4">
+                <div class="bb:space-y-2">
+                    <BbLabel For="motd">Message</BbLabel>
+                    <BbTextarea Id="motd" @bind-Value="m_motd" UpdateTiming="UpdateTiming.Immediate" MaxLength="@MaximumLength" ShowCharacterCount="true" Placeholder="No message of the day…" autocomplete="off" data-testid="motd" />
+                </div>
+                <div class="bb:flex bb:gap-2">
+                    <BbButton OnClick="SaveAsync" Loading="@m_saving" Disabled="@(!Changed)" data-testid="save">
+                        <LucideIcon Name="save" Class="bb:h-4 bb:w-4" />
+                        Save
+                    </BbButton>
+                    <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_motd = m_saved.Motd)" Disabled="@(!Changed || m_saving)">Undo changes</BbButton>
+                </div>
+            </BbCardContent>
+        </BbCard>
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Preview</BbCardTitle>
+                <BbCardDescription>@(Changed ? "Not saved yet." : "As players see it now.")</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                @if (String.IsNullOrEmpty(m_motd))
+                {
+                    <p class="bb:text-sm bb:text-muted-foreground" data-testid="motd-preview">Players see the default message of the service.</p>
+                }
+                else
+                {
+                    <p class="bb:text-sm" style="white-space: pre-wrap; overflow-wrap: anywhere" data-testid="motd-preview">@Preview(m_motd)</p>
+                }
+            </BbCardContent>
+        </BbCard>
+    </div>
+}
+
+@code {
+    // ApplicationSettingsRules.MaximumMotdLength on the host
+    private const int MaximumLength = 2000;
+
+    private PortalSettings? m_saved;
+    private string? m_motd;
+    private string? m_error;
+    private bool m_saving;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    // {0} reads as a sample count, as ConfigSources.FormatMotd fills in the players online
+    private static string Preview(string motd) => motd.Replace("{0}", "1234", StringComparison.Ordinal);
+
+    private bool Changed => (m_motd ?? "") != (m_saved?.Motd ?? "");
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can(PortalPermissions.SettingsManage))
+        {
+            return;
+        }
+
+        PortalAnswer<PortalSettings> answer = await Api.GetSettingsAsync();
+        m_saved = answer.Value;
+        m_motd = m_saved?.Motd;
+        m_error = answer.Ok ? null : answer.Error;
+    }
+
+    private async Task SaveAsync()
+    {
+        m_saving = true;
+        PortalAnswer<PortalSettings> answer = await Api.SaveSettingsAsync(m_motd);
+        m_saving = false;
+
+        if (answer.Ok)
+        {
+            m_saved = answer.Value;
+            m_motd = m_saved!.Motd;
+            Toasts.Success(m_saved.Motd == null ? "Players see the default message of the service." : "Players see the new message the next time their game loads it.", "Saved");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(answer.Error), "Not saved");
+        }
+    }
+}

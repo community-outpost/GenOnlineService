@@ -1,5 +1,6 @@
 @* The report queue: the page header (nav-02) over the data grid blueprint (data-02) in a card: toolbar with search and
-   column visibility, header filter and sort, a row actions menu, the pagination footer, and a dialog to close a report *@
+   column visibility, header filter and sort, a row actions menu, the pagination footer, and a dialog to close a report.
+   A message report shows the reported message, which chat.delete_any may delete *@
 @page "/admin/reports"
 @inject PortalApi Api
 @inject ToastService Toasts
@@ -56,6 +57,22 @@ else
                             }
                         </CellTemplate>
                     </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.MessageContent!)" Title="Message">
+                        <CellTemplate>
+                            @if (context.MessageId == null)
+                            {
+                                <span class="bb:text-muted-foreground">Report of the player</span>
+                            }
+                            else if (context.MessageContent == null)
+                            {
+                                <span class="bb:text-muted-foreground">Message #@context.MessageId</span>
+                            }
+                            else
+                            {
+                                <span title="@context.MessageContent" data-testid="reported-message">@Shorten(context.MessageContent)</span>
+                            }
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
                     <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Id="@StatusColumn" Property="@(r => r.Status)" Title="Status"
                                               Filterable="true" FilterType="FilterFieldType.Enum" FilterOptions="@s_statusOptions">
                         <CellTemplate>
@@ -81,6 +98,13 @@ else
                                         <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:me-2" />
                                         Open the reported player
                                     </BbDropdownMenuItem>
+                                    @if (report.MessageId != null && Session.Can(PortalPermissions.ChatDeleteAny))
+                                    {
+                                        <BbDropdownMenuItem Class="bb:text-destructive" OnClick="@(_ => OpenDelete(report))">
+                                            <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                            Delete message
+                                        </BbDropdownMenuItem>
+                                    }
                                     @if (report.Status == "open")
                                     {
                                         <BbDropdownMenuSeparator />
@@ -111,6 +135,10 @@ else
                 <BbDialogTitle>@(m_status == "actioned" ? "Mark" : "Dismiss") report #@m_closing?.Id@(m_status == "actioned" ? " actioned" : "")</BbDialogTitle>
                 <BbDialogDescription>@m_closing?.ReporterName reported @m_closing?.ReportedName: @m_closing?.Reason</BbDialogDescription>
             </BbDialogHeader>
+            @if (m_closing?.MessageContent != null)
+            {
+                <p class="bb:text-sm bb:rounded-md bb:border bb:p-3" style="white-space: pre-wrap; overflow-wrap: anywhere">@m_closing.MessageContent</p>
+            }
             <div class="bb:space-y-2">
                 <BbLabel For="resolution-note">Resolution note</BbLabel>
                 <BbTextarea Id="resolution-note" @bind-Value="m_note" Placeholder="What was done, for the audit log…" autocomplete="off" />
@@ -118,6 +146,29 @@ else
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
                 <BbButton OnClick="ResolveAsync" Loading="@m_saving">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_deleteOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Delete the message of @m_deleting?.ReportedName</BbDialogTitle>
+                <BbDialogDescription>The chat shows it as deleted for everyone. The report stays open until you close it.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                @if (m_deleting?.MessageContent != null)
+                {
+                    <p class="bb:text-sm bb:rounded-md bb:border bb:p-3" style="white-space: pre-wrap; overflow-wrap: anywhere">@m_deleting.MessageContent</p>
+                }
+                <div class="bb:space-y-2">
+                    <BbLabel For="delete-reason">Reason (optional)</BbLabel>
+                    <BbTextarea Id="delete-reason" @bind-Value="m_deleteReason" Placeholder="Kept in the audit log…" autocomplete="off" />
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_deleteOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton Variant="ButtonVariant.Destructive" OnClick="DeleteAsync" Loading="@m_saving" data-testid="confirm-delete">Delete</BbButton>
             </BbDialogFooter>
         </BbDialogContent>
     </BbDialog>
@@ -144,6 +195,9 @@ else
     private PortalReport? m_closing;
     private string m_status = "actioned";
     private string? m_note;
+    private bool m_deleteOpen;
+    private PortalReport? m_deleting;
+    private string? m_deleteReason;
 
     // The layout renders pages only once the session is known
     private PortalSessionInfo Session => Api.Session!;
@@ -192,6 +246,38 @@ else
         m_status = status;
         m_note = null;
         m_dialogOpen = true;
+    }
+
+    // One line of the grid, the whole text is the cell's title
+    private static string Shorten(string text) => text.Length <= 80 ? text : text.Substring(0, 79) + "…";
+
+    private void OpenDelete(PortalReport report)
+    {
+        m_deleting = report;
+        m_deleteReason = null;
+        m_deleteOpen = true;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (m_deleting?.MessageId == null)
+        {
+            return;
+        }
+
+        m_saving = true;
+        PortalOutcome outcome = await Api.DeleteMessageAsync(m_deleting.MessageId, String.IsNullOrWhiteSpace(m_deleteReason) ? null : m_deleteReason.Trim());
+        m_saving = false;
+        m_deleteOpen = false;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success("The message is deleted and in the audit log.", "Message deleted");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Message not deleted");
+        }
     }
 
     private async Task ResolveAsync()
