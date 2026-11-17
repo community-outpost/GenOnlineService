@@ -7,6 +7,9 @@
     <Platforms>x64;ARM64</Platforms>
     <!-- The version comes from the git tag (see GoResolveVersion below); the SDK must not append its own +SourceRevisionId. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- The staff pages (/admin) load _framework/blazor.web.js, which ships in a package the SDK only restores when it
+         sees .razor files. The Dockerfile restores with the project files alone, so say it here or the image has none. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
