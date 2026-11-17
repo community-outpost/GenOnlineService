@@ -1224,3 +1224,19 @@ a.go-list-item:hover {
   gap: 0.375rem;
   min-width: 0;
 }
+
+/* a note of up to two lines in a table cell; the title holds the whole text */
+.go-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--go-text-2);
+}
+
+/* a match id: 48-bit snowflakes run to 13 digits, kept on one line in tabular figures */
+.go-id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
