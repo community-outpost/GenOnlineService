@@ -129,7 +129,7 @@ namespace GenOnlineService.Realtime
 				Name = lobby.Name,
 				Host = RealtimeMembers.Of(lobby.Owner),
 				State = StageOf(lobby.State),
-				Map = new LobbySummaryMap { Name = lobby.MapName, Official = lobby.IsMapOfficial },
+				Map = new LobbySummaryMap { Name = lobby.MapName, Official = lobby.IsMapOfficial, Path = lobby.MapPathWire },
 				Players = lobby.NumCurrentPlayers,
 				MaxPlayers = lobby.MaxPlayers,
 				HasPassword = lobby.IsPassworded,
