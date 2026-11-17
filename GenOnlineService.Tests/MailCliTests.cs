@@ -116,4 +116,41 @@ public class MailCliTests
 		var refused = Assert.Throws<InvalidOperationException>(() => services.AddMail(Config(("Mail:delivery_method", "resend"), ("Mail:from", "a@b.org"))));
 		Assert.Contains("Mail:resend:api_key", refused.Message);
 	}
+
+	// the service binary dispatches "mail" to the CLI instead of starting the web host (exit 1: no method configured)
+	[Fact]
+	public async Task TheServiceRunsTheMailCommand()
+	{
+		string exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "GenOnlineService.exe" : "GenOnlineService");
+		string folder = Directory.CreateTempSubdirectory("go-mail-cli-").FullName;
+		try
+		{
+			var start = new System.Diagnostics.ProcessStartInfo(exe, ["mail", "test", "ops@example.org"])
+			{
+				WorkingDirectory = folder,
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+				UseShellExecute = false
+			};
+			start.Environment["Mail__delivery_method"] = "none";
+			using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)!;
+			Task<string> output = process.StandardOutput.ReadToEndAsync();
+			using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+			try
+			{
+				await process.WaitForExitAsync(timeout.Token);
+			}
+			catch (OperationCanceledException)
+			{
+				process.Kill(entireProcessTree: true);
+				Assert.Fail("\"mail test\" did not exit; the service started instead");
+			}
+			Assert.Equal(1, process.ExitCode);
+			Assert.Contains("Mail:delivery_method is none", await output);
+		}
+		finally
+		{
+			Directory.Delete(folder, recursive: true);
+		}
+	}
 }
