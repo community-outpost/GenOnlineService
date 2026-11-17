@@ -72,7 +72,7 @@ namespace GenOnlineService.Identity
 
 			try
 			{
-				GameSessions.RemoveSignIn(authorizationID);
+				await GameSessions.RemoveSignInAsync(authorizationID);
 				await Realtime.RealtimeControl.RequestClose(Realtime.CloseRequest.ForSignIn(authorizationID, CloseCodes.AuthRevoked));
 			}
 			catch (Exception ex)

@@ -758,6 +758,57 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("friendships", (string)null);
                 });
 
+            modelBuilder.Entity("GameSessionRow", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("SessionType")
+                        .HasColumnType("int")
+                        .HasColumnName("session_type");
+
+                    b.Property<int>("AnticheatID")
+                        .HasColumnType("int")
+                        .HasColumnName("anticheat_id");
+
+                    b.Property<string>("AuthorizationID")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("authorization_id");
+
+                    b.Property<string>("ClientID")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("client_id");
+
+                    b.Property<long?>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<string>("Game")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("game");
+
+                    b.Property<long?>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.Property<DateTime>("RegisteredAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("registered_at");
+
+                    b.HasKey("UserID", "SessionType");
+
+                    b.HasIndex("AuthorizationID")
+                        .HasDatabaseName("ix_game_sessions_authorization_id");
+
+                    b.ToTable("game_sessions", (string)null);
+                });
+
             modelBuilder.Entity("GenOnlineService.Identity.DataProtectionKeyRow", b =>
                 {
                     b.Property<long>("ID")
@@ -2052,6 +2103,15 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasOne("Client", null)
                         .WithMany()
                         .HasForeignKey("ClientDbID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameSessionRow", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorizationID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

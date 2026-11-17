@@ -20,12 +20,15 @@ using GenOnlineService.Api;
 using GenOnlineService.Identity;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.EntityFrameworkCore;
 
 namespace GenOnlineService.Realtime
 {
 	// HTTP checks on the hub upgrade that must answer with a status code before SignalR takes over
 	public static class RealtimeGate
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(RealtimeGate));
+
 		private const string QueryTokenName = "access_token";
 
 		private static bool IsRealtime(HttpContext context) => context.Request.Path.StartsWithSegments(RealtimeHub.Path);
@@ -63,7 +66,18 @@ namespace GenOnlineService.Realtime
 					EUserSessionType sessionType = RealtimeClaims.SessionType(context.User);
 					if (sessionType == EUserSessionType.GameClient)
 					{
-						GameSessionRegistration? registration = GameSessions.Get(userID, sessionType);
+						// the stored registration, so a client registered on another copy (a handover) or before a restart connects here too
+						GameSessionRegistration? registration;
+						try
+						{
+							await using AppDbContext db = await context.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContextAsync(context.RequestAborted);
+							registration = await GameSessions.LoadAsync(db, userID, sessionType, context.RequestAborted);
+						}
+						catch (Exception ex) when (!context.RequestAborted.IsCancellationRequested)
+						{
+							s_log.LogError(ex, "Reading the game session of user {UserId} failed, using this copy's cached one", userID);
+							registration = GameSessions.Get(userID, sessionType);
+						}
 						if (registration == null || registration.AuthorizationID != RealtimeClaims.AuthorizationID(context.User))
 						{
 							context.Response.StatusCode = StatusCodes.Status409Conflict;
