@@ -139,6 +139,9 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		// closes the race between two look-alike names on one tag, which the code checks cannot
 		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
 		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
+		// the staff player list's sorts (T17f): last seen newest first (a backward scan serves the other way), and creation
+		builder.HasIndex(e => new { e.LastSignInAt, e.ID }).IsDescending(true, true).HasDatabaseName("ix_users_last_sign_in_at");
+		builder.HasIndex(e => new { e.CreatedAt, e.ID }).HasDatabaseName("ix_users_created_at");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);

@@ -107,12 +107,39 @@ namespace Database
 			}
 
 			int total = await users.CountAsync(cancellationToken);
-			List<StaffPlayerRow> page = await Ordered(db, users, query, termID)
-				.Skip(skip)
-				.Take(take)
-				.Select(u => new StaffPlayerRow(u.ID, u.Username, u.NameTag, u.State, u.CreatedAt, u.LastSignInAt))
-				.ToListAsync(cancellationToken);
+			string? order = query.OrderBy ?? (query.Term == null ? StaffPlayerOrders.LastSignInAt : null);
+			List<StaffPlayerRow> page = order == StaffPlayerOrders.LastSignInAt
+				? await BySignInAsync(users, query.Descending ?? true, skip, take, cancellationToken)
+				: await Rows(Ordered(db, users, query, termID).Skip(skip).Take(take), cancellationToken);
 			return new StaffPlayerList(total, page, await FactsOf(db, page.Select(p => p.ID).ToArray(), query.AntiCheat, utcNow, cancellationToken));
+		}
+
+		private static Task<List<StaffPlayerRow>> Rows(IQueryable<User> users, CancellationToken cancellationToken) =>
+			users.Select(u => new StaffPlayerRow(u.ID, u.Username, u.NameTag, u.State, u.CreatedAt, u.LastSignInAt)).ToListAsync(cancellationToken);
+
+		// Last seen in two parts, so ix_users_last_sign_in_at (last_sign_in_at DESC, id DESC) serves each page on both databases:
+		// the accounts that signed in by time and id, then those that never did by id, last both ways. One ORDER BY with the
+		// nulls last would need NULLS LAST on PostgreSQL and an expression on MariaDB, which no plain index serves.
+		private static async Task<List<StaffPlayerRow>> BySignInAsync(IQueryable<User> users, bool descending, int skip, int take, CancellationToken cancellationToken)
+		{
+			IQueryable<User> signedIn = users.Where(u => u.LastSignInAt != null);
+			int signedInCount = await signedIn.CountAsync(cancellationToken);
+
+			var page = new List<StaffPlayerRow>(take);
+			if (skip < signedInCount)
+			{
+				IQueryable<User> bySignIn = descending
+					? signedIn.OrderByDescending(u => u.LastSignInAt).ThenByDescending(u => u.ID)
+					: signedIn.OrderBy(u => u.LastSignInAt).ThenBy(u => u.ID);
+				page.AddRange(await Rows(bySignIn.Skip(skip).Take(take), cancellationToken));
+			}
+			if (page.Count < take)
+			{
+				IQueryable<User> never = users.Where(u => u.LastSignInAt == null);
+				never = descending ? never.OrderByDescending(u => u.ID) : never.OrderBy(u => u.ID);
+				page.AddRange(await Rows(never.Skip(Math.Max(0, skip - signedInCount)).Take(take - page.Count), cancellationToken));
+			}
+			return page;
 		}
 
 		// The term anywhere in the name ignoring case or the exact player id, as the staff search always matched; Name#tag
@@ -150,10 +177,11 @@ namespace Database
 			bool descending = query.Descending ?? StaffPlayerOrders.DescendingByDefault(order);
 			switch (order)
 			{
+				// (name, tag) is unique, so ux_users_username_normalized_name_tag orders the whole list
 				case StaffPlayerOrders.Name:
 					return descending
-						? users.OrderByDescending(u => u.UsernameNormalized).ThenByDescending(u => u.NameTag).ThenByDescending(u => u.ID)
-						: users.OrderBy(u => u.UsernameNormalized).ThenBy(u => u.NameTag).ThenBy(u => u.ID);
+						? users.OrderByDescending(u => u.UsernameNormalized).ThenByDescending(u => u.NameTag)
+						: users.OrderBy(u => u.UsernameNormalized).ThenBy(u => u.NameTag);
 				case StaffPlayerOrders.CreatedAt:
 					return descending
 						? users.OrderByDescending(u => u.CreatedAt).ThenByDescending(u => u.ID)
@@ -163,11 +191,7 @@ namespace Database
 						? users.OrderByDescending(u => db.MatchPlayers.Count(p => p.UserId == u.ID)).ThenByDescending(u => u.ID)
 						: users.OrderBy(u => db.MatchPlayers.Count(p => p.UserId == u.ID)).ThenBy(u => u.ID);
 				default:
-					// an account that never signed in comes last both ways
-					IOrderedQueryable<User> signedIn = users.OrderBy(u => u.LastSignInAt == null);
-					return descending
-						? signedIn.ThenByDescending(u => u.LastSignInAt).ThenByDescending(u => u.ID)
-						: signedIn.ThenBy(u => u.LastSignInAt).ThenBy(u => u.ID);
+					throw new ArgumentOutOfRangeException(nameof(query), order, "Last seen pages through BySignInAsync");
 			}
 		}
 
