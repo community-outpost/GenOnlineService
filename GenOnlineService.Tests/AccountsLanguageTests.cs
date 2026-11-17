@@ -61,6 +61,49 @@ public class AccountsLanguageTests
 		Assert.Equal("Generals Online", AccountsText.Get("Brand", culture));
 	}
 
+	// Every word of the English (neutral) resource but the brand is in each language, with the same placeholders, so a translation
+	// never drops a number or a name from a sentence
+	[Theory]
+	[InlineData("de")]
+	public void EachLanguageHasEveryWordWithItsPlaceholders(string language)
+	{
+		System.Resources.ResourceSet english = AccountsText.Resources.GetResourceSet(CultureInfo.InvariantCulture, createIfNotExists: true, tryParents: false)!;
+		System.Resources.ResourceSet translated = AccountsText.Resources.GetResourceSet(CultureInfo.GetCultureInfo(language), createIfNotExists: true, tryParents: false)
+			?? throw new Xunit.Sdk.XunitException($"no {language} resources");
+		var englishKeys = english.Cast<System.Collections.DictionaryEntry>().Select(e => (string)e.Key).Where(k => k != "Brand").ToHashSet();
+		var translatedKeys = translated.Cast<System.Collections.DictionaryEntry>().Select(e => (string)e.Key).ToHashSet();
+		Assert.Empty(englishKeys.Except(translatedKeys));
+		Assert.Empty(translatedKeys.Except(englishKeys));
+		foreach (string key in englishKeys)
+		{
+			string value = translated.GetString(key)!;
+			Assert.False(String.IsNullOrWhiteSpace(value), $"{language} {key} is empty");
+			Assert.Equal(Placeholders(english.GetString(key)!), Placeholders(value));
+		}
+	}
+
+	private static string[] Placeholders(string text) => Regex.Matches(text, @"\{\d+\}").Select(m => m.Value).Order(StringComparer.Ordinal).ToArray();
+
+	// Each language's own mail: its subject, body and footer, in HTML and text, with the values filled in
+	[Theory]
+	[InlineData("de", "Bestätige deine E-Mail-Adresse", "bitte bestätige, dass diese Adresse dir gehört", "wegen deines Generals-Online-Kontos")]
+	public void MailsAreInThePlayersLanguage(string language, string subject, string body, string footer)
+	{
+		var values = new Dictionary<string, string> { ["name"] = "Nelly#0042", ["link"] = "https://accounts.test/confirm?t=1&x=2" };
+		EmailMessage mail = EmailTemplates.Render(EmailTemplates.Confirmation, "player@example.org", values, CultureInfo.GetCultureInfo(language));
+		Assert.Equal(subject, mail.Subject);
+		Assert.Contains(body, mail.Text);
+		Assert.Contains(footer, mail.Text);
+		Assert.Contains(footer, System.Net.WebUtility.HtmlDecode(mail.Html));
+		Assert.Contains("https://accounts.test/confirm?t=1&amp;x=2", mail.Html);
+		Assert.Contains($"lang=\"{language}\"", mail.Html);
+
+		EmailMessage reset = EmailTemplates.Render(EmailTemplates.PasswordReset, "player@example.org", values, CultureInfo.GetCultureInfo(language));
+		Assert.Equal(AccountsText.Get("Mail.PasswordReset.Subject", CultureInfo.GetCultureInfo(language)), reset.Subject);
+		Assert.Contains("Nelly#0042", reset.Text);
+		Assert.Contains(footer, reset.Text);
+	}
+
 	[Fact]
 	public void AnUnknownWordIsAnError()
 	{
@@ -158,7 +201,10 @@ public class AccountsLanguageTests
 		AccountsBrowser browser = Browser(probe);
 
 		browser.Headers["Accept-Language"] = "de-AT,de;q=0.9,en;q=0.5";
-		Assert.Equal("de/ltr", Lang(await browser.Get("/users/sign_in")));
+		PageResponse german = await browser.Get("/users/sign_in");
+		Assert.Equal("de/ltr", Lang(german));
+		Assert.Contains("<title>Anmelden · Generals Online</title>", german.Body);
+		Assert.Contains(">Noch kein Konto? <a", german.Body);
 
 		// a language the pages do not have is English
 		browser.Headers["Accept-Language"] = "fr-FR";
