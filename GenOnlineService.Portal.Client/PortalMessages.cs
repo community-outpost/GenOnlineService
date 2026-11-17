@@ -66,6 +66,9 @@ namespace GenOnlineService.Portal.Client
 
 		public static string MatchPage(long id) => MatchesPage + "/" + id;
 
+		// the match list with one player's matches
+		public static string MatchesOf(long player) => MatchesPage + "?player=" + player.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
 		public static string AntiCheatList(string kind) => AntiCheatPage + "/" + kind;
 
 		// the audit log with the actions on one player
@@ -567,6 +570,14 @@ namespace GenOnlineService.Portal.Client
 		public long? DurationS { get; init; }
 		public IReadOnlyList<PortalMatchRowPlayer> Players { get; init; } = [];
 		public IReadOnlyList<string> Flags { get; init; } = [];
+
+		// What the match came to for one of its players: won, lost when another player won, no result when nobody did,
+		// in progress while it runs
+		public string ResultFor(long userID) =>
+			FinishedAt == null ? "in progress"
+			: Players.Any(p => p.UserId == userID && p.Won) ? "won"
+			: Players.Any(p => p.Won) ? "lost"
+			: "no result";
 	}
 
 	// Total is null when the host stopped counting (past 10,000 rows); HasNext says whether another page follows
@@ -613,6 +624,9 @@ namespace GenOnlineService.Portal.Client
 		};
 
 		public string ToApiQuery() => PortalQueries.Join(ToAddress());
+
+		// One player's matches by id, as the player page lists them
+		public static PortalMatchQuery OfPlayer(long id) => new PortalMatchQuery { Player = id.ToString(System.Globalization.CultureInfo.InvariantCulture) };
 
 		private static string? Day(string? text) =>
 			DateTime.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text : null;

@@ -64,4 +64,68 @@ public class PortalListQueryTests
 		Assert.False(unknown.IsFiltered);
 		Assert.Equal("", unknown.ToApiQuery());
 	}
+
+	// The player page's Matches tab (T17g) asks /api/v1/matches/search for the player by id, a page of 10 at a time, and
+	// its "All matches" link opens the match list on the same view
+	[Fact]
+	public async Task ThePlayerMatchesTabAsksTheHostForThePlayerAndLinksToTheSameList()
+	{
+		var host = new RecordingHandler();
+		var api = new PortalApi(new HttpClient(host) { BaseAddress = new Uri("http://localhost/") }, new TestNavigation(), new NoScripts());
+
+		PortalAnswer<PortalMatchPage> answer = await api.ListMatchesAsync(PortalMatchQuery.OfPlayer(42), 10, 10, CancellationToken.None);
+
+		Assert.True(answer.Ok);
+		Assert.Equal("/api/v1/matches/search?player=42&page=2&per_page=10", host.Requested?.PathAndQuery);
+		Assert.Equal(7, answer.Value!.Total);
+		Assert.Equal("/admin/matches?player=42", PortalRoutes.MatchesOf(42));
+
+		// the link's address reads back as the same view the tab asked for
+		PortalMatchQuery linked = PortalMatchQuery.FromAddress(null, null, "42", null, null, null);
+		Assert.Equal(PortalMatchQuery.OfPlayer(42).ToApiQuery(), linked.ToApiQuery());
+	}
+
+	[Fact]
+	public void AMatchResultIsReadForOnePlayer()
+	{
+		var finished = new PortalMatchRow
+		{
+			FinishedAt = DateTime.UtcNow,
+			Players = [new PortalMatchRowPlayer { UserId = 1, Won = true }, new PortalMatchRowPlayer { UserId = 2 }]
+		};
+		Assert.Equal("won", finished.ResultFor(1));
+		Assert.Equal("lost", finished.ResultFor(2));
+		Assert.Equal("no result", (finished with { Players = [new PortalMatchRowPlayer { UserId = 1 }, new PortalMatchRowPlayer { UserId = 2 }] }).ResultFor(1));
+		Assert.Equal("in progress", (finished with { FinishedAt = null }).ResultFor(1));
+	}
+
+	// Answers every request with an empty page of 7 matches and keeps the address asked for
+	private sealed class RecordingHandler : HttpMessageHandler
+	{
+		public Uri? Requested { get; private set; }
+
+		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+		{
+			Requested = request.RequestUri;
+			var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"matches\":[]}", System.Text.Encoding.UTF8, "application/json") };
+			response.Headers.Add("X-Total", "7");
+			return Task.FromResult(response);
+		}
+	}
+
+	private sealed class TestNavigation : Microsoft.AspNetCore.Components.NavigationManager
+	{
+		public TestNavigation() => Initialize("http://localhost/", "http://localhost/admin/players/42");
+
+		protected override void NavigateToCore(string uri, bool forceLoad)
+		{
+		}
+	}
+
+	private sealed class NoScripts : Microsoft.JSInterop.IJSRuntime
+	{
+		public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) => throw new InvalidOperationException("no scripts in a test");
+
+		public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args) => throw new InvalidOperationException("no scripts in a test");
+	}
 }
