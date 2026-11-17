@@ -55,12 +55,14 @@ namespace GenOnlineService.Realtime
 			});
 		}
 
-		// A game client connects only after registering this sign-in with POST /api/v1/auth/session; runs after authentication
+		// A game client connects only after registering this sign-in with POST /api/v1/auth/session; runs after authentication.
+		// Answers with a status only on a /realtime request that is not an upgrade
 		public static IApplicationBuilder UseRealtimeRegistrationGate(this IApplicationBuilder app)
 		{
 			return app.Use(async (context, next) =>
 			{
-				if (IsRealtime(context) && context.User.Identity?.IsAuthenticated == true)
+				// the hub refuses an unregistered upgrade after the handshake with session.not_registered (RealtimeAdmission)
+				if (IsRealtime(context) && !RealtimeAdmission.IsRealtimeUpgrade(context) && context.User.Identity?.IsAuthenticated == true)
 				{
 					Int64 userID = RealtimeClaims.UserID(context.User);
 					EUserSessionType sessionType = RealtimeClaims.SessionType(context.User);

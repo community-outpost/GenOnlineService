@@ -460,6 +460,9 @@ namespace GenOnlineService.Identity
 		public const string AuthorizationIDClaim = "oi_au_id";
 
 		private const string BanItemKey = "go_play_ban";
+
+		// The play ban that refused this request's token, for the realtime hub, which closes the connection with it instead of a 403
+		public static PlayBan? BanOf(HttpContext context) => context.Items.TryGetValue(BanItemKey, out object? value) ? value as PlayBan : null;
 		private static readonly ILogger s_log = AppLog.For(typeof(SessionTokenHandler));
 
 		public SessionTokenHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)

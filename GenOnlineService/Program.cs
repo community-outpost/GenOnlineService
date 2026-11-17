@@ -1183,6 +1183,7 @@ namespace GenOnlineService
 				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 				options.MaximumReceiveMessageSize = 64 * 1024;
 				options.EnableDetailedErrors = false;
+				Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Realtime.RealtimeAdmittedFilter());
 				if (failoverSettings.Enabled)
 				{
 					Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Failover.RealtimeFenceFilter());

@@ -26,7 +26,7 @@ using System.Security.Claims;
 namespace GenOnlineService.Realtime
 {
 	// Realtime protocol v1 at /realtime, each area of the protocol lives in its own partial file
-	[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
+	[Authorize(Roles = RealtimeAdmission.Roles)]
 	public sealed partial class RealtimeHub : Hub<IRealtimeClient>
 	{
 		public const string Path = "/realtime";
@@ -74,9 +74,23 @@ namespace GenOnlineService.Realtime
 			EUserSessionType sessionType = RealtimeClaims.SessionType(user);
 			string clientID = RealtimeClaims.ClientID(user);
 			HubConnectionContext? transport = RealtimeLifetimeManager.Get(Context.ConnectionId);
-			if (userID <= 0 || sessionType == EUserSessionType.None || clientID.Length == 0 || transport == null)
+			if (transport == null)
 			{
 				Context.Abort();
+				return;
+			}
+
+			// the upgrade reaches the hub whatever the caller's token, ban or registration; a refused caller is closed before Ready
+			HttpContext? http = Context.GetHttpContext();
+			RealtimeAdmission.Refusal? refusal = await RealtimeAdmission.CheckAsync(GenOnlineService.Failover.RealtimeFailover.Serving, user,
+				http == null ? null : SessionTokenHandler.BanOf(http), () => LoadRegistrationAsync(userID, sessionType));
+			if (refusal == null && clientID.Length == 0)
+			{
+				refusal = new RealtimeAdmission.Refusal(CloseCodes.Unauthorized, false, null);
+			}
+			if (refusal != null)
+			{
+				await RealtimeAdmission.CloseAsync(transport, refusal);
 				return;
 			}
 
@@ -140,6 +154,21 @@ namespace GenOnlineService.Realtime
 			}
 
 			await base.OnDisconnectedAsync(exception);
+		}
+
+		// The stored registration, so a client registered on another copy (a handover) or before a restart connects here too
+		private async Task<GameSessionRegistration?> LoadRegistrationAsync(Int64 userID, EUserSessionType sessionType)
+		{
+			try
+			{
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(Context.ConnectionAborted);
+				return await GameSessions.LoadAsync(db, userID, sessionType, Context.ConnectionAborted);
+			}
+			catch (Exception ex) when (!Context.ConnectionAborted.IsCancellationRequested)
+			{
+				m_log.LogError(ex, "Reading the game session of user {UserId} failed, using this copy's cached one", userID);
+				return GameSessions.Get(userID, sessionType);
+			}
 		}
 
 		private async Task<bool> IsSignInStillValidAsync(ClaimsPrincipal user, Int64 userID, EUserSessionType sessionType)

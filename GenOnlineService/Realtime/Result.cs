@@ -117,5 +117,10 @@ namespace GenOnlineService.Realtime
 		public const string ServerRestarting = "server.restarting";
 		public const string ServerSwitching = "server.switching";
 		public const string ProtocolError = "protocol.error";
+
+		// Refusals at connect, after the handshake and before Ready
+		public const string Unauthorized = "unauthorized";
+		public const string SessionNotRegistered = "session.not_registered";
+		public const string ServiceUnavailable = "service.unavailable";
 	}
 }
