@@ -879,7 +879,8 @@ namespace Database
 			ulong matchId,
 			CancellationToken cancellationToken)
 		{
-			if (matchId == 0)
+			// an environment without the external leaderboards keeps no backlog to publish later
+			if (matchId == 0 || !GenOnlineService.ExternalLeaderboardsClient.IsConfigured())
 				return;
 
 			bool exists = await db.MatchPublications.AnyAsync(p => p.MatchId == (long)matchId, cancellationToken);
