@@ -32,6 +32,16 @@ namespace GenOnlineService.Realtime
 	// Maps the in-memory lobby model to the wire objects of section 4
 	internal static class RealtimeLobbies
 	{
+		// A quick match lobby whose playlist has allow_army_selection off keeps every side random (-1)
+		public static Failure? RefuseArmySelection(Lobby lobby, IEnumerable<int?> sides)
+		{
+			if (lobby.LobbyType == ELobbyType.QuickMatch && !lobby.AllowArmySelection && sides.Any(side => side is int chosen && chosen != -1))
+			{
+				return Result.Fail(ErrorCodes.LobbyArmySelectionDisabled);
+			}
+			return null;
+		}
+
 		public static SlotState SlotStateOf(EPlayerType type) => type switch
 		{
 			EPlayerType.SLOT_OPEN => SlotState.Open,
@@ -129,7 +139,7 @@ namespace GenOnlineService.Realtime
 				Name = lobby.Name,
 				Host = RealtimeMembers.Of(lobby.Owner),
 				State = StageOf(lobby.State),
-				Map = new LobbySummaryMap { Name = lobby.MapName, Official = lobby.IsMapOfficial },
+				Map = new LobbySummaryMap { Name = lobby.MapName, Official = lobby.IsMapOfficial, Path = lobby.MapPathWire },
 				Players = lobby.NumCurrentPlayers,
 				MaxPlayers = lobby.MaxPlayers,
 				HasPassword = lobby.IsPassworded,

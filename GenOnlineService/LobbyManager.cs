@@ -1030,6 +1030,16 @@ namespace GenOnlineService
 		public string Password { get; private set; } = String.Empty;
 
 		public bool AllowObservers { get; private set; } = false;
+
+		// false for a quick match lobby whose playlist has allow_army_selection off: every side stays random
+		public bool AllowArmySelection { get; private set; } = true;
+
+		internal void SetAllowArmySelection(bool allow)
+		{
+			AllowArmySelection = allow;
+			MarkLiveDirty();
+		}
+
 		public UInt32 ExeCRC { get; private set; } = 0;
 		public UInt32 IniCRC { get; private set; } = 0;
 

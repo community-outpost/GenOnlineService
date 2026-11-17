@@ -345,6 +345,10 @@ namespace GenOnlineService.Realtime
 			bool changes = request.Side != null || request.Color != null || request.StartPosition != null || request.Team.HasValue;
 			return ChangeLobbyAsync(hostOnly: false, resetsReady: changes, async (lobby, member) =>
 			{
+				if (RealtimeLobbies.RefuseArmySelection(lobby, [request.Side]) is Failure locked)
+				{
+					return locked;
+				}
 				// the observer seat follows the host's setting, as in the original game
 				if (request.Side == ClientFeatures.ObserverSide && !lobby.AllowObservers)
 				{
@@ -441,7 +445,11 @@ namespace GenOnlineService.Realtime
 
 			return ChangeLobbyAsync(hostOnly: true, resetsReady: request.Slots.Count > 0, (lobby, member) =>
 			{
-				// an observer seat is checked for every slot first, so a refused patch changes nothing
+				// sides and observer seats are checked for every slot first, so a refused patch changes nothing
+				if (RealtimeLobbies.RefuseArmySelection(lobby, request.Slots.Select(patch => patch.Side)) is Failure locked)
+				{
+					return Task.FromResult<Failure?>(locked);
+				}
 				foreach (SlotPatch patch in request.Slots.Where(p => p.Side == ClientFeatures.ObserverSide))
 				{
 					LobbyMember? target = lobby.GetMemberFromSlot(patch.Index);

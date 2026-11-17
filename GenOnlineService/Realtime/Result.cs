@@ -94,6 +94,7 @@ namespace GenOnlineService.Realtime
 		public const string LobbySlotOccupied = "lobby.slot_occupied";
 		public const string LobbyNotReady = "lobby.not_ready";
 		public const string LobbyMeshIncomplete = "lobby.mesh_incomplete";
+		public const string LobbyArmySelectionDisabled = "lobby.army_selection_disabled";
 		public const string MatchmakingNotQueued = "matchmaking.not_queued";
 		public const string MatchmakingAlreadyQueued = "matchmaking.already_queued";
 		public const string MatchmakingInvalidPlaylist = "matchmaking.invalid_playlist";

@@ -134,6 +134,10 @@ namespace GenOnlineService.Realtime
 	{
 		public string Name { get; init; } = "";
 		public bool Official { get; init; }
+
+		// the map path of the lobby's LobbyState, so a joiner can tell JoinLobby whether it has the map; optional on the wire
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Path { get; init; }
 	}
 
 	public sealed record LobbySummarySettings
