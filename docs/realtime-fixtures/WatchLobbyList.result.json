@@ -13,7 +13,8 @@
         "state": "setup",
         "map": {
           "name": "Tournament Desert",
-          "official": true
+          "official": true,
+          "path": "maps/tournament desert/tournament desert"
         },
         "players": 3,
         "max_players": 4,
