@@ -71,6 +71,8 @@ public class User
 	public string? PasswordHash { get; set; }
 
 	public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
+	// The TOTP key, encrypted with Data Protection; null without an authenticator app
+	public string? AuthenticatorKey { get; set; }
 	public string State { get; set; } = UserStates.Active;
 	public bool TwoFactorEnabled { get; set; }
 	public DateTime? LockoutEndAt { get; set; }
@@ -145,6 +147,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.Property(e => e.EmailConfirmedAt).HasColumnName("email_confirmed_at");
 		builder.Property(e => e.PasswordHash).HasColumnName("password_hash").HasMaxLength(255);
 		builder.Property(e => e.SecurityStamp).HasColumnName("security_stamp").HasMaxLength(64);
+		builder.Property(e => e.AuthenticatorKey).HasColumnName("authenticator_key").HasMaxLength(512);
 		builder.Property(e => e.State).HasColumnName("state").HasMaxLength(16);
 		builder.Property(e => e.TwoFactorEnabled).HasColumnName("two_factor_enabled");
 		builder.Property(e => e.LockoutEndAt).HasColumnName("lockout_end_at");
@@ -171,6 +174,33 @@ public class UserUsernameHistoryConfiguration : IEntityTypeConfiguration<UserUse
 		builder.Property(e => e.NameTag).HasColumnName("name_tag");
 		builder.Property(e => e.ChangedAt).HasColumnName("changed_at");
 		builder.Property(e => e.ChangedBy).HasColumnName("changed_by").HasMaxLength(64);
+	}
+}
+
+// A two-factor recovery code of a password account: only its SHA-256, and when it was used
+public class UserRecoveryCode
+{
+	public Int64 ID { get; set; }
+	public Int64 UserID { get; set; }
+	public string CodeHash { get; set; } = String.Empty;
+	public DateTime CreatedAt { get; set; }
+	public DateTime? UsedAt { get; set; }
+}
+
+public class UserRecoveryCodeConfiguration : IEntityTypeConfiguration<UserRecoveryCode>
+{
+	public void Configure(EntityTypeBuilder<UserRecoveryCode> builder)
+	{
+		builder.ToTable("user_recovery_codes");
+
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_user_recovery_codes_user_id");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.CodeHash).HasColumnName("code_hash").HasMaxLength(64);
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.UsedAt).HasColumnName("used_at");
 	}
 }
 

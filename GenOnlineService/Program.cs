@@ -1003,6 +1003,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("users", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await UsersCli.RunUsers(args);
+				return;
+			}
+
 #if !DEBUG
 			AppDomain.CurrentDomain.UnhandledException += GlobalExceptionHandler;
 #endif

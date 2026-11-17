@@ -19,6 +19,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.Client;
@@ -152,25 +153,75 @@ namespace GenOnlineService.Identity
 				{
 					options.User.RequireUniqueEmail = false;
 					options.User.AllowedUserNameCharacters = String.Empty;
+
+					// every account, staff included, locks for 15 minutes after 5 wrong passwords or codes in a row
+					options.Lockout.AllowedForNewUsers = true;
+					options.Lockout.MaxFailedAccessAttempts = 5;
+					options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+
+					// length is the only password rule (NIST SP 800-63B); MaximumLengthPasswordValidator caps it
+					options.Password.RequiredLength = settings.Password.MinLength;
+					options.Password.RequireDigit = false;
+					options.Password.RequireLowercase = false;
+					options.Password.RequireUppercase = false;
+					options.Password.RequireNonAlphanumeric = false;
+					options.Password.RequiredUniqueChars = 1;
 				})
 				.AddUserStore<GoUserStore>()
+				.AddPasswordValidator<MaximumLengthPasswordValidator>()
+				.AddTokenProvider<AuthenticatorTokenProvider<User>>(TokenOptions.DefaultAuthenticatorProvider)
 				.AddSignInManager();
 
-			services.AddAuthentication().AddIdentityCookies(cookies => cookies.ApplicationCookie?.Configure(options =>
+			// Identity's own user validator would refuse a second "Player": display names are not unique (Name#tag)
+			services.RemoveAll<IUserValidator<User>>();
+			services.AddScoped<IUserValidator<User>, GoUserValidator>();
+
+			services.AddAuthentication().AddIdentityCookies(cookies =>
 			{
-				options.LoginPath = "/users/sign_in";
-				options.LogoutPath = "/users/sign_out";
-				options.AccessDeniedPath = "/users/sign_in";
-				options.Cookie.Name = "go_session";
-				options.Cookie.SameSite = SameSiteMode.Lax;
-				options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
-				options.ExpireTimeSpan = TimeSpan.FromDays(14);
-			}));
+				cookies.ApplicationCookie?.Configure(options =>
+				{
+					options.LoginPath = "/users/sign_in";
+					options.LogoutPath = "/users/sign_out";
+					options.AccessDeniedPath = "/users/sign_in";
+					options.Cookie.Name = "go_session";
+					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+					options.ExpireTimeSpan = TimeSpan.FromDays(14);
+				});
+
+				// who gave the right password and still owes the second factor, for 5 minutes
+				cookies.TwoFactorUserIdCookie?.Configure(options =>
+				{
+					options.Cookie.Name = "go_two_factor";
+					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+				});
+			});
 
 			// a blocked user's stamp is rotated, so their website cookie stops within a minute
-			services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(1));
+			services.Configure<SecurityStampValidatorOptions>(options =>
+			{
+				options.ValidationInterval = TimeSpan.FromMinutes(1);
+				// the rebuilt cookie keeps how it signed in (the method and amr), which Identity's rebuild drops
+				options.OnRefreshingPrincipal = context =>
+				{
+					if (context.NewPrincipal?.Identity is System.Security.Claims.ClaimsIdentity rebuilt && context.CurrentPrincipal != null)
+					{
+						foreach (System.Security.Claims.Claim claim in context.CurrentPrincipal.Claims.Where(c => c.Type == System.Security.Claims.ClaimTypes.AuthenticationMethod || c.Type == "amr"))
+						{
+							if (!rebuilt.HasClaim(claim.Type, claim.Value))
+							{
+								rebuilt.AddClaim(new System.Security.Claims.Claim(claim.Type, claim.Value));
+							}
+						}
+					}
+					return Task.CompletedTask;
+				};
+			});
 
 			services.AddScoped<UpstreamAccounts>();
+			services.AddScoped<PasswordAccounts>();
 
 			// the consent page posts back to /oauth/authorize with an antiforgery token
 			services.AddAntiforgery(options =>

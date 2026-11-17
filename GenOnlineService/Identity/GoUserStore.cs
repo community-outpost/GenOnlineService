@@ -16,20 +16,27 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace GenOnlineService.Identity
 {
-	// ASP.NET Core Identity over the schema v1 users and identities tables; local passwords and 2FA come in phase 3
-	public sealed class GoUserStore : IUserStore<User>, IUserLoginStore<User>, IUserSecurityStampStore<User>
+	// ASP.NET Core Identity over the users, identities and user_recovery_codes tables: sign-in providers, email +
+	// password accounts with lockout, and TOTP with recovery codes
+	public sealed class GoUserStore : IUserStore<User>, IUserLoginStore<User>, IUserSecurityStampStore<User>, IUserPasswordStore<User>,
+		IUserEmailStore<User>, IUserLockoutStore<User>, IUserTwoFactorStore<User>, IUserAuthenticatorKeyStore<User>, IUserTwoFactorRecoveryCodeStore<User>
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly IDataProtector m_authenticatorKeys;
 
-		public GoUserStore(IDbContextFactory<AppDbContext> dbFactory)
+		public GoUserStore(IDbContextFactory<AppDbContext> dbFactory, IDataProtectionProvider dataProtection)
 		{
 			m_dbFactory = dbFactory;
+			m_authenticatorKeys = dataProtection.CreateProtector("GenOnline.Identity.AuthenticatorKey");
 		}
 
 		public void Dispose()
@@ -85,7 +92,15 @@ namespace GenOnlineService.Identity
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
 			user.UpdatedAt = DateTime.UtcNow;
-			db.Users.Update(user);
+			var entry = db.Users.Update(user);
+			// Identity writes the copy it read; the state (blocks), the name and tag (renames) belong to other code and
+			// may have changed meanwhile, so a failed sign-in never writes back a stale copy of them
+			entry.Property(u => u.State).IsModified = false;
+			entry.Property(u => u.Username).IsModified = false;
+			entry.Property(u => u.UsernameNormalized).IsModified = false;
+			entry.Property(u => u.NameTag).IsModified = false;
+			entry.Property(u => u.NameKey).IsModified = false;
+			entry.Property(u => u.RenamedAt).IsModified = false;
 			await db.SaveChangesAsync(cancellationToken);
 			return IdentityResult.Success;
 		}
@@ -166,5 +181,131 @@ namespace GenOnlineService.Identity
 		}
 
 		public Task<string?> GetSecurityStampAsync(User user, CancellationToken cancellationToken) => Task.FromResult<string?>(user.SecurityStamp);
+
+		// Passwords: the hash only, null without a local password
+
+		public Task SetPasswordHashAsync(User user, string? passwordHash, CancellationToken cancellationToken)
+		{
+			user.PasswordHash = passwordHash;
+			return Task.CompletedTask;
+		}
+
+		public Task<string?> GetPasswordHashAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.PasswordHash);
+
+		public Task<bool> HasPasswordAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.PasswordHash != null);
+
+		// Email: unique by its NFKC upper invariant key, as names are; Identity's own normalizer is ignored
+
+		public Task SetEmailAsync(User user, string? email, CancellationToken cancellationToken)
+		{
+			user.Email = email;
+			user.EmailNormalized = email == null ? null : NameNormalizer.Normalize(email);
+			return Task.CompletedTask;
+		}
+
+		public Task<string?> GetEmailAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.Email);
+
+		public Task<bool> GetEmailConfirmedAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.EmailConfirmedAt != null);
+
+		public Task SetEmailConfirmedAsync(User user, bool confirmed, CancellationToken cancellationToken)
+		{
+			user.EmailConfirmedAt = confirmed ? user.EmailConfirmedAt ?? DateTime.UtcNow : null;
+			return Task.CompletedTask;
+		}
+
+		public async Task<User?> FindByEmailAsync(string normalizedEmail, CancellationToken cancellationToken)
+		{
+			string normalized = NameNormalizer.Normalize(normalizedEmail);
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			return await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.EmailNormalized == normalized, cancellationToken);
+		}
+
+		public Task<string?> GetNormalizedEmailAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.EmailNormalized);
+
+		public Task SetNormalizedEmailAsync(User user, string? normalizedEmail, CancellationToken cancellationToken)
+		{
+			user.EmailNormalized = user.Email == null ? null : NameNormalizer.Normalize(user.Email);
+			return Task.CompletedTask;
+		}
+
+		// Lockout: every account can be locked; the end is stored in UTC
+
+		public Task<DateTimeOffset?> GetLockoutEndDateAsync(User user, CancellationToken cancellationToken)
+			=> Task.FromResult(user.LockoutEndAt == null ? (DateTimeOffset?)null : new DateTimeOffset(DateTime.SpecifyKind(user.LockoutEndAt.Value, DateTimeKind.Utc)));
+
+		public Task SetLockoutEndDateAsync(User user, DateTimeOffset? lockoutEnd, CancellationToken cancellationToken)
+		{
+			user.LockoutEndAt = lockoutEnd?.UtcDateTime;
+			return Task.CompletedTask;
+		}
+
+		public Task<int> IncrementAccessFailedCountAsync(User user, CancellationToken cancellationToken)
+		{
+			user.FailedSignInCount++;
+			return Task.FromResult(user.FailedSignInCount);
+		}
+
+		public Task ResetAccessFailedCountAsync(User user, CancellationToken cancellationToken)
+		{
+			user.FailedSignInCount = 0;
+			return Task.CompletedTask;
+		}
+
+		public Task<int> GetAccessFailedCountAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.FailedSignInCount);
+
+		public Task<bool> GetLockoutEnabledAsync(User user, CancellationToken cancellationToken) => Task.FromResult(true);
+
+		public Task SetLockoutEnabledAsync(User user, bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
+
+		// Two factor
+
+		public Task SetTwoFactorEnabledAsync(User user, bool enabled, CancellationToken cancellationToken)
+		{
+			user.TwoFactorEnabled = enabled;
+			return Task.CompletedTask;
+		}
+
+		public Task<bool> GetTwoFactorEnabledAsync(User user, CancellationToken cancellationToken) => Task.FromResult(user.TwoFactorEnabled);
+
+		public Task SetAuthenticatorKeyAsync(User user, string key, CancellationToken cancellationToken)
+		{
+			user.AuthenticatorKey = m_authenticatorKeys.Protect(key);
+			return Task.CompletedTask;
+		}
+
+		public Task<string?> GetAuthenticatorKeyAsync(User user, CancellationToken cancellationToken)
+			=> Task.FromResult(user.AuthenticatorKey == null ? null : m_authenticatorKeys.Unprotect(user.AuthenticatorKey));
+
+		// Recovery codes: only their SHA-256 is stored (each is a random one-time secret), new codes replace the old
+
+		private static string HashCode(string code) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(code.Trim())));
+
+		public async Task ReplaceCodesAsync(User user, IEnumerable<string> recoveryCodes, CancellationToken cancellationToken)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+			await db.UserRecoveryCodes.Where(c => c.UserID == user.ID).ExecuteDeleteAsync(cancellationToken);
+			DateTime now = DateTime.UtcNow;
+			db.UserRecoveryCodes.AddRange(recoveryCodes.Select(code => new UserRecoveryCode { UserID = user.ID, CodeHash = HashCode(code), CreatedAt = now }));
+			await db.SaveChangesAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+		}
+
+		// A code is used at most once, also when two sign-ins race with the same code
+		public async Task<bool> RedeemCodeAsync(User user, string code, CancellationToken cancellationToken)
+		{
+			string hash = HashCode(code);
+			DateTime now = DateTime.UtcNow;
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			int used = await db.UserRecoveryCodes.Where(c => c.UserID == user.ID && c.CodeHash == hash && c.UsedAt == null)
+				.ExecuteUpdateAsync(set => set.SetProperty(c => c.UsedAt, now), cancellationToken);
+			return used > 0;
+		}
+
+		public async Task<int> CountCodesAsync(User user, CancellationToken cancellationToken)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			return await db.UserRecoveryCodes.CountAsync(c => c.UserID == user.ID && c.UsedAt == null, cancellationToken);
+		}
 	}
 }

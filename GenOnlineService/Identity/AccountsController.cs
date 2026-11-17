@@ -42,16 +42,18 @@ namespace GenOnlineService.Identity
 		private readonly SignInManager<User> m_signIn;
 		private readonly UserManager<User> m_users;
 		private readonly UpstreamAccounts m_upstream;
+		private readonly PasswordAccounts m_passwords;
 		private readonly IOpenIddictApplicationManager m_applications;
 		private readonly IOpenIddictAuthorizationManager m_authorizations;
 
 		public AccountsController(AccountsSettings settings, SignInManager<User> signIn, UserManager<User> users, UpstreamAccounts upstream,
-			IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations)
+			PasswordAccounts passwords, IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations)
 		{
 			m_settings = settings;
 			m_signIn = signIn;
 			m_users = users;
 			m_upstream = upstream;
+			m_passwords = passwords;
 			m_applications = applications;
 			m_authorizations = authorizations;
 		}
@@ -68,26 +70,394 @@ namespace GenOnlineService.Identity
 			};
 		}
 
-		[HttpGet("~/users/sign_in")]
-		public IActionResult SignInPage([FromQuery(Name = "ReturnUrl")] string? returnUrl)
-		{
-			string target = SafeReturnUrl(returnUrl);
-			List<UpstreamProviderSettings> providers = m_settings.EnabledProviders.ToList();
+		private const string ReturnUrlField = "ReturnUrl";
+		private const string HoneypotField = "website";
 
-			UpstreamProviderSettings? only = providers.FirstOrDefault(p => p.OnlyProvider);
+		private static string Hidden(string name, string? value) => $"<input type=\"hidden\" name=\"{WebUtility.HtmlEncode(name)}\" value=\"{WebUtility.HtmlEncode(value)}\">";
+
+		// A page with a form: an antiforgery token, never inside another site's frame, never cached
+		private string FormStart(string action, string returnUrl)
+		{
+			AntiforgeryTokenSet tokens = HttpContext.RequestServices.GetRequiredService<IAntiforgery>().GetAndStoreTokens(HttpContext);
+			Response.Headers["X-Frame-Options"] = "DENY";
+			Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
+			Response.Headers.CacheControl = "no-store";
+			return $"<form method=\"post\" action=\"{WebUtility.HtmlEncode(action)}\">{Hidden(tokens.FormFieldName!, tokens.RequestToken)}{Hidden(ReturnUrlField, returnUrl)}";
+		}
+
+		private Task<bool> ValidForm() => HttpContext.RequestServices.GetRequiredService<IAntiforgery>().IsRequestValidAsync(HttpContext);
+
+		private ContentResult Expired() => Page(400, "Request expired", "<p>The page expired. Please go back and try again.</p>");
+
+		private static string Message(string? message) => message == null ? String.Empty : $"<p role=\"alert\">{WebUtility.HtmlEncode(message)}</p>";
+
+		[HttpGet("~/users/sign_in")]
+		public IActionResult SignInPage([FromQuery(Name = ReturnUrlField)] string? returnUrl) => SignInForm(200, SafeReturnUrl(returnUrl), null, null);
+
+		private IActionResult SignInForm(int status, string target, string? email, string? message)
+		{
+			List<UpstreamProviderSettings> providers = m_settings.EnabledProviders.ToList();
+			bool passwords = m_settings.Password.Enabled;
+
+			// a provider marked only_provider takes the page over, unless password sign-in is offered too
+			UpstreamProviderSettings? only = passwords ? null : providers.FirstOrDefault(p => p.OnlyProvider);
 			if (only != null)
 			{
 				return Redirect($"/users/auth/{Uri.EscapeDataString(only.Name)}?returnUrl={Uri.EscapeDataString(target)}");
 			}
 
-			if (providers.Count == 0)
+			if (providers.Count == 0 && !passwords)
 			{
 				return Page(503, "Sign-in unavailable", "<p>No sign-in method is configured for this environment.</p>");
 			}
 
-			string links = String.Concat(providers.Select(p =>
-				$"<p><a href=\"/users/auth/{Uri.EscapeDataString(p.Name)}?returnUrl={Uri.EscapeDataString(target)}\">Sign in with {WebUtility.HtmlEncode(p.DisplayName)}</a></p>"));
-			return Page(200, "Sign in", links);
+			var body = new System.Text.StringBuilder(Message(message));
+			if (passwords)
+			{
+				body.Append(FormStart("/users/sign_in", target));
+				body.Append($"<p><label>Email <input type=\"email\" name=\"email\" autocomplete=\"username\" required value=\"{WebUtility.HtmlEncode(email)}\"></label></p>");
+				body.Append("<p><label>Password <input type=\"password\" name=\"password\" autocomplete=\"current-password\" required></label></p>");
+				body.Append("<p><button type=\"submit\">Sign in</button></p></form>");
+				if (m_settings.Password.AllowSignUp)
+				{
+					body.Append($"<p><a href=\"/users/sign_up?{ReturnUrlField}={Uri.EscapeDataString(target)}\">Create an account</a></p>");
+				}
+			}
+			body.Append(String.Concat(providers.Select(p =>
+				$"<p><a href=\"/users/auth/{Uri.EscapeDataString(p.Name)}?returnUrl={Uri.EscapeDataString(target)}\">Sign in with {WebUtility.HtmlEncode(p.DisplayName)}</a></p>")));
+			return Page(status, "Sign in", body.ToString());
+		}
+
+		[HttpPost("~/users/sign_in")]
+		public async Task<IActionResult> SignInWithPassword([FromForm] string? email, [FromForm] string? password, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			PasswordAccountResult result = await m_passwords.SignIn(email, password);
+			AppMetrics.RecordAuthentication("password", "password", result.Error ?? "success");
+
+			if (result.Error == null)
+			{
+				await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: PasswordAccounts.PasswordMethod);
+				return LocalRedirect(target);
+			}
+
+			if (result.Error == PasswordAccounts.ErrorTwoFactorRequired)
+			{
+				// the right password only earns the code page: the same short-lived cookie Identity's own two-factor
+				// sign-in reads (its Name claim is the user id)
+				var pending = new ClaimsIdentity(IdentityConstants.TwoFactorUserIdScheme);
+				pending.AddClaim(new Claim(ClaimTypes.Name, result.User!.ID.ToString()));
+				await HttpContext.SignInAsync(IdentityConstants.TwoFactorUserIdScheme, new ClaimsPrincipal(pending));
+				return LocalRedirect($"/users/two_factor?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+
+			return result.Error switch
+			{
+				PasswordAccounts.ErrorBlocked => Page(403, "Sign-in refused", "<p>This account is blocked.</p>"),
+				PasswordAccounts.ErrorDeactivated => Page(403, "Sign-in refused", "<p>This account is deactivated.</p>"),
+				_ => SignInForm(401, target, email, "Wrong email or password.")
+			};
+		}
+
+		// Second factor: a code from the authenticator app or a recovery code, after the right password
+
+		private const string CodeField = "code";
+		private const string RecoveryCodeField = "recovery_code";
+
+		[HttpGet("~/users/two_factor")]
+		public async Task<IActionResult> TwoFactorPage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			string target = SafeReturnUrl(returnUrl);
+			if (await m_signIn.GetTwoFactorAuthenticationUserAsync() == null)
+			{
+				return LocalRedirect($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+			return TwoFactorForm(200, target, null);
+		}
+
+		private ContentResult TwoFactorForm(int status, string target, string? message)
+		{
+			var body = new System.Text.StringBuilder(Message(message));
+			body.Append(FormStart("/users/two_factor", target));
+			body.Append($"<p><label>Code from your authenticator app <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\"></label></p>");
+			body.Append($"<p><label>Or a recovery code <input type=\"text\" name=\"{RecoveryCodeField}\" autocomplete=\"off\"></label></p>");
+			body.Append("<p><button type=\"submit\">Sign in</button></p></form>");
+			return Page(status, "Two-factor sign-in", body.ToString());
+		}
+
+		[HttpPost("~/users/two_factor")]
+		public async Task<IActionResult> TwoFactor([FromForm(Name = CodeField)] string? code, [FromForm(Name = RecoveryCodeField)] string? recoveryCode,
+			[FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			User? pending = await m_signIn.GetTwoFactorAuthenticationUserAsync();
+			if (pending == null)
+			{
+				return LocalRedirect($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+
+			// both sign in with amr mfa. Identity's authenticator sign-in counts a wrong code toward the lockout and
+			// refuses while locked; its recovery code sign-in does neither, so that is done here.
+			string authenticator = (code ?? String.Empty).Replace(" ", String.Empty);
+			string recovery = (recoveryCode ?? String.Empty).Trim();
+			Microsoft.AspNetCore.Identity.SignInResult result;
+			if (authenticator.Length > 0)
+			{
+				result = await m_signIn.TwoFactorAuthenticatorSignInAsync(authenticator, isPersistent: false, rememberClient: false);
+			}
+			else if (await m_users.IsLockedOutAsync(pending))
+			{
+				result = Microsoft.AspNetCore.Identity.SignInResult.LockedOut;
+			}
+			else
+			{
+				result = recovery.Length > 0 ? await m_signIn.TwoFactorRecoveryCodeSignInAsync(recovery) : Microsoft.AspNetCore.Identity.SignInResult.Failed;
+				if (result.Succeeded)
+				{
+					await m_users.ResetAccessFailedCountAsync(pending);
+				}
+				else
+				{
+					await m_users.AccessFailedAsync(pending);
+				}
+			}
+			AppMetrics.RecordAuthentication("password_two_factor", "password", result.Succeeded ? "success" : result.IsLockedOut ? "locked_out" : "failed");
+
+			return result.Succeeded ? LocalRedirect(target) : TwoFactorForm(401, target, "Wrong code.");
+		}
+
+		// Setting up an authenticator app: the key, a first code, then the recovery codes once
+
+		private async Task<User?> CookieUser()
+		{
+			AuthenticateResult cookie = await HttpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+			return cookie.Succeeded ? await m_users.GetUserAsync(cookie.Principal!) : null;
+		}
+
+		private IActionResult SignInFirst(string target)
+			=> Challenge(new AuthenticationProperties { RedirectUri = $"{Request.PathBase}{Request.Path}?{ReturnUrlField}={Uri.EscapeDataString(target)}" }, IdentityConstants.ApplicationScheme);
+
+		private const string TotpIssuer = "Generals Online";
+
+		[HttpGet("~/users/two_factor/setup")]
+		public async Task<IActionResult> TwoFactorSetupPage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (!await m_users.HasPasswordAsync(user))
+			{
+				return Page(403, "Two-factor sign-in", "<p>Two-factor sign-in is for accounts that sign in with an email address and a password.</p>");
+			}
+
+			if (user.TwoFactorEnabled)
+			{
+				var manage = new System.Text.StringBuilder("<p>Two-factor sign-in is on.</p>");
+				manage.Append(FormStart("/users/two_factor/disable", target));
+				manage.Append($"<p><label>Code from your authenticator app <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required></label></p>");
+				manage.Append("<p><button type=\"submit\">Turn two-factor sign-in off</button></p></form>");
+				return Page(200, "Two-factor sign-in", manage.ToString());
+			}
+
+			return await TwoFactorSetupForm(200, user, target, null);
+		}
+
+		private async Task<ContentResult> TwoFactorSetupForm(int status, User user, string target, string? message)
+		{
+			string? key = await m_users.GetAuthenticatorKeyAsync(user);
+			if (String.IsNullOrEmpty(key))
+			{
+				await m_users.ResetAuthenticatorKeyAsync(user);
+				key = await m_users.GetAuthenticatorKeyAsync(user);
+			}
+
+			string label = Uri.EscapeDataString($"{TotpIssuer}:{Database.DisplayNames.Format(user.Username, user.NameTag)}");
+			string uri = $"otpauth://totp/{label}?secret={key}&issuer={Uri.EscapeDataString(TotpIssuer)}&digits=6";
+			string grouped = String.Join(' ', Enumerable.Range(0, (key!.Length + 3) / 4).Select(i => key.Substring(i * 4, Math.Min(4, key.Length - i * 4))));
+
+			var body = new System.Text.StringBuilder(Message(message));
+			body.Append("<p>Add this account to your authenticator app with the link or the key, then enter the code it shows.</p>");
+			body.Append($"<p><a href=\"{WebUtility.HtmlEncode(uri)}\">{WebUtility.HtmlEncode(uri)}</a></p>");
+			body.Append($"<p>Key: <code>{WebUtility.HtmlEncode(grouped)}</code></p>");
+			body.Append(FormStart("/users/two_factor/setup", target));
+			body.Append($"<p><label>Code <input type=\"text\" name=\"{CodeField}\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"7\" required></label></p>");
+			body.Append("<p><button type=\"submit\">Turn two-factor sign-in on</button></p></form>");
+			return Page(status, "Set up two-factor sign-in", body.ToString());
+		}
+
+		[HttpPost("~/users/two_factor/setup")]
+		public async Task<IActionResult> TwoFactorSetup([FromForm(Name = CodeField)] string? code, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (user.TwoFactorEnabled || !await m_users.HasPasswordAsync(user))
+			{
+				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+
+			string token = (code ?? String.Empty).Replace(" ", String.Empty);
+			if (!await m_users.VerifyTwoFactorTokenAsync(user, m_users.Options.Tokens.AuthenticatorTokenProvider, token))
+			{
+				return await TwoFactorSetupForm(400, user, target, "Wrong code.");
+			}
+
+			await m_users.SetTwoFactorEnabledAsync(user, true);
+			IEnumerable<string> codes = await m_users.GenerateNewTwoFactorRecoveryCodesAsync(user, 10) ?? Array.Empty<string>();
+			// the security stamp changed; keep this browser signed in
+			await m_signIn.RefreshSignInAsync(user);
+
+			string list = String.Concat(codes.Select(c => $"<li><code>{WebUtility.HtmlEncode(c)}</code></li>"));
+			Response.Headers.CacheControl = "no-store";
+			return Page(200, "Two-factor sign-in is on",
+				$"<p>Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.</p><ul>{list}</ul><p><a href=\"{WebUtility.HtmlEncode(target)}\">Continue</a></p>");
+		}
+
+		[HttpPost("~/users/two_factor/disable")]
+		public async Task<IActionResult> TwoFactorDisable([FromForm(Name = CodeField)] string? code, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			User? user = await CookieUser();
+			if (user == null)
+			{
+				return SignInFirst(target);
+			}
+			if (!user.TwoFactorEnabled)
+			{
+				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(target)}");
+			}
+			if (await m_passwords.IsStaff(user.ID))
+			{
+				return Page(403, "Two-factor sign-in", "<p>Staff accounts keep two-factor sign-in.</p>");
+			}
+
+			string token = (code ?? String.Empty).Replace(" ", String.Empty);
+			if (!await m_users.VerifyTwoFactorTokenAsync(user, m_users.Options.Tokens.AuthenticatorTokenProvider, token))
+			{
+				return Page(400, "Two-factor sign-in", "<p role=\"alert\">Wrong code.</p>");
+			}
+
+			// a new key and no recovery codes, so nothing of the old setup works again
+			await m_users.SetTwoFactorEnabledAsync(user, false);
+			await m_users.ResetAuthenticatorKeyAsync(user);
+			await m_users.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
+			await m_signIn.RefreshSignInAsync(user);
+			return Page(200, "Two-factor sign-in is off", $"<p><a href=\"{WebUtility.HtmlEncode(target)}\">Continue</a></p>");
+		}
+
+		[HttpGet("~/users/sign_up")]
+		public IActionResult SignUpPage([FromQuery(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled || !m_settings.Password.AllowSignUp)
+			{
+				return NotFound();
+			}
+			return SignUpForm(200, SafeReturnUrl(returnUrl), null, null, null);
+		}
+
+		private ContentResult SignUpForm(int status, string target, string? displayName, string? email, string? message)
+		{
+			var body = new System.Text.StringBuilder(Message(message));
+			body.Append(FormStart("/users/sign_up", target));
+			body.Append($"<p><label>Player name <input type=\"text\" name=\"display_name\" autocomplete=\"nickname\" required value=\"{WebUtility.HtmlEncode(displayName)}\"></label></p>");
+			body.Append($"<p><label>Email <input type=\"email\" name=\"email\" autocomplete=\"email\" required value=\"{WebUtility.HtmlEncode(email)}\"></label></p>");
+			body.Append($"<p><label>Password <input type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"{m_settings.Password.MinLength}\" maxlength=\"{PasswordSignInSettings.MaximumLength}\" required></label></p>");
+			if (m_settings.Password.Honeypot)
+			{
+				// people never see this field; form-filling bots fill it in
+				body.Append($"<p style=\"position:absolute;left:-10000px\" aria-hidden=\"true\"><label>Website <input type=\"text\" name=\"{HoneypotField}\" tabindex=\"-1\" autocomplete=\"off\"></label></p>");
+			}
+			body.Append("<p><button type=\"submit\">Create account</button></p></form>");
+			body.Append($"<p><a href=\"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}\">I already have an account</a></p>");
+			return Page(status, "Create an account", body.ToString());
+		}
+
+		[HttpPost("~/users/sign_up")]
+		public async Task<IActionResult> SignUp([FromForm(Name = "display_name")] string? displayName, [FromForm] string? email, [FromForm] string? password,
+			[FromForm(Name = HoneypotField)] string? honeypot, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+		{
+			if (!m_settings.Password.Enabled || !m_settings.Password.AllowSignUp)
+			{
+				return NotFound();
+			}
+			if (!await ValidForm())
+			{
+				return Expired();
+			}
+
+			string target = SafeReturnUrl(returnUrl);
+			PasswordAccountResult result = await m_passwords.SignUp(displayName, email, password, honeypot);
+			AppMetrics.RecordAuthentication("password_sign_up", "password", result.Error ?? "success");
+
+			if (result.Error != null)
+			{
+				string message = result.Error switch
+				{
+					PasswordAccounts.ErrorInvalidEmail => "Enter a valid email address.",
+					PasswordAccounts.ErrorEmailDenied => "This email address cannot be used.",
+					PasswordAccounts.ErrorEmailTaken => "An account with this email address already exists.",
+					PasswordAccounts.ErrorNameInvalid => "This name has characters that are not allowed.",
+					PasswordAccounts.ErrorNameLength => $"Names must be {Realtime.RealtimeHub.NameMinLength} to {Realtime.RealtimeHub.NameMaxLength} characters.",
+					PasswordAccounts.ErrorNameReserved => "This name contains a reserved word.",
+					PasswordAccounts.ErrorPasswordTooShort => $"Passwords must be at least {m_settings.Password.MinLength} characters.",
+					PasswordAccounts.ErrorPasswordTooLong => $"Passwords must be at most {PasswordSignInSettings.MaximumLength} characters.",
+					_ => "Sign-up failed."
+				};
+				return SignUpForm(400, target, displayName, email, message);
+			}
+
+			await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: "password");
+			return LocalRedirect(target);
 		}
 
 		[HttpGet("~/users/auth/{provider}")]
@@ -212,6 +582,18 @@ namespace GenOnlineService.Identity
 			{
 				await m_signIn.SignOutAsync();
 				return Forbid(Error(Errors.AccessDenied, "This account cannot sign in."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+			}
+
+			// staff with a password and no second factor set it up first, then come back here
+			if (await m_passwords.MustSetUpTwoFactor(user))
+			{
+				if (request.HasPromptValue(PromptValues.None))
+				{
+					return Forbid(Error(Errors.InteractionRequired, "Two-factor sign-in must be set up first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+				}
+
+				string query = QueryString.Create((Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList()).Where(p => p.Key != Parameters.Prompt).ToList()).ToString();
+				return LocalRedirect($"/users/two_factor/setup?{ReturnUrlField}={Uri.EscapeDataString(Request.PathBase + Request.Path + query)}");
 			}
 
 			object application = await m_applications.FindByClientIdAsync(request.ClientId!) ?? throw new InvalidOperationException("Unknown client.");
