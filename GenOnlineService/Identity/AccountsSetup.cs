@@ -166,10 +166,16 @@ namespace GenOnlineService.Identity
 					options.Password.RequireUppercase = false;
 					options.Password.RequireNonAlphanumeric = false;
 					options.Password.RequiredUniqueChars = 1;
+
+					// account mail links (AccountMail): a confirmation works for 24 hours, a reset link for 1 hour
+					options.Tokens.EmailConfirmationTokenProvider = EmailConfirmationTokenProviderOptions.ProviderName;
+					options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderOptions.ProviderName;
 				})
 				.AddUserStore<GoUserStore>()
 				.AddPasswordValidator<MaximumLengthPasswordValidator>()
 				.AddTokenProvider<AuthenticatorTokenProvider<User>>(TokenOptions.DefaultAuthenticatorProvider)
+				.AddTokenProvider<EmailConfirmationTokenProvider>(EmailConfirmationTokenProviderOptions.ProviderName)
+				.AddTokenProvider<PasswordResetTokenProvider>(PasswordResetTokenProviderOptions.ProviderName)
 				.AddSignInManager();
 
 			// Identity's own user validator would refuse a second "Player": display names are not unique (Name#tag)
@@ -222,6 +228,10 @@ namespace GenOnlineService.Identity
 
 			services.AddScoped<UpstreamAccounts>();
 			services.AddScoped<PasswordAccounts>();
+			// the host registers the configured sender (MailSetup.AddMail); without one, no mail and no confirmation
+			services.TryAddTransient<Mail.IEmailSender, Mail.DisabledEmailSender>();
+			services.AddScoped<AccountMail>();
+			services.TryAddSingleton<AccountMailLimiter>();
 			// the choose-a-name page renames through the same rules as every other rename; the host may have added it already
 			services.TryAddSingleton<Names.PlayerNames>();
 

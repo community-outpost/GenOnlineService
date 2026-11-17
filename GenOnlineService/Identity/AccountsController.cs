@@ -46,9 +46,12 @@ namespace GenOnlineService.Identity
 		private readonly Names.PlayerNames m_names;
 		private readonly IOpenIddictApplicationManager m_applications;
 		private readonly IOpenIddictAuthorizationManager m_authorizations;
+		private readonly AccountMail m_mail;
+		private readonly AccountMailLimiter m_mailLimiter;
 
 		public AccountsController(AccountsSettings settings, SignInManager<User> signIn, UserManager<User> users, UpstreamAccounts upstream,
-			PasswordAccounts passwords, Names.PlayerNames names, IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations)
+			PasswordAccounts passwords, Names.PlayerNames names, IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations,
+			AccountMail mail, AccountMailLimiter mailLimiter)
 		{
 			m_settings = settings;
 			m_signIn = signIn;
@@ -58,6 +61,8 @@ namespace GenOnlineService.Identity
 			m_names = names;
 			m_applications = applications;
 			m_authorizations = authorizations;
+			m_mail = mail;
+			m_mailLimiter = mailLimiter;
 		}
 
 		// a page reached without a return address (or with a foreign one) goes on to the account page, since nothing serves /
@@ -472,6 +477,12 @@ namespace GenOnlineService.Identity
 				return SignUpForm(400, target, displayName, email, message);
 			}
 
+			// with mail, the new address is confirmed by a link before the first token (S4); a failed send is retried from the waiting page
+			if (m_mail.Enabled)
+			{
+				await m_mail.SendConfirmation(result.User!, Request);
+			}
+
 			await m_passwords.RecordSignIn(result.User!);
 			await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: "password");
 			return LocalRedirect(target);
@@ -680,6 +691,17 @@ namespace GenOnlineService.Identity
 			{
 				await m_signIn.SignOutAsync();
 				return Forbid(Error(Errors.AccessDenied, "This account cannot sign in."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+			}
+
+			// a password account confirms its address first when mail is configured, then comes back here (S4)
+			if (m_mail.MustConfirm(user))
+			{
+				if (request.HasPromptValue(PromptValues.None))
+				{
+					return Forbid(Error(Errors.InteractionRequired, "The email address must be confirmed first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+				}
+
+				return LocalRedirect(ConfirmationPendingUrl(AuthorizeAgain()));
 			}
 
 			// staff with a password and no second factor set it up first, then come back here

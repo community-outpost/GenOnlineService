@@ -83,6 +83,16 @@ internal sealed class AccountsBrowser
 		m_pipeline = app.Build();
 	}
 
+	private AccountsBrowser(RequestDelegate pipeline, IServiceProvider services, AccountsSettings settings)
+	{
+		m_pipeline = pipeline;
+		m_services = services;
+		Settings = settings;
+	}
+
+	// Another browser on the same host: the same services (and in-memory limits), its own cookie jar
+	public AccountsBrowser Fork() => new(m_pipeline, m_services, Settings);
+
 	public IServiceProvider Services => m_services;
 
 	public AccountsSettings Settings { get; }
