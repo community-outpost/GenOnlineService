@@ -18,6 +18,7 @@
 
 using GenOnlineService.Realtime;
 using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.Core;
@@ -35,6 +36,24 @@ namespace GenOnlineService.Identity
 		private static readonly ConcurrentDictionary<string, DateTime> s_ended = new(StringComparer.Ordinal);
 
 		public static bool HasEnded(string authorizationID) => s_ended.TryGetValue(authorizationID, out DateTime endedAt) && DateTime.UtcNow - endedAt < s_rememberEnded;
+
+		// Without the running service (the CLI, a test): marks the user's stored sign-ins and their tokens revoked in the
+		// database, so no refresh token of theirs works again. The service's own path is SessionRevocation.RevokeUser.
+		public static async Task<int> RevokeStored(AppDbContext db, Int64 userID)
+		{
+			string subject = userID.ToString(System.Globalization.CultureInfo.InvariantCulture);
+			string valid = OpenIddictConstants.Statuses.Valid;
+			string inactive = OpenIddictConstants.Statuses.Inactive;
+			string revoked = OpenIddictConstants.Statuses.Revoked;
+
+			int authorizations = await db.Set<OpenIddictEntityFrameworkCoreAuthorization>()
+				.Where(a => a.Subject == subject && a.Status == valid)
+				.ExecuteUpdateAsync(s => s.SetProperty(a => a.Status, revoked));
+			await db.Set<OpenIddictEntityFrameworkCoreToken>()
+				.Where(t => t.Subject == subject && (t.Status == valid || t.Status == inactive))
+				.ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, revoked));
+			return authorizations;
+		}
 
 		// Drops the registration and closes only the realtime connections of that sign-in
 		public static async Task EndAsync(string? authorizationID)

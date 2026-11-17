@@ -230,4 +230,79 @@ public class ChosenNamesTests
 		await using AppDbContext db = probe.Open();
 		Assert.Null((await db.Users.SingleAsync(u => u.ID == created.ID)).NameRequiredAt);
 	}
+
+	private static readonly Database.ModerationActor s_bot = new() { Kind = AuditActorKinds.Discord, Name = "discord:99", Source = ModerationSources.Discord };
+
+	// staff reset an inappropriate name: a placeholder, the player owes a new name, every sign-in ends, and audit_log keeps both names
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AStaffNameResetOwesANewNameAndEndsSignIns(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User created = await ProviderSignUp(probe, "80351110224678914", "rude");
+		var names = new Names.PlayerNames(new ProbeFactory(probe));
+		Assert.True((await names.ChooseAsync(created.ID, "Rude")).Ok);
+
+		string stamp;
+		await using (AppDbContext db = probe.Open())
+		{
+			stamp = (await db.Users.SingleAsync(u => u.ID == created.ID)).SecurityStamp;
+			db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization>().Add(new() { Subject = created.ID.ToString(), Status = "valid", Type = "permanent", CreationDate = DateTime.UtcNow });
+			db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken>().Add(new() { Subject = created.ID.ToString(), Status = "valid", Type = "refresh_token", CreationDate = DateTime.UtcNow });
+			await db.SaveChangesAsync();
+		}
+
+		Realtime.Result<Realtime.Empty> reset = await names.ResetNameByStaffAsync(s_bot, created.ID, "offensive", live: false);
+		Assert.True(reset.Ok, reset.Code);
+
+		await using (AppDbContext db = probe.Open())
+		{
+			User after = await db.Users.SingleAsync(u => u.ID == created.ID);
+			Assert.Matches("^Player[0-9]{6}$", after.Username);
+			Assert.NotNull(after.NameRequiredAt);
+			Assert.NotEqual(stamp, after.SecurityStamp);
+			Assert.True(await db.UserUsernameHistory.AnyAsync(h => h.UserID == created.ID && h.Username == "Rude" && h.ChangedBy == "discord:99"));
+
+			AuditLogEntry entry = await db.AuditLog.SingleAsync(a => a.TargetID == created.ID && a.Action == ModerationActions.NameReset);
+			Assert.Equal("offensive", entry.Reason);
+			Assert.Contains("Rude#", entry.Details);
+			Assert.Contains(after.Username + "#", entry.Details);
+
+			Assert.Equal("revoked", (await db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization>().SingleAsync(a => a.Subject == created.ID.ToString())).Status);
+			Assert.Equal("revoked", (await db.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken>().SingleAsync(t => t.Subject == created.ID.ToString())).Status);
+		}
+	}
+
+	// the rank rule of every staff action: a player without standing cannot reset another's name, and nothing changes
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ANameResetFollowsTheRankRule(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User target = await ProviderSignUp(probe, "80351110224678915", "target");
+		User player = await ProviderSignUp(probe, "80351110224678916", "player");
+		var names = new Names.PlayerNames(new ProbeFactory(probe));
+		Assert.True((await names.ChooseAsync(target.ID, "Kept")).Ok);
+
+		var actor = new Database.ModerationActor { Kind = AuditActorKinds.User, UserID = player.ID, Name = $"user:{player.ID}", Source = ModerationSources.Api };
+		Assert.Equal(Realtime.ErrorCodes.ModerationTargetOutranks, (await names.ResetNameByStaffAsync(actor, target.ID, null, live: false)).Code);
+		Assert.Equal(Realtime.ErrorCodes.InvalidArgument, (await names.ResetNameByStaffAsync(s_bot, 0, null, live: false)).Code);
+
+		await using AppDbContext db = probe.Open();
+		User after = await db.Users.SingleAsync(u => u.ID == target.ID);
+		Assert.Equal("Kept", after.Username);
+		Assert.Null(after.NameRequiredAt);
+		Assert.False(await db.AuditLog.AnyAsync(a => a.Action == ModerationActions.NameReset));
+	}
+
+	[Theory]
+	[InlineData("users", "name-reset")]
+	[InlineData("users", "name-reset", "notanumber")]
+	[InlineData("users", "name-reset", "1", "--password-stdin")]
+	public async Task BadNameResetCommandLinesExitTwo(params string[] args)
+	{
+		Assert.Equal(2, await UsersCli.RunUsers(args));
+	}
 }

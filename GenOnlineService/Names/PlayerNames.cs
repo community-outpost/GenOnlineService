@@ -122,6 +122,47 @@ namespace GenOnlineService.Names
 			return result;
 		}
 
+		// Staff flag an inappropriate name (S17): moderation.rename (checked by the caller) and the rank rule, then a neutral
+		// placeholder, the player owes a new name and every sign-in ends, so the next one asks at once; audited with both names.
+		// live is false outside the running service (the CLI), which can only revoke the stored sign-ins.
+		public async Task<Result<Empty>> ResetNameByStaffAsync(Database.ModerationActor actor, Int64 target, string? reason, bool live = true)
+		{
+			int actorRank = actor.UserID is Int64 actorID ? StaffRoles.Rank(actorID) : StaffRoles.AdminRank;
+			Failure? failure = CheckStaff(actor.UserID, actorRank, target, StaffRoles.Rank(target), reason);
+			if (failure != null)
+			{
+				return failure.Value;
+			}
+
+			NameChange? change;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				change = await Database.DisplayNames.ResetName(db, target, actor.Name);
+				if (change == null)
+				{
+					return Result.NotFound("user");
+				}
+
+				await Database.Moderation.LogAction(db, actor, ModerationActions.NameReset, AuditTargetKinds.User, target, String.IsNullOrEmpty(reason) ? null : reason, new
+				{
+					from = Database.DisplayNames.Format(change.OldName, change.OldTag),
+					to = Database.DisplayNames.Format(change.NewName, change.NewTag)
+				});
+
+				if (!live)
+				{
+					await SignInRevocation.RevokeStored(db, target);
+				}
+			}
+
+			if (live)
+			{
+				await RealtimeNames.PublishOne(change);
+				await SessionRevocation.RevokeUser(target, false, "name reset");
+			}
+			return Result.Success();
+		}
+
 		// The rank rule and the reason limit of every staff action, staff never act on themselves
 		public static Failure? CheckStaff(Int64? actorID, int actorRank, Int64 target, int targetRank, string? reason)
 		{

@@ -244,6 +244,35 @@ namespace Database
 			}
 		}
 
+		// Staff reset an inappropriate name: a placeholder with a free tag, the player owes a new name, and the security stamp
+		// changes so website sessions end. Null when the user is gone.
+		public static async Task<NameChange?> ResetName(AppDbContext db, Int64 userID, string changedBy)
+		{
+			for (int attempt = 1; ; attempt++)
+			{
+				User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID);
+				if (user == null)
+				{
+					return null;
+				}
+
+				string placeholder = Placeholder();
+				NameChange change = Record(db, user, placeholder, await FreeTag(db, placeholder, userID), changedBy);
+				user.NameRequiredAt = DateTime.UtcNow;
+				user.SecurityStamp = Guid.NewGuid().ToString("N");
+
+				try
+				{
+					await db.SaveChangesAsync();
+					return change;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				{
+					db.ChangeTracker.Clear();
+				}
+			}
+		}
+
 		// A rename where the environment owns names (self-hosted): the tag is static, and the new name with that tag must be
 		// free under the plugin's key (NameKey), so Bob#0042 and B0b#0042 never both exist. The unique index decides a race.
 		public static async Task<(LocalRenameOutcome Outcome, NameChange? Change)> RenameKeepingTag(AppDbContext db, Int64 userID, string name, string changedBy)

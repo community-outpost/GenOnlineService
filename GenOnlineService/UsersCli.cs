@@ -29,12 +29,20 @@ namespace GenOnlineService
 			"Usage:\n"
 			+ "  GenOnlineService users password-reset <user_id> [--password-stdin] [--reason <text>]\n"
 			+ "  GenOnlineService users two-factor-reset <user_id> [--reason <text>]\n"
+			+ "  GenOnlineService users name-reset <user_id> [--reason <text>]\n"
 			+ "password-reset prints a new random password once, or sets the one read from standard input with --password-stdin.\n"
-			+ "Both end the account's lockout and sign it out of the website within a minute.";
+			+ "Both end the account's lockout and sign it out of the website within a minute.\n"
+			+ "name-reset replaces an inappropriate player name with a placeholder and ends every sign-in; the player chooses a new name when signing in again.";
 
 		private sealed class CliException : Exception
 		{
 			public CliException(string message) : base(message) { }
+		}
+
+		// Each context the name reset asks for, opened from the configuration like the CLI's own
+		private sealed class ConfiguredDbContextFactory : IDbContextFactory<AppDbContext>
+		{
+			public AppDbContext CreateDbContext() => Program.OpenConfiguredDbContext();
 		}
 
 		private sealed record Arguments(string Command, Int64 UserID, bool PasswordFromStdin, string? Reason);
@@ -47,7 +55,7 @@ namespace GenOnlineService
 			}
 
 			string command = args[1].ToLowerInvariant();
-			if (command != "password-reset" && command != "two-factor-reset")
+			if (command != "password-reset" && command != "two-factor-reset" && command != "name-reset")
 			{
 				throw new CliException(Usage);
 			}
@@ -90,6 +98,18 @@ namespace GenOnlineService
 				if ((await db.Database.GetPendingMigrationsAsync()).Any())
 				{
 					throw new CliException("The database has pending migrations. Run \"GenOnlineService migrate\" first.");
+				}
+
+				if (parsed.Command == "name-reset")
+				{
+					var actor = new Database.ModerationActor { Kind = AuditActorKinds.Cli, Name = CliActor(), Source = ModerationSources.Cli };
+					Realtime.Result<Realtime.Empty> reset = await new Names.PlayerNames(new ConfiguredDbContextFactory()).ResetNameByStaffAsync(actor, parsed.UserID, parsed.Reason, live: false);
+					if (!reset.Ok)
+					{
+						throw new InvalidOperationException(reset.Code == Realtime.ErrorCodes.NotFound ? $"No user with id {parsed.UserID}." : $"The name of user {parsed.UserID} was not reset: {reset.Code}.");
+					}
+					Console.WriteLine($"The name of user {parsed.UserID} is reset and their sign-ins ended; they choose a new name when they sign in again.");
+					return 0;
 				}
 
 				if (parsed.Command == "two-factor-reset")
