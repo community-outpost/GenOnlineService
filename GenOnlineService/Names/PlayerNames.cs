@@ -55,6 +55,11 @@ namespace GenOnlineService.Names
 			{
 				return invalid.Value;
 			}
+			// the placeholder's own shape would settle the debt and still look owed
+			if (Database.DisplayNames.IsPlaceholderShaped(name))
+			{
+				return Result.Fail(ErrorCodes.NameReserved, new { Word = "player" });
+			}
 
 			bool found;
 			NameChange? change;
