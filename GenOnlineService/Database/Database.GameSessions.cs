@@ -72,10 +72,11 @@ namespace Database
 				row.ExeCrc == null ? null : (uint)row.ExeCrc.Value, row.IniCrc == null ? null : (uint)row.IniCrc.Value, row.AnticheatID);
 		}
 
-		// Replaces the user's registration of this session type
+		// Replaces the user's registration of this session type. The row is tracked: the service's contexts do not track queries,
+		// and an untracked row would keep the previous sign-in, which the realtime upgrade then refuses with session.not_registered
 		public static async Task Save(AppDbContext db, Int64 userID, EUserSessionType sessionType, GameSessionRegistration registration)
 		{
-			GameSessionRow? row = await db.GameSessions.SingleOrDefaultAsync(r => r.UserID == userID && r.SessionType == (int)sessionType);
+			GameSessionRow? row = await db.GameSessions.AsTracking().SingleOrDefaultAsync(r => r.UserID == userID && r.SessionType == (int)sessionType);
 			if (row == null)
 			{
 				row = new GameSessionRow { UserID = userID, SessionType = (int)sessionType };

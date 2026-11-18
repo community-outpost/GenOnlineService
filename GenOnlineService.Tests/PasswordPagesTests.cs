@@ -250,7 +250,7 @@ public class PasswordPagesTests
 	{
 		await using AppDbContext db = probe.Open();
 		string normalized = NameNormalizer.Normalize(email);
-		User user = await db.Users.SingleAsync(u => u.EmailNormalized == normalized);
+		User user = await db.Users.AsTracking().SingleAsync(u => u.EmailNormalized == normalized);
 		user.LastSignInAt = value;
 		await db.SaveChangesAsync();
 	}
