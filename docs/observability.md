@@ -81,7 +81,7 @@ Database, HTTP, and runtime metrics come from the built-in MySqlConnector, Npgsq
 | `genonline.external_publication.backlog.age` | gauge (s) | |
 | `genonline.security.actions` | counter | `action`, `outcome` |
 
-`genonline.security.actions` covers HTTP and chat rate-limit rejections, moderation actions, and anti-cheat reviews and bans.
+`genonline.security.actions` covers chat rate-limit rejections, moderation actions, and anti-cheat reviews (`anticheat_module_review`, `anticheat_probe_review`, `anticheat_new_account_review`) and bans.
 
 Metric labels use small fixed sets. They do not contain player, lobby, or match IDs.
 

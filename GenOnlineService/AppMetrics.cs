@@ -46,8 +46,29 @@ namespace GenOnlineService
             s_meter.CreateCounter<long>("genonline.background_job.failures", "{run}", "Failed background job runs");
         private static readonly Counter<long> s_externalPublicationFailures =
             s_meter.CreateCounter<long>("genonline.external_publication.failures", "{attempt}", "Failed external leaderboard publication attempts");
+        private static readonly Counter<long> s_connectionOutcomes =
+            s_meter.CreateCounter<long>("genonline.connection.outcomes", "{connection}", "Peer connection reports sent by clients, by outcome, transport and IP version");
         private static readonly Counter<long> s_securityActions =
             s_meter.CreateCounter<long>("genonline.security.actions", "{action}", "Rate limit rejections, moderation and anti-cheat actions");
+        private static readonly Counter<long> s_apiTokenAuthFailures =
+            s_meter.CreateCounter<long>("genonline.api_token.auth_failures", "{request}", "gopat- requests refused, by reason");
+        private static readonly Counter<long> s_apiTokenRequests =
+            s_meter.CreateCounter<long>("genonline.api_token.requests", "{request}", "gopat- requests accepted, by token owner");
+        private static readonly Counter<long> s_failoverLeaseEvents =
+            s_meter.CreateCounter<long>("genonline.failover.lease.events", "{event}", "Realtime lease acquired, lost, renewed late or handed over by this copy");
+        private static readonly Histogram<double> s_failoverHandoverDuration =
+            s_meter.CreateHistogram<double>("genonline.failover.handover.duration", "s", "Planned handovers from the lease handover to the last switched connection");
+        private static readonly Histogram<long> s_failoverConnectionsMoved =
+            s_meter.CreateHistogram<long>("genonline.failover.connections.moved", "{connection}", "Connections switched to the new copy per handover batch");
+        private static readonly Counter<long> s_failoverLiveStateEvents =
+            s_meter.CreateCounter<long>("genonline.failover.live_state.events", "{event}", "Live state loads, stream gaps, failed writes and an unreadable queue on this copy");
+        private static readonly Counter<long> s_failoverLobbiesRestored =
+            s_meter.CreateCounter<long>("genonline.failover.lobbies.restored", "{lobby}", "Lobbies taken over from the mirror after an unplanned failover");
+        private static readonly Counter<long> s_failoverLobbiesLost =
+            s_meter.CreateCounter<long>("genonline.failover.lobbies.lost", "{lobby}", "Mirrored lobbies that could not be read on an unplanned failover");
+        private static long s_failoverMirrorLag;
+        private static readonly Counter<long> s_failoverLobbiesMoved =
+            s_meter.CreateCounter<long>("genonline.failover.lobbies.moved", "{lobby}", "Lobbies a planned handover moved to the new copy");
 
         static AppMetrics()
         {
@@ -63,13 +84,70 @@ namespace GenOnlineService
             s_meter.CreateObservableGauge("genonline.background_job.last_success.time",
                 () => s_backgroundJobLastSuccess.Select(entry => new Measurement<long>(entry.Value, new KeyValuePair<string, object?>("job", entry.Key))),
                 "s", "Unix time of the last successful run by job");
+            s_meter.CreateObservableGauge("genonline.failover.mirror.lag", () => Volatile.Read(ref s_failoverMirrorLag), "{entry}", "Stream entries the standby was behind at its last read");
             s_meter.CreateObservableGauge("genonline.external_publication.backlog.age", () => Volatile.Read(ref s_externalPublicationBacklogAgeSeconds), "s", "Age of the oldest unpublished match");
+            s_meter.CreateObservableGauge("genonline.api_token.expires_in",
+                () => ApiTokenCache.ActiveTokens.Select(t => new Measurement<double>((t.ExpiresAt - DateTime.UtcNow).TotalSeconds,
+                    new KeyValuePair<string, object?>("token_id", t.ID), new KeyValuePair<string, object?>("name", t.Name), new KeyValuePair<string, object?>("owner", t.OwnerLabel))),
+                "s", "Seconds until each active API token expires");
         }
 
         public static void RecordServiceSnapshot(int activeLobbies, int onlinePlayers)
         {
             Volatile.Write(ref s_activeLobbies, activeLobbies);
             Volatile.Write(ref s_onlinePlayers, onlinePlayers);
+        }
+
+        public static void RecordApiTokenAuthFailure(string reason)
+        {
+            s_apiTokenAuthFailures.Add(1, new TagList { { "reason", reason } });
+        }
+
+        public static void RecordFailoverLease(string leaseEvent)
+        {
+            s_failoverLeaseEvents.Add(1, new TagList { { "event", leaseEvent } });
+        }
+
+        public static void RecordFailoverHandover(TimeSpan duration)
+        {
+            s_failoverHandoverDuration.Record(duration.TotalSeconds);
+        }
+
+        public static void RecordFailoverConnectionsMoved(int connections)
+        {
+            s_failoverConnectionsMoved.Record(connections);
+        }
+
+        public static void RecordFailoverLiveState(string liveStateEvent)
+        {
+            s_failoverLiveStateEvents.Add(1, new TagList { { "event", liveStateEvent } });
+        }
+
+        public static void RecordFailoverLobbiesMoved(int lobbies)
+        {
+            s_failoverLobbiesMoved.Add(lobbies);
+        }
+
+        public static void RecordFailoverMirrorLag(int entries)
+        {
+            Volatile.Write(ref s_failoverMirrorLag, entries);
+        }
+
+        public static void RecordFailoverLobbiesRestored(int restored, int lost)
+        {
+            if (restored > 0)
+            {
+                s_failoverLobbiesRestored.Add(restored);
+            }
+            if (lost > 0)
+            {
+                s_failoverLobbiesLost.Add(lost);
+            }
+        }
+
+        public static void RecordApiTokenRequest(string owner)
+        {
+            s_apiTokenRequests.Add(1, new TagList { { "owner", owner } });
         }
 
         public static void RecordAuthentication(string flow, string source, string outcome)
@@ -136,6 +214,12 @@ namespace GenOnlineService
         public static void RecordExternalPublicationBacklogAge(TimeSpan age)
         {
             Volatile.Write(ref s_externalPublicationBacklogAgeSeconds, Math.Max(0, age.TotalSeconds));
+        }
+
+        // One count per accepted connection report; transport is already bounded to gns, a supported provider or other
+        public static void RecordConnectionOutcome(string outcome, string transport, int ipVersion)
+        {
+            s_connectionOutcomes.Add(1, new TagList { { "outcome", outcome }, { "transport", transport }, { "ip_version", ipVersion == 6 ? "6" : "4" } });
         }
 
         public static void RecordSecurityAction(string action, string outcome)

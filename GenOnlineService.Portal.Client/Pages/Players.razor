@@ -1,0 +1,291 @@
+@* The player list: the page header (nav-02) over GitLab's filtered search and the data grid blueprint (data-02) in a card.
+   It opens on every account, most recently signed in first; the search (name, Name#tag or id), the filters and the sort
+   live in the address, so a view can be linked and survives a reload. ?q= is also the sidebar search. *@
+@page "/admin/players"
+@inject PortalApi Api
+@inject NavigationManager Navigation
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>Players · Generals Online</PageTitle>
+
+<PageHeader Description="Every account, the most recently signed in first. Search by a part of a display name, Name#tag or a player id; filter and sort below.">
+    <Title>Players</Title>
+    <Actions>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Refresh">
+            <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+            Refresh
+        </BbButton>
+    </Actions>
+</PageHeader>
+
+@if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The list could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+
+<BbCard Class="go-filtered">
+    <BbCardContent Class="bb:pt-6">
+        <div class="go-filterbar" role="search" aria-label="Filter players">
+            <form class="go-filterbar-search" @onsubmit="Search">
+                <BbInput Id="player-search" Type="InputType.Search" @bind-Value="m_typed" Placeholder="Name, Name#tag or player id…" AriaLabel="Search players" AriaInvalid="@(m_shortTerm ? true : null)" autocomplete="off" spellcheck="false" />
+            </form>
+            <div class="go-chips" role="group" aria-label="Show only">
+                @foreach ((string filter, string label, string icon) in s_filters)
+                {
+                    bool on = m_query.Filters.Contains(filter);
+                    <BbButton Variant="@(on ? ButtonVariant.Secondary : ButtonVariant.Outline)" Size="ButtonSize.Small" OnClick="@(() => Toggle(filter))" aria-pressed="@(on ? "true" : "false")" data-testid="@($"filter-{filter}")">
+                        <LucideIcon Name="@(on ? "check" : icon)" Class="bb:h-4 bb:w-4" />
+                        @label
+                    </BbButton>
+                }
+            </div>
+            <div class="go-filterbar-selects">
+                <BbNativeSelect TValue="string" Value="@(m_query.SignedInWithin ?? "")" ValueChanged="@((string? v) => Show(m_query with { SignedInWithin = String.IsNullOrEmpty(v) ? null : v }))" AriaLabel="Signed in" Class="go-select">
+                    <option value="">Signed in any time</option>
+                    <option value="24h">Signed in, last 24 hours</option>
+                    <option value="7d">Signed in, last 7 days</option>
+                    <option value="30d">Signed in, last 30 days</option>
+                </BbNativeSelect>
+                <BbNativeSelect TValue="string" Value="@(m_query.OrderBy ?? "")" ValueChanged="@((string? v) => Show(m_query with { OrderBy = String.IsNullOrEmpty(v) ? null : v, Sort = null }))" AriaLabel="Sort by" Class="go-select">
+                    <option value="">@(m_query.Search == null ? "Sort by last seen" : "Sort by best match")</option>
+                    @if (m_query.Search != null)
+                    {
+                        <option value="last_sign_in_at">Sort by last seen</option>
+                    }
+                    <option value="created_at">Sort by created</option>
+                    <option value="name">Sort by name</option>
+                    <option value="matches">Sort by matches</option>
+                </BbNativeSelect>
+                @if (m_query.OrderBy != null || m_query.Search == null)
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Icon" Class="bb:h-8 bb:w-8" OnClick="FlipSort" AriaLabel="@(Descending ? "Sorted descending; sort ascending" : "Sorted ascending; sort descending")" data-testid="sort-direction">
+                        <LucideIcon Name="@(Descending ? "arrow-down-wide-narrow" : "arrow-up-narrow-wide")" Class="bb:h-4 bb:w-4" />
+                    </BbButton>
+                }
+                @if (m_query.IsFiltered || m_query.Search != null || m_query.OrderBy != null || m_query.Sort != null)
+                {
+                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => Show(new PortalPlayerQuery()))">
+                        <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+                        Clear
+                    </BbButton>
+                }
+            </div>
+        </div>
+        @if (m_shortTerm)
+        {
+            <p class="go-filterbar-hint" role="alert">A search needs at least 2 characters of a name, or a whole player id.</p>
+        }
+
+        <BbDataGrid @key="m_viewKey" TData="PortalPlayerRow" ItemsProvider="@LoadAsync" ItemKey="@(p => p.Id)" InitialPageSize="25" AriaLabel="Players">
+            <Columns>
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => p.FullName)" Title="Player" Hideable="false">
+                    <CellTemplate>
+                        <div class="go-cell-player">
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Id)" data-testid="player-link">@context.FullName</BbLink>
+                            @foreach (string role in context.Roles)
+                            {
+                                <BbBadge Variant="BadgeVariant.Outline">@role</BbBadge>
+                            }
+                        </div>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="long" Property="@(p => p.Id)" Title="Id" Width="100px">
+                    <CellTemplate>
+                        <span class="go-muted bb:font-mono">@context.Id</span>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridTemplateColumn TData="PortalPlayerRow" Title="Status">
+                    <ChildContent Context="player">
+                        <div class="go-cell-badges">
+                            @if (player.Online)
+                            {
+                                <BbBadge Variant="BadgeVariant.Secondary"><span class="go-dot" aria-hidden="true"></span>online</BbBadge>
+                            }
+                            @if (player.State != "active")
+                            {
+                                <BbBadge Variant="@PortalBadges.OfPlayerState(player.State)">@player.State</BbBadge>
+                            }
+                            @if (player.Banned)
+                            {
+                                <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="gavel" />banned</BbBadge>
+                            }
+                            @if (player.Muted)
+                            {
+                                <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="mic-off" />muted</BbBadge>
+                            }
+                            @if (player.Flagged)
+                            {
+                                <BbBadge Variant="BadgeVariant.Outline"><BbBadgeIcon Name="flag" />flagged</BbBadge>
+                            }
+                            @if (!player.Online && player.State == "active" && !player.Banned && !player.Muted && !player.Flagged)
+                            {
+                                <span class="go-muted">offline</span>
+                            }
+                        </div>
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="int" Property="@(p => p.Matches)" Title="Matches" Width="100px">
+                    <CellTemplate>
+                        <span class="go-num">@PortalText.Count(context.Matches)</span>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="int?" Property="@(p => p.Rating)" Title="Rating" Width="90px">
+                    <CellTemplate>
+                        @if (context.Rating is int rating)
+                        {
+                            <span class="go-num">@rating</span>
+                        }
+                        else
+                        {
+                            <span class="go-num go-muted" title="No rated match yet">–</span>
+                        }
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Date(p.LastSignInAt))" Title="Last seen" Width="140px">
+                    <CellTemplate>
+                        <When Value="@context.LastSignInAt" Empty="never" />
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Day(p.CreatedAt))" Title="Created" Width="120px">
+                    <CellTemplate>
+                        <When Value="@context.CreatedAt" />
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+            </Columns>
+            <EmptyTemplate>
+                @if (m_query.Search != null || m_query.IsFiltered)
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="No player matches" Description="No account matches this search and these filters. Clear them to see every account.">
+                        <Icon>
+                            <LucideIcon Name="user-x" />
+                        </Icon>
+                    </BbEmpty>
+                }
+                else
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="No accounts yet" Description="Accounts show here once players sign up.">
+                        <Icon>
+                            <LucideIcon Name="users" />
+                        </Icon>
+                    </BbEmpty>
+                }
+            </EmptyTemplate>
+            <LoadingTemplate>
+                <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+            </LoadingTemplate>
+        </BbDataGrid>
+    </BbCardContent>
+</BbCard>
+
+@code {
+    private static readonly (string Filter, string Label, string Icon)[] s_filters =
+    {
+        (PortalPlayerQuery.Online, "Online now", "radio"),
+        (PortalPlayerQuery.Banned, "Banned", "gavel"),
+        (PortalPlayerQuery.Muted, "Muted", "mic-off"),
+        (PortalPlayerQuery.Staff, "Staff", "shield"),
+        (PortalPlayerQuery.Flagged, "Flagged for review", "flag")
+    };
+
+    // The address holds the view: the search box and the sidebar search share q
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "filter")]
+    public string? Filter { get; set; }
+
+    [SupplyParameterFromQuery(Name = "signed_in_within")]
+    public string? SignedInWithin { get; set; }
+
+    [SupplyParameterFromQuery(Name = "order_by")]
+    public string? OrderBy { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sort")]
+    public string? Sort { get; set; }
+
+    private PortalPlayerQuery m_query = new PortalPlayerQuery();
+    private string m_viewKey = "";
+    private string? m_typed;
+    private bool m_shortTerm;
+    private string? m_error;
+
+    // A name part of one character is refused by the host, a whole id of any length is not
+    private static bool IsSearchable(string search) => search.Length >= 2 || (long.TryParse(search, out long id) && id > 0);
+
+    // Dates and counts read newest or most first, names A to Z
+    private bool Descending => m_query.Sort switch
+    {
+        "asc" => false,
+        "desc" => true,
+        _ => m_query.OrderBy != "name"
+    };
+
+    protected override void OnParametersSet()
+    {
+        PortalPlayerQuery query = PortalPlayerQuery.FromAddress(Q, Filter, SignedInWithin, OrderBy, Sort);
+        // the address keeps a short term so the hint shows; the list leaves it out
+        m_shortTerm = query.Search != null && !IsSearchable(query.Search);
+        m_query = m_shortTerm ? query with { Search = null } : query;
+        m_typed = Q;
+        // a new view starts a new grid on its first page
+        m_viewKey = m_query.ToApiQuery();
+    }
+
+    private void Show(PortalPlayerQuery query)
+    {
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(query.ToAddress()), replace: true);
+    }
+
+    private void Search()
+    {
+        string term = m_typed?.Trim() ?? "";
+        Show(m_query with { Search = term.Length == 0 ? null : term });
+    }
+
+    private void Toggle(string filter)
+    {
+        List<string> filters = m_query.Filters.ToList();
+        if (!filters.Remove(filter))
+        {
+            filters.Add(filter);
+        }
+        Show(m_query with { Filters = PortalPlayerQuery.AllFilters.Where(filters.Contains).ToList() });
+    }
+
+    private void FlipSort()
+    {
+        Show(m_query with { OrderBy = m_query.OrderBy ?? "last_sign_in_at", Sort = Descending ? "asc" : "desc" });
+    }
+
+    // The same view again from its first page
+    private void Refresh()
+    {
+        m_viewKey = m_query.ToApiQuery() + "#" + DateTime.UtcNow.Ticks;
+    }
+
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow>> LoadAsync(DataGridRequest request)
+    {
+        int count = request.Count ?? 25;
+        PortalAnswer<PortalPlayerPage> answer = await Api.ListPlayersAsync(m_query, request.StartIndex, count, request.CancellationToken);
+        string? error = answer.Ok ? null : answer.Error;
+        if (error != m_error)
+        {
+            m_error = error;
+            StateHasChanged();
+        }
+
+        PortalPlayerPage page = answer.Value ?? new PortalPlayerPage();
+        // past 10,000 accounts the host does not count (no X-Total, read as 0): a full page then means one more may follow
+        int counted = request.StartIndex + page.Players.Count;
+        int total = page.Total >= counted ? page.Total : counted + (page.Players.Count == count ? count : 0);
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalPlayerRow> { Items = page.Players.ToList(), TotalItemCount = total };
+    }
+}

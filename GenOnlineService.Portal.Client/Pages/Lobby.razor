@@ -1,0 +1,115 @@
+@* One lobby for troubleshooting a failed match: its members while it is still open on this copy, and the connection
+   reports of "connections lobby", pair by pair. Reports outlive the lobby by 30 days; the host audits each read *@
+@page "/admin/lobbies/{Id:long}"
+@inject PortalApi Api
+
+<PageTitle>Lobby @Id · Generals Online</PageTitle>
+
+<PageHeader Description="@(m_lobby != null ? "Open on this copy now." : "Closed, or open on another copy. The connection reports stay 30 days.")">
+    <Title>@(m_lobby?.Name ?? $"Lobby {Id}")</Title>
+    <Actions>
+        @if (m_lobby?.MatchId is long match)
+        {
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.MatchPage(match)" data-testid="lobby-match">
+                <LucideIcon Name="swords" Class="bb:h-4 bb:w-4" />
+                Match @match
+            </BbButton>
+        }
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.LivePage">
+            <LucideIcon Name="activity" Class="bb:h-4 bb:w-4" />
+            All lobbies
+        </BbButton>
+    </Actions>
+    <Below>
+        @if (m_lobby is PortalLobby open)
+        {
+            <div class="go-cell-badges">
+                <BbBadge Variant="BadgeVariant.Outline">@PortalText.LobbyState(open.State)</BbBadge>
+                <BbBadge Variant="BadgeVariant.Outline">@(open.Type == "quick_match" ? "quick match" : "custom")</BbBadge>
+                <BbBadge Variant="BadgeVariant.Outline">@open.Map.Name</BbBadge>
+                @if (open.Visibility == "friends")
+                {
+                    <BbBadge Variant="BadgeVariant.Outline">friends</BbBadge>
+                }
+                @if (open.HasPassword)
+                {
+                    <BbBadge Variant="BadgeVariant.Outline">password</BbBadge>
+                }
+            </div>
+        }
+    </Below>
+</PageHeader>
+
+@if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger" Class="bb:mb-4">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The lobby could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+
+<div class="bb:space-y-4">
+    @if (m_lobby is PortalLobby lobby)
+    {
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Members</BbCardTitle>
+                <BbCardDescription>The players seated in the lobby now.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                <div class="go-list" data-testid="lobby-members">
+                    @foreach (PortalSlot slot in lobby.Players)
+                    {
+                        <a href="@PortalRoutes.PlayerPage(slot.Member!.Id)" class="go-list-item">
+                            <LucideIcon Name="@(slot.Member.Id == lobby.HostId ? "crown" : "user")" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                            <span class="bb:flex-1 bb:text-sm">@slot.Member.FullName</span>
+                            <BbBadge Variant="@(slot.Ready ? BadgeVariant.Soft : BadgeVariant.Outline)">@(slot.Ready ? "ready" : "not ready")</BbBadge>
+                        </a>
+                    }
+                </div>
+            </BbCardContent>
+        </BbCard>
+    }
+
+    <BbCard>
+        <BbCardHeader>
+            <BbCardTitle As="h2">Connection reports</BbCardTitle>
+            <BbCardDescription>Each pair of members, user a to b then b to a, attempt by attempt, as connections lobby shows them.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent>
+            @if (m_reports == null)
+            {
+                <FeedSkeleton />
+            }
+            else
+            {
+                <ConnectionReportTable Reports="@m_reports.Reports" EmptyText="No member of this lobby reported a connection attempt in the last 30 days." />
+            }
+        </BbCardContent>
+    </BbCard>
+</div>
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private PortalLobby? m_lobby;
+    private PortalConnectionReports? m_reports;
+    private string? m_error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        m_lobby = null;
+        m_reports = null;
+        Task<PortalAnswer<PortalLobbyList>> lobbies = Api.GetLobbiesAsync();
+        PortalAnswer<PortalConnectionReports> reports = await Api.GetLobbyConnectionsAsync(Id);
+        m_lobby = (await lobbies).Value?.Lobbies.FirstOrDefault(l => l.Id == Id);
+        m_reports = reports.Value ?? new PortalConnectionReports();
+        m_error = reports.Ok ? null : reports.Error;
+    }
+}

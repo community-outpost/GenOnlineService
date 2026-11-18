@@ -17,67 +17,100 @@
 */
 
 using GenOnlineService;
+using GenOnlineService.Names;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using System.Text.Json;
+using System.Text;
 
-public class UserDevice
+// Account states: blocked refuses every sign-in, deactivated is closed by its owner or an operator
+public static class UserStates
 {
-	public Int64 UserID { get; set; }
-
-	public string HWID_0 { get; set; } = String.Empty;
-	public string HWID_1 { get; set; } = String.Empty;
-	public string HWID_2 { get; set; } = String.Empty;
-	public string HWID_3 { get; set; } = String.Empty;
-	public string HWID_4 { get; set; } = String.Empty;
-	public string HWID_5 { get; set; } = String.Empty;
-
-	public string IPAddress { get; set; } = String.Empty;
+	public const string Active = "active";
+	public const string Blocked = "blocked";
+	public const string Deactivated = "deactivated";
 }
 
+// Sign-in providers an identity row can come from
+public static class IdentityProviders
+{
+	public const string Steam = "steam";
+	public const string Discord = "discord";
+	public const string Google = "google";
+	public const string GameReplays = "gamereplays";
+}
+
+// Uniqueness keys: NFKC, then upper invariant
+public static class NameNormalizer
+{
+	public static string Normalize(string value)
+	{
+		return value.Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+	}
+}
+
+// The account; the identity columns follow ASP.NET Core Identity so the identity work can map onto them
 public class User
 {
+	public const int UsernameMaxLength = 32;
+	public const int EmailMaxLength = 254;
+
 	public Int64 ID { get; set; }
-	public EAccountType AccountType { get; set; } = EAccountType.Unknown;
+	public string Username { get; set; } = String.Empty;
+	public string UsernameNormalized { get; set; } = String.Empty;
 
-	// Steam, only present if AccountType is Steam
-	public Int64? SteamID { get; set; } = -1;
+	// The display name is not unique; the 4-digit tag makes Name#tag unique (DisplayNames)
+	public int NameTag { get; set; }
 
-	// Discord, only present if AccountType is Discord
-	public Int64? DiscordID { get; set; } = -1;
-	public string? DiscordUsername { get; set; } = String.Empty;
+	// The plugin's look-alike key of Username (NameKey.Of), unique with NameTag. AppDbContext writes it on every save.
+	public string NameKey { get; set; } = String.Empty;
+	public string? Email { get; set; }
+	public string? EmailNormalized { get; set; }
+	public DateTime? EmailConfirmedAt { get; set; }
 
-	// GameReplays, only present if AccountType is GameReplays
-	public Int64? GameReplaysID { get; set; } = -1;
-	public string? GameReplaysUsername { get; set; } = String.Empty;
+	// Null without a local password
+	public string? PasswordHash { get; set; }
 
+	public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
+	// The TOTP key, encrypted with Data Protection; null without an authenticator app
+	public string? AuthenticatorKey { get; set; }
+	public string State { get; set; } = UserStates.Active;
+	public bool TwoFactorEnabled { get; set; }
+	public DateTime? LockoutEndAt { get; set; }
+	public int FailedSignInCount { get; set; }
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
+	public DateTime? LastSignInAt { get; set; }
+	public DateTime? RenamedAt { get; set; }
 
-	public string? DisplayName { get; set; } = "";
-	public DateTime LastLogin { get; set; } = DateTime.UnixEpoch;
-	public string? LastIPAddress { get; set; } = String.Empty;
-	public KnownClients.EKnownClients ClientID { get; set; } = KnownClients.EKnownClients.custom_third_party_client;
+	// When the player was asked to choose a name (a provider sign-up, or staff reset an inappropriate one); null once chosen
+	public DateTime? NameRequiredAt { get; set; }
+}
 
-	// Gameplay Favorites
-	public int FavoriteColor { get; set; } = -1;
-	public int FavoriteSide { get; set; } = -1;
-	public string? FavoriteMap { get; set; } = String.Empty;
-	public int FavoriteStartingMoney { get; set; } = -1;
-	public bool LimitSuperweapons { get; set; } = false;
+// Every earlier username of a user, written when the name changes
+public class UserUsernameHistory
+{
+	public Int64 ID { get; set; }
+	public Int64 UserID { get; set; }
+	public string Username { get; set; } = String.Empty;
 
-	// User Permissions
-	public bool IsAdmin { get; set; } = false;
-	public bool IsBanned { get; set; } = false;
+	// The tag the earlier name had; null on rows written before tags existed
+	public int? NameTag { get; set; }
+	public DateTime ChangedAt { get; set; } = DateTime.UnixEpoch;
 
-	// ELO
-	public int EloRating { get; set; } = EloConfig.BaseRating;
-	public int MonthlyEloRating { get; set; } = EloConfig.BaseRating;
-	public int EloNumberOfMatches { get; set; } = 0;
+	// An actor label such as "user:42" or "cli"
+	public string ChangedBy { get; set; } = String.Empty;
+}
 
-	// Bans
-	public string? BanReason { get; set; } = String.Empty;
-	public string? BannedBy { get; set; } = String.Empty;
-	public string? BanVerifiedBy { get; set; } = String.Empty;
-	public string? BanAliases { get; set; } = String.Empty;
+// A linked sign-in method: the account at provider with extern_uid belongs to user_id
+public class UserIdentity
+{
+	public Int64 ID { get; set; }
+	public Int64 UserID { get; set; }
+	public string Provider { get; set; } = String.Empty;
+	// The provider's id only; no provider username is kept (S17)
+	public string ExternUid { get; set; } = String.Empty;
+	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
+	public DateTime? LastUsedAt { get; set; }
 }
 
 public class UserLobbyPreferences
@@ -95,300 +128,147 @@ public sealed class UserBanStatus
 	public string BanReason { get; set; } = String.Empty;
 }
 
-public class UserDevicesConfiguration : IEntityTypeConfiguration<UserDevice>
-{
-	public void Configure(EntityTypeBuilder<UserDevice> builder)
-	{
-		builder.ToTable("user_devices");
-
-		// prim key
-		builder.HasKey(e => new { e.UserID, e.HWID_0, e.HWID_1, e.HWID_2, e.IPAddress});
-
-		// Lookups of other accounts that share a hardware ID or IP address (anti cheat / ban alias detection)
-		builder.HasIndex(e => new { e.HWID_0, e.HWID_1, e.HWID_2, e.UserID })
-			.HasDatabaseName("idx_user_devices_hwid_triplet_user");
-		builder.HasIndex(e => new { e.HWID_0, e.UserID })
-			.HasDatabaseName("idx_user_devices_hwid_0_user");
-		builder.HasIndex(e => new { e.HWID_1, e.UserID })
-			.HasDatabaseName("idx_user_devices_hwid_1_user");
-		builder.HasIndex(e => new { e.HWID_2, e.UserID })
-			.HasDatabaseName("idx_user_devices_hwid_2_user");
-		builder.HasIndex(e => new { e.IPAddress, e.UserID })
-			.HasDatabaseName("idx_user_devices_ip_user");
-
-		builder.Property(e => e.UserID).HasColumnName("user_id");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_0").HasMaxLength(128);
-		builder.Property(e => e.HWID_1).HasColumnName("hwid_1").HasMaxLength(128);
-		builder.Property(e => e.HWID_2).HasColumnName("hwid_2").HasMaxLength(128);
-		builder.Property(e => e.HWID_3).HasColumnName("hwid_3").HasMaxLength(50).IsRequired(false);
-		builder.Property(e => e.HWID_4).HasColumnName("hwid_4").HasMaxLength(50).IsRequired(false);
-		builder.Property(e => e.HWID_5).HasColumnName("hwid_5").HasMaxLength(50).IsRequired(false);
-		builder.Property(e => e.IPAddress).HasColumnName("ip_addr").HasMaxLength(45);
-	}
-}
-
 public class UserConfiguration : IEntityTypeConfiguration<User>
 {
 	public void Configure(EntityTypeBuilder<User> builder)
 	{
 		builder.ToTable("users");
 
-		// prim key
 		builder.HasKey(e => e.ID);
-		builder.HasIndex(e => e.IsBanned)
-			.HasDatabaseName("ix_users_banned");
+		builder.HasIndex(e => new { e.UsernameNormalized, e.NameTag }).IsUnique().HasDatabaseName("ux_users_username_normalized_name_tag");
+		// closes the race between two look-alike names on one tag, which the code checks cannot
+		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
+		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
+		// the staff player list's sorts (T17f): last seen newest first (a backward scan serves the other way), and creation
+		builder.HasIndex(e => new { e.LastSignInAt, e.ID }).IsDescending(true, true).HasDatabaseName("ix_users_last_sign_in_at");
+		builder.HasIndex(e => new { e.CreatedAt, e.ID }).HasDatabaseName("ix_users_created_at");
 
-		builder.Property(e => e.ID).HasColumnName("user_id").ValueGeneratedOnAdd();
-
-		builder.Property(e => e.AccountType).HasColumnName("account_type");
-		builder.Property(e => e.SteamID).HasColumnName("steam_id");
-		builder.Property(e => e.DiscordID).HasColumnName("discord_id");
-		builder.Property(e => e.DiscordUsername).HasColumnName("discord_username").HasMaxLength(32);
-		builder.Property(e => e.GameReplaysID).HasColumnName("gamereplays_id");
-		builder.Property(e => e.GameReplaysUsername).HasColumnName("gamereplays_username").HasMaxLength(32);
-		builder.Property(e => e.DisplayName).HasColumnName("displayname").HasMaxLength(32);
-		builder.Property(e => e.LastLogin).HasColumnName("lastlogin").HasDefaultValueSql("now()");
-		builder.Property(e => e.LastIPAddress).HasColumnName("last_ip").HasMaxLength(45).IsRequired().HasDefaultValue("");
-		builder.Property(e => e.ClientID).HasColumnName("client_id").HasDefaultValueSql("0").HasSentinel(KnownClients.EKnownClients.unknown); // 0 is a real client (gen_online_30hz), so "unset" must be a value that never occurs
-		builder.Property(e => e.FavoriteColor).HasColumnName("favorite_color").HasDefaultValue(-1);
-		builder.Property(e => e.FavoriteSide).HasColumnName("favorite_side").HasDefaultValue(-1);
-		builder.Property(e => e.FavoriteMap).HasColumnName("favorite_map").HasMaxLength(128);
-		builder.Property(e => e.FavoriteStartingMoney).HasColumnName("favorite_starting_money").HasDefaultValue(-1);
-		builder.Property(e => e.LimitSuperweapons).HasColumnName("favorite_limit_superweapons").HasDefaultValue(false);
-		builder.Property(e => e.IsAdmin).HasColumnName("admin").HasDefaultValue(false);
-		builder.Property(e => e.IsBanned).HasColumnName("banned").HasDefaultValue(false);
-		builder.Property(e => e.EloRating).HasColumnName("elo_rating").HasDefaultValue(1000);
-		builder.Property(e => e.MonthlyEloRating).HasColumnName("monthly_elo_rating").HasDefaultValue(1000);
-		builder.Property(e => e.EloNumberOfMatches).HasColumnName("elo_num_matches").HasDefaultValue(0);
-		builder.Property(e => e.BanReason).HasColumnName("ban_reason").HasMaxLength(128);
-		builder.Property(e => e.BannedBy).HasColumnName("banned_by").HasMaxLength(50);
-		builder.Property(e => e.BanVerifiedBy).HasColumnName("ban_verified_by").HasMaxLength(50);
-		builder.Property(e => e.BanAliases).HasColumnName("ban_aliases").HasMaxLength(50);
-
-		// Columns owned by the website / admin tooling that shares this database. This service never reads or writes
-		// them, so they are shadow properties: they only exist so the schema (and therefore a fresh install) has them.
-		builder.Property<string?>("GoogleId").HasColumnName("google_id").HasMaxLength(50);
-		builder.Property<string?>("GoogleEmail").HasColumnName("google_email").HasMaxLength(255);
-		builder.Property<int?>("PermissionsLevel").HasColumnName("permissionslevel").HasDefaultValue(0);
-
-		// Columns the website / middleware writes when it inserts a user. This service never reads them, they are kept
-		// (with the same defaults the old schema had) so those INSERTs, which omit them, keep working.
-		builder.Property<short>("RelayRegion").HasColumnName("relay_region").HasDefaultValue((short)-1);
-		builder.Property<short>("PortmappingTech").HasColumnName("portmapping_tech").HasDefaultValue((short)-2);
-		builder.Property<bool>("Ipv4").HasColumnName("ipv4").HasDefaultValue(false);
-		builder.Property<bool>("Ipv6").HasColumnName("ipv6").HasDefaultValue(false);
-		builder.Property<bool>("Active").HasColumnName("active").HasDefaultValue(false);
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
+		builder.Property(e => e.UsernameNormalized).HasColumnName("username_normalized").HasMaxLength(User.UsernameMaxLength);
+		builder.Property(e => e.NameTag).HasColumnName("name_tag");
+		builder.Property(e => e.NameKey).HasColumnName("name_key").HasMaxLength(NameKey.MaxLength);
+		builder.Property(e => e.Email).HasColumnName("email").HasMaxLength(User.EmailMaxLength);
+		builder.Property(e => e.EmailNormalized).HasColumnName("email_normalized").HasMaxLength(User.EmailMaxLength);
+		builder.Property(e => e.EmailConfirmedAt).HasColumnName("email_confirmed_at");
+		builder.Property(e => e.PasswordHash).HasColumnName("password_hash").HasMaxLength(255);
+		builder.Property(e => e.SecurityStamp).HasColumnName("security_stamp").HasMaxLength(64);
+		builder.Property(e => e.AuthenticatorKey).HasColumnName("authenticator_key").HasMaxLength(512);
+		builder.Property(e => e.State).HasColumnName("state").HasMaxLength(16);
+		builder.Property(e => e.TwoFactorEnabled).HasColumnName("two_factor_enabled");
+		builder.Property(e => e.LockoutEndAt).HasColumnName("lockout_end_at");
+		builder.Property(e => e.FailedSignInCount).HasColumnName("failed_sign_in_count");
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+		builder.Property(e => e.LastSignInAt).HasColumnName("last_sign_in_at");
+		builder.Property(e => e.RenamedAt).HasColumnName("renamed_at");
+		builder.Property(e => e.NameRequiredAt).HasColumnName("name_required_at");
 	}
 }
 
-// A login session of the website. The table belongs to the website, this service never reads or writes it and only
-// owns its schema so that a fresh install has the table the website expects.
-public class WebSession
+public class UserUsernameHistoryConfiguration : IEntityTypeConfiguration<UserUsernameHistory>
 {
-	public string SessionId { get; set; } = String.Empty;
-	public Int64 UserId { get; set; }
-	public DateTime Created { get; set; }
-	public DateTime Expiration { get; set; }
-	public DateTime LastUsed { get; set; }
-	public string IpAddress { get; set; } = String.Empty;
-	public string Os { get; set; } = String.Empty;
-	public string Browser { get; set; } = String.Empty;
+	public void Configure(EntityTypeBuilder<UserUsernameHistory> builder)
+	{
+		builder.ToTable("user_username_history");
+
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_user_username_history_user_id");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
+		builder.Property(e => e.NameTag).HasColumnName("name_tag");
+		builder.Property(e => e.ChangedAt).HasColumnName("changed_at");
+		builder.Property(e => e.ChangedBy).HasColumnName("changed_by").HasMaxLength(64);
+	}
 }
 
-public class WebSessionConfiguration : IEntityTypeConfiguration<WebSession>
+// A two-factor recovery code of a password account: only its SHA-256, and when it was used
+public class UserRecoveryCode
 {
-	public void Configure(EntityTypeBuilder<WebSession> builder)
+	public Int64 ID { get; set; }
+	public Int64 UserID { get; set; }
+	public string CodeHash { get; set; } = String.Empty;
+	public DateTime CreatedAt { get; set; }
+	public DateTime? UsedAt { get; set; }
+}
+
+public class UserRecoveryCodeConfiguration : IEntityTypeConfiguration<UserRecoveryCode>
+{
+	public void Configure(EntityTypeBuilder<UserRecoveryCode> builder)
 	{
-		builder.ToTable("web_sessions");
+		builder.ToTable("user_recovery_codes");
 
-		builder.HasKey(e => e.SessionId);
-		builder.HasIndex(e => e.UserId)
-			.HasDatabaseName("user_id");
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_user_recovery_codes_user_id");
 
-		builder.Property(e => e.SessionId).HasColumnName("session_id").HasMaxLength(64);
-		builder.Property(e => e.UserId).HasColumnName("user_id");
-		builder.Property(e => e.Created).HasColumnName("created");
-		builder.Property(e => e.Expiration).HasColumnName("expiration");
-		builder.Property(e => e.LastUsed).HasColumnName("last_used");
-		builder.Property(e => e.IpAddress).HasColumnName("ip_addr").HasMaxLength(45);
-		builder.Property(e => e.Os).HasColumnName("os").HasMaxLength(64);
-		builder.Property(e => e.Browser).HasColumnName("browser").HasMaxLength(256);
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.CodeHash).HasColumnName("code_hash").HasMaxLength(64);
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.UsedAt).HasColumnName("used_at");
+	}
+}
+
+// A version of a document the player agreed to (S19): rules or terms. Add-only; the key keeps each version once.
+public class UserAgreement
+{
+	public const int DocumentMaxLength = 16;
+
+	public Int64 UserID { get; set; }
+	public string Document { get; set; } = String.Empty;
+	public string Version { get; set; } = String.Empty;
+	public DateTime AgreedAt { get; set; }
+}
+
+public class UserAgreementConfiguration : IEntityTypeConfiguration<UserAgreement>
+{
+	public void Configure(EntityTypeBuilder<UserAgreement> builder)
+	{
+		builder.ToTable("user_agreements");
+
+		builder.HasKey(e => new { e.UserID, e.Document, e.Version });
+		builder.HasOne<User>().WithMany().HasForeignKey(e => e.UserID).OnDelete(DeleteBehavior.Cascade);
+
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.Document).HasColumnName("document").HasMaxLength(UserAgreement.DocumentMaxLength);
+		builder.Property(e => e.Version).HasColumnName("version").HasMaxLength(GenOnlineService.Identity.AgreementDocument.VersionMaxLength);
+		builder.Property(e => e.AgreedAt).HasColumnName("agreed_at");
+	}
+}
+
+public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
+{
+	public void Configure(EntityTypeBuilder<UserIdentity> builder)
+	{
+		builder.ToTable("identities");
+
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => new { e.Provider, e.ExternUid }).IsUnique().HasDatabaseName("ux_identities_provider_extern_uid");
+		// one identity per provider per user, so two upstream accounts can never both land on one user
+		builder.HasIndex(e => new { e.UserID, e.Provider }).IsUnique().HasDatabaseName("ux_identities_user_id_provider");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(32);
+		builder.Property(e => e.ExternUid).HasColumnName("extern_uid").HasMaxLength(128);
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.LastUsedAt).HasColumnName("last_used_at");
 	}
 }
 
 namespace Database
 {
-	public static class UserDevices
-	{
-		private static readonly ILogger s_log = AppLog.For(typeof(UserDevices));
-
-		public static readonly Func<AppDbContext, long, string, string, string, Task<UserDevice?>> FindDevice =
-				EF.CompileAsyncQuery(
-					(AppDbContext db, long userId, string h0, string h1, string h2) =>
-						db.UserDevices.FirstOrDefault(d =>
-							d.UserID == userId &&
-							d.HWID_0 == h0 &&
-							d.HWID_1 == h1 &&
-							d.HWID_2 == h2)
-				);
-
-		public static async Task RegisterUserDevice(
-			AppDbContext db,
-			long userId,
-			string hwid_0,
-			string hwid_1,
-			string hwid_2,
-			string ipAddr)
-		{
-			try
-			{
-				// raw versions
-				string hwid_3 = hwid_0.ToUpper();
-				string hwid_4 = hwid_1.ToUpper();
-				string hwid_5 = hwid_2.ToUpper();
-
-				// hashed versions
-				string h0 = Helpers.ComputeMD5Hash(hwid_0).ToUpper();
-				string h1 = Helpers.ComputeMD5Hash(hwid_1).ToUpper();
-				string h2 = Helpers.ComputeMD5Hash(hwid_2).ToUpper();
-
-			// basic checks and registration
-			if (!hwid_3.EndsWith("YY"))
-			{
-				await Database.AntiCheat.FlagAccountForReview_SuspectProbes(db, userId, 0, "Logged in with potentially spoofed HWID 0");
-			}
-
-			if (!hwid_4.EndsWith("ZZ"))
-			{
-				await Database.AntiCheat.FlagAccountForReview_SuspectProbes(db, userId, 0, "Logged in with potentially spoofed HWID 1");
-			}
-
-			if (!hwid_5.EndsWith("ZZ"))
-			{
-				await Database.AntiCheat.FlagAccountForReview_SuspectProbes(db, userId, 0, "Logged in with potentially spoofed HWID 2");
-			}
-
-				// check if exists (precompiled query)
-				var existing = await FindDevice(db, userId, h0, h1, h2);
-				if (existing != null)
-					return;
-
-				// insert new (if doesnt exist), as an atomic upsert since concurrent logins can race past the check above
-				if (db.Database.IsNpgsql())
-				{
-					await db.Database.ExecuteSqlInterpolatedAsync($@"
-						INSERT INTO user_devices (user_id, hwid_0, hwid_1, hwid_2, ip_addr, hwid_3, hwid_4, hwid_5)
-						VALUES ({userId}, {h0}, {h1}, {h2}, {ipAddr}, {hwid_3}, {hwid_4}, {hwid_5})
-						ON CONFLICT (user_id, hwid_0, hwid_1, hwid_2, ip_addr) DO NOTHING");
-				}
-				else
-				{
-					await db.Database.ExecuteSqlInterpolatedAsync($@"
-						INSERT INTO user_devices (user_id, hwid_0, hwid_1, hwid_2, ip_addr, hwid_3, hwid_4, hwid_5)
-						VALUES ({userId}, {h0}, {h1}, {h2}, {ipAddr}, {hwid_3}, {hwid_4}, {hwid_5})
-						ON DUPLICATE KEY UPDATE user_id = user_id");
-				}
-			}
-			catch (Exception ex)
-			{
-				if (DbHelpers.IsUniqueViolation(ex))
-				{
-					return;
-				}
-
-				s_log.LogError(ex, "RegisterUserDevice failed");
-			}
-		}
-	}
-
+	public readonly record struct StaffPlayerRow(long ID, string Name, int NameTag, string State, DateTime CreatedAt, DateTime? LastSignInAt);
 
 	public static class Users
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Users));
 
-		private static readonly Func<AppDbContext, long, Task<EloData?>> GetEloData =
-				EF.CompileAsyncQuery(
-					(AppDbContext db, long userId) =>
-						db.Users
-						  .Where(u => u.ID == userId)
-						  .Select(u => new EloData(u.EloRating, u.MonthlyEloRating, u.EloNumberOfMatches))
-						  .FirstOrDefault()
-				);
+		private const int FavoriteMapMaxLength = 128;
 
-		private static readonly Func<AppDbContext, long, Task<bool>> _isUserAdminQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.Users
-				  .AsNoTracking()
-				  .Where(u => u.ID == userId)
-				  .Select(u => u.IsAdmin)
-				  .FirstOrDefault());
-
-		private static readonly Func<AppDbContext, long, Task<bool>> _isUserBannedQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.Users
-				  .AsNoTracking()
-				  .Where(u => u.ID == userId)
-				  .Select(u => u.IsBanned)
-				  .FirstOrDefault());
-
-		private static readonly Func<AppDbContext, long, Task<UserBanStatus?>> _getUserBanStatusQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.Users
-				  .AsNoTracking()
-				  .Where(u => u.ID == userId)
-				  .Select(u => new UserBanStatus
-				  {
-					  IsBanned = u.IsBanned,
-					  BanReason = u.BanReason ?? String.Empty
-				  })
-				  .FirstOrDefault());
-
-		private static readonly Func<AppDbContext, long, Task<string?>> _getDisplayNameQuery =
-				EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-					db.Users
-					  .AsNoTracking()
-					  .Where(u => u.ID == userId)
-					  .Select(u => u.DisplayName)
-					  .FirstOrDefault()
-				);
-
-		private static readonly Func<AppDbContext, List<long>, IAsyncEnumerable<User>> _getUsersByIds =
-		EF.CompileAsyncQuery(
-			(AppDbContext db, List<long> ids) =>
-				db.Users
-				  .Where(u => ids.Contains(u.ID))
-				  .Select(u => new User
-				  {
-					  ID = u.ID,
-					  DisplayName = u.DisplayName
-				  })
-		);
-
-		private static readonly Func<AppDbContext, long, Task<UserLobbyPreferences?>> _getUserLobbyPreferencesQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.Users
-				  .AsNoTracking()
-				  .Where(u => u.ID == userId)
-				  .Select(u => new UserLobbyPreferences
-				  {
-					  favorite_color = u.FavoriteColor,
-					  favorite_side = u.FavoriteSide,
-					  favorite_map = u.FavoriteMap ?? String.Empty,
-					  favorite_starting_money = u.FavoriteStartingMoney,
-					  favorite_limit_superweapons = u.LimitSuperweapons
-				  })
-				  .FirstOrDefault()
-			);
-
-		private static readonly Func<AppDbContext, List<long>, IAsyncEnumerable<User>> _compiledBulkQuery =
-			EF.CompileAsyncQuery(
-				(AppDbContext db, List<long> ids) =>
-					db.Users.Where(u => ids.Contains(u.ID))
-			);
-
-
-		public static async Task<Dictionary<long, EloData>> GetBulkELOData(
-	AppDbContext db, List<long> userIds)
+		public static async Task<Dictionary<long, EloData>> GetBulkELOData(AppDbContext db, List<long> userIds)
 		{
 			Dictionary<long, EloData> results = new();
 
@@ -397,120 +277,88 @@ namespace Database
 
 			try
 			{
-				// Execute compiled query
-				await foreach (var u in _compiledBulkQuery(db, userIds))
-				{
-					results[u.ID] = new EloData(u.EloRating, u.MonthlyEloRating, u.EloNumberOfMatches);
-				}
-
-				// Fill missing users with defaults
-				foreach (var id in userIds)
-				{
-					if (!results.ContainsKey(id))
-						results[id] = new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
-				}
+				results = await PlayerRatings.GetBulk(db, userIds);
 			}
 			catch (Exception ex)
 			{
 				s_log.LogError(ex, "GetBulkELOData failed");
 			}
 
+			foreach (long id in userIds)
+			{
+				if (!results.ContainsKey(id))
+					results[id] = new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
+			}
+
 			return results;
 		}
 
-
-#if DEBUG
-		public static readonly Func<AppDbContext, long, Task<bool>> UserExists =
-        EF.CompileAsyncQuery(
-            (AppDbContext db, long userId) =>
-                db.Users.Any(u => u.ID == userId)
-        );
-
-		internal static async Task CreateUserIfNotExists_DevAccount(
-		AppDbContext db, long userId, string displayName)
+		// Creates a user with the next free id, or with userId when the caller keeps an existing id
+		public static async Task<User> Create(AppDbContext db, string username, Int64? userId = null)
 		{
-			// Normalize input
-			displayName = displayName?.Trim();
-
-			// Fast existence check
-			bool exists = await UserExists(db, userId);
-
-			if (!exists)
+			DateTime now = DateTime.UtcNow;
+			var user = new User
 			{
-				// needs try catch because debug client spams this
+				Username = username,
+				CreatedAt = now,
+				UpdatedAt = now
+			};
+			if (userId != null)
+			{
+				user.ID = userId.Value;
+			}
+
+			for (int attempt = 1; ; attempt++)
+			{
+				await DisplayNames.AssignNewUser(db, user, attempt);
+				db.Users.Add(user);
 				try
 				{
-					db.Users.Add(new User
-					{
-						ID = userId,
-						AccountType = EAccountType.DevAccount,
-						DisplayName = displayName
-					});
-
 					await db.SaveChangesAsync();
+					return user;
 				}
-				catch
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < DisplayNames.NewUserAttempts)
 				{
-
+					// a look-alike sign-up took the same tag at the same moment, so pick another
+					db.Entry(user).State = EntityState.Detached;
 				}
 			}
 		}
 
+#if DEBUG
+		internal static async Task CreateUserIfNotExists_DevAccount(AppDbContext db, long userId, string displayName)
+		{
+			displayName = displayName?.Trim() ?? String.Empty;
+
+			if (await db.Users.AnyAsync(u => u.ID == userId))
+			{
+				return;
+			}
+
+			// The debug client repeats this call, so a concurrent insert is expected
+			try
+			{
+				await Create(db, displayName, userId);
+			}
+			catch
+			{
+			}
+		}
 #endif
 
-		public static async Task<bool> IsUserAdmin(AppDbContext db, long userId)
-		{
-			try
-			{
-				return await _isUserAdminQuery(db, userId);
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "IsUserAdmin failed");
-				return false;
-			}
-		}
-
-		public static async Task<Dictionary<long, string>> GetDisplayNameBulk(AppDbContext db, List<long> lstUserIDs)
-		{
-			var dict = new Dictionary<long, string>(lstUserIDs.Count);
-
-			try
-			{
-				await foreach (var user in _getUsersByIds(db, lstUserIDs))
-				{
-					if (user.DisplayName is not null)
-					{
-						dict[user.ID] = user.DisplayName;
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetDisplayNameBulk failed");
-			}
-
-			return dict;
-		}
-
-		public static async Task<bool> IsUserBanned(AppDbContext db, long userId)
-		{
-			try
-			{
-				return await _isUserBannedQuery(db, userId);
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "IsUserBanned failed");
-				return false;
-			}
-		}
-
+		// The longest lasting active play ban decides what the player sees
 		public static async Task<UserBanStatus?> GetUserBanStatus(AppDbContext db, long userId)
 		{
 			try
 			{
-				return await _getUserBanStatusQuery(db, userId);
+				Sanction? ban = await Database.Moderation.GetActivePlayBan(db, userId);
+				if (ban == null)
+				{
+					return new UserBanStatus { IsBanned = false };
+				}
+
+				string reason = ban.ExpiresAt == null ? ban.Reason ?? String.Empty : $"{ban.Reason} (until {ban.ExpiresAt.Value:yyyy-MM-dd HH:mm} UTC)";
+				return new UserBanStatus { IsBanned = true, BanReason = reason };
 			}
 			catch (Exception ex)
 			{
@@ -519,12 +367,16 @@ namespace Database
 			}
 		}
 
+		public static async Task<bool> Exists(AppDbContext db, long userId)
+		{
+			return await db.Users.AsNoTracking().AnyAsync(u => u.ID == userId);
+		}
 
 		public static async Task<string> GetDisplayName(AppDbContext db, long userId)
 		{
 			try
 			{
-				return await _getDisplayNameQuery(db, userId) ?? string.Empty;
+				return await db.Users.AsNoTracking().Where(u => u.ID == userId).Select(u => u.Username).FirstOrDefaultAsync() ?? string.Empty;
 			}
 			catch (Exception ex)
 			{
@@ -533,11 +385,25 @@ namespace Database
 			}
 		}
 
+		// A user without a preferences row gets the defaults
 		public static async Task<UserLobbyPreferences?> GetUserLobbyPreferences(AppDbContext db, long userId)
 		{
 			try
 			{
-				return await _getUserLobbyPreferencesQuery(db, userId);
+				PlayerPreference? row = await db.PlayerPreferences.AsNoTracking().FirstOrDefaultAsync(p => p.UserID == userId);
+				if (row == null)
+				{
+					return new UserLobbyPreferences();
+				}
+
+				return new UserLobbyPreferences
+				{
+					favorite_color = row.Color ?? -1,
+					favorite_side = row.Side ?? -1,
+					favorite_map = row.Map ?? String.Empty,
+					favorite_starting_money = row.StartingMoney ?? -1,
+					favorite_limit_superweapons = row.LimitSuperweapons ?? false
+				};
 			}
 			catch (Exception ex)
 			{
@@ -546,32 +412,73 @@ namespace Database
 			}
 		}
 
-		// TODO_EFCORE: check all queries, determine which ones should be moved to precompiled query
-		public static async Task SetFavorite_LimitSuperweapons(
-			AppDbContext db,
-			long userId,
-			bool bLimitSuperweapons)
+		// Sets one preference, creating the row on first use
+		private static async Task SetPreference(AppDbContext db, long userId, Action<PlayerPreference> apply, string operation)
 		{
-			try
+			for (int attempt = 0; attempt < 2; attempt++)
 			{
-				// TODO_EFCORE: Check all sets, some may want to be execute update instead of db.SaveChangesAsync(); as this requires a lookup first
-				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.LimitSuperweapons, bLimitSuperweapons));
+				try
+				{
+					PlayerPreference? row = await db.PlayerPreferences.AsTracking().FirstOrDefaultAsync(p => p.UserID == userId);
+					if (row == null)
+					{
+						row = new PlayerPreference { UserID = userId };
+						db.PlayerPreferences.Add(row);
+					}
+
+					apply(row);
+					row.UpdatedAt = DateTime.UtcNow;
+					await db.SaveChangesAsync();
+					return;
+				}
+				catch (DbUpdateException ex) when (attempt == 0 && DbHelpers.IsUniqueViolation(ex))
+				{
+					// A concurrent call created the row first, so the second attempt updates it
+					db.ChangeTracker.Clear();
+				}
+				catch (Exception ex)
+				{
+					s_log.LogError(ex, "{Operation} failed", operation);
+					db.ChangeTracker.Clear();
+					return;
+				}
 			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "SetFavorite_LimitSuperweapons failed");
-			}
+		}
+
+		public static Task SetFavorite_LimitSuperweapons(AppDbContext db, long userId, bool bLimitSuperweapons)
+		{
+			return SetPreference(db, userId, p => p.LimitSuperweapons = bLimitSuperweapons, "SetFavorite_LimitSuperweapons");
+		}
+
+		public static Task SetFavorite_Map(AppDbContext db, long userId, string strMap)
+		{
+			string cleanMap = TextSanitizer.Clean(strMap, FavoriteMapMaxLength);
+			return SetPreference(db, userId, p => p.Map = cleanMap, "SetFavorite_Map");
+		}
+
+		public static Task SetFavorite_StartingMoney(AppDbContext db, long userId, int startingMoney)
+		{
+			return SetPreference(db, userId, p => p.StartingMoney = startingMoney, "SetFavorite_StartingMoney");
+		}
+
+		public static Task SetFavorite_Side(AppDbContext db, long userId, int side)
+		{
+			return SetPreference(db, userId, p => p.Side = side, "SetFavorite_Side");
+		}
+
+		public static Task SetFavorite_Color(AppDbContext db, long userId, int color)
+		{
+			return SetPreference(db, userId, p => p.Color = color, "SetFavorite_Color");
 		}
 
 		public static async Task<EloData> GetELOData(AppDbContext db, long userId)
 		{
 			try
 			{
-				// Try fetching from the external API
 				var apiElo = await ExternalLeaderboardsClient.GetEloFromApi(userId);
 				if (apiElo != null)
 				{
-					// Persist retrieved rating to DB asynchronously for fallback
+					// The stored rating is the fallback when the external API is unavailable
 					await SaveELOData(db, userId, apiElo);
 					return apiElo;
 				}
@@ -583,9 +490,8 @@ namespace Database
 
 			try
 			{
-				// Fall back to database ELO
-				var result = await GetEloData(db, userId);
-				if (result != null)
+				Dictionary<long, EloData> stored = await PlayerRatings.GetBulk(db, new List<long> { userId });
+				if (stored.TryGetValue(userId, out EloData? result))
 					return result;
 			}
 			catch (Exception ex)
@@ -596,37 +502,18 @@ namespace Database
 			return new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
 		}
 
-
-		// Column sizes of users.favorite_map and users.displayname
-		private const int UserFavoriteMapMaxLength = 128;
-		private const int UserDisplayNameMaxLength = 32;
-
-		public static async Task SetFavorite_Map(
-			AppDbContext db,
-			long userId,
-			string strMap)
+		// Records the sign-in on the account and as a session event
+		public static async Task UpdateLastLoginData(AppDbContext db, long userId, string ipAddr, string client, string? country, bool isReconnect)
 		{
 			try
 			{
-				string cleanMap = TextSanitizer.Clean(strMap, UserFavoriteMapMaxLength);
-				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteMap, cleanMap));
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "SetFavorite_Map failed");
-			}
-		}
+				DateTime now = DateTime.UtcNow;
 
-		public static async Task UpdateLastLoginData(AppDbContext db, long userId, string ipAddr)
-		{
-			try
-			{
 				await db.Users
 					.Where(u => u.ID == userId)
-					.ExecuteUpdateAsync(setters => setters
-						.SetProperty(u => u.LastLogin, DateTime.UtcNow)
-						.SetProperty(u => u.LastIPAddress, ipAddr)
-					);
+					.ExecuteUpdateAsync(setters => setters.SetProperty(u => u.LastSignInAt, now));
+
+				await SessionEvents.Record(db, userId, isReconnect ? SessionEventKinds.Refresh : SessionEventKinds.Start, SessionEventResults.Ok, client, ipAddr, country);
 			}
 			catch (Exception ex)
 			{
@@ -634,99 +521,11 @@ namespace Database
 			}
 		}
 
-
-		public static async Task SetFavorite_StartingMoney(
-			AppDbContext db,
-			long userId,
-			int startingMoney)
+		public static async Task SaveELOData(AppDbContext db, long userId, EloData newEloData, CancellationToken cancellationToken = default)
 		{
 			try
 			{
-				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteStartingMoney, startingMoney));
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "SetFavorite_StartingMoney failed");
-			}
-		}
-
-		public static async Task SetFavorite_Side(
-			AppDbContext db,
-			long userId,
-			int side)
-		{
-			try
-			{
-				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteSide, side));
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "SetFavorite_Side failed");
-			}
-		}
-
-		public static async Task<bool> SetDisplayName(AppDbContext db, long userId, string newName)
-		{
-			try
-			{
-				// Client-supplied, and the column is 32 characters. Never store a different value than the one the caller
-				// validated: refuse a name that contains NUL (PostgreSQL rejects it) or does not fit instead of rewriting it
-				if (!String.Equals(TextSanitizer.Clean(newName, UserDisplayNameMaxLength), newName, StringComparison.Ordinal))
-				{
-					return false;
-				}
-
-				bool nameTaken = await db.Users
-					.AnyAsync(u => u.ID != userId && u.DisplayName.ToLower() == newName.ToLower());
-
-				if (nameTaken)
-					return false;
-
-				await db.Users
-					.Where(u => u.ID == userId)
-					.ExecuteUpdateAsync(setters => setters
-						.SetProperty(u => u.DisplayName, newName)
-					);
-
-				return true;
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "SetDisplayName failed");
-				return false;
-			}
-		}
-
-		public static async Task SetFavorite_Color(
-			AppDbContext db,
-			long userId,
-			int color)
-		{
-			try
-			{
-				await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteColor, color));
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "SetFavorite_Color failed");
-			}
-		}
-
-		public static async Task SaveELOData(
-			AppDbContext db,
-			long userId,
-			EloData newEloData,
-			CancellationToken cancellationToken = default)
-		{
-			try
-			{
-				await db.Users
-					.Where(u => u.ID == userId)
-					.ExecuteUpdateAsync(setters => setters
-						.SetProperty(u => u.EloRating, newEloData.Rating)
-						.SetProperty(u => u.MonthlyEloRating, newEloData.MonthlyRating)
-						.SetProperty(u => u.EloNumberOfMatches, newEloData.NumMatches),
-						cancellationToken);
+				await PlayerRatings.Save(db, userId, newEloData, cancellationToken);
 			}
 			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 			{
@@ -738,25 +537,19 @@ namespace Database
 			}
 		}
 
-		public static async Task<bool> SaveExternalELOData(
-			AppDbContext db,
-			long userId,
-			EloData newEloData,
-			CancellationToken cancellationToken = default)
+		// Returns false when the user does not exist
+		public static async Task<bool> SaveExternalELOData(AppDbContext db, long userId, EloData newEloData, CancellationToken cancellationToken = default)
 		{
 			ArgumentNullException.ThrowIfNull(db);
 			ArgumentNullException.ThrowIfNull(newEloData);
 
-			int updated = await db.Users
-				.Where(u => u.ID == userId)
-				.ExecuteUpdateAsync(setters => setters
-					.SetProperty(u => u.EloRating, newEloData.Rating)
-					.SetProperty(u => u.MonthlyEloRating, newEloData.MonthlyRating)
-					.SetProperty(u => u.EloNumberOfMatches, newEloData.NumMatches),
-					cancellationToken);
+			if (!await db.Users.AnyAsync(u => u.ID == userId, cancellationToken))
+			{
+				return false;
+			}
 
-			return updated == 1;
+			await PlayerRatings.Save(db, userId, newEloData, cancellationToken);
+			return true;
 		}
-
 	}
 }

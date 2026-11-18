@@ -16,22 +16,27 @@ namespace GenOnlineService.Migrations.MySql
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.13")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
+            MySqlModelBuilderExtensions.HasCharSet(modelBuilder, "utf8mb4");
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
-            modelBuilder.Entity("AcReviewModule", b =>
+            modelBuilder.Entity("AnticheatModuleReport", b =>
                 {
-                    b.Property<ulong>("ReportId")
+                    b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned")
+                        .HasColumnType("bigint")
                         .HasColumnName("report_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("ReportId"));
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
 
-                    b.Property<ulong>("MatchId")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
                     b.Property<string>("ModuleName")
@@ -46,56 +51,86 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("varchar(512)")
                         .HasColumnName("module_path");
 
-                    b.Property<ulong>("ModuleSize")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<long>("ModuleSize")
+                        .HasColumnType("bigint")
                         .HasColumnName("module_size");
 
-                    b.Property<ulong>("UserId")
-                        .HasColumnType("bigint(20) unsigned")
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_module_reports_reviewed_at");
 
                     b.HasIndex("UserId", "MatchId", "ModuleName")
                         .IsUnique()
-                        .HasDatabaseName("user_id_match_id_module_name");
+                        .HasDatabaseName("ux_anticheat_module_reports_user_match_module");
 
-                    b.ToTable("ac_reviews_modules", (string)null);
+                    b.ToTable("anticheat_module_reports", (string)null);
                 });
 
-            modelBuilder.Entity("AcReviewNewAccountGame", b =>
+            modelBuilder.Entity("AnticheatNewAccountGame", b =>
                 {
-                    b.Property<ulong>("ReportId")
+                    b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned")
+                        .HasColumnType("bigint")
                         .HasColumnName("report_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("ReportId"));
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
 
-                    b.Property<ulong>("MatchId")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
-                    b.Property<ulong>("UserId")
-                        .HasColumnType("bigint(20) unsigned")
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
 
-                    b.ToTable("ac_reviews_new_account_games", (string)null);
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_new_account_games_reviewed_at");
+
+                    b.ToTable("anticheat_new_account_games", (string)null);
                 });
 
-            modelBuilder.Entity("AcReviewProbe", b =>
+            modelBuilder.Entity("AnticheatProbeReport", b =>
                 {
-                    b.Property<ulong>("ReportId")
+                    b.Property<long>("ReportId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned")
+                        .HasColumnType("bigint")
                         .HasColumnName("report_id");
 
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("ReportId"));
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
 
-                    b.Property<ulong>("MatchId")
-                        .HasColumnType("bigint unsigned")
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
                     b.Property<string>("Reason")
@@ -104,349 +139,122 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("varchar(256)")
                         .HasColumnName("reason");
 
-                    b.Property<ulong>("UserId")
-                        .HasColumnType("bigint(20) unsigned")
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
 
-                    b.ToTable("ac_reviews_probes", (string)null);
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_probe_reports_reviewed_at");
+
+                    b.ToTable("anticheat_probe_reports", (string)null);
                 });
 
-            modelBuilder.Entity("BlockedUserEntry", b =>
+            modelBuilder.Entity("AnticheatQuickMatchReport", b =>
                 {
-                    b.Property<long>("SourceUserId")
+                    b.Property<long>("ReportId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
-                        .HasColumnName("source_user_id");
+                        .HasColumnName("report_id");
 
-                    b.Property<long>("TargetUserId")
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("LobbyId")
                         .HasColumnType("bigint")
-                        .HasColumnName("target_user_id");
+                        .HasColumnName("lobby_id");
 
-                    b.HasKey("SourceUserId", "TargetUserId");
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
 
-                    b.ToTable("friends_blocked", (string)null);
-                });
-
-            modelBuilder.Entity("ConnectionOutcome", b =>
-                {
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_year");
-
-                    b.Property<int?>("FailedCount")
-                        .HasColumnType("int")
-                        .HasColumnName("failed_count");
-
-                    b.Property<int?>("Ipv4Count")
-                        .HasColumnType("int")
-                        .HasColumnName("ipv4_count");
-
-                    b.Property<int?>("Ipv6Count")
-                        .HasColumnType("int")
-                        .HasColumnName("ipv6_count");
-
-                    b.Property<int?>("SuccessCount")
-                        .HasColumnType("int")
-                        .HasColumnName("success_count");
-
-                    b.HasKey("DayOfYear");
-
-                    b.ToTable("connection_outcomes", (string)null);
-                });
-
-            modelBuilder.Entity("DailyStat", b =>
-                {
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_year");
-
-                    b.Property<string>("Stats")
+                    b.Property<string>("Method")
                         .IsRequired()
-                        .HasColumnType("longtext")
-                        .HasColumnName("stats_structure")
-                        .UseCollation("utf8mb4_bin");
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("method");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("Stats"), "utf8mb4");
+                    b.Property<int>("PlaylistId")
+                        .HasColumnType("int")
+                        .HasColumnName("playlist_id");
 
-                    b.HasKey("DayOfYear");
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
 
-                    b.ToTable("daily_stats", (string)null);
-                });
-
-            modelBuilder.Entity("ExternalPublicationEntry", b =>
-                {
-                    b.Property<long>("MatchId")
+                    b.Property<long?>("ReviewedBy")
                         .HasColumnType("bigint")
-                        .HasColumnName("match_id");
+                        .HasColumnName("reviewed_by");
 
-                    b.Property<int>("Attempts")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(0)
-                        .HasColumnName("attempts");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(512)
-                        .HasColumnType("varchar(512)")
-                        .HasColumnName("last_error");
-
-                    b.Property<DateTime?>("NextAttemptAt")
-                        .HasColumnType("datetime")
-                        .HasColumnName("next_attempt_at");
-
-                    b.Property<DateTime?>("PublishedAt")
-                        .HasColumnType("datetime")
-                        .HasColumnName("published_at");
-
-                    b.HasKey("MatchId");
-
-                    b.HasIndex("PublishedAt", "NextAttemptAt")
-                        .HasDatabaseName("ix_external_publication_pending");
-
-                    b.ToTable("external_publication", (string)null);
-                });
-
-            modelBuilder.Entity("FriendEntry", b =>
-                {
-                    b.Property<long>("UserId1")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id_1");
-
-                    b.Property<long>("UserId2")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id_2");
-
-                    b.HasKey("UserId1", "UserId2");
-
-                    b.HasIndex("UserId2")
-                        .HasDatabaseName("ix_friends_user_id_2");
-
-                    b.ToTable("friends", (string)null);
-                });
-
-            modelBuilder.Entity("FriendRequestEntry", b =>
-                {
-                    b.Property<long>("SourceUserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("source_user_id");
-
-                    b.Property<long>("TargetUserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("target_user_id");
-
-                    b.HasKey("SourceUserId", "TargetUserId");
-
-                    b.HasIndex("TargetUserId")
-                        .HasDatabaseName("ix_friends_requests_target_user_id");
-
-                    b.ToTable("friends_requests", (string)null);
-                });
-
-            modelBuilder.Entity("LeaderboardDaily", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_year");
-
-                    b.Property<int>("Year")
-                        .HasColumnType("int")
-                        .HasColumnName("year");
-
-                    b.Property<int?>("Losses")
-                        .HasColumnType("int")
-                        .HasColumnName("losses");
-
-                    b.Property<int?>("Points")
-                        .HasColumnType("int")
-                        .HasColumnName("points");
-
-                    b.Property<int?>("Wins")
-                        .HasColumnType("int")
-                        .HasColumnName("wins");
-
-                    b.HasKey("UserId", "DayOfYear", "Year");
-
-                    b.ToTable("leaderboard_daily", (string)null);
-                });
-
-            modelBuilder.Entity("LeaderboardMonthly", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("MonthOfYear")
-                        .HasColumnType("int")
-                        .HasColumnName("month_of_year");
-
-                    b.Property<int>("Year")
-                        .HasColumnType("int")
-                        .HasColumnName("year");
-
-                    b.Property<int?>("Losses")
-                        .HasColumnType("int")
-                        .HasColumnName("losses");
-
-                    b.Property<int?>("Points")
-                        .HasColumnType("int")
-                        .HasColumnName("points");
-
-                    b.Property<int?>("Wins")
-                        .HasColumnType("int")
-                        .HasColumnName("wins");
-
-                    b.HasKey("UserId", "MonthOfYear", "Year");
-
-                    b.ToTable("leaderboard_monthly", (string)null);
-                });
-
-            modelBuilder.Entity("LeaderboardYearly", b =>
-                {
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("Year")
-                        .HasColumnType("int")
-                        .HasColumnName("year");
-
-                    b.Property<int?>("Losses")
-                        .HasColumnType("int")
-                        .HasColumnName("losses");
-
-                    b.Property<int?>("Points")
-                        .HasColumnType("int")
-                        .HasColumnName("points");
-
-                    b.Property<int?>("Wins")
-                        .HasColumnType("int")
-                        .HasColumnName("wins");
-
-                    b.HasKey("UserId", "Year");
-
-                    b.ToTable("leaderboard_yearly", (string)null);
-                });
-
-            modelBuilder.Entity("MatchHistoryEntry", b =>
-                {
-                    b.Property<long>("MatchId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("match_id");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("MatchId"));
-
-                    b.Property<bool>("AllowObservers")
-                        .HasColumnType("tinyint(1)")
-                        .HasColumnName("allow_observers");
-
-                    b.Property<uint>("ExeCRC")
-                        .HasColumnType("int unsigned")
-                        .HasColumnName("exe_crc");
-
-                    b.Property<bool>("Finished")
-                        .HasColumnType("tinyint(1)")
-                        .HasColumnName("finished");
-
-                    b.Property<uint>("IniCRC")
-                        .HasColumnType("int unsigned")
-                        .HasColumnName("ini_crc");
-
-                    b.Property<bool>("LimitSuperweapons")
-                        .HasColumnType("tinyint(1)")
-                        .HasColumnName("limit_superweapons");
-
-                    b.Property<byte?>("LobbyType")
-                        .HasColumnType("tinyint unsigned")
-                        .HasColumnName("lobby_type");
-
-                    b.Property<string>("MapName")
+                    b.Property<string>("Sides")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("varchar(128)")
-                        .HasColumnName("map_name");
+                        .HasColumnName("sides");
 
-                    b.Property<bool>("MapOfficial")
-                        .HasColumnType("tinyint(1)")
-                        .HasColumnName("map_official");
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
 
-                    b.Property<string>("MapPath")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
-                        .HasColumnName("map_path");
+                    b.HasKey("ReportId");
 
-                    b.Property<string>("MatchRosterType")
-                        .IsRequired()
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_quickmatch_reports_reviewed_at");
+
+                    b.HasIndex("UserId", "LobbyId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_anticheat_quickmatch_reports_user_lobby");
+
+                    b.ToTable("anticheat_quickmatch_reports", (string)null);
+                });
+
+            modelBuilder.Entity("ApiToken", b =>
+                {
+                    b.Property<long>("ID")
                         .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
-                        .HasDefaultValue("")
-                        .HasColumnName("match_roster_type");
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
 
-                    b.Property<ushort>("MaxCamHeight")
-                        .HasColumnType("smallint(6) unsigned")
-                        .HasColumnName("max_cam_height");
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
 
-                    b.Property<string>("MemberSlot0")
+                    b.Property<string>("AllowedIPs")
                         .HasColumnType("longtext")
-                        .HasColumnName("member_slot_0")
-                        .UseCollation("utf8mb4_bin");
+                        .HasColumnName("allowed_ips");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot0"), "utf8mb4");
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
 
-                    b.Property<string>("MemberSlot1")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_1")
-                        .UseCollation("utf8mb4_bin");
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("created_by");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot1"), "utf8mb4");
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("expires_at");
 
-                    b.Property<string>("MemberSlot2")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_2")
-                        .UseCollation("utf8mb4_bin");
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("last_used_at");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot2"), "utf8mb4");
-
-                    b.Property<string>("MemberSlot3")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_3")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot3"), "utf8mb4");
-
-                    b.Property<string>("MemberSlot4")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_4")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot4"), "utf8mb4");
-
-                    b.Property<string>("MemberSlot5")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_5")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot5"), "utf8mb4");
-
-                    b.Property<string>("MemberSlot6")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_6")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot6"), "utf8mb4");
-
-                    b.Property<string>("MemberSlot7")
-                        .HasColumnType("longtext")
-                        .HasColumnName("member_slot_7")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("MemberSlot7"), "utf8mb4");
+                    b.Property<string>("LastUsedIP")
+                        .HasMaxLength(45)
+                        .HasColumnType("varchar(45)")
+                        .HasColumnName("last_used_ip");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -454,356 +262,647 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("varchar(64)")
                         .HasColumnName("name");
 
-                    b.Property<long>("Owner")
+                    b.Property<long?>("OwnerServiceID")
                         .HasColumnType("bigint")
-                        .HasColumnName("owner");
+                        .HasColumnName("owner_service_id");
 
-                    b.Property<DateTime>("Started")
-                        .HasColumnType("datetime")
-                        .HasColumnName("started");
+                    b.Property<long?>("OwnerUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_user_id");
 
-                    b.Property<uint>("StartingCash")
-                        .HasColumnType("int unsigned")
-                        .HasColumnName("starting_cash");
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("revoked_at");
 
-                    b.Property<DateTime>("TimeFinished")
-                        .HasColumnType("datetime")
-                        .HasColumnName("time_finished");
+                    b.Property<string>("RevokedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("revoked_by");
 
-                    b.Property<bool>("TrackStats")
-                        .HasColumnType("tinyint(1)")
-                        .HasColumnName("track_stats");
+                    b.Property<string>("Scopes")
+                        .IsRequired()
+                        .HasColumnType("longtext")
+                        .HasColumnName("scopes");
 
-                    b.Property<bool>("VanillaTeams")
-                        .HasColumnType("tinyint(1)")
-                        .HasColumnName("vanilla_teams");
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("binary(32)")
+                        .HasColumnName("token_hash")
+                        .IsFixedLength();
 
-                    b.HasKey("MatchId");
+                    b.Property<string>("TokenLast4")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("char(4)")
+                        .HasColumnName("token_last4")
+                        .IsFixedLength();
 
-                    b.HasIndex("Finished", "TimeFinished", "MatchId")
-                        .HasDatabaseName("idx_finished_time");
+                    b.HasKey("ID");
 
-                    b.ToTable("match_history", (string)null);
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_api_tokens_token_hash");
+
+                    b.HasIndex("OwnerServiceID", "Name")
+                        .HasDatabaseName("ix_api_tokens_owner_service");
+
+                    b.HasIndex("OwnerUserID", "Name")
+                        .HasDatabaseName("ix_api_tokens_owner_user");
+
+                    b.ToTable("api_tokens", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_api_tokens_one_owner", "(owner_user_id IS NULL) <> (owner_service_id IS NULL)");
+                        });
                 });
 
-            modelBuilder.Entity("ServiceStat", b =>
+            modelBuilder.Entity("ApplicationSetting", b =>
                 {
-                    b.Property<int>("DayOfYear")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_year");
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("key");
 
-                    b.Property<int>("HourOfDay")
-                        .HasColumnType("int")
-                        .HasColumnName("hour_of_day");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
 
-                    b.Property<int>("LobbiesPeak")
-                        .HasColumnType("int")
-                        .HasColumnName("lobbies_peak");
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("updated_by");
 
-                    b.Property<int>("PlayerPeak")
-                        .HasColumnType("int")
-                        .HasColumnName("player_peak");
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("value");
 
-                    b.HasKey("DayOfYear", "HourOfDay");
+                    b.HasKey("Key");
 
-                    b.ToTable("service_stats", (string)null);
+                    b.ToTable("application_settings", (string)null);
                 });
 
-            modelBuilder.Entity("User", b =>
+            modelBuilder.Entity("AuditLogEntry", b =>
                 {
                     b.Property<long>("ID")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
-                        .HasColumnName("user_id");
+                        .HasColumnName("id");
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
 
-                    b.Property<int>("AccountType")
-                        .HasColumnType("int(1)")
-                        .HasColumnName("account_type");
-
-                    b.Property<bool>("Active")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValue(false)
-                        .HasColumnName("active");
-
-                    b.Property<string>("BanAliases")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("ban_aliases");
-
-                    b.Property<string>("BanReason")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("ban_reason");
-
-                    b.Property<string>("BanVerifiedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("ban_verified_by");
-
-                    b.Property<string>("BannedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("banned_by");
-
-                    b.Property<ushort>("ClientID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint(5) unsigned")
-                        .HasColumnName("client_id")
-                        .HasDefaultValueSql("0");
-
-                    b.Property<long?>("DiscordID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("discord_id");
-
-                    b.Property<string>("DiscordUsername")
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
-                        .HasColumnName("discord_username");
-
-                    b.Property<string>("DisplayName")
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
-                        .HasColumnName("displayname");
-
-                    b.Property<int>("EloNumberOfMatches")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(0)
-                        .HasColumnName("elo_num_matches");
-
-                    b.Property<int>("EloRating")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(1000)
-                        .HasColumnName("elo_rating");
-
-                    b.Property<int>("FavoriteColor")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(-1)
-                        .HasColumnName("favorite_color");
-
-                    b.Property<string>("FavoriteMap")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("favorite_map");
-
-                    b.Property<int>("FavoriteSide")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(-1)
-                        .HasColumnName("favorite_side");
-
-                    b.Property<int>("FavoriteStartingMoney")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(-1)
-                        .HasColumnName("favorite_starting_money");
-
-                    b.Property<long?>("GameReplaysID")
-                        .HasColumnType("bigint")
-                        .HasColumnName("gamereplays_id");
-
-                    b.Property<string>("GameReplaysUsername")
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)")
-                        .HasColumnName("gamereplays_username");
-
-                    b.Property<string>("GoogleEmail")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)")
-                        .HasColumnName("google_email");
-
-                    b.Property<string>("GoogleId")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("google_id");
-
-                    b.Property<bool>("Ipv4")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValue(false)
-                        .HasColumnName("ipv4");
-
-                    b.Property<bool>("Ipv6")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(1)")
-                        .HasDefaultValue(false)
-                        .HasColumnName("ipv6");
-
-                    b.Property<sbyte>("IsAdmin")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(4)")
-                        .HasDefaultValue((sbyte)0)
-                        .HasColumnName("admin");
-
-                    b.Property<sbyte>("IsBanned")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint(4)")
-                        .HasDefaultValue((sbyte)0)
-                        .HasColumnName("banned");
-
-                    b.Property<string>("LastIPAddress")
+                    b.Property<string>("Action")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(45)
-                        .HasColumnType("varchar(45)")
-                        .HasDefaultValue("")
-                        .HasColumnName("last_ip");
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action");
 
-                    b.Property<DateTime>("LastLogin")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime")
-                        .HasColumnName("lastlogin")
-                        .HasDefaultValueSql("current_timestamp()");
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("actor");
 
-                    b.Property<int>("LimitSuperweapons")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int(11)")
-                        .HasColumnName("favorite_limit_superweapons")
-                        .HasDefaultValueSql("-1");
-
-                    b.Property<int>("MonthlyEloRating")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(1000)
-                        .HasColumnName("monthly_elo_rating");
-
-                    b.Property<int?>("PermissionsLevel")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int(11)")
-                        .HasDefaultValue(0)
-                        .HasColumnName("permissionslevel");
-
-                    b.Property<short>("PortmappingTech")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint(6)")
-                        .HasDefaultValue((short)-2)
-                        .HasColumnName("portmapping_tech");
-
-                    b.Property<short>("RelayRegion")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint(6)")
-                        .HasDefaultValue((short)-1)
-                        .HasColumnName("relay_region");
-
-                    b.Property<long?>("SteamID")
+                    b.Property<long?>("ActorID")
                         .HasColumnType("bigint")
-                        .HasColumnName("steam_id");
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("actor_kind");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("json")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("source");
+
+                    b.Property<long?>("TargetID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("target_kind");
 
                     b.HasKey("ID");
 
-                    b.HasIndex("IsBanned")
-                        .HasDatabaseName("ix_users_banned");
+                    b.HasIndex("TargetKind", "TargetID")
+                        .HasDatabaseName("ix_audit_log_target");
 
-                    b.ToTable("users", (string)null);
+                    b.ToTable("audit_log", (string)null);
                 });
 
-            modelBuilder.Entity("UserDevice", b =>
+            modelBuilder.Entity("ChatGroup", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("OwnerID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_id");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("chat_groups", (string)null);
+                });
+
+            modelBuilder.Entity("ChatGroupMember", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<long>("GroupID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("group_id");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("joined_at");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_chat_group_members_user_id");
+
+                    b.HasIndex("GroupID", "UserID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_chat_group_members_group_user");
+
+                    b.ToTable("chat_group_members", (string)null);
+                });
+
+            modelBuilder.Entity("ChatMessage", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<long?>("ChannelID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<long?>("GroupID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<long?>("LobbyID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lobby_id");
+
+                    b.Property<long?>("MatchID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<long?>("RecipientID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipient_id");
+
+                    b.Property<long>("SenderID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sender_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("type");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_chat_messages_created_at");
+
+                    b.HasIndex("GroupID", "ID")
+                        .HasDatabaseName("ix_chat_messages_group");
+
+                    b.HasIndex("LobbyID", "ID")
+                        .HasDatabaseName("ix_chat_messages_lobby");
+
+                    b.HasIndex("Kind", "ChannelID", "ID")
+                        .HasDatabaseName("ix_chat_messages_channel");
+
+                    b.HasIndex("RecipientID", "SenderID", "ID")
+                        .HasDatabaseName("ix_chat_messages_recipient_sender");
+
+                    b.HasIndex("SenderID", "RecipientID", "ID")
+                        .HasDatabaseName("ix_chat_messages_sender_recipient");
+
+                    b.ToTable("chat_messages", (string)null);
+                });
+
+            modelBuilder.Entity("ChatReadMarker", b =>
                 {
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.Property<string>("HWID_0")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("hwid_0")
-                        .UseCollation("utf8mb4_bin");
+                    b.Property<string>("Conversation")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("conversation");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_0"), "utf8mb4");
+                    b.Property<long>("LastReadMessageID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_read_message_id");
 
-                    b.Property<string>("HWID_1")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("hwid_1")
-                        .UseCollation("utf8mb4_bin");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_1"), "utf8mb4");
+                    b.HasKey("UserID", "Conversation");
 
-                    b.Property<string>("HWID_2")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("hwid_2")
-                        .UseCollation("utf8mb4_bin");
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("ix_chat_read_markers_updated_at");
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_2"), "utf8mb4");
-
-                    b.Property<string>("IPAddress")
-                        .HasMaxLength(45)
-                        .HasColumnType("varchar(45)")
-                        .HasColumnName("ip_addr")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("IPAddress"), "utf8mb4");
-
-                    b.Property<string>("HWID_3")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("hwid_3")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_3"), "utf8mb4");
-
-                    b.Property<string>("HWID_4")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("hwid_4")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_4"), "utf8mb4");
-
-                    b.Property<string>("HWID_5")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("hwid_5")
-                        .UseCollation("utf8mb4_bin");
-
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("HWID_5"), "utf8mb4");
-
-                    b.HasKey("UserID", "HWID_0", "HWID_1", "HWID_2", "IPAddress");
-
-                    b.HasIndex("HWID_0", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_0_user");
-
-                    b.HasIndex("HWID_1", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_1_user");
-
-                    b.HasIndex("HWID_2", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_2_user");
-
-                    b.HasIndex("IPAddress", "UserID")
-                        .HasDatabaseName("idx_user_devices_ip_user");
-
-                    b.HasIndex("HWID_0", "HWID_1", "HWID_2", "UserID")
-                        .HasDatabaseName("idx_user_devices_hwid_triplet_user");
-
-                    b.ToTable("user_devices", (string)null);
+                    b.ToTable("chat_read_markers", (string)null);
                 });
 
-            modelBuilder.Entity("UserStatsEntry", b =>
+            modelBuilder.Entity("Client", b =>
                 {
-                    b.Property<long>("UserId")
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("ClientID")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("client_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("enabled");
+
+                    b.Property<bool>("FirstParty")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("first_party");
+
+                    b.Property<string>("Game")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("game");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("MinVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("min_version");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ClientID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_clients_client_id");
+
+                    b.ToTable("clients", (string)null);
+                });
+
+            modelBuilder.Entity("ClientBuild", b =>
+                {
+                    b.Property<long>("ClientDbID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("client_id");
+
+                    b.Property<long>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<long>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.HasKey("ClientDbID", "ExeCrc", "IniCrc");
+
+                    b.ToTable("client_builds", (string)null);
+                });
+
+            modelBuilder.Entity("ConnectionReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("int")
+                        .HasColumnName("attempt");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Events")
+                        .IsRequired()
+                        .HasColumnType("longtext")
+                        .HasColumnName("events");
+
+                    b.Property<int>("IpVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("ip_version");
+
+                    b.Property<long>("LobbyID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lobby_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<long>("TargetUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_user_id");
+
+                    b.Property<string>("Transport")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("transport");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("LobbyID")
+                        .HasDatabaseName("ix_connection_reports_lobby_id");
+
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("ix_connection_reports_updated_at");
+
+                    b.HasIndex("TargetUserID", "UpdatedAt")
+                        .HasDatabaseName("ix_connection_reports_target_updated_at");
+
+                    b.HasIndex("ReporterID", "LobbyID", "TargetUserID", "Attempt")
+                        .IsUnique()
+                        .HasDatabaseName("ux_connection_reports_reporter_lobby_target_attempt");
+
+                    b.ToTable("connection_reports", (string)null);
+                });
+
+            modelBuilder.Entity("Device", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("first_seen_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LastIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("varchar(45)")
+                        .HasColumnName("last_ip");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<long>("UserID")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.Property<string>("Stats")
+                    b.Property<byte[]>("ValueHmac")
                         .IsRequired()
-                        .HasColumnType("longtext")
-                        .HasColumnName("stats")
-                        .UseCollation("utf8mb4_bin");
+                        .HasMaxLength(32)
+                        .HasColumnType("binary(32)")
+                        .HasColumnName("value_hmac")
+                        .IsFixedLength();
 
-                    MySqlPropertyBuilderExtensions.HasCharSet(b.Property<string>("Stats"), "utf8mb4");
+                    b.Property<string>("ValueRaw")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("value_raw");
 
-                    b.HasKey("UserId");
+                    b.HasKey("ID");
 
-                    b.ToTable("user_stats_v2", (string)null);
+                    b.HasIndex("LastSeenAt")
+                        .HasDatabaseName("ix_devices_last_seen_at");
+
+                    b.HasIndex("Kind", "ValueHmac")
+                        .HasDatabaseName("ix_devices_kind_value");
+
+                    b.HasIndex("UserID", "Kind", "ValueHmac")
+                        .IsUnique()
+                        .HasDatabaseName("ux_devices_user_kind_value");
+
+                    b.ToTable("devices", (string)null);
                 });
 
-            modelBuilder.Entity("UserTokenState", b =>
+            modelBuilder.Entity("FlagRevision", b =>
+                {
+                    b.Property<int>("Number")
+                        .HasColumnType("int")
+                        .HasColumnName("number");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("document");
+
+                    b.Property<int?>("RollbackOf")
+                        .HasColumnType("int")
+                        .HasColumnName("rollback_of");
+
+                    b.HasKey("Number");
+
+                    b.ToTable("flag_revisions", (string)null);
+                });
+
+            modelBuilder.Entity("FlagRow", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("archived_at");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("definition");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int")
+                        .HasColumnName("version");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("flags", (string)null);
+                });
+
+            modelBuilder.Entity("FriendRequest", b =>
+                {
+                    b.Property<long>("FromUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("from_user_id");
+
+                    b.Property<long>("ToUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("to_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("FromUserId", "ToUserId");
+
+                    b.HasIndex("ToUserId")
+                        .HasDatabaseName("ix_friend_requests_to_user_id");
+
+                    b.ToTable("friend_requests", (string)null);
+                });
+
+            modelBuilder.Entity("Friendship", b =>
+                {
+                    b.Property<long>("UserIdLow")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id_low");
+
+                    b.Property<long>("UserIdHigh")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id_high");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserIdLow", "UserIdHigh");
+
+                    b.HasIndex("UserIdHigh")
+                        .HasDatabaseName("ix_friendships_user_id_high");
+
+                    b.ToTable("friendships", (string)null);
+                });
+
+            modelBuilder.Entity("GameSessionRow", b =>
                 {
                     b.Property<long>("UserID")
                         .HasColumnType("bigint")
@@ -813,82 +912,1914 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("int")
                         .HasColumnName("session_type");
 
-                    b.Property<string>("PreviousRefreshJti")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("previous_refresh_jti");
-
-                    b.Property<DateTime>("PreviousRefreshJtiExpires")
-                        .HasColumnType("datetime")
-                        .HasColumnName("previous_refresh_jti_expires");
-
-                    b.Property<string>("RefreshJti")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("refresh_jti");
-
-                    b.Property<int>("TokenGeneration")
+                    b.Property<int>("AnticheatID")
                         .HasColumnType("int")
-                        .HasColumnName("token_generation");
+                        .HasColumnName("anticheat_id");
 
-                    b.Property<DateTime>("Updated")
-                        .HasColumnType("datetime")
-                        .HasColumnName("updated");
+                    b.Property<string>("AuthorizationID")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("authorization_id");
+
+                    b.Property<string>("ClientID")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("client_id");
+
+                    b.Property<long?>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<string>("Game")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("game");
+
+                    b.Property<long?>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.Property<DateTime>("RegisteredAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("registered_at");
 
                     b.HasKey("UserID", "SessionType");
 
-                    b.ToTable("user_token_state", (string)null);
+                    b.HasIndex("AuthorizationID")
+                        .HasDatabaseName("ix_game_sessions_authorization_id");
+
+                    b.ToTable("game_sessions", (string)null);
                 });
 
-            modelBuilder.Entity("WebSession", b =>
+            modelBuilder.Entity("GenOnlineService.Identity.DataProtectionKeyRow", b =>
                 {
-                    b.Property<string>("SessionId")
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("friendly_name");
+
+                    b.Property<string>("Xml")
+                        .IsRequired()
+                        .HasColumnType("longtext")
+                        .HasColumnName("xml");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("data_protection_keys", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.TextRules.TextRuleException", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("varchar(8)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("varchar(64)")
-                        .HasColumnName("session_id");
+                        .HasColumnName("term")
+                        .UseCollation("utf8mb4_bin");
 
-                    b.Property<string>("Browser")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)")
-                        .HasColumnName("browser");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
 
-                    b.Property<DateTime>("Created")
-                        .HasColumnType("timestamp")
-                        .HasColumnName("created");
-
-                    b.Property<DateTime>("Expiration")
-                        .HasColumnType("timestamp")
-                        .HasColumnName("expiration");
-
-                    b.Property<string>("IpAddress")
-                        .IsRequired()
-                        .HasMaxLength(45)
-                        .HasColumnType("varchar(45)")
-                        .HasColumnName("ip_addr");
-
-                    b.Property<DateTime>("LastUsed")
-                        .HasColumnType("timestamp")
-                        .HasColumnName("last_used");
-
-                    b.Property<string>("Os")
+                    b.Property<string>("UpdatedBy")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("varchar(64)")
-                        .HasColumnName("os");
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Language", "Term")
+                        .IsUnique()
+                        .HasDatabaseName("ux_text_rule_exceptions_language_term");
+
+                    b.ToTable("text_rule_exceptions", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.TextRules.TextRuleTerm", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("varchar(8)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Match")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("match_mode");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("severity");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("term")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Language", "Term")
+                        .IsUnique()
+                        .HasDatabaseName("ux_text_rule_terms_language_term");
+
+                    b.ToTable("text_rule_terms", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.TextRules.TextRuleWorkflow", b =>
+                {
+                    b.Property<string>("Kind")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasColumnType("longtext")
+                        .HasColumnName("definition");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Kind");
+
+                    b.ToTable("text_rule_workflows", (string)null);
+                });
+
+            modelBuilder.Entity("LeaderboardEntry", b =>
+                {
+                    b.Property<string>("Period")
+                        .HasMaxLength(8)
+                        .HasColumnType("varchar(8)")
+                        .HasColumnName("period");
+
+                    b.Property<DateOnly>("PeriodStart")
+                        .HasColumnType("date")
+                        .HasColumnName("period_start");
 
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
-                    b.HasKey("SessionId");
+                    b.Property<int>("Losses")
+                        .HasColumnType("int")
+                        .HasColumnName("losses");
+
+                    b.Property<int>("Points")
+                        .HasColumnType("int")
+                        .HasColumnName("points");
+
+                    b.Property<int>("Wins")
+                        .HasColumnType("int")
+                        .HasColumnName("wins");
+
+                    b.HasKey("Period", "PeriodStart", "UserId");
 
                     b.HasIndex("UserId")
-                        .HasDatabaseName("user_id");
+                        .HasDatabaseName("ix_leaderboard_entries_user_id");
 
-                    b.ToTable("web_sessions", (string)null);
+                    b.ToTable("leaderboard_entries", (string)null);
+                });
+
+            modelBuilder.Entity("LobbyIdCounter", b =>
+                {
+                    b.Property<int>("ID")
+                        .HasColumnType("int")
+                        .HasColumnName("id");
+
+                    b.Property<long>("NextID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("next_id");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("lobby_ids", (string)null);
+                });
+
+            modelBuilder.Entity("Match", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("AllowObservers")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("allow_observers");
+
+                    b.Property<long>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("finished_at");
+
+                    b.Property<long>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.Property<bool>("IsOfficialMap")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("is_official_map");
+
+                    b.Property<bool>("LimitSuperweapons")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("limit_superweapons");
+
+                    b.Property<string>("LobbyType")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("lobby_type");
+
+                    b.Property<string>("MapName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("map_name");
+
+                    b.Property<string>("MapPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)")
+                        .HasColumnName("map_path");
+
+                    b.Property<int>("MaxCamHeight")
+                        .HasColumnType("int")
+                        .HasColumnName("max_cam_height");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("name");
+
+                    b.Property<long?>("OwnerUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<string>("RosterType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("roster_type");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("started_at");
+
+                    b.Property<long>("StartingCash")
+                        .HasColumnType("bigint")
+                        .HasColumnName("starting_cash");
+
+                    b.Property<bool>("TrackStats")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("track_stats");
+
+                    b.Property<bool>("VanillaTeams")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("vanilla_teams");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_matches_started_at");
+
+                    b.HasIndex("FinishedAt", "Id")
+                        .HasDatabaseName("ix_matches_finished_at");
+
+                    b.ToTable("matches", (string)null);
+                });
+
+            modelBuilder.Entity("MatchIdWorker", b =>
+                {
+                    b.Property<int>("WorkerID")
+                        .HasColumnType("int")
+                        .HasColumnName("worker_id");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<string>("Holder")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("holder");
+
+                    b.Property<long>("ReservedUntil")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reserved_until");
+
+                    b.HasKey("WorkerID");
+
+                    b.ToTable("match_id_workers", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            WorkerID = 0,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 1,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 2,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 3,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 4,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 5,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 6,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 7,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 8,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 9,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 10,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 11,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 12,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 13,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 14,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 15,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 16,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 17,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 18,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 19,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 20,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 21,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 22,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 23,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 24,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 25,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 26,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 27,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 28,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 29,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 30,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 31,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        });
+                });
+
+            modelBuilder.Entity("MatchPlayer", b =>
+                {
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<short>("Slot")
+                        .HasColumnType("smallint")
+                        .HasColumnName("slot");
+
+                    b.Property<int?>("Color")
+                        .HasColumnType("int")
+                        .HasColumnName("color");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("json")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("result");
+
+                    b.Property<int?>("Side")
+                        .HasColumnType("int")
+                        .HasColumnName("side");
+
+                    b.Property<short?>("Team")
+                        .HasColumnType("smallint")
+                        .HasColumnName("team");
+
+                    b.Property<long?>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("MatchId", "Slot");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_match_players_user_id");
+
+                    b.ToTable("match_players", (string)null);
+                });
+
+            modelBuilder.Entity("MatchPublication", b =>
+                {
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("published_at");
+
+                    b.HasKey("MatchId");
+
+                    b.HasIndex("PublishedAt", "NextAttemptAt")
+                        .HasDatabaseName("ix_match_publications_pending");
+
+                    b.ToTable("match_publications", (string)null);
+                });
+
+            modelBuilder.Entity("NameReservation", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("HeldAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("held_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("name_key")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.Property<int>("NameTag")
+                        .HasColumnType("int")
+                        .HasColumnName("name_tag");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_name_reservations_user_id");
+
+                    b.HasIndex("NameKey", "NameTag")
+                        .IsUnique()
+                        .HasDatabaseName("ux_name_reservations_name_key_name_tag");
+
+                    b.ToTable("name_reservations", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationType")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("application_type");
+
+                    b.Property<string>("ClientId")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ClientSecret")
+                        .HasColumnType("longtext")
+                        .HasColumnName("client_secret");
+
+                    b.Property<string>("ClientType")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("client_type");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<string>("ConsentType")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("consent_type");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("longtext")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("DisplayNames")
+                        .HasColumnType("longtext")
+                        .HasColumnName("display_names");
+
+                    b.Property<string>("JsonWebKeySet")
+                        .HasColumnType("longtext")
+                        .HasColumnName("json_web_key_set");
+
+                    b.Property<string>("Permissions")
+                        .HasColumnType("longtext")
+                        .HasColumnName("permissions");
+
+                    b.Property<string>("PostLogoutRedirectUris")
+                        .HasColumnType("longtext")
+                        .HasColumnName("post_logout_redirect_uris");
+
+                    b.Property<string>("Properties")
+                        .HasColumnType("longtext")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("RedirectUris")
+                        .HasColumnType("longtext")
+                        .HasColumnName("redirect_uris");
+
+                    b.Property<string>("Requirements")
+                        .HasColumnType("longtext")
+                        .HasColumnName("requirements");
+
+                    b.Property<string>("Settings")
+                        .HasColumnType("longtext")
+                        .HasColumnName("settings");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_oauth_applications_client_id");
+
+                    b.ToTable("oauth_applications", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationId")
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("application_id");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<DateTime?>("CreationDate")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("creation_date");
+
+                    b.Property<string>("Properties")
+                        .HasColumnType("longtext")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("Scopes")
+                        .HasColumnType("longtext")
+                        .HasColumnName("scopes");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("subject");
+
+                    b.Property<string>("Type")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationId", "Status", "Subject", "Type")
+                        .HasDatabaseName("ix_oauth_authorizations_application_id_status_subject_type");
+
+                    b.ToTable("oauth_authorizations", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreScope", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("longtext")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Descriptions")
+                        .HasColumnType("longtext")
+                        .HasColumnName("descriptions");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("longtext")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("DisplayNames")
+                        .HasColumnType("longtext")
+                        .HasColumnName("display_names");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Properties")
+                        .HasColumnType("longtext")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("Resources")
+                        .HasColumnType("longtext")
+                        .HasColumnName("resources");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_oauth_scopes_name");
+
+                    b.ToTable("oauth_scopes", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationId")
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("application_id");
+
+                    b.Property<string>("AuthorizationId")
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("authorization_id");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<DateTime?>("CreationDate")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("creation_date");
+
+                    b.Property<DateTime?>("ExpirationDate")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("expiration_date");
+
+                    b.Property<string>("Payload")
+                        .HasColumnType("longtext")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("Properties")
+                        .HasColumnType("longtext")
+                        .HasColumnName("properties");
+
+                    b.Property<DateTime?>("RedemptionDate")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("redemption_date");
+
+                    b.Property<string>("ReferenceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("reference_id");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("subject");
+
+                    b.Property<string>("Type")
+                        .HasMaxLength(150)
+                        .HasColumnType("varchar(150)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorizationId")
+                        .HasDatabaseName("ix_oauth_tokens_authorization_id");
+
+                    b.HasIndex("ReferenceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_oauth_tokens_reference_id");
+
+                    b.HasIndex("ApplicationId", "Status", "Subject", "Type")
+                        .HasDatabaseName("ix_oauth_tokens_application_id_status_subject_type");
+
+                    b.ToTable("oauth_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("PlayerNetwork", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Ipv4")
+                        .HasMaxLength(15)
+                        .HasColumnType("varchar(15)")
+                        .HasColumnName("ipv4");
+
+                    b.Property<string>("Ipv6")
+                        .HasMaxLength(45)
+                        .HasColumnType("varchar(45)")
+                        .HasColumnName("ipv6");
+
+                    b.Property<string>("PortMapping")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("port_mapping");
+
+                    b.Property<string>("RelayRegion")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("relay_region");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserID");
+
+                    b.ToTable("player_network", (string)null);
+                });
+
+            modelBuilder.Entity("PlayerPreference", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<int?>("Color")
+                        .HasColumnType("int")
+                        .HasColumnName("color");
+
+                    b.Property<bool?>("LimitSuperweapons")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("limit_superweapons");
+
+                    b.Property<string>("Map")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("map");
+
+                    b.Property<int?>("Side")
+                        .HasColumnType("int")
+                        .HasColumnName("side");
+
+                    b.Property<int?>("StartingMoney")
+                        .HasColumnType("int")
+                        .HasColumnName("starting_money");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserID");
+
+                    b.ToTable("player_preferences", (string)null);
+                });
+
+            modelBuilder.Entity("PlayerRating", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("MatchesPlayed")
+                        .HasColumnType("int")
+                        .HasColumnName("matches_played");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("int")
+                        .HasColumnName("rating");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserID", "Kind");
+
+                    b.HasIndex("Kind", "Rating", "UserID")
+                        .IsDescending(false, true, false)
+                        .HasDatabaseName("ix_player_ratings_leaderboard");
+
+                    b.ToTable("player_ratings", (string)null);
+                });
+
+            modelBuilder.Entity("PlayerReport", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("evidence");
+
+                    b.Property<long?>("MessageID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ReportedUserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reported_user_id");
+
+                    b.Property<long>("ReporterID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<long?>("ResolvedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resolved_by_id");
+
+                    b.Property<string>("ResolvedByKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("resolved_by_kind");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ReportedUserID", "CreatedAt")
+                        .HasDatabaseName("ix_player_reports_reported_user_created_at");
+
+                    b.HasIndex("ReporterID", "MessageID")
+                        .IsUnique()
+                        .HasDatabaseName("ux_player_reports_reporter_message");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_player_reports_status_created_at");
+
+                    b.ToTable("player_reports", (string)null);
+                });
+
+            modelBuilder.Entity("PlayerStat", b =>
+                {
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Stats")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("stats");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("player_stats", (string)null);
+                });
+
+            modelBuilder.Entity("RealtimeLease", b =>
+                {
+                    b.Property<int>("ID")
+                        .HasColumnType("int")
+                        .HasColumnName("id");
+
+                    b.Property<long>("Epoch")
+                        .HasColumnType("bigint")
+                        .HasColumnName("epoch");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("HandoverConfirmedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("handover_confirmed_at");
+
+                    b.Property<DateTime?>("HandoverRequestedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("handover_requested_at");
+
+                    b.Property<string>("HandoverTarget")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("handover_target");
+
+                    b.Property<string>("Holder")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("holder");
+
+                    b.Property<string>("Standby")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("standby");
+
+                    b.Property<DateTime?>("StandbyExpiresAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("standby_expires_at");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("realtime_lease", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            ID = 1,
+                            Epoch = 0L,
+                            ExpiresAt = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Holder = ""
+                        });
+                });
+
+            modelBuilder.Entity("Sanction", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("CreatedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("CreatedByKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("created_by_kind");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("LiftReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("lift_reason");
+
+                    b.Property<DateTime?>("LiftedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("lifted_at");
+
+                    b.Property<long?>("LiftedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lifted_by_id");
+
+                    b.Property<string>("LiftedByKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("lifted_by_kind");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("ReportID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("report_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("type");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID", "Type", "LiftedAt", "ExpiresAt")
+                        .HasDatabaseName("ix_sanctions_user_type_lifted_expires");
+
+                    b.ToTable("sanctions", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceAccount", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime?>("DisabledAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("disabled_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("name");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ux_service_accounts_name");
+
+                    b.ToTable("service_accounts", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceAccountPermission", b =>
+                {
+                    b.Property<long>("ServiceAccountID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("service_account_id");
+
+                    b.Property<string>("Permission")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("permission");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("granted_at");
+
+                    b.Property<string>("GrantedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("granted_by");
+
+                    b.HasKey("ServiceAccountID", "Permission");
+
+                    b.ToTable("service_account_permissions", (string)null);
+                });
+
+            modelBuilder.Entity("SessionEvent", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Client")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("client");
+
+                    b.Property<string>("ClientVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("client_version");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(2)
+                        .HasColumnType("char(2)")
+                        .HasColumnName("country")
+                        .IsFixedLength();
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExeCrc")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<string>("Ip")
+                        .IsRequired()
+                        .HasMaxLength(45)
+                        .HasColumnType("varchar(45)")
+                        .HasColumnName("ip");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("result");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_session_events_created_at");
+
+                    b.HasIndex("Ip", "UserID")
+                        .HasDatabaseName("ix_session_events_ip_user");
+
+                    b.HasIndex("UserID", "CreatedAt")
+                        .HasDatabaseName("ix_session_events_user_created");
+
+                    b.HasIndex("Country", "UserID", "CreatedAt")
+                        .HasDatabaseName("ix_session_events_country_user");
+
+                    b.ToTable("session_events", (string)null);
+                });
+
+            modelBuilder.Entity("User", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("AuthenticatorKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("authenticator_key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(254)
+                        .HasColumnType("varchar(254)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime?>("EmailConfirmedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("email_confirmed_at");
+
+                    b.Property<string>("EmailNormalized")
+                        .HasMaxLength(254)
+                        .HasColumnType("varchar(254)")
+                        .HasColumnName("email_normalized")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("int")
+                        .HasColumnName("failed_sign_in_count");
+
+                    b.Property<DateTime?>("LastSignInAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("last_sign_in_at");
+
+                    b.Property<DateTime?>("LockoutEndAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("lockout_end_at");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("name_key")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.Property<DateTime?>("NameRequiredAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("name_required_at");
+
+                    b.Property<int>("NameTag")
+                        .HasColumnType("int")
+                        .HasColumnName("name_tag");
+
+                    b.Property<string>("PasswordHash")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("password_hash");
+
+                    b.Property<DateTime?>("RenamedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("renamed_at");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("security_stamp");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("state");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("two_factor_enabled");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("username");
+
+                    b.Property<string>("UsernameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("username_normalized")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("EmailNormalized")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_email_normalized");
+
+                    b.HasIndex("CreatedAt", "ID")
+                        .HasDatabaseName("ix_users_created_at");
+
+                    b.HasIndex("LastSignInAt", "ID")
+                        .IsDescending()
+                        .HasDatabaseName("ix_users_last_sign_in_at");
+
+                    b.HasIndex("NameKey", "NameTag")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_name_key_name_tag");
+
+                    b.HasIndex("UsernameNormalized", "NameTag")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_username_normalized_name_tag");
+
+                    b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("UserAgreement", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Document")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("document");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("version");
+
+                    b.Property<DateTime>("AgreedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("agreed_at");
+
+                    b.HasKey("UserID", "Document", "Version");
+
+                    b.ToTable("user_agreements", (string)null);
+                });
+
+            modelBuilder.Entity("UserBlock", b =>
+                {
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<long>("BlockedUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("blocked_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserId", "BlockedUserId");
+
+                    b.ToTable("blocks", (string)null);
+                });
+
+            modelBuilder.Entity("UserIdentity", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExternUid")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("extern_uid")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("provider")
+                        .UseCollation("utf8mb4_bin");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Provider", "ExternUid")
+                        .IsUnique()
+                        .HasDatabaseName("ux_identities_provider_extern_uid");
+
+                    b.HasIndex("UserID", "Provider")
+                        .IsUnique()
+                        .HasDatabaseName("ux_identities_user_id_provider");
+
+                    b.ToTable("identities", (string)null);
+                });
+
+            modelBuilder.Entity("UserRecoveryCode", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("code_hash");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("used_at");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_user_recovery_codes_user_id");
+
+                    b.ToTable("user_recovery_codes", (string)null);
+                });
+
+            modelBuilder.Entity("UserRole", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("role");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("source");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("granted_at");
+
+                    b.Property<string>("GrantedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("granted_by");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("UserID", "Role", "Source");
+
+                    b.ToTable("user_roles", (string)null);
+                });
+
+            modelBuilder.Entity("UserUsernameHistory", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("changed_at");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("changed_by");
+
+                    b.Property<int?>("NameTag")
+                        .HasColumnType("int")
+                        .HasColumnName("name_tag");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("username");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_user_username_history_user_id");
+
+                    b.ToTable("user_username_history", (string)null);
+                });
+
+            modelBuilder.Entity("ApiToken", b =>
+                {
+                    b.HasOne("ServiceAccount", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerServiceID")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("User", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserID")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ClientBuild", b =>
+                {
+                    b.HasOne("Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientDbID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameSessionRow", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MatchPlayer", b =>
+                {
+                    b.HasOne("Match", null)
+                        .WithMany("Players")
+                        .HasForeignKey("MatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MatchPublication", b =>
+                {
+                    b.HasOne("Match", null)
+                        .WithOne()
+                        .HasForeignKey("MatchPublication", "MatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NameReservation", b =>
+                {
+                    b.HasOne("User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", "Application")
+                        .WithMany("Authorizations")
+                        .HasForeignKey("ApplicationId");
+
+                    b.Navigation("Application");
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", "Application")
+                        .WithMany("Tokens")
+                        .HasForeignKey("ApplicationId");
+
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", "Authorization")
+                        .WithMany("Tokens")
+                        .HasForeignKey("AuthorizationId");
+
+                    b.Navigation("Application");
+
+                    b.Navigation("Authorization");
+                });
+
+            modelBuilder.Entity("ServiceAccountPermission", b =>
+                {
+                    b.HasOne("ServiceAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceAccountID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("UserAgreement", b =>
+                {
+                    b.HasOne("User", null)
+                        .WithMany()
+                        .HasForeignKey("UserID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Match", b =>
+                {
+                    b.Navigation("Players");
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
+                {
+                    b.Navigation("Authorizations");
+
+                    b.Navigation("Tokens");
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+                {
+                    b.Navigation("Tokens");
                 });
 #pragma warning restore 612, 618
         }

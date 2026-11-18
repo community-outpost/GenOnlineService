@@ -9,7 +9,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using GenOnlineService.Controllers;
 using Microsoft.Extensions.Configuration;
 
 namespace GenOnlineService
@@ -45,6 +44,12 @@ namespace GenOnlineService
 
             return configSection;
         }
+
+        // No ExternalLeaderboards section means the environment does not use the external leaderboards: match results
+        // are not queued and ratings come from the stored values. A section that is present must be complete.
+        public static bool IsConfigured(IConfiguration? config) => config?.GetSection("ExternalLeaderboards").Exists() == true;
+
+        public static bool IsConfigured() => IsConfigured(Program.g_Config);
 
         private static void GetExternalLeaderboardsPostConfig(out string postUrl, out string postToken)
         {
@@ -165,6 +170,9 @@ namespace GenOnlineService
 
         public static async Task<EloData?> GetEloFromApi(long playerId)
         {
+            if (!IsConfigured())
+                return null;
+
             try
             {
                 GetExternalLeaderboardsConfig(out string getUrl, out string getToken);

@@ -1,0 +1,47 @@
+@* The input of one game config value by its type: on or off, a choice, a number box or a text field. The text is what
+   PortalFlagText.TryParse reads back *@
+
+@switch (Flag.Type)
+{
+    case "bool":
+        <BbNativeSelect TValue="string" Id="@Id" Value="@Text" ValueChanged="@((string v) => SetAsync(v))" AriaLabel="@Flag.Label" Class="bb:w-full">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+        </BbNativeSelect>
+        break;
+    case "choice":
+        <BbNativeSelect TValue="string" Id="@Id" Value="@Text" ValueChanged="@((string v) => SetAsync(v))" AriaLabel="@Flag.Label" Class="bb:w-full">
+            @foreach (PortalFlagChoice choice in Flag.Choices ?? [])
+            {
+                <option value="@choice.Value.GetRawText()">@choice.Label</option>
+            }
+        </BbNativeSelect>
+        break;
+    case "int":
+    case "number":
+        <BbInput Id="@Id" Type="InputType.Number" Value="@Text" ValueChanged="@((string? v) => SetAsync(v ?? ""))" UpdateTiming="UpdateTiming.Immediate" AriaLabel="@Flag.Label" Placeholder="@PortalFlagText.TypeText(Flag)" autocomplete="off" />
+        break;
+    default:
+        <BbInput Id="@Id" Value="@Text" ValueChanged="@((string? v) => SetAsync(v ?? ""))" UpdateTiming="UpdateTiming.Immediate" AriaLabel="@Flag.Label" MaxLength="@(Flag.Max is double max ? (int)max : null)" autocomplete="off" spellcheck="false" />
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public PortalFlag Flag { get; set; } = new();
+
+    [Parameter]
+    public string Text { get; set; } = "";
+
+    [Parameter]
+    public EventCallback<string> TextChanged { get; set; }
+
+    [Parameter]
+    public string? Id { get; set; }
+
+    private Task SetAsync(string value)
+    {
+        Text = value;
+        return TextChanged.InvokeAsync(value);
+    }
+}

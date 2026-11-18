@@ -1,0 +1,432 @@
+@* The staff dashboard shell from Blazor Blueprint's sidebar blueprints: groups with icons (sidebar-03) that collapse to an
+   icon rail (sidebar-07), a player search in the header (sidebar-06), the user menu in the footer (sidebar-08), and a sticky
+   top bar with the breadcrumb (nav-02). Dark only, in generals.css's stone palette with the logo's gold as the one
+   accent *@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject PortalApi Api
+@inject NavigationManager Navigation
+
+<a href="#content" class="go-skip">Skip to content</a>
+<BbSidebarProvider>
+    <BbSidebar>
+        <BbSidebarHeader>
+            <BbSidebarHeaderContent>
+                <a href="@PortalRoutes.OverviewPage" class="go-admin-logo" aria-label="Generals Online staff area">
+                    <img src="@PortalRoutes.LogoPath" alt="Generals Online" width="190" height="69" />
+                </a>
+            </BbSidebarHeaderContent>
+            @if (Api.Session?.Staff == true)
+            {
+                <form class="go-admin-search" role="search" @onsubmit="Search">
+                    <LucideIcon Name="search" Class="go-admin-search-icon bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                    <BbInput Type="InputType.Search" @bind-Value="m_search" UpdateTiming="UpdateTiming.Immediate" Placeholder="Find a player…" AriaLabel="Find a player by name or id" Class="go-admin-search-input bb:h-8" autocomplete="off" spellcheck="false" />
+                </form>
+            }
+        </BbSidebarHeader>
+        <BbSidebarContent>
+            @if (Api.Session?.Staff == true)
+            {
+                PortalSessionInfo staff = Api.Session;
+                <BbSidebarGroup>
+                    <BbSidebarGroupLabel>Dashboard</BbSidebarGroupLabel>
+                    <BbSidebarMenu>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.OverviewPage" Match="NavLinkMatch.All" Tooltip="Overview">
+                                <LucideIcon Name="layout-dashboard" Class="bb:h-4 bb:w-4" />
+                                <span>Overview</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.LivePage" Tooltip="Live lobbies and status">
+                                <LucideIcon Name="activity" Class="bb:h-4 bb:w-4" />
+                                <span>Live</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                    </BbSidebarMenu>
+                </BbSidebarGroup>
+                <BbSidebarGroup>
+                    <BbSidebarGroupLabel>Moderation</BbSidebarGroupLabel>
+                    <BbSidebarMenu>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.ReportsPage" Tooltip="Reports">
+                                <LucideIcon Name="flag" Class="bb:h-4 bb:w-4" />
+                                <span>Reports</span>
+                            </BbSidebarMenuButton>
+                            @if (m_openReports > 0)
+                            {
+                                <BbSidebarMenuBadge>@PortalText.Count(m_openReports)</BbSidebarMenuBadge>
+                            }
+                        </BbSidebarMenuItem>
+                    </BbSidebarMenu>
+                </BbSidebarGroup>
+                <BbSidebarGroup>
+                    <BbSidebarGroupLabel>Players</BbSidebarGroupLabel>
+                    <BbSidebarMenu>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.PlayersPage" Tooltip="Player search">
+                                <LucideIcon Name="users" Class="bb:h-4 bb:w-4" />
+                                <span>Search</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.MatchesPage" Tooltip="Matches">
+                                <LucideIcon Name="swords" Class="bb:h-4 bb:w-4" />
+                                <span>Matches</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
+                        @if (staff.Can(PortalPermissions.PlayersInspect))
+                        {
+                            <BbSidebarMenuItem>
+                                <BbSidebarMenuButton Href="@PortalRoutes.InvestigatePage" Tooltip="Find accounts by device or address">
+                                    <LucideIcon Name="scan-search" Class="bb:h-4 bb:w-4" />
+                                    <span>Investigate</span>
+                                </BbSidebarMenuButton>
+                            </BbSidebarMenuItem>
+                        }
+                    </BbSidebarMenu>
+                </BbSidebarGroup>
+                @if (staff.Can(PortalPermissions.AnticheatReview))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Anti-cheat</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            @foreach (PortalReviewList list in PortalReviewList.All)
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AntiCheatList(list.Kind)" Tooltip="@list.Title">
+                                        <LucideIcon Name="@PortalReviewList.IconOf(list.Kind)" Class="bb:h-4 bb:w-4" />
+                                        <span>@list.ShortTitle</span>
+                                    </BbSidebarMenuButton>
+                                    @if (m_queues.TryGetValue(list.Kind, out int waiting) && waiting > 0)
+                                    {
+                                        <BbSidebarMenuBadge>@PortalText.Count(waiting)</BbSidebarMenuBadge>
+                                    }
+                                </BbSidebarMenuItem>
+                            }
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
+                @if (staff.Can(PortalPermissions.AnnouncementsSend) || staff.Can(PortalPermissions.SettingsManage) || staff.Can(PortalPermissions.TextRulesManage))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Community</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            @if (staff.Can(PortalPermissions.AnnouncementsSend))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AnnouncementsPage" Tooltip="Announcements">
+                                        <LucideIcon Name="megaphone" Class="bb:h-4 bb:w-4" />
+                                        <span>Announcements</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.SettingsManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.SettingsPage" Tooltip="Message of the day">
+                                        <LucideIcon Name="message-square-text" Class="bb:h-4 bb:w-4" />
+                                        <span>Message of the day</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.TextRulesManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.TextRulesPage" Tooltip="Text rules">
+                                        <LucideIcon Name="spell-check" Class="bb:h-4 bb:w-4" />
+                                        <span>Text rules</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
+                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage) || staff.Can(PortalPermissions.FlagsManage))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Administration</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            @if (staff.Can(PortalPermissions.FlagsManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.ConfigPage" Tooltip="Game config">
+                                        <LucideIcon Name="sliders-horizontal" Class="bb:h-4 bb:w-4" />
+                                        <span>Game config</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.TokensManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.PartnersPage" Tooltip="Partners">
+                                        <LucideIcon Name="handshake" Class="bb:h-4 bb:w-4" />
+                                        <span>Partners</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.ApiDocs" Tooltip="API docs">
+                                        <LucideIcon Name="book-open" Class="bb:h-4 bb:w-4" />
+                                        <span>API docs</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.AuditRead))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AuditPage" Tooltip="Audit log">
+                                        <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
+                                        <span>Audit log</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
+            }
+        </BbSidebarContent>
+        <BbSidebarFooter>
+            @if (Api.Session is PortalSessionInfo session)
+            {
+                <BbDropdownMenu>
+                    <BbDropdownMenuTrigger>
+                        <BbButton Variant="ButtonVariant.Ghost" Class="go-admin-user bb:w-full bb:justify-start bb:gap-2 bb:px-2 bb:h-12 bb:overflow-hidden" AriaLabel="User menu" data-testid="user-menu">
+                            <BbAvatar Size="AvatarSize.Small">
+                                <BbAvatarFallback>@PortalText.Initials(session.DisplayName)</BbAvatarFallback>
+                            </BbAvatar>
+                            <div class="go-admin-user-text bb:flex bb:flex-col bb:items-start bb:text-start bb:flex-1 bb:min-w-0">
+                                <span class="bb:text-sm bb:font-medium bb:truncate">@session.FullName</span>
+                                <span class="bb:text-xs bb:text-muted-foreground bb:truncate">@RoleText(session)</span>
+                            </div>
+                            <LucideIcon Name="chevrons-up-down" Class="go-admin-user-text bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                        </BbButton>
+                    </BbDropdownMenuTrigger>
+                    <BbDropdownMenuContent Side="PopoverSide.Top" Align="PopoverAlign.Start" Class="go-admin-user-menu">
+                        <div class="bb:flex bb:items-center bb:gap-2 bb:p-2">
+                            <BbAvatar Size="AvatarSize.Small">
+                                <BbAvatarFallback>@PortalText.Initials(session.DisplayName)</BbAvatarFallback>
+                            </BbAvatar>
+                            <div class="bb:flex bb:flex-col bb:min-w-0">
+                                <span class="bb:text-sm bb:font-medium bb:truncate">@session.FullName</span>
+                                <span class="bb:text-xs bb:text-muted-foreground bb:truncate">@RoleText(session)</span>
+                            </div>
+                        </div>
+                        <BbDropdownMenuSeparator />
+                        <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.AccountPage, forceLoad: true))" data-testid="back-to-profile">
+                            <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Back to profile
+                        </BbDropdownMenuItem>
+                        <BbDropdownMenuSeparator />
+                        <BbDropdownMenuItem Class="bb:text-destructive" OnClick="@(_ => Api.SignOutAsync())" data-testid="sign-out">
+                            <LucideIcon Name="log-out" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Sign out
+                        </BbDropdownMenuItem>
+                    </BbDropdownMenuContent>
+                </BbDropdownMenu>
+            }
+        </BbSidebarFooter>
+        <BbSidebarRail />
+    </BbSidebar>
+    <BbSidebarInset Class="go-admin-inset">
+        <header class="go-admin-topbar">
+            <BbSidebarTrigger />
+            <BbSeparator Orientation="SeparatorOrientation.Vertical" Class="bb:h-4" />
+            <BbBreadcrumb>
+                <BbBreadcrumbList>
+                    <BbBreadcrumbItem>
+                        <BbBreadcrumbLink Href="@PortalRoutes.OverviewPage">Staff</BbBreadcrumbLink>
+                    </BbBreadcrumbItem>
+                    @foreach ((string text, string? href) in Trail())
+                    {
+                        <BbBreadcrumbSeparator />
+                        <BbBreadcrumbItem>
+                            @if (href == null)
+                            {
+                                <BbBreadcrumbPage>@text</BbBreadcrumbPage>
+                            }
+                            else
+                            {
+                                <BbBreadcrumbLink Href="@href">@text</BbBreadcrumbLink>
+                            }
+                        </BbBreadcrumbItem>
+                    }
+                </BbBreadcrumbList>
+            </BbBreadcrumb>
+        </header>
+        <div class="go-page" id="content" tabindex="-1">
+            @if (m_failed)
+            {
+                <BbEmpty Title="The staff area could not load" Description="The service did not answer. Reload the page to try again." data-testid="load-failed">
+                    <Icon>
+                        <LucideIcon Name="cloud-off" />
+                    </Icon>
+                    <ChildContent>
+                        <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => Navigation.Refresh(forceReload: true))">Reload</BbButton>
+                    </ChildContent>
+                </BbEmpty>
+            }
+            else if (Api.Session == null)
+            {
+                <div class="bb:space-y-4">
+                    <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
+                    <div class="go-stats">
+                        @for (int i = 0; i < 4; i++)
+                        {
+                            <BbSkeleton Class="go-skeleton-card" />
+                        }
+                    </div>
+                    <BbSkeleton Class="go-skeleton-panel" />
+                </div>
+            }
+            else if (!Api.Session.Staff)
+            {
+                <Refusal Title="Staff only" Description="Your account holds no staff permission, so the staff area is closed to you." />
+            }
+            else
+            {
+                <CascadingValue Value="this" IsFixed="true">
+                    @Body
+                </CascadingValue>
+            }
+        </div>
+    </BbSidebarInset>
+</BbSidebarProvider>
+
+<BbPortalHost />
+<BbToastProvider />
+
+@code {
+    private bool m_failed;
+    private string? m_search;
+    private int m_openReports;
+    private Dictionary<string, int> m_queues = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Api.SessionChanged += OnChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+        try
+        {
+            PortalSessionInfo? session = await Api.LoadSessionAsync();
+            if (session?.Staff == true)
+            {
+                await RefreshCountsAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+            m_failed = true;
+        }
+    }
+
+    // The sidebar badges: open reports and the unreviewed rows of each anti-cheat list. Pages call this after a change
+    // so the badges follow; a failed read keeps the last numbers, the pages show their own errors
+    public async Task RefreshCountsAsync(PortalOverview? known = null)
+    {
+        PortalOverview? overview = known ?? (await Api.GetOverviewAsync()).Value;
+        if (overview != null)
+        {
+            m_openReports = overview.OpenReports;
+            m_queues = (overview.Anticheat ?? []).ToDictionary(q => q.Kind, q => q.Unreviewed);
+            StateHasChanged();
+        }
+    }
+
+    // The sidebar search opens the player search with the typed name or id
+    private void Search()
+    {
+        string term = m_search?.Trim() ?? "";
+        Navigation.NavigateTo(term.Length == 0 ? PortalRoutes.PlayersPage : PortalRoutes.PlayersSearch(term));
+        m_search = null;
+    }
+
+    private static string RoleText(PortalSessionInfo session) => session.Roles.Count > 0 ? String.Join(", ", session.Roles) : "player";
+
+    // The breadcrumb after "Staff": the section of the open page, then the item it shows
+    private IEnumerable<(string Text, string? Href)> Trail()
+    {
+        string path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].TrimEnd('/');
+        string[] parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string section = parts.Length > 1 ? parts[1] : "";
+        string? item = parts.Length > 2 ? parts[2] : null;
+
+        switch (section)
+        {
+            case "":
+                yield return ("Overview", null);
+                break;
+            case "reports":
+                yield return ("Reports", null);
+                break;
+            case "players":
+                yield return ("Players", item == null ? null : PortalRoutes.PlayersPage);
+                if (item != null)
+                {
+                    yield return ("Player " + item, null);
+                }
+                break;
+            case "matches":
+                yield return ("Matches", item == null ? null : PortalRoutes.MatchesPage);
+                if (item != null)
+                {
+                    yield return ("Match " + item, null);
+                }
+                break;
+            case "audit":
+                yield return ("Audit log", null);
+                break;
+            case "investigate":
+                yield return ("Investigate", null);
+                break;
+            case "live":
+                yield return ("Live", null);
+                break;
+            case "lobbies":
+                yield return ("Live", item == null ? null : PortalRoutes.LivePage);
+                if (item != null)
+                {
+                    yield return ("Lobby " + item, null);
+                }
+                break;
+            case "partners":
+                yield return ("Partners", item == null ? null : PortalRoutes.PartnersPage);
+                if (item != null)
+                {
+                    yield return ("Partner " + item, null);
+                }
+                break;
+            case "announcements":
+                yield return ("Announcements", null);
+                break;
+            case "settings":
+                yield return ("Message of the day", null);
+                break;
+            case "text-rules":
+                yield return ("Text rules", null);
+                break;
+            case "config":
+                yield return ("Game config", null);
+                break;
+            case "anticheat":
+                yield return ("Anti-cheat", null);
+                if (item != null)
+                {
+                    yield return (PortalReviewList.Find(item)?.Title ?? item, null);
+                }
+                break;
+            default:
+                yield return ("Not found", null);
+                break;
+        }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Api.SessionChanged -= OnChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

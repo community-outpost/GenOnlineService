@@ -7,6 +7,9 @@
     <Platforms>x64;ARM64</Platforms>
     <!-- The version comes from the git tag (see GoResolveVersion below); the SDK must not append its own +SourceRevisionId. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- The staff pages (/admin) load _framework/blazor.web.js, which ships in a package the SDK only restores when it
+         sees .razor files. The Dockerfile restores with the project files alone, so say it here or the image has none. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -16,6 +19,18 @@
 
 	<ItemGroup>
 		<PackageReference Update="System.Linq.AsyncEnumerable" ExcludeAssets="all" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- The UTS #39 confusables table behind the look-alike key of display names (NameKey) -->
+		<EmbeddedResource Include="Resources\confusables.txt" LogicalName="GenOnlineService.Resources.confusables.txt" />
+		<!-- The seed word lists of the text rules (TextRuleSeeds), written into the database on the first start -->
+		<EmbeddedResource Include="data\textrules\*.txt" LogicalName="GenOnlineService.data.textrules.%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Lets the tests drive a lobby through its internal membership calls -->
+		<InternalsVisibleTo Include="GenOnlineService.Tests" />
 	</ItemGroup>
 
 
@@ -45,17 +60,29 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The Steam handler brings AngleSharp 1.3.0, which CVE-2026-54570 affects (1.5.0 is the first fixed version);
+         Blazor Blueprint's HtmlSanitizer needs 1.7.0 -->
+    <PackageReference Include="AngleSharp" Version="1.7.0" />
+    <PackageReference Include="AspNet.Security.OpenId.Steam" Version="10.0.0" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.101.5" />
     <PackageReference Include="Discord.Net" Version="3.20.1" />
+    <!-- SMTP for account mail (Mail:delivery_method smtp); 4.x, not the week-old 5.0.0 (T4 research, 2026-11-17) -->
+    <PackageReference Include="MailKit" Version="4.18.2" />
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
+    <!-- MJML mail templates compiled in the service, so the build and the image need no Node.js (MIT) -->
+    <PackageReference Include="Mjml.Net" Version="4.15.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microting.EntityFrameworkCore.MySql" Version="10.0.13" />
     <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="OpenIddict.AspNetCore" Version="7.8.0" />
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.8.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="OpenIddict.Client.WebIntegration" Version="7.8.0" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
@@ -64,10 +91,37 @@
     <PackageReference Include="Sentry" Version="6.8.0" />
     <PackageReference Include="Sentry.Extensions.Logging" Version="6.8.0" />
     <PackageReference Include="Sentry.OpenTelemetry" Version="6.8.0" />
+    <!-- The look of the sign-in pages (the portal trial's static pages): rendered on the server, no WebAssembly -->
+    <PackageReference Include="BlazorBlueprint.Components" Version="4.2.0" />
+    <PackageReference Include="BlazorBlueprint.Icons.Lucide" Version="2.0.2" />
+    <!-- Serves the WebAssembly staff pages under /admin; no Blazor Server circuit is registered -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.15" />
+    <!-- The OpenAPI document of /api/v1 (/api/openapi/v1.json) and its viewer at /api/docs, which serves its own assets -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.18.7" />
+    <!-- The rule workflows of the text checks (TextRules): which outcome a display name, lobby name or chat message gets -->
+    <PackageReference Include="RulesEngine" Version="6.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the account mails (Mail/EmailTemplates.cs): MJML bodies, their layout and plain-text twins; a language's own copy
+         is named for it (confirmation.de.mjml) and stays in the main assembly, never a satellite -->
+    <EmbeddedResource Include="Mail\Templates\*.mjml;Mail\Templates\*.txt" LogicalName="GenOnlineService.Mail.Templates.%(Filename)%(Extension)" WithCulture="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The browser side of the /admin staff pages (S12) -->
+    <ProjectReference Include="..\GenOnlineService.Portal.Client\GenOnlineService.Portal.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="data\GeoLite2-City.mmdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="data\GeoLite2-ASN.mmdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="data\oui.tsv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="data\motd.txt">
@@ -82,7 +136,7 @@
   </ItemGroup>
 
   <!--
-    The git tag is the only source of the version. _GoVersion is the full informational version, which /healthz reports:
+    The git tag is the only source of the version. _GoVersion is the full informational version, which /-/health reports:
       HEAD on tag v1.2.3               1.2.3+<8-char sha>
       HEAD 20 commits after v1.2.3     1.2.3+20.<8-char sha>
       no vX.Y.Z tag reachable          0.0.0+<8-char sha>

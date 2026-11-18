@@ -56,3 +56,5 @@ nunit-*.xml
 .vs/*
 */.vs/*
 *.csproj.user
+# The device HMAC key is created per deployment and never committed
+device_hmac.key

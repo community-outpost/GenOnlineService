@@ -17,144 +17,87 @@
 */
 
 using GenOnlineService;
-using GenOnlineService.Controllers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Microsoft.EntityFrameworkCore.Query;
-using System;
-using System.Collections.Generic;
-using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
-public class MatchHistoryEntry
+public static class MatchResults
 {
-	// Column sizes. The history columns are narrower than the live lobby limits (255/255/512), so the live values are
-	// clamped to these when they are stored (see TextSanitizer). The live lobby values are never modified.
+	public const string Win = "win";
+	public const string Loss = "loss";
+}
+
+public class Match
+{
+	// History columns are narrower than the live lobby limits (255/255/512); stored values are clamped (see TextSanitizer)
 	public const int NameMaxLength = 64;
 	public const int MapNameMaxLength = 128;
 	public const int MapPathMaxLength = 256;
 
-	public long MatchId { get; set; }
-	public long Owner { get; set; }
+	public long Id { get; set; }
+
+	// Null when the owner was not imported
+	public long? OwnerUserId { get; set; }
+
 	public string Name { get; set; } = string.Empty;
-	public bool Finished { get; set; }
-	public DateTime Started { get; set; }
-	public DateTime TimeFinished { get; set; }
+	public ELobbyType? LobbyType { get; set; }
+	public string RosterType { get; set; } = string.Empty;
 	public string MapName { get; set; } = string.Empty;
-	public bool MapOfficial { get; set; }
-	public string MatchRosterType { get; set; } = string.Empty;
-	public ELobbyType? LobbyType { get; set; } = null;
+	public string? MapPath { get; set; }
+	public bool IsOfficialMap { get; set; }
 	public bool VanillaTeams { get; set; }
 	public uint StartingCash { get; set; }
 	public bool LimitSuperweapons { get; set; }
 	public bool TrackStats { get; set; }
 	public bool AllowObservers { get; set; }
 	public ushort MaxCamHeight { get; set; }
-	public uint ExeCRC { get; set; }
-	public uint IniCRC { get; set; }
-	public string? MapPath { get; set; }
-	// JSON slots
-	public string? MemberSlot0 { get; set; }
-	public string? MemberSlot1 { get; set; }
-	public string? MemberSlot2 { get; set; }
-	public string? MemberSlot3 { get; set; }
-	public string? MemberSlot4 { get; set; }
-	public string? MemberSlot5 { get; set; }
-	public string? MemberSlot6 { get; set; }
-	public string? MemberSlot7 { get; set; }
+	public uint ExeCrc { get; set; }
+	public uint IniCrc { get; set; }
+	public DateTime StartedAt { get; set; }
+	public DateTime? FinishedAt { get; set; }
+
+	public List<MatchPlayer> Players { get; set; } = new();
 }
 
-public class MatchHistoryConfiguration : IEntityTypeConfiguration<MatchHistoryEntry>
+// One occupied lobby slot of a match; user_id is null for AI slots and users that were not imported
+public class MatchPlayer
 {
-	public void Configure(EntityTypeBuilder<MatchHistoryEntry> entity)
-	{
-		entity.ToTable("match_history");
+	public long MatchId { get; set; }
+	public short Slot { get; set; }
+	public long? UserId { get; set; }
+	public short? Team { get; set; }
+	public int? Side { get; set; }
+	public int? Color { get; set; }
 
-		entity.HasKey(e => e.MatchId);
+	// Null until the outcome is known
+	public string? Result { get; set; }
 
-		entity.Property(e => e.MatchId)
-			.HasColumnName("match_id")
-			.ValueGeneratedOnAdd();
-
-		entity.Property(e => e.Owner)
-			.HasColumnName("owner");
-
-		entity.Property(e => e.Name)
-			.HasColumnName("name")
-			.HasMaxLength(MatchHistoryEntry.NameMaxLength)
-			.IsRequired();
-
-		entity.Property(e => e.Finished)
-			.HasColumnName("finished");
-
-		entity.Property(e => e.Started)
-			.HasColumnName("started");
-
-		entity.Property(e => e.TimeFinished)
-			.HasColumnName("time_finished");
-
-		entity.Property(e => e.MapName)
-			.HasColumnName("map_name")
-			.HasMaxLength(MatchHistoryEntry.MapNameMaxLength)
-			.IsRequired();
-
-		entity.Property(e => e.MapOfficial)
-			.HasColumnName("map_official");
-
-		entity.Property(e => e.MatchRosterType)
-			.HasColumnName("match_roster_type")
-			.HasMaxLength(32)
-			.HasDefaultValue("");
-
-		entity.Property(e => e.LobbyType)
-			.HasColumnName("lobby_type")
-			.HasConversion<byte?>();
-
-		entity.Property(e => e.VanillaTeams)
-			.HasColumnName("vanilla_teams");
-
-		entity.Property(e => e.StartingCash)
-			.HasColumnName("starting_cash");
-
-		entity.Property(e => e.LimitSuperweapons)
-			.HasColumnName("limit_superweapons");
-
-		entity.Property(e => e.TrackStats)
-			.HasColumnName("track_stats");
-
-		entity.Property(e => e.AllowObservers)
-			.HasColumnName("allow_observers");
-
-		entity.Property(e => e.MaxCamHeight)
-			.HasColumnName("max_cam_height");
-
-		entity.Property(e => e.ExeCRC)
-			.HasColumnName("exe_crc");
-
-		entity.Property(e => e.IniCRC)
-			.HasColumnName("ini_crc");
-
-		entity.Property(e => e.MapPath)
-			.HasColumnName("map_path")
-			.HasMaxLength(MatchHistoryEntry.MapPathMaxLength);
-
-		// Serves the match feed: finished matches since a point in time, ordered by finish time
-		entity.HasIndex(e => new { e.Finished, e.TimeFinished, e.MatchId })
-			.HasDatabaseName("idx_finished_time");
-
-		// JSON columns
-		for (int i = 0; i < 8; i++)
-		{
-			entity.Property<string?>($"MemberSlot{i}")
-				.HasColumnName($"member_slot_{i}");
-		}
-	}
+	// MatchPlayerDetails as JSON
+	public string? Details { get; set; }
 }
 
-public class ExternalPublicationEntry
+// The per-slot values that are not columns
+public sealed class MatchPlayerDetails
+{
+	public string display_name { get; set; } = string.Empty;
+	public EPlayerType slot_state { get; set; } = EPlayerType.SLOT_CLOSED;
+	public int startpos { get; set; } = -1;
+	public int buildings_built { get; set; }
+	public int buildings_killed { get; set; }
+	public int buildings_lost { get; set; }
+	public int units_built { get; set; }
+	public int units_killed { get; set; }
+	public int units_lost { get; set; }
+	public int total_money { get; set; }
+	public bool desynced { get; set; }
+	public uint? duration { get; set; }
+	public List<MemberMetadataModel> metadata { get; set; } = new();
+}
+
+public class MatchPublication
 {
 	public long MatchId { get; set; }
 	public DateTime? NextAttemptAt { get; set; }
@@ -163,23 +106,114 @@ public class ExternalPublicationEntry
 	public string? LastError { get; set; }
 }
 
-public class ExternalPublicationConfiguration : IEntityTypeConfiguration<ExternalPublicationEntry>
+// Lobby types are stored as short lowercase strings
+public sealed class LobbyTypeConverter : ValueConverter<ELobbyType, string>
 {
-	public void Configure(EntityTypeBuilder<ExternalPublicationEntry> entity)
+	public LobbyTypeConverter()
+		: base(v => ToStore(v), v => FromStore(v))
 	{
-		entity.ToTable("external_publication");
-		entity.HasKey(e => e.MatchId);
-		entity.Property(e => e.MatchId).HasColumnName("match_id").ValueGeneratedNever();
-		entity.Property(e => e.NextAttemptAt).HasColumnName("next_attempt_at");
-		entity.Property(e => e.PublishedAt).HasColumnName("published_at");
-		entity.Property(e => e.Attempts).HasColumnName("attempts").HasDefaultValue(0);
-		entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(512);
-		entity.HasIndex(e => new { e.PublishedAt, e.NextAttemptAt })
-			.HasDatabaseName("ix_external_publication_pending");
+	}
+
+	public static string ToStore(ELobbyType value) => value switch
+	{
+		ELobbyType.CustomGame => "custom_game",
+		ELobbyType.QuickMatch => "quick_match",
+		_ => throw new ArgumentOutOfRangeException(nameof(value))
+	};
+
+	public static ELobbyType FromStore(string value) => value switch
+	{
+		"custom_game" => ELobbyType.CustomGame,
+		"quick_match" => ELobbyType.QuickMatch,
+		_ => throw new InvalidOperationException($"Unknown lobby type \"{value}\".")
+	};
+}
+
+public class MatchConfiguration : IEntityTypeConfiguration<Match>
+{
+	public void Configure(EntityTypeBuilder<Match> entity)
+	{
+		entity.ToTable("matches");
+
+		entity.HasKey(e => e.Id);
+
+		// Serves the match feed: finished matches since a point in time, ordered by finish time
+		entity.HasIndex(e => new { e.FinishedAt, e.Id }).HasDatabaseName("ix_matches_finished_at");
+		// Serves the staff match list's start date filter
+		entity.HasIndex(e => e.StartedAt).HasDatabaseName("ix_matches_started_at");
+
+		entity.HasMany(e => e.Players).WithOne().HasForeignKey(p => p.MatchId).OnDelete(DeleteBehavior.Cascade);
+
+		// The service sets every new id itself (snowflake ids from MatchIdGenerator), older matches keep their sequential ids.
+		// The column keeps its identity / AUTO_INCREMENT for this release, so a copy from before the switch still writes matches
+		// while the migrated database already serves a newer copy; a later release drops it.
+		entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+		entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
+		entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(Match.NameMaxLength);
+		entity.Property(e => e.LobbyType).HasColumnName("lobby_type").HasMaxLength(16).HasConversion(new LobbyTypeConverter());
+		entity.Property(e => e.RosterType).HasColumnName("roster_type").HasMaxLength(32);
+		entity.Property(e => e.MapName).HasColumnName("map_name").HasMaxLength(Match.MapNameMaxLength);
+		entity.Property(e => e.MapPath).HasColumnName("map_path").HasMaxLength(Match.MapPathMaxLength);
+		entity.Property(e => e.IsOfficialMap).HasColumnName("is_official_map");
+		entity.Property(e => e.VanillaTeams).HasColumnName("vanilla_teams");
+		entity.Property(e => e.StartingCash).HasColumnName("starting_cash");
+		entity.Property(e => e.LimitSuperweapons).HasColumnName("limit_superweapons");
+		entity.Property(e => e.TrackStats).HasColumnName("track_stats");
+		entity.Property(e => e.AllowObservers).HasColumnName("allow_observers");
+		entity.Property(e => e.MaxCamHeight).HasColumnName("max_cam_height");
+		entity.Property(e => e.ExeCrc).HasColumnName("exe_crc");
+		entity.Property(e => e.IniCrc).HasColumnName("ini_crc");
+		entity.Property(e => e.StartedAt).HasColumnName("started_at");
+		entity.Property(e => e.FinishedAt).HasColumnName("finished_at");
 	}
 }
 
-// TODO_EFCORE: put everything in below namespace
+public class MatchPlayerConfiguration : IEntityTypeConfiguration<MatchPlayer>
+{
+	public void Configure(EntityTypeBuilder<MatchPlayer> entity)
+	{
+		entity.ToTable("match_players");
+
+		entity.HasKey(e => new { e.MatchId, e.Slot });
+		entity.HasIndex(e => e.UserId).HasDatabaseName("ix_match_players_user_id");
+
+		entity.Property(e => e.MatchId).HasColumnName("match_id");
+		entity.Property(e => e.Slot).HasColumnName("slot");
+		entity.Property(e => e.UserId).HasColumnName("user_id");
+		entity.Property(e => e.Team).HasColumnName("team");
+		entity.Property(e => e.Side).HasColumnName("side");
+		entity.Property(e => e.Color).HasColumnName("color");
+		entity.Property(e => e.Result).HasColumnName("result").HasMaxLength(16);
+		entity.Property(e => e.Details).HasColumnName("details");
+	}
+}
+
+public class MatchPublicationConfiguration : IEntityTypeConfiguration<MatchPublication>
+{
+	public void Configure(EntityTypeBuilder<MatchPublication> entity)
+	{
+		entity.ToTable("match_publications");
+
+		entity.HasKey(e => e.MatchId);
+		entity.HasIndex(e => new { e.PublishedAt, e.NextAttemptAt }).HasDatabaseName("ix_match_publications_pending");
+		entity.HasOne<Match>().WithOne().HasForeignKey<MatchPublication>(e => e.MatchId).OnDelete(DeleteBehavior.Cascade);
+
+		entity.Property(e => e.MatchId).HasColumnName("match_id").ValueGeneratedNever();
+		entity.Property(e => e.NextAttemptAt).HasColumnName("next_attempt_at");
+		entity.Property(e => e.PublishedAt).HasColumnName("published_at");
+		entity.Property(e => e.Attempts).HasColumnName("attempts");
+		entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(512);
+	}
+}
+
+// Matches and wins per playable side; index is side - 2
+public class FactionStatsStructure
+{
+	public const int numSides = 12;
+	public int[] matches { get; set; } = new int[numSides];
+	public int[] wins { get; set; } = new int[numSides];
+}
+
 namespace GenOnlineService
 {
 
@@ -256,179 +290,163 @@ namespace Database
 {
 	public readonly record struct ExternalPublicationWorkItem(long MatchId, int Attempt);
 
-	// TODO_EFCORE: Consider moving to zero-serialization model
 	public static class MatchHistory
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(MatchHistory));
 
-		private static readonly Expression<Func<MatchHistoryEntry, string?>>[] _slotSelectors =
-	{
-			m => m.MemberSlot0,
-			m => m.MemberSlot1,
-			m => m.MemberSlot2,
-			m => m.MemberSlot3,
-			m => m.MemberSlot4,
-			m => m.MemberSlot5,
-			m => m.MemberSlot6,
-			m => m.MemberSlot7
-		};
+		private const int SlotCount = 8;
 
-		private static readonly Func<AppDbContext, long, Task<string?[]>> _getAllMemberSlots =
-	EF.CompileAsyncQuery(
-		(AppDbContext db, long matchId) =>
-			db.MatchHistory
-			  .Where(m => m.MatchId == matchId)
-			  .Select(m => new string?[]
-			  {
-				  m.MemberSlot0,
-				  m.MemberSlot1,
-				  m.MemberSlot2,
-				  m.MemberSlot3,
-				  m.MemberSlot4,
-				  m.MemberSlot5,
-				  m.MemberSlot6,
-				  m.MemberSlot7
-			  })
-			  .FirstOrDefault()
-	);
-
-
-		private static Action<UpdateSettersBuilder<MatchHistoryEntry>>
-	BuildSetter(int slotIndex, string? json)
+		public static MatchPlayerDetails ReadDetails(string? json)
 		{
-			return slotIndex switch
+			if (string.IsNullOrEmpty(json))
+				return new MatchPlayerDetails();
+
+			return JsonSerializer.Deserialize<MatchPlayerDetails>(json) ?? new MatchPlayerDetails();
+		}
+
+		public static string WriteDetails(MatchPlayerDetails details)
+		{
+			return JsonSerializer.Serialize(details);
+		}
+
+		// The API shape of a slot; slots without a user report user_id -1
+		public static MatchdataMemberModel ToMemberModel(MatchPlayer player)
+		{
+			MatchPlayerDetails details = ReadDetails(player.Details);
+
+			return new MatchdataMemberModel
 			{
-				0 => s => s.SetProperty(m => m.MemberSlot0, json),
-				1 => s => s.SetProperty(m => m.MemberSlot1, json),
-				2 => s => s.SetProperty(m => m.MemberSlot2, json),
-				3 => s => s.SetProperty(m => m.MemberSlot3, json),
-				4 => s => s.SetProperty(m => m.MemberSlot4, json),
-				5 => s => s.SetProperty(m => m.MemberSlot5, json),
-				6 => s => s.SetProperty(m => m.MemberSlot6, json),
-				7 => s => s.SetProperty(m => m.MemberSlot7, json),
-				_ => throw new ArgumentOutOfRangeException(nameof(slotIndex))
+				user_id = player.UserId ?? -1,
+				display_name = details.display_name,
+				slot_state = details.slot_state,
+				side = player.Side ?? -1,
+				color = player.Color ?? -1,
+				team = player.Team ?? -1,
+				startpos = details.startpos,
+				buildings_built = details.buildings_built,
+				buildings_killed = details.buildings_killed,
+				buildings_lost = details.buildings_lost,
+				units_built = details.units_built,
+				units_killed = details.units_killed,
+				units_lost = details.units_lost,
+				total_money = details.total_money,
+				won = player.Result == MatchResults.Win,
+				desynced = details.desynced,
+				duration = details.duration,
+				metadata = details.metadata ?? new List<MemberMetadataModel>()
 			};
 		}
 
-
-		private static readonly Action<UpdateSettersBuilder<MatchHistoryEntry>, string?>[] _slotSetters =
-{
-	(s, v) => s.SetProperty(m => m.MemberSlot0, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot1, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot2, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot3, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot4, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot5, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot6, v),
-	(s, v) => s.SetProperty(m => m.MemberSlot7, v)
-};
-
-
-
-
-		private static async Task<string?> _getMemberSlot(
-			AppDbContext db,
-			long matchId,
-			int slotIndex,
-			CancellationToken cancellationToken = default)
+		private static MatchHistory_Entry ToEntry(Match match, IEnumerable<MatchPlayer> players)
 		{
-			if (slotIndex < 0 || slotIndex > 7)
-				return null;
+			var entry = new MatchHistory_Entry(
+				match.Id,
+				match.OwnerUserId ?? -1,
+				match.Name,
+				match.FinishedAt != null,
+				match.StartedAt.ToString("O"),
+				(match.FinishedAt ?? match.StartedAt).ToString("O"),
+				match.MapName,
+				match.MapPath ?? string.Empty,
+				match.RosterType,
+				match.LobbyType,
+				match.IsOfficialMap,
+				match.VanillaTeams,
+				match.StartingCash,
+				match.LimitSuperweapons,
+				match.TrackStats,
+				match.AllowObservers,
+				match.MaxCamHeight,
+				match.ExeCrc,
+				match.IniCrc
+			);
 
-			return await db.MatchHistory
-				.Where(m => m.MatchId == matchId)
-				.Select(_slotSelectors[slotIndex])
-				.FirstOrDefaultAsync(cancellationToken);
+			foreach (MatchPlayer player in players.OrderBy(p => p.Slot))
+			{
+				entry.members.Add(ToMemberModel(player));
+			}
+
+			return entry;
 		}
 
+		private static async Task<List<MatchHistory_Entry>> ToEntries(AppDbContext db, List<Match> matches, CancellationToken cancellationToken = default)
+		{
+			List<MatchHistory_Entry> entries = new();
 
+			if (matches.Count == 0)
+				return entries;
 
-		private static readonly Func<AppDbContext, Task<long?>> _getHighestMatchId =
-			EF.CompileAsyncQuery(
-				(AppDbContext db) =>
-					db.MatchHistory
-					  .Max(m => (long?)m.MatchId)
-			);
+			List<long> ids = matches.Select(m => m.Id).ToList();
+			var players = (await db.MatchPlayers.AsNoTracking()
+				.Where(p => ids.Contains(p.MatchId))
+				.ToListAsync(cancellationToken))
+				.ToLookup(p => p.MatchId);
 
-		private static readonly Func<AppDbContext, DateTime, int, IAsyncEnumerable<MatchHistoryEntry>> _getMatchesSince =
-			EF.CompileAsyncQuery(
-				(AppDbContext db, DateTime since, int maxLobbiesPerRequest) =>
-					db.MatchHistory
-					  .Where(m => m.Finished && m.TimeFinished >= since)
-					  .OrderBy(m => m.TimeFinished)
-					  .ThenBy(m => m.MatchId)
-					  .Take(maxLobbiesPerRequest)
-			);
+			foreach (Match match in matches)
+			{
+				entries.Add(ToEntry(match, players[match.Id]));
+			}
 
+			return entries;
+		}
 
+		private static async Task<MatchPlayer?> GetPlayer(AppDbContext db, long matchId, int slotIndex, CancellationToken cancellationToken = default)
+		{
+			return await db.MatchPlayers.AsTracking()
+				.FirstOrDefaultAsync(p => p.MatchId == matchId && p.Slot == (short)slotIndex, cancellationToken);
+		}
 
 		public static async Task CommitPlayerOutcome(
-	AppDbContext db,
-	int slotIndex,
-	ulong matchId,
-	int side,
-	int buildingsBuilt,
-	int buildingsKilled,
-	int buildingsLost,
-	int unitsBuilt,
-	int unitsKilled,
-	int unitsLost,
-	int totalMoney,
-	bool won,
-	bool desynced,
-	uint duration)
+			AppDbContext db,
+			int slotIndex,
+			ulong matchId,
+			int side,
+			int buildingsBuilt,
+			int buildingsKilled,
+			int buildingsLost,
+			int unitsBuilt,
+			int unitsKilled,
+			int unitsLost,
+			int totalMoney,
+			bool won,
+			bool desynced,
+			uint duration)
 		{
-			if (slotIndex < 0 || slotIndex > 7)
+			if (slotIndex < 0 || slotIndex >= SlotCount)
 				return;
 
 			try
 			{
-				// 1. Load JSON for this slot
-				string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
-				if (string.IsNullOrEmpty(json))
+				MatchPlayer? player = await GetPlayer(db, (long)matchId, slotIndex);
+				if (player == null)
 					return;
 
-				// 2. Deserialize
-				MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
-				if (modelNullable == null)
-					return;
+				MatchPlayerDetails details = ReadDetails(player.Details);
+				details.buildings_built = buildingsBuilt;
+				details.buildings_killed = buildingsKilled;
+				details.buildings_lost = buildingsLost;
+				details.units_built = unitsBuilt;
+				details.units_killed = unitsKilled;
+				details.units_lost = unitsLost;
+				details.total_money = totalMoney;
+				details.desynced = desynced;
+				details.duration = duration;
 
-				// 3. Update fields
-				MatchdataMemberModel model = modelNullable.Value;
-				model.side = side;
-				model.buildings_built = buildingsBuilt;
-				model.buildings_killed = buildingsKilled;
-				model.buildings_lost = buildingsLost;
-				model.units_built = unitsBuilt;
-				model.units_killed = unitsKilled;
-				model.units_lost = unitsLost;
-				model.total_money = totalMoney;
-				model.won = won;
-				model.desynced = desynced;
-				model.duration = duration;
+				player.Side = side;
+				player.Result = won ? MatchResults.Win : MatchResults.Loss;
+				player.Details = WriteDetails(details);
 
-				// 4. Serialize back
-				string updatedJson = JsonSerializer.Serialize(model);
-
-				// 5. Update DB (single SQL UPDATE)
-				await _updateMemberSlot(db, (long)matchId, slotIndex, updatedJson);
+				await db.SaveChangesAsync();
 			}
 			catch (Exception ex)
 			{
 				s_log.LogError(ex, "CommitPlayerOutcome failed");
 			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
 		}
-
-		public static async Task _updateMemberSlot(
-	AppDbContext db, long matchId, int slotIndex, string? json)
-		{
-			var setter = BuildSetter(slotIndex, json);
-
-			await db.MatchHistory
-				.Where(m => m.MatchId == matchId)
-				.ExecuteUpdateAsync(setter);
-		}
-
 
 		private static string ComputeRosterType(Dictionary<int, int> playersPerTeam)
 		{
@@ -456,18 +474,37 @@ namespace Database
 			return string.Join("v", groups);
 		}
 
-
+		// The id comes from the match id generator (MatchIds.cs), 0 means no match history was written
 		public static async Task<ulong> CreatePlaceholderMatchHistory(
-	AppDbContext db,
-	GenOnlineService.Lobby lobby)
+			AppDbContext db,
+			GenOnlineService.Lobby lobby,
+			MatchIdGenerator matchIds)
 		{
 			if (lobby == null)
 				return 0;
 
 			try
 			{
-				// Build member JSON array
-				string?[] jsonSlots = new string?[8];
+				DateTime now = DateTime.UtcNow;
+				var match = new Match
+				{
+					Id = await matchIds.NextAsync(),
+					StartedAt = now,
+					OwnerUserId = lobby.Owner > 0 ? lobby.Owner : null,
+					Name = TextSanitizer.Clean(lobby.Name, Match.NameMaxLength),
+					MapName = TextSanitizer.Clean(lobby.MapName, Match.MapNameMaxLength),
+					MapPath = TextSanitizer.Clean(lobby.MapPath, Match.MapPathMaxLength),
+					IsOfficialMap = lobby.IsMapOfficial,
+					LobbyType = lobby.LobbyType,
+					VanillaTeams = lobby.IsVanillaTeamsOnly,
+					StartingCash = lobby.StartingCash,
+					LimitSuperweapons = lobby.IsLimitSuperweapons,
+					TrackStats = lobby.IsTrackingStats,
+					AllowObservers = lobby.AllowObservers,
+					MaxCamHeight = lobby.MaximumCameraHeight,
+					ExeCrc = lobby.ExeCRC,
+					IniCrc = lobby.IniCRC
+				};
 
 				Dictionary<int, int> playersPerTeam = new();
 
@@ -477,86 +514,36 @@ namespace Database
 						member.SlotState == EPlayerType.SLOT_CLOSED)
 						continue;
 
-					var model = new MatchdataMemberModel
+					var details = new MatchPlayerDetails
 					{
-						user_id = member.UserID,
 						display_name = member.DisplayName,
 						slot_state = member.SlotState,
-						side = member.Side,
-						color = member.Color,
-						team = member.Team,
-						startpos = member.StartingPosition,
-						buildings_built = 0,
-						buildings_killed = 0,
-						buildings_lost = 0,
-						units_built = 0,
-						units_killed = 0,
-						units_lost = 0,
-						total_money = 0,
-						won = false
+						startpos = member.StartingPosition
 					};
 
-					jsonSlots[member.SlotIndex] = JsonSerializer.Serialize(model);
-
-					// Observers are not active players
-					// This function runs at the start of a match, before observers are assigned
-					// their actual side value. Observers have PLAYERTEMPLATE_RANDOM (-2) at this
-					// point, so use that value to identify and exclude them.
-					if (model.side != -2)
+					match.Players.Add(new MatchPlayer
 					{
-						if (playersPerTeam.ContainsKey(model.team))
-						{
-							playersPerTeam[model.team]++;
-						}
-						else
-						{
-							playersPerTeam[model.team] = 1;
-						}
+						Slot = (short)member.SlotIndex,
+						UserId = member.UserID > 0 ? member.UserID : null,
+						Team = (short)member.Team,
+						Side = member.Side,
+						Color = member.Color,
+						Details = WriteDetails(details)
+					});
+
+					// Observers still have PLAYERTEMPLATE_RANDOM (-2) at match start and are not active players
+					if (member.Side != -2)
+					{
+						playersPerTeam[member.Team] = playersPerTeam.GetValueOrDefault(member.Team, 0) + 1;
 					}
 				}
 
-				// Determine roster type
-				string rosterType = ComputeRosterType(playersPerTeam);
+				match.RosterType = ComputeRosterType(playersPerTeam);
 
-				// Build EF entity
-				DateTime now = DateTime.UtcNow;
-				var entity = new MatchHistoryEntry
-				{
-					Started = now,
-					TimeFinished = now,
-					Owner = lobby.Owner,
-					Name = TextSanitizer.Clean(lobby.Name, MatchHistoryEntry.NameMaxLength),
-					MapName = TextSanitizer.Clean(lobby.MapName, MatchHistoryEntry.MapNameMaxLength),
-					MapPath = TextSanitizer.Clean(lobby.MapPath, MatchHistoryEntry.MapPathMaxLength),
-					MapOfficial = lobby.IsMapOfficial,
-					MatchRosterType = rosterType,
-					LobbyType = lobby.LobbyType,
-					VanillaTeams = lobby.IsVanillaTeamsOnly,
-					StartingCash = lobby.StartingCash,
-					LimitSuperweapons = lobby.IsLimitSuperweapons,
-					TrackStats = lobby.IsTrackingStats,
-					AllowObservers = lobby.AllowObservers,
-					MaxCamHeight = lobby.MaximumCameraHeight,
-					ExeCRC = lobby.ExeCRC,
-					IniCRC = lobby.IniCRC,
-
-					MemberSlot0 = jsonSlots[0],
-					MemberSlot1 = jsonSlots[1],
-					MemberSlot2 = jsonSlots[2],
-					MemberSlot3 = jsonSlots[3],
-					MemberSlot4 = jsonSlots[4],
-					MemberSlot5 = jsonSlots[5],
-					MemberSlot6 = jsonSlots[6],
-					MemberSlot7 = jsonSlots[7]
-				};
-
-				// Add entity to DbSet
-				db.MatchHistory.Add(entity);
-
-				// Save
+				db.Matches.Add(match);
 				await db.SaveChangesAsync();
 
-				ulong id = (ulong)entity.MatchId;
+				ulong id = (ulong)match.Id;
 				lobby.SetMatchID(id);
 
 				return id;
@@ -565,6 +552,10 @@ namespace Database
 			{
 				s_log.LogError(ex, "CreatePlaceholderMatchHistory failed");
 				return 0;
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
 			}
 		}
 
@@ -609,36 +600,30 @@ namespace Database
 			return lstCandidateSlots.Count > 0 ? lstCandidateSlots : lstActiveSlots;
 		}
 
+		private static async Task<Dictionary<int, MatchdataMemberModel>> LoadMembersBySlot(AppDbContext db, long matchId, CancellationToken cancellationToken = default)
+		{
+			var players = await db.MatchPlayers.AsNoTracking()
+				.Where(p => p.MatchId == matchId)
+				.ToListAsync(cancellationToken);
+
+			return players.ToDictionary(p => (int)p.Slot, ToMemberModel);
+		}
+
 		public static async Task DetermineLobbyWinnerIfNotPresent(
-		AppDbContext db,
-		GenOnlineService.Lobby lobby,
-		CancellationToken cancellationToken = default)
+			AppDbContext db,
+			GenOnlineService.Lobby lobby,
+			CancellationToken cancellationToken = default)
 		{
 			if (lobby == null || lobby.MatchID == 0)
 				return;
 
 			try
 			{
-				// 1. Load all JSON slots
-				string?[]? slots = await _getAllMemberSlots(db, (long)lobby.MatchID);
-				if (slots == null)
+				Dictionary<int, MatchdataMemberModel> members = await LoadMembersBySlot(db, (long)lobby.MatchID, cancellationToken);
+				if (members.Count == 0)
 					return;
 
-				// 2. Deserialize only non-null slots
-				Dictionary<int, MatchdataMemberModel> members = new();
-
-				for (int i = 0; i < 8; i++)
-				{
-					if (!string.IsNullOrEmpty(slots[i]))
-					{
-						MatchdataMemberModel? model = JsonSerializer.Deserialize<MatchdataMemberModel>(slots[i]!);
-						if (model != null)
-							members[i] = model.Value;
-					}
-				}
-
-				// 3. Check if any member reported a desync. If so, mark all non-observer members as losers which the
-				//    ExternalLeaderboardClient interprets as a No Result
+				// A reported desync is a No Result: every non-observer loses, which the external leaderboard reads as such
 				bool anyDesync = members.Values.Any(m => m.desynced);
 				if (anyDesync)
 				{
@@ -652,8 +637,7 @@ namespace Database
 					return;
 				}
 
-				// 4. Build winner groups from active, non-observer members.
-                //    Teamless players are treated individually using synthetic keys.
+				// Winner groups from active, non-observer members; teamless players get synthetic keys
 				Dictionary<int, List<int>> winGroups = new();
 				foreach (var kv in members)
 				{
@@ -670,9 +654,7 @@ namespace Database
 					slotList.Add(kv.Key);
 				}
 
-				// 5. Compare winner groups by report count.
-				//    A unique maximum wins; ties or no winner groups fall back to
-                //    the abandoned timestamp-based resolution.
+				// A unique largest winner group wins; ties or no winner groups fall back to abandon timestamps
 				int? conclusiveWinningTeam = null;
 				int conclusiveWinningSlot = -1;
 				if (winGroups.Count > 0)
@@ -694,8 +676,6 @@ namespace Database
 					}
 				}
 
-				// 6. If conclusively determined, propagate the win to the team 
-				//    and explicitly award a loss to everyone else.
 				if (conclusiveWinningTeam != null || conclusiveWinningSlot != -1)
 				{
 					foreach (var kv in members)
@@ -710,22 +690,19 @@ namespace Database
 					return;
 				}
 
-				// 7. No winner — determine who quit last (= winner) using the most accurate timing available.
-				//    Prefer TimePlayerAbandonedIngame (recorded the instant each player's WS dropped while
-				//    in-game) over TimeMemberLeft (recorded when the player was structurally removed from the
-				//    lobby, which can happen much later, or earlier due to a fresh-session reconnect, skewing
-				//    the order relative to the actual in-game quit order).
+				// No winner: who quit last wins, by in-game abandon time first and lobby removal time second
 				s_log.LogInformation("Match {MatchId} lobby {LobbyId}: no winner in DB, falling back to abandon timestamps. IngameAbandon={IngameAbandonCount} MemberLeft={MemberLeftCount}",
 					lobby.MatchID, lobby.LobbyID, lobby.TimePlayerAbandonedIngame.Count, lobby.TimeMemberLeft.Count);
 				foreach (var _kv in lobby.TimePlayerAbandonedIngame)
 					s_log.LogDebug("Match {MatchId}: IngameAbandon user={UserId} at={AbandonTime}", lobby.MatchID, _kv.Key, _kv.Value);
 				foreach (var _kv in lobby.TimeMemberLeft)
 					s_log.LogDebug("Match {MatchId}: MemberLeft user={UserId} at={LeftTime}", lobby.MatchID, _kv.Key, _kv.Value);
-				// 6a. In a 1v1, drop anyone who reported a loss - see BuildFallbackCandidates.
-				string strRosterType = await db.MatchHistory
-					.Where(m => m.MatchId == (long)lobby.MatchID)
-					.Select(m => m.MatchRosterType)
-					.FirstOrDefaultAsync() ?? String.Empty;
+
+				// In a 1v1, anyone who reported a loss is dropped - see BuildFallbackCandidates
+				string strRosterType = await db.Matches
+					.Where(m => m.Id == (long)lobby.MatchID)
+					.Select(m => m.RosterType)
+					.FirstOrDefaultAsync(cancellationToken) ?? String.Empty;
 
 				List<int> lstCandidateSlots = BuildFallbackCandidates(members, strRosterType, lobby.ReportedOutcomes);
 				s_log.LogInformation("Match {MatchId}: rosterType={RosterType} reported={ReportedOutcomeCount} candidates=[{CandidateSlots}]",
@@ -739,15 +716,13 @@ namespace Database
 				{
 					var model = kv.Value;
 
-					// Skips observer slots, AI/placeholder slots (user_id <= 0) and players who conceded;
-					// none of them may be selected as "last to leave = winner".
+					// Observers, AI/placeholder slots and players who conceded can never be "last to leave = winner"
 					if (!lstCandidateSlots.Contains(kv.Key))
 						continue;
 
 					DateTime abandonTime = DateTime.MinValue;
 					string abandonSource = "none";
 
-					// Use the in-game abandon timestamp if available (most accurate).
 					if (lobby.TimePlayerAbandonedIngame.TryGetValue(model.user_id, out DateTime ingameAbandon))
 					{
 						abandonTime = ingameAbandon;
@@ -755,7 +730,6 @@ namespace Database
 					}
 					else if (lobby.TimeMemberLeft.TryGetValue(model.user_id, out DateTime leftAt) && leftAt > DateTime.UnixEpoch)
 					{
-						// Fall back to lobby-removal time only if we have no in-game abandon record.
 						abandonTime = leftAt;
 						abandonSource = "MemberLeft";
 					}
@@ -770,8 +744,7 @@ namespace Database
 					}
 				}
 
-				// A player who exited cleanly can have no timestamp at all, and MinValue never beats the
-				// MinValue seed above. If conceding left exactly one candidate they win regardless.
+				// A cleanly exited player can have no timestamp; if conceding left exactly one candidate they win regardless
 				if (lastPlayerNullable == null && lstCandidateSlots.Count == 1)
 				{
 					lastSlot = lstCandidateSlots[0];
@@ -798,7 +771,7 @@ namespace Database
 				s_log.LogInformation("Match {MatchId}: winner selected, user={UserId} slot={Slot} team={Team} at={LeaveTime}",
 					lobby.MatchID, lastPlayer.user_id, lastSlot, winningTeam, latestLeave);
 
-				// 7. Mark last player + teammates as winners, explicitly clear everyone else.
+				// The last player and their teammates win, everyone else loses
 				foreach (var kv in members)
 				{
 					var model = kv.Value;
@@ -821,44 +794,25 @@ namespace Database
 		}
 
 		public static async Task UpdateMatchHistorySetWinFlag(
-		AppDbContext db,
-		ulong matchId,
-		int slotIndex,
-		bool won,
-		CancellationToken cancellationToken = default)
+			AppDbContext db,
+			ulong matchId,
+			int slotIndex,
+			bool won,
+			CancellationToken cancellationToken = default)
 		{
-			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
+			if (matchId == 0 || slotIndex < 0 || slotIndex >= SlotCount)
 				return;
 
 			try
 			{
-				// 1. Load the JSON for this slot
-				string? json = await _getMemberSlot(db, (long)matchId, slotIndex, cancellationToken);
-				if (string.IsNullOrEmpty(json))
-					return;
+				string result = won ? MatchResults.Win : MatchResults.Loss;
 
-				// 2. Deserialize
-				MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel>(json);
-				if (modelNullable == null)
-					return;
-
-				// 3. Update winner flag
-				MatchdataMemberModel model = modelNullable.Value;
-				model.won = won;
-
-				// 4. Serialize back
-				string updatedJson = JsonSerializer.Serialize(model);
-
-				// 5. Build setter expression
-				var setter = BuildSetter(slotIndex, updatedJson);
-
-				// 6. Execute update (single SQL UPDATE)
-				int updated = await db.MatchHistory
-					.Where(m => m.MatchId == (long)matchId)
-					.ExecuteUpdateAsync(setter, cancellationToken);
+				int updated = await db.MatchPlayers
+					.Where(p => p.MatchId == (long)matchId && p.Slot == (short)slotIndex)
+					.ExecuteUpdateAsync(s => s.SetProperty(p => p.Result, result), cancellationToken);
 
 				if (updated != 1)
-					throw new InvalidOperationException($"Match history entry {matchId} disappeared while its winner was being finalized.");
+					throw new InvalidOperationException($"Match {matchId} slot {slotIndex} disappeared while its winner was being finalized.");
 			}
 			catch (Exception ex)
 			{
@@ -867,175 +821,27 @@ namespace Database
 			}
 		}
 
-
-
-		public static async Task<MatchHistoryCollection> GetMatchesInRange(
-	AppDbContext db, long startID, long endID)
+		// Finished matches by id ascending after afterID, finished at or after since (a poller never misses a match that started before its cursor); the newest first when neither is given
+		public static async Task<List<MatchHistory_Entry>> GetMatchesPage(AppDbContext db, long? afterID, DateTime? since, int take, CancellationToken cancellationToken = default)
 		{
-			MatchHistoryCollection collection = new();
-
-			try
+			IQueryable<Match> query = db.Matches.AsNoTracking().Where(m => m.FinishedAt != null);
+			if (afterID != null)
 			{
-				// Single query fetches metadata + all slot columns — no concurrent reader issue.
-				var rows = await db.MatchHistory
-					.Where(m => m.MatchId >= startID && m.MatchId <= endID && m.Finished)
-					.Select(m => new
-					{
-						m.MatchId,
-						m.Owner,
-						m.Name,
-						m.Finished,
-						m.Started,
-						m.TimeFinished,
-						m.MapName,
-						m.MapPath,
-						m.MatchRosterType,
-						m.LobbyType,
-						m.MapOfficial,
-						m.VanillaTeams,
-						m.StartingCash,
-						m.LimitSuperweapons,
-						m.TrackStats,
-						m.AllowObservers,
-						m.MaxCamHeight,
-						m.ExeCRC,
-						m.IniCRC,
-						m.MemberSlot0,
-						m.MemberSlot1,
-						m.MemberSlot2,
-						m.MemberSlot3,
-						m.MemberSlot4,
-						m.MemberSlot5,
-						m.MemberSlot6,
-						m.MemberSlot7
-					})
-					.ToListAsync();
-
-				foreach (var row in rows)
-				{
-					var entry = new MatchHistory_Entry(
-						row.MatchId,
-						row.Owner,
-						row.Name,
-						row.Finished,
-						row.Started.ToString("O"),
-						row.TimeFinished.ToString("O"),
-						row.MapName,
-						row.MapPath ?? string.Empty,
-						row.MatchRosterType,
-						row.LobbyType,
-						row.MapOfficial,
-						row.VanillaTeams,
-						row.StartingCash,
-						row.LimitSuperweapons,
-						row.TrackStats,
-						row.AllowObservers,
-						row.MaxCamHeight,
-						row.ExeCRC,
-						row.IniCRC
-					);
-
-					AddMemberIfNotNull(entry, row.MemberSlot0);
-					AddMemberIfNotNull(entry, row.MemberSlot1);
-					AddMemberIfNotNull(entry, row.MemberSlot2);
-					AddMemberIfNotNull(entry, row.MemberSlot3);
-					AddMemberIfNotNull(entry, row.MemberSlot4);
-					AddMemberIfNotNull(entry, row.MemberSlot5);
-					AddMemberIfNotNull(entry, row.MemberSlot6);
-					AddMemberIfNotNull(entry, row.MemberSlot7);
-
-					collection.matches.Add(entry);
-				}
+				long after = afterID.Value;
+				query = query.Where(m => m.Id > after);
 			}
-			catch (Exception ex)
+			if (since != null)
 			{
-				s_log.LogError(ex, "GetMatchesInRange failed");
+				DateTime from = DateTime.SpecifyKind(since.Value, DateTimeKind.Utc);
+				query = query.Where(m => m.FinishedAt >= from);
 			}
+			query = afterID == null && since == null ? query.OrderByDescending(m => m.Id) : query.OrderBy(m => m.Id);
 
-			return collection;
+			List<Match> matches = await query.Take(take).ToListAsync(cancellationToken);
+			return await ToEntries(db, matches, cancellationToken);
 		}
 
-		public static async Task<MatchHistoryCollection> GetMatchesSince(
-	AppDbContext db, DateTime since, int maxLobbiesPerRequest)
-		{
-			MatchHistoryCollection collection = new();
-
-			since = DateTime.SpecifyKind(since, DateTimeKind.Utc);
-
-			try
-			{
-				// Single query fetches metadata + all slot columns — no concurrent reader issue.
-				await foreach (var row in _getMatchesSince(db, since, maxLobbiesPerRequest))
-				{
-					var entry = new MatchHistory_Entry(
-						row.MatchId,
-						row.Owner,
-						row.Name,
-						row.Finished,
-						row.Started.ToString("O"),
-						row.TimeFinished.ToString("O"),
-						row.MapName,
-						row.MapPath ?? string.Empty,
-						row.MatchRosterType,
-						row.LobbyType,
-						row.MapOfficial,
-						row.VanillaTeams,
-						row.StartingCash,
-						row.LimitSuperweapons,
-						row.TrackStats,
-						row.AllowObservers,
-						row.MaxCamHeight,
-						row.ExeCRC,
-						row.IniCRC
-					);
-
-					AddMemberIfNotNull(entry, row.MemberSlot0);
-					AddMemberIfNotNull(entry, row.MemberSlot1);
-					AddMemberIfNotNull(entry, row.MemberSlot2);
-					AddMemberIfNotNull(entry, row.MemberSlot3);
-					AddMemberIfNotNull(entry, row.MemberSlot4);
-					AddMemberIfNotNull(entry, row.MemberSlot5);
-					AddMemberIfNotNull(entry, row.MemberSlot6);
-					AddMemberIfNotNull(entry, row.MemberSlot7);
-
-					collection.matches.Add(entry);
-				}
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetMatchesSince failed");
-			}
-
-			return collection;
-		}
-
-		private static void AddMemberIfNotNull(MatchHistory_Entry entry, string? json)
-		{
-			if (!string.IsNullOrEmpty(json))
-			{
-				var model = JsonSerializer.Deserialize<GenOnlineService.MatchdataMemberModel?>(json);
-				if (model != null)
-					entry.members.Add(model);
-			}
-		}
-
-
-
-		public static async Task<long> GetHighestMatchID(AppDbContext db)
-		{
-			try
-			{
-				long? result = await _getHighestMatchId(db);
-				return result ?? -1;
-			}
-			catch (Exception ex)
-			{
-				s_log.LogError(ex, "GetHighestMatchID failed");
-				return -1;
-			}
-		}
-
-		// Called when a lobby is deleted, thats the true end of a match
+		// Called when a lobby is deleted, the true end of a match
 		public static async Task FinalizeAndScheduleExternalPublication(
 			AppDbContext db,
 			GenOnlineService.Lobby lobby,
@@ -1046,14 +852,14 @@ namespace Database
 
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-			await CommitLobbyToMatchHistory(db, lobby, cancellationToken);
+			await FinishMatch(db, lobby, cancellationToken);
 			await DetermineLobbyWinnerIfNotPresent(db, lobby, cancellationToken);
 			await ScheduleExternalPublication(db, lobby.MatchID, cancellationToken);
 
 			await transaction.CommitAsync(cancellationToken);
 		}
 
-		private static async Task CommitLobbyToMatchHistory(
+		private static async Task FinishMatch(
 			AppDbContext db,
 			GenOnlineService.Lobby lobby,
 			CancellationToken cancellationToken)
@@ -1061,17 +867,17 @@ namespace Database
 			if (lobby.MatchID == 0)
 				return;
 
-			await db.MatchHistory
-				.Where(m => m.MatchId == (long)lobby.MatchID && !m.Finished)
-				.ExecuteUpdateAsync(s => s
-					.SetProperty(m => m.Finished, true)
-					.SetProperty(m => m.TimeFinished, DateTime.UtcNow), cancellationToken);
+			DateTime now = DateTime.UtcNow;
 
-			bool matchExists = await db.MatchHistory
-				.AnyAsync(m => m.MatchId == (long)lobby.MatchID && m.Finished, cancellationToken);
+			await db.Matches
+				.Where(m => m.Id == (long)lobby.MatchID && m.FinishedAt == null)
+				.ExecuteUpdateAsync(s => s.SetProperty(m => m.FinishedAt, now), cancellationToken);
+
+			bool matchExists = await db.Matches
+				.AnyAsync(m => m.Id == (long)lobby.MatchID && m.FinishedAt != null, cancellationToken);
 
 			if (!matchExists)
-				throw new InvalidOperationException($"Finished match history entry {lobby.MatchID} was not found.");
+				throw new InvalidOperationException($"Finished match {lobby.MatchID} was not found.");
 		}
 
 		private static async Task ScheduleExternalPublication(
@@ -1079,29 +885,31 @@ namespace Database
 			ulong matchId,
 			CancellationToken cancellationToken)
 		{
-			if (matchId == 0)
+			// an environment without the external leaderboards keeps no backlog to publish later
+			if (matchId == 0 || !GenOnlineService.ExternalLeaderboardsClient.IsConfigured())
 				return;
 
-			bool exists = await db.ExternalPublications.AnyAsync(p => p.MatchId == (long)matchId, cancellationToken);
+			bool exists = await db.MatchPublications.AnyAsync(p => p.MatchId == (long)matchId, cancellationToken);
 			if (!exists)
 			{
-				db.ExternalPublications.Add(new ExternalPublicationEntry
+				db.MatchPublications.Add(new MatchPublication
 				{
 					MatchId = (long)matchId,
 					NextAttemptAt = DateTime.UtcNow
 				});
 				await db.SaveChangesAsync(cancellationToken);
+				db.ChangeTracker.Clear();
 			}
 
-			bool publicationIsDurable = await db.MatchHistory.AnyAsync(
-				m => m.MatchId == (long)matchId && m.Finished,
+			bool publicationIsDurable = await db.Matches.AnyAsync(
+				m => m.Id == (long)matchId && m.FinishedAt != null,
 				cancellationToken);
-			publicationIsDurable &= await db.ExternalPublications.AnyAsync(
+			publicationIsDurable &= await db.MatchPublications.AnyAsync(
 				p => p.MatchId == (long)matchId,
 				cancellationToken);
 
 			if (!publicationIsDurable)
-				throw new InvalidOperationException($"Match history entry {matchId} could not be scheduled for external publication.");
+				throw new InvalidOperationException($"Match {matchId} could not be scheduled for external publication.");
 		}
 
 		public static async Task<List<ExternalPublicationWorkItem>> GetPendingExternalPublications(
@@ -1110,7 +918,7 @@ namespace Database
 			int maxCount,
 			CancellationToken cancellationToken)
 		{
-			List<ExternalPublicationEntry> pending = await db.ExternalPublications
+			List<MatchPublication> pending = await db.MatchPublications
 				.Where(p => p.PublishedAt == null && p.NextAttemptAt != null && p.NextAttemptAt <= utcNow)
 				.OrderBy(p => p.NextAttemptAt)
 				.ThenBy(p => p.MatchId)
@@ -1127,10 +935,10 @@ namespace Database
 			CancellationToken cancellationToken)
 		{
 			return await (
-				from publication in db.ExternalPublications.AsNoTracking()
-				join match in db.MatchHistory.AsNoTracking() on publication.MatchId equals match.MatchId
-				where publication.PublishedAt == null && match.Finished
-				select (DateTime?)match.TimeFinished)
+				from publication in db.MatchPublications.AsNoTracking()
+				join match in db.Matches.AsNoTracking() on publication.MatchId equals match.Id
+				where publication.PublishedAt == null && match.FinishedAt != null
+				select match.FinishedAt)
 				.MinAsync(cancellationToken);
 		}
 
@@ -1143,7 +951,7 @@ namespace Database
 			if (matchId == 0)
 				throw new ArgumentOutOfRangeException(nameof(matchId));
 
-			int updated = await db.ExternalPublications
+			int updated = await db.MatchPublications
 				.Where(p => p.MatchId == (long)matchId && p.PublishedAt == null)
 				.ExecuteUpdateAsync(s => s
 					.SetProperty(p => p.PublishedAt, DateTime.UtcNow)
@@ -1152,7 +960,7 @@ namespace Database
 					.SetProperty(p => p.LastError, (string?)null), cancellationToken);
 
 			if (updated != 1)
-				throw new InvalidOperationException($"Match history entry {matchId} could not be acknowledged after external publication.");
+				throw new InvalidOperationException($"Match {matchId} could not be acknowledged after external publication.");
 		}
 
 		public static async Task MarkExternalPublicationFailed(
@@ -1170,7 +978,7 @@ namespace Database
 			if (!string.IsNullOrEmpty(truncatedError) && truncatedError.Length > 512)
 				truncatedError = truncatedError[..512];
 
-			int updated = await db.ExternalPublications
+			int updated = await db.MatchPublications
 				.Where(p => p.MatchId == (long)matchId && p.PublishedAt == null)
 				.ExecuteUpdateAsync(s => s
 					.SetProperty(p => p.NextAttemptAt, nextAttemptAt)
@@ -1178,7 +986,7 @@ namespace Database
 					.SetProperty(p => p.LastError, truncatedError), cancellationToken);
 
 			if (updated != 1)
-				throw new InvalidOperationException($"Match history entry {matchId} could not be rescheduled after publication failure.");
+				throw new InvalidOperationException($"Match {matchId} could not be rescheduled after publication failure.");
 		}
 
 		internal static async Task<MatchHistory_Entry?> LoadMatchHistoryEntryAsync(
@@ -1186,171 +994,78 @@ namespace Database
 			long matchId,
 			CancellationToken cancellationToken = default)
 		{
-			var row = await db.MatchHistory.FirstOrDefaultAsync(m => m.MatchId == matchId, cancellationToken);
-			if (row == null)
+			Match? match = await db.Matches.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matchId, cancellationToken);
+			if (match == null)
 				return null;
 
-			var entry = new MatchHistory_Entry(
-				row.MatchId,
-				row.Owner,
-				row.Name,
-				row.Finished,
-				row.Started.ToString("O"),
-				row.TimeFinished.ToString("O"),
-				row.MapName,
-				row.MapPath ?? string.Empty,
-				row.MatchRosterType,
-				row.LobbyType,
-				row.MapOfficial,
-				row.VanillaTeams,
-				row.StartingCash,
-				row.LimitSuperweapons,
-				row.TrackStats,
-				row.AllowObservers,
-				row.MaxCamHeight,
-				row.ExeCRC,
-				row.IniCRC
-			);
+			List<MatchPlayer> players = await db.MatchPlayers.AsNoTracking()
+				.Where(p => p.MatchId == matchId)
+				.ToListAsync(cancellationToken);
 
-			AddMemberIfNotNull(entry, row.MemberSlot0);
-			AddMemberIfNotNull(entry, row.MemberSlot1);
-			AddMemberIfNotNull(entry, row.MemberSlot2);
-			AddMemberIfNotNull(entry, row.MemberSlot3);
-			AddMemberIfNotNull(entry, row.MemberSlot4);
-			AddMemberIfNotNull(entry, row.MemberSlot5);
-			AddMemberIfNotNull(entry, row.MemberSlot6);
-			AddMemberIfNotNull(entry, row.MemberSlot7);
-
-			return entry;
+			return ToEntry(match, players);
 		}
-
-		// METADATA
-		private static Action<UpdateSettersBuilder<MatchHistoryEntry>>
-	BuildSlotSetter(int slotIndex, string updatedJson)
-		{
-			return slotIndex switch
-			{
-				0 => s => s.SetProperty(m => m.MemberSlot0, updatedJson),
-				1 => s => s.SetProperty(m => m.MemberSlot1, updatedJson),
-				2 => s => s.SetProperty(m => m.MemberSlot2, updatedJson),
-				3 => s => s.SetProperty(m => m.MemberSlot3, updatedJson),
-				4 => s => s.SetProperty(m => m.MemberSlot4, updatedJson),
-				5 => s => s.SetProperty(m => m.MemberSlot5, updatedJson),
-				6 => s => s.SetProperty(m => m.MemberSlot6, updatedJson),
-				7 => s => s.SetProperty(m => m.MemberSlot7, updatedJson),
-				_ => throw new ArgumentOutOfRangeException(nameof(slotIndex))
-			};
-		}
-
 
 		public static async Task AttachMatchHistoryMetadata(
-	AppDbContext db,
-	ulong matchId,
-	int slotIndex,
-	string fileName,
-	EMetadataFileType fileType)
+			AppDbContext db,
+			ulong matchId,
+			int slotIndex,
+			string fileName,
+			EMetadataFileType fileType)
 		{
-			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
+			if (matchId == 0 || slotIndex < 0 || slotIndex >= SlotCount)
 				return;
 
-			// 1. Load JSON for this slot
-			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
-			if (string.IsNullOrEmpty(json))
-				return;
-
-			// 2. Deserialize
-			MatchdataMemberModel? modelN = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
-			if (modelN == null)
-				return;
-
-			MatchdataMemberModel model = modelN.Value;
-
-			// 3. Ensure metadata list exists
-			model.metadata ??= new List<MemberMetadataModel>();
-
-			// 4. Append metadata entry
-			model.metadata.Add(new MemberMetadataModel
+			try
 			{
-				file_name = fileName,
-				file_type = (EMetadataFileType)fileType
-			});
+				MatchPlayer? player = await GetPlayer(db, (long)matchId, slotIndex);
+				if (player == null)
+					return;
 
-			// 5. Serialize back
-			string updatedJson = JsonSerializer.Serialize(model);
+				MatchPlayerDetails details = ReadDetails(player.Details);
+				details.metadata ??= new List<MemberMetadataModel>();
+				details.metadata.Add(new MemberMetadataModel
+				{
+					file_name = fileName,
+					file_type = fileType
+				});
 
-			// 6. Build setter expression
-			var setter = BuildSlotSetter(slotIndex, updatedJson);
-
-			// 7. Execute update (single SQL UPDATE)
-			await db.MatchHistory
-				.Where(m => m.MatchId == (long)matchId)
-				.ExecuteUpdateAsync(setter);
+				player.Details = WriteDetails(details);
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
 		}
 
-		// ELO
-		public static async Task UpdateLeaderboardAndElo(
-	AppDbContext db,
-	GenOnlineService.Lobby lobby)
+		public static async Task UpdateLeaderboardAndElo(AppDbContext db, GenOnlineService.Lobby lobby)
 		{
 			if (lobby.LobbyType != ELobbyType.QuickMatch)
 				return;
 
 			try
 			{
-				int dayOfYear = lobby.TimeCreated.DayOfYear;
-				int monthOfYear = lobby.TimeCreated.Month;
-				int year = lobby.TimeCreated.Year;
+				var members = (await LoadMembersBySlot(db, (long)lobby.MatchID)).Values
+					.Where(m => m.side != Constants.OBSERVER_SIDE_VALUE && m.user_id > 0)
+					.ToList();
 
-				var members = await LoadMatchMembersAsync(db, (long)lobby.MatchID);
 				if (members.Count == 0)
 					return;
 
 				await UpdateCurrentEloAsync(db, members);
-				await UpdatePeriodEloAndLeaderboardsAsync(
-					db, members, dayOfYear, monthOfYear, year);
+				await UpdatePeriodEloAndLeaderboardsAsync(db, members, lobby.TimeCreated.ToUniversalTime());
 			}
 			catch (Exception ex)
 			{
 				s_log.LogError(ex, "UpdateLeaderboardAndElo failed");
 			}
 		}
-		private static async Task<List<MatchdataMemberModel>> LoadMatchMembersAsync(
-			AppDbContext db, long matchId)
-		{
-			var slots = await _getAllMemberSlots(db, matchId);
-			var list = new List<MatchdataMemberModel>();
 
-			if (slots == null)
-				return list;
-
-			for (int i = 0; i < slots.Length; i++)
-			{
-				if (!string.IsNullOrEmpty(slots[i]))
-				{
-					MatchdataMemberModel? model = JsonSerializer.Deserialize<MatchdataMemberModel?>(slots[i]!);
-					if (model != null)
-					{
-						// Exclude observer slots and AI/placeholder slots (user_id <= 0)
-						// from ELO calculations — only real human players are ranked.
-						if (model.Value.side == Constants.OBSERVER_SIDE_VALUE || model.Value.user_id <= 0)
-							continue;
-
-						list.Add(model.Value);
-					}
-				}
-			}
-
-			return list;
-		}
-
-		private static async Task UpdateCurrentEloAsync(
-	AppDbContext db,
-	List<MatchdataMemberModel> members)
+		private static async Task UpdateCurrentEloAsync(AppDbContext db, List<MatchdataMemberModel> members)
 		{
 			var userIds = members.Select(m => (long)m.user_id).ToList();
 			var dictElo = await Database.Users.GetBulkELOData(db, userIds);
 
-			// --- ELO pairwise loop (ref-safe) ---
 			foreach (var a in members)
 			{
 				foreach (var b in members)
@@ -1364,36 +1079,23 @@ namespace Database
 					if (a.user_id >= b.user_id)
 						continue;
 
-					s_log.LogDebug("ELO pairing a={PlayerA}(won={AWon}) vs b={PlayerB}(won={BWon}), result={Result}",
-						a.user_id, a.won, b.user_id, b.won, a.won ? "PlayerAWins" : "PlayerBWins");
-					ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(
-						dictElo, a.user_id, out _);
-
-					ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(
-						dictElo, b.user_id, out _);
-
-					Elo.ApplyResult(
-						ref A,
-						ref B,
-						a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
+					ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(dictElo, a.user_id, out _);
+					ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(dictElo, b.user_id, out _);
+					Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
 				}
 			}
 
-			// --- Increment matches (still ref-safe) ---
 			foreach (var m in members)
 			{
-				ref EloData data = ref CollectionsMarshal.GetValueRefOrAddDefault(
-					dictElo, m.user_id, out _);
+				ref EloData data = ref CollectionsMarshal.GetValueRefOrAddDefault(dictElo, m.user_id, out _);
 				data.NumMatches++;
 			}
 
-			// --- Persist (copy out of ref before EF) ---
 			foreach (var pair in dictElo)
 			{
 				long userId = pair.Key;
-				EloData data = pair.Value;   // <-- COPY OUT OF REF HERE
+				EloData data = pair.Value;
 
-				// Update live user if online
 				var shared = GenOnlineService.WebSocketManager.GetSharedDataForUser(userId);
 				if (shared != null)
 				{
@@ -1401,28 +1103,19 @@ namespace Database
 					shared.GameStats.EloMatches = data.NumMatches;
 				}
 
-				// EF Core persistence (no ref locals allowed)
 				await Database.Users.SaveELOData(db, userId, data);
 			}
 		}
 
-
-		private static async Task UpdatePeriodEloAndLeaderboardsAsync(
-	AppDbContext db,
-	List<MatchdataMemberModel> members,
-	int dayOfYear,
-	int monthOfYear,
-	int year)
+		private static async Task UpdatePeriodEloAndLeaderboardsAsync(AppDbContext db, List<MatchdataMemberModel> members, DateTime matchTimeUtc)
 		{
 			var userIds = members.Select(m => (long)m.user_id).ToList();
-			var bulk = await Database.Leaderboards.GetBulkLeaderboardData(
-				db, userIds, dayOfYear, monthOfYear, year);
+			var bulk = await Database.Leaderboards.GetBulkLeaderboardData(db, userIds, matchTimeUtc);
 
 			var daily = new Dictionary<long, EloData>();
 			var monthly = new Dictionary<long, EloData>();
 			var yearly = new Dictionary<long, EloData>();
 
-			// Initialize from DB
 			foreach (var m in members)
 			{
 				var lb = bulk[m.user_id];
@@ -1431,7 +1124,6 @@ namespace Database
 				yearly[m.user_id] = new EloData(lb.yearly, lb.yearly_matches);
 			}
 
-			// --- Pairwise ELO (ref-safe) ---
 			foreach (var a in members)
 			{
 				foreach (var b in members)
@@ -1445,75 +1137,98 @@ namespace Database
 					if (a.user_id >= b.user_id)
 						continue;
 
-					// Daily
-					{
-						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(daily, a.user_id, out _);
-						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(daily, b.user_id, out _);
-						Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
-					}
+					MatchResult result = a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins;
 
-					// Monthly
+					foreach (var period in new[] { daily, monthly, yearly })
 					{
-						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(monthly, a.user_id, out _);
-						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(monthly, b.user_id, out _);
-						Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
-					}
-
-					// Yearly
-					{
-						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(yearly, a.user_id, out _);
-						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(yearly, b.user_id, out _);
-						Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
+						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(period, a.user_id, out _);
+						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(period, b.user_id, out _);
+						Elo.ApplyResult(ref A, ref B, result);
 					}
 				}
 			}
 
-			// --- Persist (copy out of ref before EF) ---
+			DateOnly day = LeaderboardPeriods.DayStart(matchTimeUtc);
+			DateOnly month = LeaderboardPeriods.MonthStart(matchTimeUtc);
+			DateOnly year = LeaderboardPeriods.YearStart(matchTimeUtc);
+
 			foreach (var m in members)
 			{
 				long userId = m.user_id;
-
-				EloData d = daily[userId];   // <-- COPY OUT OF REF
-				EloData mo = monthly[userId];
-				EloData y = yearly[userId];
-
 				int wins = m.won ? 1 : 0;
 				int losses = m.won ? 0 : 1;
 
-				// Daily
-				await db.LeaderboardDaily
-					.Where(x => x.UserId == userId &&
-								x.DayOfYear == dayOfYear &&
-								x.Year == year)
-					.ExecuteUpdateAsync(s => s
-						.SetProperty(x => x.Points, d.Rating)
-						.SetProperty(x => x.Wins, x => x.Wins + wins)
-						.SetProperty(x => x.Losses, x => x.Losses + losses));
+				foreach (var (period, start, points) in new[]
+				{
+					(LeaderboardPeriods.Day, day, daily[userId].Rating),
+					(LeaderboardPeriods.Month, month, monthly[userId].Rating),
+					(LeaderboardPeriods.Year, year, yearly[userId].Rating)
+				})
+				{
+					await db.LeaderboardEntries
+						.Where(x => x.UserId == userId && x.Period == period && x.PeriodStart == start)
+						.ExecuteUpdateAsync(s => s
+							.SetProperty(x => x.Points, points)
+							.SetProperty(x => x.Wins, x => x.Wins + wins)
+							.SetProperty(x => x.Losses, x => x.Losses + losses));
+				}
+			}
+		}
+	}
 
-				// Monthly
-				await db.LeaderboardMonthly
-					.Where(x => x.UserId == userId &&
-								x.MonthOfYear == monthOfYear &&
-								x.Year == year)
-					.ExecuteUpdateAsync(s => s
-						.SetProperty(x => x.Points, mo.Rating)
-						.SetProperty(x => x.Wins, x => x.Wins + wins)
-						.SetProperty(x => x.Losses, x => x.Losses + losses));
+	// Faction win rates of the current UTC day, derived from finished matches and cached for the GlobalStats endpoint
+	public static class FactionStats
+	{
+		private static readonly ILogger s_log = AppLog.For(typeof(FactionStats));
 
-				// Yearly
-				await db.LeaderboardYearly
-					.Where(x => x.UserId == userId &&
-								x.Year == year)
-					.ExecuteUpdateAsync(s => s
-						.SetProperty(x => x.Points, y.Rating)
-						.SetProperty(x => x.Wins, x => x.Wins + wins)
-						.SetProperty(x => x.Losses, x => x.Losses + losses));
+		// Playable sides are 2..13, the array index is side - 2
+		public const int FirstSide = 2;
+
+		private static FactionStatsStructure s_current = new();
+
+		public static FactionStatsStructure Current => Volatile.Read(ref s_current);
+
+		public static async Task Refresh(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
+		{
+			try
+			{
+				Volatile.Write(ref s_current, await Compute(db, utcNow, cancellationToken));
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "FactionStats.Refresh failed");
+				throw;
 			}
 		}
 
+		public static async Task<FactionStatsStructure> Compute(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
+		{
+			DateTime dayStart = DateTime.SpecifyKind(utcNow.Date, DateTimeKind.Utc);
+			int lastSide = FirstSide + FactionStatsStructure.numSides - 1;
 
+			var rows = await (
+				from player in db.MatchPlayers.AsNoTracking()
+				join match in db.Matches.AsNoTracking() on player.MatchId equals match.Id
+				where match.FinishedAt != null && match.FinishedAt >= dayStart
+					&& player.UserId != null && player.Result != null
+					&& player.Side >= FirstSide && player.Side <= lastSide
+				group player by player.Side into bySide
+				select new
+				{
+					Side = bySide.Key!.Value,
+					Matches = bySide.Count(),
+					Wins = bySide.Count(p => p.Result == MatchResults.Win)
+				})
+				.ToListAsync(cancellationToken);
 
+			var stats = new FactionStatsStructure();
+			foreach (var row in rows)
+			{
+				stats.matches[row.Side - FirstSide] = row.Matches;
+				stats.wins[row.Side - FirstSide] = row.Wins;
+			}
 
-
+			return stats;
+		}
 	}
 }

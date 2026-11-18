@@ -5,6 +5,10 @@ VisualStudioVersion = 18.2.11408.102
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenOnlineService", "GenOnlineService\GenOnlineService.csproj", "{4F9A872B-0A76-5BA1-AB13-D339918346D6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenOnlineService.Tests", "GenOnlineService.Tests\GenOnlineService.Tests.csproj", "{6B0924EE-DFAC-455C-921A-9395B45CB593}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenOnlineService.Portal.Client", "GenOnlineService.Portal.Client\GenOnlineService.Portal.Client.csproj", "{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM64 = Debug|ARM64
@@ -21,6 +25,22 @@ Global
 		{4F9A872B-0A76-5BA1-AB13-D339918346D6}.Release|ARM64.Build.0 = Release|ARM64
 		{4F9A872B-0A76-5BA1-AB13-D339918346D6}.Release|x64.ActiveCfg = Release|x64
 		{4F9A872B-0A76-5BA1-AB13-D339918346D6}.Release|x64.Build.0 = Release|x64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Debug|ARM64.Build.0 = Debug|ARM64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Debug|x64.ActiveCfg = Debug|x64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Debug|x64.Build.0 = Debug|x64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Release|ARM64.ActiveCfg = Release|ARM64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Release|ARM64.Build.0 = Release|ARM64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Release|x64.ActiveCfg = Release|x64
+		{6B0924EE-DFAC-455C-921A-9395B45CB593}.Release|x64.Build.0 = Release|x64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Debug|ARM64.Build.0 = Debug|ARM64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Debug|x64.ActiveCfg = Debug|x64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Debug|x64.Build.0 = Debug|x64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Release|ARM64.ActiveCfg = Release|ARM64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Release|ARM64.Build.0 = Release|ARM64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Release|x64.ActiveCfg = Release|x64
+		{3C1D8A52-7E4F-4B6A-9D21-5F0A6C3E8B17}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

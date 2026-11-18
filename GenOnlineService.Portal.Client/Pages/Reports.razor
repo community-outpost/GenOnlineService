@@ -1,0 +1,402 @@
+@* The report queue: the page header (nav-02) over GitLab's filtered search and the data grid blueprint (data-02) in a card,
+   a row actions menu, the pagination footer, and a dialog to close a report. It opens on the open reports, oldest first;
+   the status, the search and the order live in the address, so a view can be linked and survives a reload. A closed
+   report shows how it was closed, by whom, and the note. A message report shows the reported message, which chat.delete_any may delete *@
+@page "/admin/reports"
+@inject PortalApi Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+@* The headless grid of the same name lives in this namespace, so its types are named one by one *@
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>Reports · Generals Online</PageTitle>
+
+<PageHeader Description="Players report each other from the game and the chat. Close each report as actioned or dismissed; the note goes to the audit log.">
+    <Title>Reports</Title>
+    <Actions>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="RefreshAsync">
+            <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+            Refresh
+        </BbButton>
+    </Actions>
+</PageHeader>
+
+@if (!Session.Staff)
+{
+    <Refusal Title="Staff only" Description="Your account holds no staff permission, so the report queue is closed to you." />
+}
+else
+{
+    @if (m_error != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>The queue could not load</BbAlertTitle>
+                <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    <BbCard Class="go-filtered">
+        <BbCardContent Class="bb:pt-6">
+            <div class="go-filterbar" role="search" aria-label="Filter reports">
+                <form class="go-filterbar-search" @onsubmit="Search">
+                    <BbInput Id="report-search" Type="InputType.Search" @bind-Value="m_typed" Placeholder="Reason or player name…" AriaLabel="Search reports" autocomplete="off" spellcheck="false" />
+                </form>
+                <div class="go-filterbar-selects">
+                    <BbNativeSelect TValue="string" Value="@m_query.Status" ValueChanged="@((string? v) => Show(m_query with { Status = String.IsNullOrEmpty(v) ? PortalReportQuery.DefaultStatus : v }))" AriaLabel="Status" Class="go-select" data-testid="report-status">
+                        <option value="open">Open</option>
+                        <option value="actioned,dismissed">Closed</option>
+                        <option value="actioned">Actioned</option>
+                        <option value="dismissed">Dismissed</option>
+                        <option value="all">Any status</option>
+                    </BbNativeSelect>
+                    <BbNativeSelect TValue="string" Value="@(m_query.NewestFirst ? "desc" : "asc")" ValueChanged="@((string? v) => Show(m_query with { NewestFirst = v == "desc" }))" AriaLabel="Order" Class="go-select">
+                        <option value="asc">Oldest first</option>
+                        <option value="desc">Newest first</option>
+                    </BbNativeSelect>
+                    @if (m_query != new PortalReportQuery())
+                    {
+                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => Show(new PortalReportQuery()))">
+                            <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+                            Clear
+                        </BbButton>
+                    }
+                </div>
+            </div>
+
+            <BbDataGrid @key="m_viewKey" TData="PortalReport" ItemsProvider="@LoadAsync" ItemKey="@(r => r.Id)" InitialPageSize="20" AriaLabel="Reports">
+                <Toolbar>
+                    <BbDataGridColumnVisibility TData="PortalReport" />
+                </Toolbar>
+                <Columns>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="long" Property="@(r => r.Id)" Title="#" Width="80px" Hideable="false">
+                        <CellTemplate>
+                            <span class="go-muted bb:font-mono">@context.Id</span>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="DateTime" Property="@(r => r.CreatedAt)" Title="Reported" Width="110px">
+                        <CellTemplate>
+                            <When Value="@context.CreatedAt" />
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReportedName)" Title="Reported player">
+                        <CellTemplate>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Reported.Id)">@context.ReportedName</BbLink>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.MessageContent!)" Title="Message">
+                        <CellTemplate>
+                            @if (context.MessageId == null)
+                            {
+                                <span class="bb:text-muted-foreground">Report of the player</span>
+                            }
+                            else if (context.MessageContent == null)
+                            {
+                                <span class="bb:text-muted-foreground">Message #@context.MessageId</span>
+                            }
+                            else
+                            {
+                                <span title="@context.MessageContent" data-testid="reported-message">@Shorten(context.MessageContent)</span>
+                            }
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.ReporterName)" Title="By">
+                        <CellTemplate>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Reporter.Id)">@context.ReporterName</BbLink>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridPropertyColumn TData="PortalReport" TProp="string" Property="@(r => r.Reason!)" Title="Reason">
+                        <CellTemplate>
+                            <span class="bb:inline-flex bb:items-center bb:gap-2">
+                                <LucideIcon Name="@(context.MessageId != null ? "message-square" : "user")" Class="bb:h-4 bb:w-4 bb:shrink-0 bb:text-muted-foreground" title="@(context.MessageId != null ? "A report of a chat message" : "A report of the player")" />
+                                @if (String.IsNullOrEmpty(context.Reason))
+                                {
+                                    <span class="go-muted">No reason given</span>
+                                }
+                                else
+                                {
+                                    @context.Reason
+                                }
+                            </span>
+                        </CellTemplate>
+                    </BbDataGridPropertyColumn>
+                    <BbDataGridTemplateColumn TData="PortalReport" Title="Status" Width="260px">
+                        <ChildContent Context="report">
+                            <div class="bb:space-y-1" data-testid="report-outcome">
+                                <BbBadge Variant="@PortalBadges.OfReport(report.Status)">@report.Status</BbBadge>
+                                @if (report.ResolvedAt is DateTime resolved)
+                                {
+                                    <div class="bb:text-xs bb:text-muted-foreground">
+                                        @if (report.ResolverName != null)
+                                        {
+                                            <span>by @report.ResolverName, </span>
+                                        }
+                                        <When Value="@resolved" />
+                                    </div>
+                                    @if (!String.IsNullOrEmpty(report.ResolutionNote))
+                                    {
+                                        <div class="bb:text-xs go-clamp" title="@report.ResolutionNote">@report.ResolutionNote</div>
+                                    }
+                                }
+                            </div>
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    <BbDataGridTemplateColumn TData="PortalReport" Title="Actions" Width="80px" Hideable="false">
+                        <HeaderTemplate>
+                            <span class="bb:sr-only">Actions</span>
+                        </HeaderTemplate>
+                        <ChildContent Context="report">
+                            <BbDropdownMenu>
+                                <BbDropdownMenuTrigger>
+                                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" Class="bb:h-8 bb:w-8" AriaLabel="@($"Actions for report {report.Id}")">
+                                        <LucideIcon Name="ellipsis" Class="bb:h-4 bb:w-4" />
+                                    </BbButton>
+                                </BbDropdownMenuTrigger>
+                                <BbDropdownMenuContent Align="PopoverAlign.End">
+                                    <BbDropdownMenuLabel>Report #@report.Id</BbDropdownMenuLabel>
+                                    <BbDropdownMenuSeparator />
+                                    <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.PlayerPage(report.Reported.Id)))">
+                                        <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                        Open the reported player
+                                    </BbDropdownMenuItem>
+                                    <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.PlayerReports(report.Reported.Id)))">
+                                        <LucideIcon Name="list" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                        Every report of this player
+                                    </BbDropdownMenuItem>
+                                    @if (report.MessageId != null && Session.Can(PortalPermissions.ChatDeleteAny))
+                                    {
+                                        <BbDropdownMenuItem Class="bb:text-destructive" OnClick="@(_ => OpenDelete(report))">
+                                            <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                            Delete message
+                                        </BbDropdownMenuItem>
+                                    }
+                                    @if (report.Status == "open")
+                                    {
+                                        <BbDropdownMenuSeparator />
+                                        <BbDropdownMenuItem OnClick="@(_ => Open(report, "actioned"))">
+                                            <LucideIcon Name="circle-check" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                            Mark actioned
+                                        </BbDropdownMenuItem>
+                                        <BbDropdownMenuItem OnClick="@(_ => Open(report, "dismissed"))">
+                                            <LucideIcon Name="circle-x" Class="bb:h-4 bb:w-4 bb:me-2" />
+                                            Dismiss
+                                        </BbDropdownMenuItem>
+                                    }
+                                </BbDropdownMenuContent>
+                            </BbDropdownMenu>
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                </Columns>
+                <EmptyTemplate>
+                    @if (m_query.Status == PortalReportQuery.DefaultStatus && m_query.Search == null)
+                    {
+                        <BbEmpty Size="EmptySize.Small" Title="Nothing to handle" Description="Every report is closed.">
+                            <Icon>
+                                <LucideIcon Name="inbox" />
+                            </Icon>
+                        </BbEmpty>
+                    }
+                    else
+                    {
+                        <BbEmpty Size="EmptySize.Small" Title="No report matches" Description="No report fits this status and search. Clear them to see the open queue.">
+                            <Icon>
+                                <LucideIcon Name="search-x" />
+                            </Icon>
+                        </BbEmpty>
+                    }
+                </EmptyTemplate>
+                <LoadingTemplate>
+                    <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+                </LoadingTemplate>
+            </BbDataGrid>
+        </BbCardContent>
+    </BbCard>
+
+    <BbDialog @bind-Open="m_dialogOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>@(m_status == "actioned" ? "Mark" : "Dismiss") report #@m_closing?.Id@(m_status == "actioned" ? " actioned" : "")</BbDialogTitle>
+                <BbDialogDescription>
+                    @m_closing?.ReporterName reported @m_closing?.ReportedName@(String.IsNullOrEmpty(m_closing?.Reason) ? ", without a reason." : ": " + m_closing.Reason)
+                </BbDialogDescription>
+            </BbDialogHeader>
+            @if (m_closing?.MessageContent != null)
+            {
+                <p class="bb:text-sm bb:rounded-md bb:border bb:p-3" style="white-space: pre-wrap; overflow-wrap: anywhere">@m_closing.MessageContent</p>
+            }
+            <div class="bb:space-y-2">
+                <BbLabel For="resolution-note">Resolution note (optional)</BbLabel>
+                <BbTextarea Id="resolution-note" @bind-Value="m_note" Placeholder="What was done, for the audit log…" autocomplete="off" />
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="ResolveAsync" Loading="@m_saving">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_deleteOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Delete the message of @m_deleting?.ReportedName</BbDialogTitle>
+                <BbDialogDescription>The chat shows it as deleted for everyone. The report stays open until you close it.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                @if (m_deleting?.MessageContent != null)
+                {
+                    <p class="bb:text-sm bb:rounded-md bb:border bb:p-3" style="white-space: pre-wrap; overflow-wrap: anywhere">@m_deleting.MessageContent</p>
+                }
+                <div class="bb:space-y-2">
+                    <BbLabel For="delete-reason">Reason (optional)</BbLabel>
+                    <BbTextarea Id="delete-reason" @bind-Value="m_deleteReason" Placeholder="Kept in the audit log…" autocomplete="off" />
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_deleteOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton Variant="ButtonVariant.Destructive" OnClick="DeleteAsync" Loading="@m_saving" data-testid="confirm-delete">Delete</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    [CascadingParameter]
+    public PortalLayout? Shell { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? Status { get; set; }
+
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sort")]
+    public string? Sort { get; set; }
+
+    private PortalReportQuery m_query = new PortalReportQuery();
+    private string m_viewKey = "";
+    private string? m_typed;
+    private string? m_error;
+    private bool m_dialogOpen;
+    private bool m_saving;
+    private PortalReport? m_closing;
+    private string m_status = "actioned";
+    private string? m_note;
+    private bool m_deleteOpen;
+    private PortalReport? m_deleting;
+    private string? m_deleteReason;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    protected override void OnParametersSet()
+    {
+        m_query = PortalReportQuery.FromAddress(Status, Q, Sort);
+        m_typed = m_query.Search;
+        // a new view starts a new grid on its first page
+        m_viewKey = $"{m_query.Status}|{m_query.Search}|{m_query.NewestFirst}";
+    }
+
+    private void Show(PortalReportQuery query)
+    {
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(query.ToAddress()), replace: true);
+    }
+
+    private void Search()
+    {
+        string term = m_typed?.Trim() ?? "";
+        Show(m_query with { Search = term.Length == 0 ? null : term });
+    }
+
+    // The grid asks for one page, the host filters, sorts and pages the queue
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalReport>> LoadAsync(DataGridRequest request)
+    {
+        PortalAnswer<PortalReportPage> answer = await Api.GetReportsAsync(m_query.Status, m_query.Search, m_query.NewestFirst, request.StartIndex, request.Count ?? 20, request.CancellationToken);
+        string? error = answer.Ok ? null : answer.Error;
+        if (error != m_error)
+        {
+            m_error = error;
+            StateHasChanged();
+        }
+
+        PortalReportPage page = answer.Value ?? new PortalReportPage();
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalReport> { Items = page.Reports.ToList(), TotalItemCount = page.Total };
+    }
+
+    private void Open(PortalReport report, string status)
+    {
+        m_closing = report;
+        m_status = status;
+        m_note = null;
+        m_dialogOpen = true;
+    }
+
+    // One line of the grid, the whole text is the cell's title
+    private static string Shorten(string text) => text.Length <= 80 ? text : text.Substring(0, 79) + "…";
+
+    private void OpenDelete(PortalReport report)
+    {
+        m_deleting = report;
+        m_deleteReason = null;
+        m_deleteOpen = true;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (m_deleting?.MessageId == null)
+        {
+            return;
+        }
+
+        m_saving = true;
+        PortalOutcome outcome = await Api.DeleteMessageAsync(m_deleting.MessageId, String.IsNullOrWhiteSpace(m_deleteReason) ? null : m_deleteReason.Trim());
+        m_saving = false;
+        m_deleteOpen = false;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success("The message is deleted and in the audit log.", "Message deleted");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Message not deleted");
+        }
+    }
+
+    private async Task ResolveAsync()
+    {
+        if (m_closing == null)
+        {
+            return;
+        }
+
+        m_saving = true;
+        PortalOutcome outcome = await Api.ResolveReportAsync(m_closing.Id, m_status, String.IsNullOrWhiteSpace(m_note) ? null : m_note.Trim());
+        m_saving = false;
+        m_dialogOpen = false;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success($"Report #{m_closing.Id} is {m_status}.", "Report closed");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Report not closed");
+        }
+
+        await RefreshAsync();
+    }
+
+    // The same view again from its first page, and the sidebar's open count
+    private async Task RefreshAsync()
+    {
+        m_viewKey = $"{m_query.Status}|{m_query.Search}|{m_query.NewestFirst}#{DateTime.UtcNow.Ticks}";
+        if (Shell != null)
+        {
+            await Shell.RefreshCountsAsync();
+        }
+    }
+}

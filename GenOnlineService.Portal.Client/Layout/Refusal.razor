@@ -1,0 +1,25 @@
+@* A closed or missing page as the library's empty state (BbEmpty) in a card, with the way back to the dashboard *@
+
+<BbCard>
+    <BbCardContent>
+        <BbEmpty Title="@Title" Description="@Description" data-testid="refusal">
+            <Icon>
+                <LucideIcon Name="@Icon" />
+            </Icon>
+            <ChildContent>
+                <BbButton Variant="ButtonVariant.Outline" Href="@PortalRoutes.OverviewPage">Back to the overview</BbButton>
+            </ChildContent>
+        </BbEmpty>
+    </BbCardContent>
+</BbCard>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = "";
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    [Parameter]
+    public string Icon { get; set; } = "shield-x";
+}

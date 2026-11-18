@@ -16,35 +16,19 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Migrations;
-using Microsoft.EntityFrameworkCore.Migrations.Operations;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.EntityFrameworkCore.Storage;
 using MySqlConnector;
-using Npgsql;
-using System.Diagnostics;
 using System.Globalization;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Database
 {
-	// Marks a migration whose raw SQL only adds schema, so the import can read a source that has not applied it
-	[AttributeUsage(AttributeTargets.Class, Inherited = false)]
-	public sealed class ImportSafeAttribute : Attribute
-	{
-		public ImportSafeAttribute(string reason)
-		{
-			Reason = reason;
-		}
-
-		public string Reason { get; }
-	}
-
 	// An error with a message meant for the operator, printed without a stack trace
 	public sealed class ImportException : Exception
 	{
@@ -53,142 +37,65 @@ namespace Database
 		}
 	}
 
-	// The "Import" config section: the database the data is moved from
-	public sealed record ImportSource(string Provider, string Host, ushort Port, string Name, string Username, string Password, MySqlSslMode SslMode);
+	// The "Import" config section: the old production database and the conversion switches
+	public sealed record ImportSettings(
+		string Host,
+		ushort Port,
+		string Name,
+		string Username,
+		string Password,
+		MySqlSslMode SslMode,
+		bool LegacyBansAsLocal,
+		IReadOnlySet<string> Waivers,
+		string ReportPath);
 
 	public sealed class ImportOptions
 	{
 		public bool DryRun { get; init; }
-		public bool Restart { get; init; }
 
 		// (prompt, hint printed when input is not interactive) -> proceed
 		public Func<string, string, bool> Confirm { get; init; } = (_, _) => false;
 	}
 
-	// "GenOnlineService import": moves a MariaDB/MySQL database into PostgreSQL. Every run does the same steps, see README.md.
-	// The source is only ever read. Values go through the value converters of both EF models, so the type rules
-	// (unsigned integers, tinyint flags, the superweapons int, jsonb) stay in one place, the models.
+	// Validation findings that stop the import until they are resolved in the source or waived in Import:waive
+	public static class ImportFindings
+	{
+		public const string DuplicateIdentities = "duplicate_identities";
+		public const string DuplicateEmails = "duplicate_emails";
+		public const string UsernameCollisions = "username_collisions";
+		public const string InvalidUsernames = "invalid_usernames";
+		public const string OrphanedRows = "orphaned_rows";
+		public const string InvalidValues = "invalid_values";
+		public const string InvalidJson = "invalid_json";
+
+		public static readonly IReadOnlyList<string> All = new[] { DuplicateIdentities, DuplicateEmails, UsernameCollisions, InvalidUsernames, OrphanedRows, InvalidValues, InvalidJson };
+	}
+
+	// "GenOnlineService import" converts the old production schema one way: validate writes nothing, convert and verify share one transaction
 	public static class Import
 	{
 		private const int BatchSize = 2000;
-		private const int MaxReportedIssues = 20;
-		private const string StateTable = "__import_state";
+		private const int MaxExamples = 20;
+		private const string ImportActor = "import";
+		private const string LegacyBanReason = "Imported legacy ban";
 
-		// The only table copied incrementally by key. Rows are only ever inserted (Database.AntiCheat.cs: INSERT ... ON
-		// DUPLICATE KEY UPDATE report_id = report_id is the only write), so rows already copied cannot go stale.
-		// match_history is not here: its rows are updated after the match finished (CommitPlayerOutcome and
-		// AttachMatchHistoryMetadata target any of a session's last 50 matches, with no age bound), so it is reloaded.
-		private const string AppendOnlyTable = "ac_reviews_modules";
+		private const int AccountTypeGhost = 2;
+		private const int AccountTypeDevAccount = 3;
 
-		// Sets every identity / serial sequence to max(column) + 1
-		private const string SequencesSql = @"
-DO $$
-DECLARE
-  r record;
-  max_id bigint;
-  seq text;
-BEGIN
-  FOR r IN
-    SELECT n.nspname AS schema_name,
-           c.relname AS table_name,
-           a.attname AS column_name,
-           a.attidentity <> '' AS is_identity,
-           pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS serial_seq
-    FROM pg_attribute a
-    JOIN pg_class c ON c.oid = a.attrelid AND c.relkind IN ('r', 'p')
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public'
-      AND a.attnum > 0
-      AND NOT a.attisdropped
-      AND (a.attidentity <> '' OR pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL)
-    ORDER BY c.relname, a.attnum
-  LOOP
-    EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %I.%I', r.column_name, r.schema_name, r.table_name) INTO max_id;
-
-    IF r.is_identity THEN
-      EXECUTE format('ALTER TABLE %I.%I ALTER COLUMN %I RESTART WITH %s', r.schema_name, r.table_name, r.column_name, max_id + 1);
-    ELSE
-      seq := r.serial_seq;
-      PERFORM setval(seq, GREATEST(max_id, 1), max_id > 0);
-    END IF;
-  END LOOP;
-END
-$$;";
-
-		private sealed class Column
-		{
-			public string Name = "";
-			public int Ordinal;
-			public string PgType = "";          // type name for the binary COPY, without a length
-			public bool PgNullable;
-			public bool HasTargetDefault;
-			public int MaxLength;               // characters, 0 = none
-			public Type ModelClr = typeof(object);
-			public Type SourceProviderClr = typeof(object);
-			public Type TargetProviderClr = typeof(object);
-			public ValueConverter? SourceConverter;
-			public ValueConverter? TargetConverter;
-			public bool IsDateTime;
-			public bool IsJson;
-			public bool IsString;
-		}
-
-		private sealed class Table
-		{
-			public string Name = "";
-			public List<Column> Columns = new();
-			public List<Column> Keys = new();
-			public string SelectList = "";
-			public string OrderBy = "";
-			public string CopySql = "";
-		}
-
-		private sealed class State
-		{
-			public string Table = "";
-			public string[]? LastKey;
-			public long RowsCopied;
-			public string Status = "pending";
-			public string Phase = "";
-			public string SourceMigration = "";
-			public string SourceHost = "";
-			public string SourceName = "";
-		}
-
-		private readonly record struct Issue(string Table, string Key, string Column, string Problem);
-
-		private sealed class Batch
-		{
-			public List<object?[]> Rows = new();
-			public string[]? LastKey;
-			public int Issues;
-			public List<Issue> IssueList = new();
-		}
-
-		private sealed class Run
-		{
-			public MySqlConnection Source = null!;
-			public NpgsqlConnection Target = null!;
-			public Dictionary<string, State> States = new();
-			public ImportSource Config = null!;
-			public string SourceMigration = "";
-		}
-
-		public static ImportSource ReadSource(IConfiguration config, bool targetIsPostgres)
+		public static ImportSettings ReadSettings(IConfiguration config)
 		{
 			IConfiguration section = config.GetSection("Import");
 			string? provider = section.GetValue<string>("db_provider");
 
 			if (string.IsNullOrWhiteSpace(provider))
 			{
-				throw new ImportException("Import:db_provider is not set. Configure the Import section (the database to move the data from) first, see README.md.");
+				throw new ImportException("Import:db_provider is not set. Configure the Import section (the old production database) first, see docs/schema.md.");
 			}
 
 			string normalized = provider.Trim().ToLowerInvariant();
-
-			if (!targetIsPostgres || (normalized != "mysql" && normalized != "mariadb"))
+			if (normalized != "mysql" && normalized != "mariadb")
 			{
-				throw new ImportException($"Unsupported import from \"{provider}\" to \"{(targetIsPostgres ? "postgres" : "mysql")}\". Only mysql/mariadb to postgres is supported: Import:db_provider must be \"mysql\" or \"mariadb\" and Database:db_provider must be \"postgres\".");
+				throw new ImportException($"Unsupported Import:db_provider \"{provider}\". The old production database is MariaDB/MySQL: use \"mariadb\" or \"mysql\".");
 			}
 
 			string Require(string key)
@@ -205,1189 +112,1762 @@ $$;";
 				throw new ImportException($"Unsupported Import:db_ssl_mode \"{sslText}\". Supported values are None, Preferred (default), Required, VerifyCA and VerifyFull.");
 			}
 
-			return new ImportSource(
-				normalized,
+			string legacyBans = (section.GetValue<string>("legacy_bans") ?? "local").Trim().ToLowerInvariant();
+			if (legacyBans != "local" && legacyBans != "skip")
+			{
+				throw new ImportException($"Unsupported Import:legacy_bans \"{legacyBans}\". Use \"local\" (default) or \"skip\".");
+			}
+
+			var waivers = new HashSet<string>(StringComparer.Ordinal);
+			foreach (string waiver in section.GetSection("waive").Get<string[]>() ?? Array.Empty<string>())
+			{
+				string key = waiver.Trim().ToLowerInvariant();
+				if (!ImportFindings.All.Contains(key))
+				{
+					throw new ImportException($"Unknown Import:waive entry \"{waiver}\". Known findings: {string.Join(", ", ImportFindings.All)}.");
+				}
+
+				waivers.Add(key);
+			}
+
+			// the Keycloak user file is gone: imported identities sign in to this environment directly
+			if (!string.IsNullOrWhiteSpace(section.GetValue<string>("keycloak_file")))
+			{
+				throw new ImportException("Import:keycloak_file belonged to the Keycloak setup, which is gone: imported players sign in with their linked Discord, Steam, Google or GameReplays accounts. Remove the setting.");
+			}
+
+			string? reportPath = section.GetValue<string>("report_path");
+			if (string.IsNullOrWhiteSpace(reportPath))
+			{
+				reportPath = $"import-report-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}.txt";
+			}
+
+			return new ImportSettings(
 				Require("db_host"),
 				section.GetValue<ushort?>("db_port") ?? 3306,
 				Require("db_name"),
 				Require("db_username"),
 				Require("db_password"),
-				sslMode);
+				sslMode,
+				legacyBans == "local",
+				waivers,
+				reportPath);
 		}
 
-		// One small query for the startup check: an import that was started and not completed
-		public static async Task<bool> IsUnfinished(DbContext db)
+		public static async Task<int> Execute(AppDbContext target, ImportSettings settings, ImportOptions options)
 		{
-			return await db.Database
-				.SqlQueryRaw<bool>($"SELECT to_regclass('{StateTable}') IS NOT NULL AS \"Value\"")
-				.SingleAsync();
+			var report = new ImportReport();
+			DateTime now = Micro(DateTime.UtcNow);
+
+			report.Line($"GenOnlineService import, {(options.DryRun ? "dry run" : "real run")}, started {now:O}");
+			report.Line($"Target: {(target.Database.IsNpgsql() ? "PostgreSQL" : "MySQL/MariaDB")}");
+			report.Line($"Legacy bans: {(settings.LegacyBansAsLocal ? "imported as local play bans" : "skipped")}");
+			report.Line($"Waived findings: {(settings.Waivers.Count == 0 ? "none" : string.Join(", ", settings.Waivers.OrderBy(w => w)))}");
+
+			await CheckTarget(target);
+
+			await using var source = await OpenSource(settings);
+			report.Line($"Source: {source.ServerVersion}, database {settings.Name}");
+
+			SourceSchema schema = await SourceSchema.Read(source);
+			List<OldUser> users = await LoadUsers(source, schema);
+			Plan plan = Plan.Build(users, report, settings);
+
+			// Phase 1: every mapping runs once without a writer, so the findings come from the same code that converts
+			var validation = new Run(source, schema, plan, settings, report, now, writer: null);
+			await validation.ConvertAll();
+			plan.Findings.Print(report, settings.Waivers);
+
+			if (plan.Findings.HasUnwaived(settings.Waivers))
+			{
+				report.Line();
+				report.Line("Stopped after validation: resolve the findings above in the source, or waive them in Import:waive. Nothing was written.");
+				report.Save(settings.ReportPath);
+				return 2;
+			}
+
+			if (!options.DryRun && !options.Confirm($"Convert {plan.KeptUsers.Count} users into the target database?", "Input is not interactive. Pass --yes to import in an unattended run."))
+			{
+				return 1;
+			}
+
+			// Phase 2: one transaction, so a failed import leaves the target empty
+			await using var transaction = await target.Database.BeginTransactionAsync();
+
+			var writer = new TargetWriter(target);
+			var conversion = new Run(source, schema, plan, settings, report, now, writer);
+			await conversion.ConvertAll();
+			await writer.FlushAll();
+			conversion.PrintMapping();
+
+			// Phase 3: counts and checksums of every table, then the identity sequences
+			await ResetSequences(target);
+			bool verified = await Verify(target, writer, report);
+			verified &= await VerifySequences(target, report);
+
+			report.Line();
+			if (!verified)
+			{
+				await transaction.RollbackAsync();
+				report.Line("VERIFICATION FAILED: the transaction was rolled back, the target is unchanged.");
+				report.Save(settings.ReportPath);
+				return 1;
+			}
+
+			if (options.DryRun)
+			{
+				await transaction.RollbackAsync();
+				report.Line("Dry run complete: verification passed and the transaction was rolled back.");
+			}
+			else
+			{
+				await transaction.CommitAsync();
+				report.Line("Import complete: verification passed and the transaction was committed.");
+			}
+
+			report.Save(settings.ReportPath);
+			return 0;
 		}
 
-		private static string Q(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
-
-		private static string QM(string identifier) => "`" + identifier.Replace("`", "``") + "`";
-
-		// ---------------------------------------------------------------- model
-
-		// Walks both EF models (not a hand-kept list), so a new entity is picked up and a difference fails loudly
-		private static List<Table> BuildPlan()
+		private static string QuoteTable(AppDbContext db, string table)
 		{
-			using var mySqlDb = new MySqlAppDbContextFactory().CreateDbContext(Array.Empty<string>());
-			using var pgDb = new PostgresAppDbContextFactory().CreateDbContext(Array.Empty<string>());
-
-			IRelationalModel mySqlModel = mySqlDb.GetService<IDesignTimeModel>().Model.GetRelationalModel();
-			IRelationalModel pgModel = pgDb.GetService<IDesignTimeModel>().Model.GetRelationalModel();
-
-			var mySqlNames = mySqlModel.Tables.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
-			var pgNames = pgModel.Tables.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
-
-			if (!mySqlNames.SequenceEqual(pgNames))
-			{
-				throw new ImportException($"The MySQL and PostgreSQL models have different tables (MySQL only: {string.Join(", ", mySqlNames.Except(pgNames))}; PostgreSQL only: {string.Join(", ", pgNames.Except(mySqlNames))}).");
-			}
-
-			var tables = new List<Table>();
-
-			foreach (ITable pgTable in pgModel.Tables.OrderBy(t => t.Name, StringComparer.Ordinal))
-			{
-				ITable mySqlTable = mySqlModel.Tables.First(t => t.Name == pgTable.Name);
-				var table = new Table { Name = pgTable.Name };
-
-				var pgColumnNames = pgTable.Columns.Select(c => c.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
-				var mySqlColumnNames = mySqlTable.Columns.Select(c => c.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
-
-				if (!pgColumnNames.SequenceEqual(mySqlColumnNames))
-				{
-					throw new ImportException($"Table {pgTable.Name} has different columns in the models (MySQL only: {string.Join(", ", mySqlColumnNames.Except(pgColumnNames))}; PostgreSQL only: {string.Join(", ", pgColumnNames.Except(mySqlColumnNames))}).");
-				}
-
-				foreach (IColumn pgColumn in pgTable.Columns.OrderBy(c => c.Name, StringComparer.Ordinal))
-				{
-					IColumn mySqlColumn = mySqlTable.Columns.First(c => c.Name == pgColumn.Name);
-					IColumnMapping pgMapping = pgColumn.PropertyMappings[0];
-					IColumnMapping mySqlMapping = mySqlColumn.PropertyMappings[0];
-
-					if (pgMapping.Property.ClrType != mySqlMapping.Property.ClrType)
-					{
-						throw new ImportException($"Column {pgTable.Name}.{pgColumn.Name} has type {mySqlMapping.Property.ClrType.Name} in the MySQL model and {pgMapping.Property.ClrType.Name} in the PostgreSQL model.");
-					}
-
-					Type modelClr = Nullable.GetUnderlyingType(pgMapping.Property.ClrType) ?? pgMapping.Property.ClrType;
-					string storeType = pgColumn.StoreType;
-					int paren = storeType.IndexOf('(');
-
-					var column = new Column
-					{
-						Name = pgColumn.Name,
-						Ordinal = table.Columns.Count,
-						PgType = (paren >= 0 ? storeType.Substring(0, paren) : storeType).Trim(),
-						PgNullable = pgColumn.IsNullable,
-						HasTargetDefault = pgColumn.DefaultValue != null || pgColumn.DefaultValueSql != null || pgColumn.ComputedColumnSql != null,
-						MaxLength = pgMapping.Property.GetMaxLength() ?? 0,
-						ModelClr = modelClr,
-						SourceConverter = mySqlMapping.TypeMapping.Converter,
-						TargetConverter = pgMapping.TypeMapping.Converter,
-						SourceProviderClr = Unwrap(mySqlMapping.TypeMapping.Converter?.ProviderClrType ?? mySqlMapping.TypeMapping.ClrType),
-						TargetProviderClr = Unwrap(pgMapping.TypeMapping.Converter?.ProviderClrType ?? pgMapping.TypeMapping.ClrType),
-						IsDateTime = modelClr == typeof(DateTime),
-						IsString = Unwrap(pgMapping.TypeMapping.Converter?.ProviderClrType ?? pgMapping.TypeMapping.ClrType) == typeof(string)
-					};
-
-					column.IsJson = column.PgType == "jsonb" || column.PgType == "json";
-					table.Columns.Add(column);
-				}
-
-				var pgKey = pgTable.PrimaryKey?.Columns.Select(c => c.Name).ToList()
-					?? throw new ImportException($"Table {pgTable.Name} has no primary key in the PostgreSQL model.");
-				var mySqlKey = mySqlTable.PrimaryKey?.Columns.Select(c => c.Name).ToList();
-
-				if (mySqlKey == null || !pgKey.SequenceEqual(mySqlKey))
-				{
-					throw new ImportException($"Table {pgTable.Name} has a different primary key in the two models.");
-				}
-
-				table.Keys = pgKey.Select(k => table.Columns.First(c => c.Name == k)).ToList();
-				FinishTable(table);
-				tables.Add(table);
-			}
-
-			Table appendOnly = tables.FirstOrDefault(t => t.Name == AppendOnlyTable)
-				?? throw new ImportException($"Table {AppendOnlyTable} is not in the model.");
-
-			if (appendOnly.Keys.Count != 1 || (appendOnly.Keys[0].SourceProviderClr != typeof(ulong) && appendOnly.Keys[0].SourceProviderClr != typeof(long)))
-			{
-				throw new ImportException($"Table {AppendOnlyTable} must have a single integer key.");
-			}
-
-			return tables;
+			return db.Database.IsNpgsql() ? "\"" + table.Replace("\"", "\"\"") + "\"" : "`" + table.Replace("`", "``") + "`";
 		}
 
-		private static void FinishTable(Table table)
+		private static async Task CheckTarget(AppDbContext target)
 		{
-			for (int i = 0; i < table.Columns.Count; i++)
+			var pending = (await target.Database.GetPendingMigrationsAsync()).ToList();
+			if (pending.Count > 0)
 			{
-				table.Columns[i].Ordinal = i;
+				throw new ImportException($"The target database has {pending.Count} pending migration(s). Run \"GenOnlineService migrate\" first.");
 			}
 
-			table.SelectList = string.Join(", ", table.Columns.Select(c => QM(c.Name)));
-			table.OrderBy = string.Join(", ", table.Keys.Select(k => QM(k.Name)));
-			table.CopySql = $"COPY {Q(table.Name)} ({string.Join(", ", table.Columns.Select(c => Q(c.Name)))}) FROM STDIN (FORMAT BINARY)";
-		}
-
-		// An older source lacks tables and columns that later migrations add, so only what both sides have is copied
-		private static List<Table> NarrowToSource(List<Table> modelTables, Dictionary<string, HashSet<string>> sourceColumns, List<string> warnings)
-		{
-			var tables = new List<Table>();
-
-			foreach (Table model in modelTables)
+			var notEmpty = new List<string>();
+			foreach (string table in ModelTables(target))
 			{
-				if (!sourceColumns.TryGetValue(model.Name, out HashSet<string>? present))
+				string alias = target.Database.IsNpgsql() ? "\"Value\"" : "`Value`";
+				long count = await target.Database.SqlQueryRaw<long>($"SELECT COUNT(*) AS {alias} FROM {QuoteTable(target, table)}").SingleAsync();
+				if (count > 0)
 				{
-					warnings.Add($"table {model.Name} is not in the source database, it stays empty");
-					continue;
-				}
-
-				var absent = model.Columns.Where(c => !present.Contains(c.Name)).ToList();
-
-				foreach (Column c in absent)
-				{
-					if (model.Keys.Contains(c))
-					{
-						throw new ImportException($"The source table {model.Name} has no key column {c.Name}. Run \"GenOnlineService migrate --yes\" on the MariaDB host with db_provider set to mysql, then run the import again.");
-					}
-
-					if (!c.PgNullable && !c.HasTargetDefault)
-					{
-						throw new ImportException($"The source table {model.Name} has no column {c.Name}, which PostgreSQL requires and has no default for. Run \"GenOnlineService migrate --yes\" on the MariaDB host with db_provider set to mysql, then run the import again.");
-					}
-
-					warnings.Add($"column {model.Name}.{c.Name} is not in the source database, it gets its default");
-				}
-
-				foreach (string extra in present.Where(n => !model.Columns.Any(c => string.Equals(c.Name, n, StringComparison.OrdinalIgnoreCase))).OrderBy(n => n, StringComparer.Ordinal))
-				{
-					warnings.Add($"column {model.Name}.{extra} is only in the source database, it is not imported");
-				}
-
-				var table = new Table { Name = model.Name, Keys = model.Keys, Columns = model.Columns.Except(absent).ToList() };
-				FinishTable(table);
-				tables.Add(table);
-			}
-
-			foreach (string extra in sourceColumns.Keys.Where(n => !n.StartsWith("__", StringComparison.Ordinal) && !modelTables.Any(t => string.Equals(t.Name, n, StringComparison.OrdinalIgnoreCase))).OrderBy(n => n, StringComparer.Ordinal))
-			{
-				warnings.Add($"table {extra} is only in the source database, it is not imported");
-			}
-
-			return tables;
-		}
-
-		// Two runs copy the same thing only when they read the same tables and columns
-		private static string Shape(List<Table> tables)
-		{
-			string text = string.Join(";", tables.Select(t => t.Name + ":" + string.Join(",", t.Columns.Select(c => c.Name))));
-			return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..12].ToLowerInvariant();
-		}
-
-		private static Type Unwrap(Type type) => Nullable.GetUnderlyingType(type) ?? type;
-
-		// ---------------------------------------------------------------- values
-
-		private static object Coerce(object value, Type type)
-		{
-			if (type.IsInstanceOfType(value))
-			{
-				return value;
-			}
-
-			if (type.IsEnum)
-			{
-				return Enum.ToObject(type, value);
-			}
-
-			return Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
-		}
-
-		// Source value -> value for the PostgreSQL column. A problem is a value PostgreSQL cannot store, it is never altered.
-		private static object? ConvertValue(Column c, object? raw, out string? problem)
-		{
-			problem = null;
-
-			if (raw is DBNull)
-			{
-				raw = null;
-			}
-
-			// The source connection has ConvertZeroDateTime, so a MariaDB zero date ('0000-00-00') arrives as DateTime.MinValue.
-			// PostgreSQL has no zero date: it becomes NULL where the column allows it and the Unix epoch where it does not.
-			// (A real 0001-01-01 00:00:00 cannot be told apart from it, and does not occur in this service's data.)
-			if (c.IsDateTime && raw is DateTime zero && zero == DateTime.MinValue)
-			{
-				if (c.PgNullable)
-				{
-					return null;
-				}
-
-				raw = DateTime.UnixEpoch;
-			}
-
-			if (raw == null)
-			{
-				if (!c.PgNullable)
-				{
-					problem = "is NULL but the PostgreSQL column is NOT NULL";
-				}
-
-				return null;
-			}
-
-			object provider = Coerce(raw, c.SourceProviderClr);
-			object model = c.SourceConverter != null ? c.SourceConverter.ConvertFromProvider(provider)! : provider;
-
-			// The unsigned to signed conversion would wrap silently
-			if (model is ulong unsigned && unsigned > long.MaxValue && c.TargetProviderClr == typeof(long))
-			{
-				problem = "does not fit a signed 64-bit integer";
-				return null;
-			}
-
-			object target = c.TargetConverter != null ? c.TargetConverter.ConvertToProvider(model)! : model;
-			target = Coerce(target, c.TargetProviderClr);
-
-			if (target is string text)
-			{
-				problem = CheckText(c, text);
-			}
-
-			return target;
-		}
-
-		private static string? CheckText(Column c, string text)
-		{
-			if (text.Contains('\0'))
-			{
-				return "contains a NUL character, which PostgreSQL cannot store";
-			}
-
-			if (c.IsJson)
-			{
-				try
-				{
-					var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(text), new JsonReaderOptions { MaxDepth = 1000 });
-
-					while (reader.Read())
-					{
-						if ((reader.TokenType == JsonTokenType.String || reader.TokenType == JsonTokenType.PropertyName) && reader.GetString()!.Contains('\0'))
-						{
-							return "contains \\u0000 in JSON, which jsonb cannot store";
-						}
-					}
-				}
-				catch (JsonException)
-				{
-					return "is not valid JSON";
+					notEmpty.Add($"{table} ({count} rows)");
 				}
 			}
 
-			if (c.MaxLength > 0 && text.Length > c.MaxLength && text.EnumerateRunes().Count() > c.MaxLength)
+			if (notEmpty.Count > 0)
 			{
-				return $"is longer than {c.MaxLength} characters";
+				throw new ImportException($"The target database is not empty, the import only writes into an empty database. Tables with rows: {string.Join(", ", notEmpty)}.");
+			}
+		}
+
+		private static IEnumerable<string> ModelTables(AppDbContext db)
+		{
+			return db.Model.GetEntityTypes().Select(e => e.GetTableName()!).Distinct().OrderBy(t => t, StringComparer.Ordinal);
+		}
+
+		private static readonly string[] IdentityTables =
+		{
+			"users", "user_username_history", "identities", "sanctions", "audit_log", "devices", "session_events", "matches",
+			"anticheat_module_reports", "anticheat_new_account_games", "anticheat_probe_reports"
+		};
+
+		private static string IdentityColumn(string table) => table.StartsWith("anticheat_", StringComparison.Ordinal) ? "report_id" : "id";
+
+		// PostgreSQL identities do not follow explicit ids; MySQL AUTO_INCREMENT already moved past them on insert
+		private static async Task ResetSequences(AppDbContext db)
+		{
+			if (!db.Database.IsNpgsql())
+			{
+				return;
 			}
 
-			return null;
+			foreach (string table in IdentityTables)
+			{
+				string column = IdentityColumn(table);
+				await db.Database.ExecuteSqlRawAsync(
+					$"SELECT setval(pg_get_serial_sequence('{table}', '{column}'), COALESCE((SELECT MAX({column}) FROM \"{table}\"), 0) + 1, false)");
+			}
 		}
 
-		private static string FormatKey(Table t, object?[] raw)
+		private static async Task<bool> VerifySequences(AppDbContext db, ImportReport report)
 		{
-			return string.Join(", ", t.Keys.Select(k =>
+			report.Line();
+			report.Line("Identity sequences (next id must be max(id) + 1 or higher):");
+
+			bool ok = true;
+			foreach (string table in IdentityTables)
 			{
-				string value = Convert.ToString(raw[k.Ordinal], CultureInfo.InvariantCulture) ?? "NULL";
-				return $"{k.Name}={(value.Length > 40 ? value.Substring(0, 40) + "..." : value)}";
-			}));
+				string column = IdentityColumn(table);
+				string quoted = QuoteTable(db, table);
+				string alias = db.Database.IsNpgsql() ? "\"Value\"" : "`Value`";
+
+				long max = await db.Database.SqlQueryRaw<long>($"SELECT COALESCE(MAX({column}), 0) AS {alias} FROM {quoted}").SingleAsync();
+
+				long next;
+				if (db.Database.IsNpgsql())
+				{
+					string sequence = await db.Database.SqlQueryRaw<string>($"SELECT pg_get_serial_sequence('{table}', '{column}') AS \"Value\"").SingleAsync();
+					next = await db.Database.SqlQueryRaw<long>(
+						$"SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END AS \"Value\" FROM {sequence}").SingleAsync();
+				}
+				else
+				{
+					// An insert with an explicit id moves AUTO_INCREMENT past it; SHOW TABLE STATUS reads the live counter
+					next = await NextAutoIncrement(db, table);
+				}
+
+				bool tableOk = next >= max + 1;
+				ok &= tableOk;
+				report.Line($"  {table,-30} max {max,10}  next {next,10}  {(tableOk ? "ok" : "FAIL")}");
+			}
+
+			return ok;
 		}
 
-		// ---------------------------------------------------------------- source
-
-		private static async Task<MySqlConnection> OpenSource(ImportSource source)
+		private static async Task<long> NextAutoIncrement(AppDbContext db, string table)
 		{
-			var csb = new MySqlConnectionStringBuilder
+			var connection = db.Database.GetDbConnection();
+			await using var command = connection.CreateCommand();
+			command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+			command.CommandText = $"SHOW TABLE STATUS LIKE '{table}'";
+
+			await using var reader = await command.ExecuteReaderAsync();
+			if (!await reader.ReadAsync())
 			{
-				Server = source.Host,
-				Port = source.Port,
-				Database = source.Name,
-				UserID = source.Username,
-				Password = source.Password,
-				SslMode = source.SslMode,
-				// A pooled connection is reset between uses, which would drop the session settings below
-				Pooling = false,
-				// The source may be on a slow link: generous connect and command timeouts, and TCP keepalives so a
-				// dead link fails instead of hanging. A failed run leaves a resumable state (every batch is one transaction).
-				ConnectionTimeout = 30,
-				DefaultCommandTimeout = 600,
-				Keepalive = 30,
+				return 0;
+			}
+
+			object value = reader["Auto_increment"];
+			return value is DBNull ? 1 : Convert.ToInt64(value, CultureInfo.InvariantCulture);
+		}
+
+		private static async Task<bool> Verify(AppDbContext db, TargetWriter writer, ImportReport report)
+		{
+			report.Line();
+			report.Line("Verification (rows written vs rows read back, SHA-256 row checksums):");
+
+			var hashMethod = typeof(Import).GetMethod(nameof(HashTable), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+			bool ok = true;
+
+			foreach (IEntityType entityType in db.Model.GetEntityTypes().OrderBy(e => e.GetTableName(), StringComparer.Ordinal))
+			{
+				string table = entityType.GetTableName()!;
+				var task = (Task<TableHash>)hashMethod.MakeGenericMethod(entityType.ClrType).Invoke(null, new object[] { db, entityType })!;
+				TableHash actual = await task;
+				TableHash expected = writer.Expected(table);
+
+				bool countOk = expected.Count == actual.Count;
+				bool sumOk = expected.Checksum.AsSpan().SequenceEqual(actual.Checksum);
+				ok &= countOk && sumOk;
+
+				report.Line($"  {table,-30} written {expected.Count,10}  read {actual.Count,10}  checksum {(sumOk ? "match" : "MISMATCH")} {Convert.ToHexString(actual.Checksum)[..16]}{(countOk && sumOk ? "" : "  FAIL")}");
+			}
+
+			return ok;
+		}
+
+		private static async Task<TableHash> HashTable<T>(AppDbContext db, IEntityType entityType) where T : class
+		{
+			var hash = new TableHash();
+			await foreach (T row in db.Set<T>().AsNoTracking().AsAsyncEnumerable())
+			{
+				hash.Add(RowHash.Of(entityType, row));
+			}
+
+			return hash;
+		}
+
+		private static async Task<MySqlConnection> OpenSource(ImportSettings settings)
+		{
+			var builder = new MySqlConnectionStringBuilder
+			{
+				Server = settings.Host,
+				Port = settings.Port,
+				Database = settings.Name,
+				UserID = settings.Username,
+				Password = settings.Password,
+				SslMode = settings.SslMode,
 				ConvertZeroDateTime = true,
-				// the EF provider behind the legacy schema check requires both on the connection it borrows
-				AllowUserVariables = true,
-				UseAffectedRows = false
+				DefaultCommandTimeout = 0,
+				Pooling = false
 			};
 
-			var connection = new MySqlConnection(csb.ConnectionString);
+			var connection = new MySqlConnection(builder.ConnectionString);
 			await connection.OpenAsync();
 
-			try
+			// One read-only snapshot, so validation and conversion see the same data
+			await using (var command = new MySqlCommand("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ", connection))
 			{
-				// The import never writes to the source: the server rejects any write in this session
-				await ExecSource(connection, "SET SESSION TRANSACTION READ ONLY");
-
-				// TIMESTAMP columns are returned in the session time zone, the service treats every date as UTC
-				await ExecSource(connection, "SET SESSION time_zone = '+00:00'");
-
-				object? readOnly;
-
-				try
-				{
-					readOnly = await ScalarSource(connection, "SELECT @@session.transaction_read_only");
-				}
-				catch (MySqlException)
-				{
-					readOnly = await ScalarSource(connection, "SELECT @@session.tx_read_only");
-				}
-
-				if (Convert.ToInt32(readOnly, CultureInfo.InvariantCulture) != 1)
-				{
-					throw new ImportException("The source session could not be set to read only, refusing to continue.");
-				}
+				await command.ExecuteNonQueryAsync();
 			}
-			catch
+
+			await using (var command = new MySqlCommand("START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY", connection))
 			{
-				await connection.DisposeAsync();
-				throw;
+				await command.ExecuteNonQueryAsync();
 			}
 
 			return connection;
 		}
 
-		private static async Task ExecSource(MySqlConnection connection, string sql)
+		private static async Task<List<OldUser>> LoadUsers(MySqlConnection source, SourceSchema schema)
 		{
-			await using var command = new MySqlCommand(sql, connection);
-			await command.ExecuteNonQueryAsync();
-		}
+			var users = new List<OldUser>();
 
-		private static async Task<object?> ScalarSource(MySqlConnection connection, string sql, params MySqlParameter[] parameters)
-		{
-			await using var command = new MySqlCommand(sql, connection);
-			command.Parameters.AddRange(parameters);
-			object? value = await command.ExecuteScalarAsync();
-			return value is DBNull ? null : value;
-		}
+			string sql = "SELECT user_id, account_type, steam_id, discord_id, gamereplays_id, displayname, lastlogin, "
+				+ "favorite_color, favorite_side, favorite_map, favorite_starting_money, favorite_limit_superweapons, admin, banned, "
+				+ "elo_rating, monthly_elo_rating, elo_num_matches, ban_reason, banned_by, ban_verified_by, ban_aliases, "
+				+ $"{schema.Optional("users", "google_id")}, {schema.Optional("users", "google_email")}, {schema.Optional("users", "permissionslevel")}, "
+				+ $"{schema.Optional("users", "relay_region")}, {schema.Optional("users", "portmapping_tech")} "
+				+ "FROM users ORDER BY user_id";
 
-		// Null when a source without this migration can still be imported, otherwise why it cannot
-		private static Dictionary<string, string?> ClassifyMigrations(MySqlAppDbContext context)
-		{
-			var migrations = context.GetService<IMigrationsAssembly>();
-			var result = new Dictionary<string, string?>(StringComparer.Ordinal);
-
-			foreach (var (id, type) in migrations.Migrations)
+			await foreach (var r in Rows(source, sql))
 			{
-				Migration migration = migrations.CreateMigration(type, context.Database.ProviderName!);
-				result[id] = type.GetCustomAttribute<ImportSafeAttribute>() != null ? null : UnsafeReason(migration.UpOperations);
-			}
-
-			return result;
-		}
-
-		// Renames, type changes and raw SQL can change what existing data means, so the import never guesses across them
-		private static string? UnsafeReason(IReadOnlyList<MigrationOperation> operations)
-		{
-			foreach (MigrationOperation operation in operations)
-			{
-				switch (operation)
+				users.Add(new OldUser
 				{
-					case CreateTableOperation or DropTableOperation or DropColumnOperation or CreateIndexOperation or DropIndexOperation or DropForeignKeyOperation:
-						continue;
-					case AddColumnOperation add when add.IsNullable || add.DefaultValue != null || add.DefaultValueSql != null:
-						continue;
-					case AddColumnOperation add:
-						return $"it adds column {add.Table}.{add.Name} as NOT NULL without a default";
-					default:
-						return $"it contains a step of type {operation.GetType().Name.Replace("Operation", "")}, which can change existing data";
-				}
+					Id = r.Long("user_id"),
+					AccountType = (int)r.Long("account_type"),
+					SteamId = r.NullableLong("steam_id"),
+					DiscordId = r.NullableLong("discord_id"),
+					GameReplaysId = r.NullableLong("gamereplays_id"),
+					DisplayName = r.String("displayname"),
+					LastLogin = r.NullableDate("lastlogin"),
+					FavoriteColor = r.NullableLong("favorite_color"),
+					FavoriteSide = r.NullableLong("favorite_side"),
+					FavoriteMap = r.String("favorite_map"),
+					FavoriteStartingMoney = r.NullableLong("favorite_starting_money"),
+					FavoriteLimitSuperweapons = r.NullableLong("favorite_limit_superweapons"),
+					Admin = r.Long("admin") != 0,
+					Banned = r.Long("banned") != 0,
+					EloRating = (int)r.Long("elo_rating"),
+					MonthlyEloRating = (int)r.Long("monthly_elo_rating"),
+					EloMatches = (int)r.Long("elo_num_matches"),
+					BanReason = r.String("ban_reason"),
+					BannedBy = r.String("banned_by"),
+					BanVerifiedBy = r.String("ban_verified_by"),
+					BanAliases = r.String("ban_aliases"),
+					GoogleId = r.String("google_id"),
+					GoogleEmail = r.String("google_email"),
+					PermissionsLevel = r.NullableLong("permissionslevel"),
+					RelayRegion = r.NullableLong("relay_region"),
+					PortmappingTech = r.NullableLong("portmapping_tech")
+				});
 			}
 
-			return null;
+			return users;
 		}
 
-		// A legacy install without migration history passes the same read only check as --baseline before it is imported as the first migration
-		private static async Task<string> CheckLegacySource(MySqlConnection source)
+		internal static async IAsyncEnumerable<SourceRow> Rows(MySqlConnection source, string sql)
 		{
-			var options = new DbContextOptionsBuilder<MySqlAppDbContext>().UseMySql(source, MySqlAppDbContext.DesignTimeServerVersion).Options;
-			await using var db = new MySqlAppDbContext(options);
-			BaselinePlan plan = await MigrationBaseline.Plan(db);
-
-			if (plan.Error != null)
-			{
-				throw new ImportException($"The source database has no migration history and the import cannot tell its version. The --baseline check reports: {plan.Error.Replace("then run --baseline again", "then run the import again")}");
-			}
-
-			return plan.MigrationId;
-		}
-
-		private static async Task<Dictionary<string, HashSet<string>>> ReadSourceColumns(MySqlConnection source)
-		{
-			var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-			const string sql = "SELECT c.table_name, c.column_name FROM information_schema.columns c JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name WHERE c.table_schema = DATABASE() AND t.table_type = 'BASE TABLE'";
-
 			await using var command = new MySqlCommand(sql, source);
 			await using var reader = await command.ExecuteReaderAsync();
+			var row = new SourceRow(reader);
 
 			while (await reader.ReadAsync())
 			{
-				string table = reader.GetString(0);
+				yield return row;
+			}
+		}
 
-				if (!result.TryGetValue(table, out HashSet<string>? columns))
+		internal static async Task<long> Count(MySqlConnection source, string table)
+		{
+			await using var command = new MySqlCommand($"SELECT COUNT(*) FROM `{table}`", source);
+			return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+		}
+
+		// Timestamps keep microseconds, the precision both targets store
+		internal static DateTime Micro(DateTime value)
+		{
+			return new DateTime(value.Ticks - (value.Ticks % 10), DateTimeKind.Utc);
+		}
+
+		// One pass over every mapping; without a writer it only validates and counts
+		private sealed class Run
+		{
+			private readonly MySqlConnection _source;
+			private readonly SourceSchema _schema;
+			private readonly Plan _plan;
+			private readonly ImportSettings _settings;
+			private readonly ImportReport _report;
+			private readonly DateTime _now;
+			private readonly TargetWriter? _writer;
+			private readonly bool _postgresTarget;
+			private readonly List<MappingLine> _lines = new();
+			private readonly HashSet<long> _importedMatches = new();
+			private readonly NoteCounter _notes;
+
+			public Run(MySqlConnection source, SourceSchema schema, Plan plan, ImportSettings settings, ImportReport report, DateTime now, TargetWriter? writer)
+			{
+				_source = source;
+				_schema = schema;
+				_plan = plan;
+				_settings = settings;
+				_report = report;
+				_now = now;
+				_writer = writer;
+				_postgresTarget = writer?.IsPostgres ?? false;
+				_notes = new NoteCounter(plan.Notes);
+			}
+
+			private Findings Findings => _plan.Findings;
+
+			private MappingLine Line(string from, string to)
+			{
+				var line = new MappingLine(from, to);
+				_lines.Add(line);
+				return line;
+			}
+
+			private void Write(MappingLine line, object entity)
+			{
+				line.Written++;
+				_writer?.Add(entity);
+			}
+
+			// Dropped user rows are expected; a user id nobody knows is an orphan
+			private bool KeepUserRow(MappingLine line, long userId, string table)
+			{
+				if (_plan.Kept.ContainsKey(userId))
 				{
-					columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-					result[table] = columns;
+					return true;
 				}
 
-				columns.Add(reader.GetString(1));
-			}
-
-			return result;
-		}
-
-		private static async Task<List<string>> ReadSourceMigrations(MySqlConnection source)
-		{
-			object? exists = await ScalarSource(source, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '__EFMigrationsHistory'");
-
-			if (Convert.ToInt64(exists, CultureInfo.InvariantCulture) == 0)
-			{
-				return new List<string>();
-			}
-
-			var ids = new List<string>();
-			await using var command = new MySqlCommand("SELECT `MigrationId` FROM `__EFMigrationsHistory` ORDER BY `MigrationId`", source);
-			await using var reader = await command.ExecuteReaderAsync();
-
-			while (await reader.ReadAsync())
-			{
-				ids.Add(reader.GetString(0));
-			}
-
-			return ids;
-		}
-
-		// WHERE for the rows after a key, written out as ORs so it works with any key and uses the primary key index
-		private static string KeysetWhere(Table t, string[] last, List<MySqlParameter> parameters)
-		{
-			for (int i = 0; i < t.Keys.Count; i++)
-			{
-				parameters.Add(new MySqlParameter("@k" + i, Coerce(last[i], t.Keys[i].SourceProviderClr)));
-			}
-
-			var branches = new List<string>();
-
-			for (int i = 0; i < t.Keys.Count; i++)
-			{
-				var parts = new List<string>();
-
-				for (int j = 0; j < i; j++)
+				if (_plan.Dropped.Contains(userId))
 				{
-					parts.Add($"{QM(t.Keys[j].Name)} = @k{j}");
+					line.Drop("user not imported (Ghost/DevAccount)");
+					return false;
 				}
 
-				parts.Add($"{QM(t.Keys[i].Name)} > @k{i}");
-				branches.Add("(" + string.Join(" AND ", parts) + ")");
+				line.Drop("orphaned");
+				Findings.Add(ImportFindings.OrphanedRows, $"{table}: user {userId} does not exist");
+				return false;
 			}
 
-			return string.Join(" OR ", branches);
-		}
-
-		private static async Task<Batch> ReadRows(MySqlConnection source, Table t, string? where, List<MySqlParameter> parameters, int? limit)
-		{
-			var sql = new StringBuilder($"SELECT {t.SelectList} FROM {QM(t.Name)}");
-
-			if (where != null)
+			// A user id that may be kept, or nulled when its user is not imported
+			private long? OptionalUser(long? userId, string table, string what)
 			{
-				sql.Append(" WHERE ").Append(where);
-			}
-
-			sql.Append(" ORDER BY ").Append(t.OrderBy);
-
-			if (limit != null)
-			{
-				sql.Append(" LIMIT ").Append(limit.Value);
-			}
-
-			var batch = new Batch();
-			await using var command = new MySqlCommand(sql.ToString(), source);
-			command.Parameters.AddRange(parameters.ToArray());
-			await using var reader = await command.ExecuteReaderAsync();
-
-			if (reader.FieldCount != t.Columns.Count)
-			{
-				throw new ImportException($"Table {t.Name} returned {reader.FieldCount} columns, the model has {t.Columns.Count}.");
-			}
-
-			while (await reader.ReadAsync())
-			{
-				var raw = new object?[t.Columns.Count];
-				reader.GetValues(raw!);
-
-				var row = new object?[raw.Length];
-
-				for (int i = 0; i < raw.Length; i++)
+				if (userId == null || userId <= 0)
 				{
-					Column column = t.Columns[i];
-					row[i] = ConvertValue(column, raw[i], out string? problem);
-
-					if (problem != null)
-					{
-						batch.Issues++;
-
-						if (batch.IssueList.Count < MaxReportedIssues)
-						{
-							batch.IssueList.Add(new Issue(t.Name, FormatKey(t, raw), column.Name, problem));
-						}
-					}
+					return null;
 				}
 
-				batch.Rows.Add(row);
-				batch.LastKey = t.Keys.Select(k => Convert.ToString(raw[k.Ordinal], CultureInfo.InvariantCulture) ?? "").ToArray();
-			}
+				if (_plan.Kept.ContainsKey(userId.Value))
+				{
+					return userId;
+				}
 
-			return batch;
-		}
+				if (!_plan.Dropped.Contains(userId.Value))
+				{
+					Findings.Add(ImportFindings.OrphanedRows, $"{table}: {what} {userId} does not exist");
+				}
 
-		private static string DescribeIssues(IEnumerable<Issue> issues)
-		{
-			return string.Join(Environment.NewLine, issues.Select(i => $"  {i.Table} ({i.Key}): column {i.Column} {i.Problem}"));
-		}
-
-		private static void ThrowIfIssues(Batch batch)
-		{
-			if (batch.Issues > 0)
-			{
-				throw new ImportException($"{batch.Issues} value(s) cannot be stored in PostgreSQL. Fix them in the source (nothing is changed by the import) and run it again:{Environment.NewLine}{DescribeIssues(batch.IssueList)}");
-			}
-		}
-
-		// ---------------------------------------------------------------- target
-
-		private static async Task ExecTarget(NpgsqlConnection connection, string sql, params (string Name, object? Value)[] parameters)
-		{
-			await using var command = new NpgsqlCommand(sql, connection);
-
-			foreach (var (name, value) in parameters)
-			{
-				command.Parameters.AddWithValue(name, value ?? DBNull.Value);
-			}
-
-			await command.ExecuteNonQueryAsync();
-		}
-
-		private static async Task<object?> ScalarTarget(NpgsqlConnection connection, string sql)
-		{
-			await using var command = new NpgsqlCommand(sql, connection);
-			object? value = await command.ExecuteScalarAsync();
-			return value is DBNull ? null : value;
-		}
-
-		private static async Task<Dictionary<string, State>?> LoadStates(NpgsqlConnection target)
-		{
-			if (!(bool)(await ScalarTarget(target, $"SELECT to_regclass('{StateTable}') IS NOT NULL"))!)
-			{
 				return null;
 			}
 
-			var states = new Dictionary<string, State>();
-			await using var command = new NpgsqlCommand($"SELECT table_name, last_key, rows_copied, status, source_migration, phase, source_host, source_name FROM {StateTable}", target);
-			await using var reader = await command.ExecuteReaderAsync();
-
-			while (await reader.ReadAsync())
+			private string Clamp(string? value, int maxLength, string table, string column)
 			{
-				var state = new State
+				string clean = TextSanitizer.Clean(value, maxLength);
+				if (!string.Equals(clean, value ?? string.Empty, StringComparison.Ordinal))
 				{
-					Table = reader.GetString(0),
-					LastKey = reader.IsDBNull(1) ? null : JsonSerializer.Deserialize<string[]>(reader.GetString(1)),
-					RowsCopied = reader.GetInt64(2),
-					Status = reader.GetString(3),
-					SourceMigration = reader.GetString(4),
-					Phase = reader.GetString(5),
-					SourceHost = reader.GetString(6),
-					SourceName = reader.GetString(7)
-				};
+					_notes.Add($"{table}.{column}: value cut to {maxLength} characters or NUL removed");
+				}
 
-				states[state.Table] = state;
+				return clean;
 			}
 
-			return states;
-		}
-
-		private static async Task SaveState(NpgsqlConnection target, State state)
-		{
-			await ExecTarget(target, $@"
-				INSERT INTO {StateTable} (table_name, last_key, rows_copied, status, source_migration, phase, source_host, source_name, updated_at)
-				VALUES (@table, @last, @rows, @status, @migration, @phase, @host, @name, now())
-				ON CONFLICT (table_name) DO UPDATE SET last_key = EXCLUDED.last_key, rows_copied = EXCLUDED.rows_copied,
-					status = EXCLUDED.status, phase = EXCLUDED.phase, updated_at = now()",
-				("table", state.Table),
-				("last", state.LastKey == null ? null : JsonSerializer.Serialize(state.LastKey)),
-				("rows", state.RowsCopied),
-				("status", state.Status),
-				("migration", state.SourceMigration),
-				("phase", state.Phase),
-				("host", state.SourceHost),
-				("name", state.SourceName));
-		}
-
-		private static async Task<long> CopyRows(NpgsqlConnection target, Table t, List<object?[]> rows)
-		{
-			await using var importer = await target.BeginBinaryImportAsync(t.CopySql);
-
-			foreach (object?[] row in rows)
+			private string? ClampOptional(string? value, int maxLength, string table, string column)
 			{
-				await importer.StartRowAsync();
+				return string.IsNullOrEmpty(value) ? null : Clamp(value, maxLength, table, column);
+			}
 
-				for (int i = 0; i < row.Length; i++)
+			// jsonb refuses \u0000; it can only come from a NUL that no reader needs
+			private string? CleanJson(string? json)
+			{
+				if (json == null || !_postgresTarget || !json.Contains("\\u0000", StringComparison.Ordinal))
 				{
-					if (row[i] == null)
+					return json;
+				}
+
+				_notes.Add("JSON values: \\u0000 escapes removed for PostgreSQL");
+				return json.Replace("\\u0000", string.Empty, StringComparison.Ordinal);
+			}
+
+			private DateTime ValidDate(DateTime? value, string table, string column, long id)
+			{
+				if (value == null || value.Value.Year < 1970)
+				{
+					Findings.Add(ImportFindings.InvalidValues, $"{table}.{column} of {id}: {(value == null ? "zero date" : value.Value.ToString("O"))}, the Unix epoch is used");
+					return DateTime.UnixEpoch;
+				}
+
+				return Micro(value.Value);
+			}
+
+			public async Task ConvertAll()
+			{
+				ConvertUsers();
+				await ConvertStats();
+				await ConvertDevices();
+				await ConvertSocial("friends", "user_id_1", "user_id_2", "friendships", (a, b) =>
+				{
+					long low = Math.Min(a, b), high = Math.Max(a, b);
+					return ($"{low}:{high}", new Friendship { UserIdLow = low, UserIdHigh = high, CreatedAt = _now });
+				});
+				await ConvertSocial("friends_requests", "source_user_id", "target_user_id", "friend_requests",
+					(a, b) => ($"{a}:{b}", new FriendRequest { FromUserId = a, ToUserId = b, CreatedAt = _now }));
+				await ConvertSocial("friends_blocked", "source_user_id", "target_user_id", "blocks",
+					(a, b) => ($"{a}:{b}", new UserBlock { UserId = a, BlockedUserId = b, CreatedAt = _now }));
+				await ConvertMatches();
+				await ConvertPublications();
+				await ConvertLeaderboards();
+				await ConvertAnticheat();
+
+				_writer?.Flush();
+				if (_writer != null)
+				{
+					await _writer.FlushAll();
+				}
+			}
+
+			private void ConvertUsers()
+			{
+				var users = Line("users (Steam, Discord, unknown)", "users");
+				var steam = Line("users.steam_id", "identities (steam)");
+				var discord = Line("users.discord_id", "identities (discord)");
+				var google = Line("users.google_id", "identities (google)");
+				var gameReplays = Line("users.gamereplays_id", "identities (gamereplays)");
+				var bans = Line("users.banned, ban_reason", "sanctions (ban, local)");
+				var audit = Line("users.banned_by, ban_verified_by, ban_aliases", "audit_log (ban)");
+				var allTime = Line("users.elo_rating, elo_num_matches", "player_ratings (all_time)");
+				var monthly = Line("users.monthly_elo_rating", "player_ratings (monthly)");
+				var preferences = Line("users.favorite_*", "player_preferences");
+				var network = Line("users.relay_region, portmapping_tech", "player_network");
+
+				foreach (OldUser old in _plan.AllUsers)
+				{
+					users.Source++;
+
+					if (!_plan.Kept.TryGetValue(old.Id, out KeptUser? kept))
 					{
-						await importer.WriteNullAsync();
+						users.Drop(_plan.DropReason(old));
+						continue;
+					}
+
+					Write(users, new User
+					{
+						ID = old.Id,
+						Username = kept.Username,
+						UsernameNormalized = NameNormalizer.Normalize(kept.Username),
+						// imported names are unique already (AssignUsernames), so tag 1 keeps name#tag unique; renames keep it
+						NameTag = 1,
+						Email = kept.Email,
+						EmailNormalized = kept.Email == null ? null : NameNormalizer.Normalize(kept.Email),
+						State = UserStates.Active,
+						CreatedAt = _now,
+						UpdatedAt = _now,
+						LastSignInAt = old.LastLogin is { Year: >= 1970 } lastLogin ? Micro(lastLogin) : null
+					});
+
+					foreach (KeptIdentity identity in kept.Identities)
+					{
+						MappingLine line = identity.Provider switch
+						{
+							IdentityProviders.Steam => steam,
+							IdentityProviders.Discord => discord,
+							IdentityProviders.Google => google,
+							_ => gameReplays
+						};
+
+						line.Source++;
+						if (!identity.Kept)
+						{
+							line.Drop("duplicate identity, kept on another user");
+							continue;
+						}
+
+						Write(line, new UserIdentity
+						{
+							UserID = old.Id,
+							Provider = identity.Provider,
+							ExternUid = identity.ExternUid,
+							CreatedAt = _now
+						});
+					}
+
+					if (old.Banned)
+					{
+						bans.Source++;
+						audit.Source++;
+
+						if (!_settings.LegacyBansAsLocal)
+						{
+							bans.Drop("legacy bans skipped by Import:legacy_bans");
+							audit.Drop("legacy bans skipped by Import:legacy_bans");
+						}
+						else
+						{
+							string reason = string.IsNullOrWhiteSpace(old.BanReason) ? LegacyBanReason : Clamp(old.BanReason, ModerationManager.MaximumReasonLength, "sanctions", "reason");
+
+							Write(bans, new Sanction
+							{
+								UserID = old.Id,
+								Type = SanctionTypes.Ban,
+								Source = AuthoritySources.Local,
+								Reason = reason,
+								CreatedByKind = AuditActorKinds.Cli,
+								CreatedAt = _now
+							});
+
+							Write(audit, new AuditLogEntry
+							{
+								CreatedAt = _now,
+								ActorKind = AuditActorKinds.Cli,
+								Actor = ImportActor,
+								Action = ModerationActions.Ban,
+								TargetKind = AuditTargetKinds.User,
+								TargetID = old.Id,
+								Reason = reason,
+								Source = ImportActor,
+								Details = JsonSerializer.Serialize(new
+								{
+									legacy = true,
+									banned_by = old.BannedBy ?? string.Empty,
+									ban_verified_by = old.BanVerifiedBy ?? string.Empty,
+									ban_aliases = old.BanAliases ?? string.Empty
+								})
+							});
+						}
+					}
+
+					allTime.Source++;
+					Write(allTime, new PlayerRating { UserID = old.Id, Kind = RatingKinds.AllTime, Rating = old.EloRating, MatchesPlayed = old.EloMatches, UpdatedAt = _now });
+
+					monthly.Source++;
+					Write(monthly, new PlayerRating { UserID = old.Id, Kind = RatingKinds.Monthly, Rating = old.MonthlyEloRating, MatchesPlayed = 0, UpdatedAt = _now });
+
+					// -1 (and an empty map) meant "never chosen"
+					var preference = new PlayerPreference
+					{
+						UserID = old.Id,
+						Color = old.FavoriteColor is null or -1 ? null : (int)old.FavoriteColor,
+						Side = old.FavoriteSide is null or -1 ? null : (int)old.FavoriteSide,
+						Map = string.IsNullOrEmpty(old.FavoriteMap) ? null : Clamp(old.FavoriteMap, PlayerPreference.MapMaxLength, "player_preferences", "map"),
+						StartingMoney = old.FavoriteStartingMoney is null or -1 ? null : (int)old.FavoriteStartingMoney,
+						LimitSuperweapons = old.FavoriteLimitSuperweapons is null or < 0 ? null : old.FavoriteLimitSuperweapons > 0,
+						UpdatedAt = _now
+					};
+
+					preferences.Source++;
+					if (preference.Color == null && preference.Side == null && preference.Map == null && preference.StartingMoney == null && preference.LimitSuperweapons == null)
+					{
+						preferences.Drop("nothing chosen");
 					}
 					else
 					{
-						await importer.WriteAsync(row[i]!, t.Columns[i].PgType);
+						Write(preferences, preference);
 					}
+
+					// relay_region -1 and portmapping_tech -2 meant "unset"; the old ipv4/ipv6 flags hold no address
+					network.Source++;
+					string? relay = old.RelayRegion is null or -1 ? null : old.RelayRegion.Value.ToString(CultureInfo.InvariantCulture);
+					string? portMapping = old.PortmappingTech is null or -2 ? null : old.PortmappingTech.Value.ToString(CultureInfo.InvariantCulture);
+					if (relay == null && portMapping == null)
+					{
+						network.Drop("nothing set");
+					}
+					else
+					{
+						Write(network, new PlayerNetwork { UserID = old.Id, RelayRegion = relay, PortMapping = portMapping, UpdatedAt = _now });
+					}
+
+					_writer?.MaybeFlush();
 				}
 			}
 
-			return (long)await importer.CompleteAsync();
-		}
-
-		private static async Task<bool> HasRows(NpgsqlConnection target, Table t)
-		{
-			return (bool)(await ScalarTarget(target, $"SELECT EXISTS (SELECT 1 FROM {Q(t.Name)})"))!;
-		}
-
-		private static string TruncateAllSql(List<Table> tables) => "TRUNCATE TABLE " + string.Join(", ", tables.Select(t => Q(t.Name)));
-
-		private static string Elapsed(Stopwatch watch) => $"{watch.Elapsed.TotalSeconds:F1}s";
-
-		// ---------------------------------------------------------------- run
-
-		public static async Task<int> Execute(AppDbContext targetDb, string targetConnectionString, ImportSource source, ImportOptions options)
-		{
-			List<Table> modelTables = BuildPlan();
-			Console.WriteLine($"Model: {modelTables.Count} tables.");
-
-			var targetCsb = new NpgsqlConnectionStringBuilder(targetConnectionString)
+			private async Task ConvertStats()
 			{
-				Pooling = false,
-				MinPoolSize = 0,
-				CommandTimeout = 0
+				var line = Line("user_stats_v2", "player_stats");
+
+				await foreach (var r in Rows(_source, "SELECT user_id, stats FROM user_stats_v2 ORDER BY user_id"))
+				{
+					line.Source++;
+					long userId = r.Long("user_id");
+					if (!KeepUserRow(line, userId, "user_stats_v2"))
+						continue;
+
+					string? stats = CleanJson(r.String("stats"));
+					if (!IsJsonObject(stats))
+					{
+						line.Drop("invalid JSON");
+						Findings.Add(ImportFindings.InvalidJson, $"user_stats_v2: stats of user {userId} is not a JSON object");
+						continue;
+					}
+
+					Write(line, new PlayerStat { UserId = userId, Stats = stats!, UpdatedAt = _now });
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private async Task ConvertDevices()
+			{
+				var line = Line("user_devices.hwid_0..5, ip_addr", "devices");
+				var seen = new Dictionary<(long, string, string), Device>();
+
+				await foreach (var r in Rows(_source, "SELECT user_id, hwid_0, hwid_1, hwid_2, hwid_3, hwid_4, hwid_5, ip_addr FROM user_devices ORDER BY user_id, hwid_0, hwid_1, hwid_2, ip_addr"))
+				{
+					long userId = r.Long("user_id");
+					string ip = r.String("ip_addr") ?? string.Empty;
+
+					// hwid_3..5 hold the raw values of hwid_0..2
+					foreach (var (column, rawColumn, kind) in new[] { ("hwid_0", "hwid_3", DeviceKinds.MachineGuid), ("hwid_1", "hwid_4", DeviceKinds.Mac), ("hwid_2", "hwid_5", DeviceKinds.VolumeSerial) })
+					{
+						line.Source++;
+						if (!KeepUserRow(line, userId, "user_devices"))
+							continue;
+
+						string md5 = (r.String(column) ?? string.Empty).Trim().ToUpperInvariant();
+						if (md5.Length == 0 || md5 == DeviceHasher.NoneMd5)
+						{
+							line.Drop("value missing (NONE)");
+							continue;
+						}
+
+						string? raw = DeviceHasher.NormalizeRaw(r.String(rawColumn));
+						raw = raw == null ? null : Clamp(raw, Device.ValueRawLength, "devices", "value_raw");
+
+						// Rows differed by IP address; one device row per user, kind and value keeps the last IP
+						if (seen.TryGetValue((userId, kind, md5), out Device? existing))
+						{
+							line.Drop("same device on another IP");
+							existing.ValueRaw ??= raw;
+							existing.LastIp = string.IsNullOrEmpty(ip) ? existing.LastIp : Clamp(ip, 45, "devices", "last_ip");
+							continue;
+						}
+
+						DateTime lastSeen = _plan.Kept[userId].LastSeen ?? _now;
+						var device = new Device
+						{
+							UserID = userId,
+							Kind = kind,
+							ValueHmac = DeviceHasher.HashLegacyMd5(md5),
+							ValueRaw = raw,
+							FirstSeenAt = lastSeen,
+							LastSeenAt = lastSeen,
+							LastIp = string.IsNullOrEmpty(ip) ? null : Clamp(ip, 45, "devices", "last_ip")
+						};
+
+						seen[(userId, kind, md5)] = device;
+					}
+				}
+
+				// Written after the scan, once the last IP of every device is known
+				foreach (Device device in seen.Values)
+				{
+					Write(line, device);
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private async Task ConvertSocial<T>(string table, string firstColumn, string secondColumn, string target, Func<long, long, (string Key, T Row)> map) where T : class
+			{
+				var line = Line(table, target);
+				var keys = new HashSet<string>(StringComparer.Ordinal);
+
+				await foreach (var r in Rows(_source, $"SELECT {firstColumn}, {secondColumn} FROM {table} ORDER BY {firstColumn}, {secondColumn}"))
+				{
+					line.Source++;
+					long a = r.Long(firstColumn);
+					long b = r.Long(secondColumn);
+
+					if (!KeepUserRow(line, a, table) || !KeepUserRow(line, b, table))
+						continue;
+
+					if (a == b)
+					{
+						line.Drop("same user on both sides");
+						continue;
+					}
+
+					var (key, row) = map(a, b);
+					if (!keys.Add(key))
+					{
+						line.Drop("duplicate pair");
+						continue;
+					}
+
+					Write(line, row);
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private async Task ConvertMatches()
+			{
+				var matches = Line("match_history", "matches");
+				var players = Line("match_history.member_slot_0..7", "match_players");
+
+				string sql = "SELECT match_id, owner, name, finished, started, time_finished, map_name, map_official, match_roster_type, lobby_type, "
+					+ "vanilla_teams, starting_cash, limit_superweapons, track_stats, allow_observers, max_cam_height, exe_crc, ini_crc, map_path, "
+					+ "member_slot_0, member_slot_1, member_slot_2, member_slot_3, member_slot_4, member_slot_5, member_slot_6, member_slot_7 "
+					+ "FROM match_history ORDER BY match_id";
+
+				await foreach (var r in Rows(_source, sql))
+				{
+					matches.Source++;
+					long id = r.Long("match_id");
+
+					if (id <= 0)
+					{
+						matches.Drop("invalid id");
+						Findings.Add(ImportFindings.InvalidValues, $"match_history: match id {id}");
+						continue;
+					}
+
+					bool finished = r.Long("finished") != 0;
+					DateTime started = ValidDate(r.NullableDate("started"), "match_history", "started", id);
+					long? lobbyType = r.NullableLong("lobby_type");
+					ELobbyType? type = lobbyType switch
+					{
+						null => null,
+						0 => ELobbyType.CustomGame,
+						1 => ELobbyType.QuickMatch,
+						_ => null
+					};
+
+					if (lobbyType != null && type == null)
+					{
+						Findings.Add(ImportFindings.InvalidValues, $"match_history.lobby_type of {id}: {lobbyType}, stored as null");
+					}
+
+					var match = new Match
+					{
+						Id = id,
+						OwnerUserId = OptionalUser(r.NullableLong("owner"), "match_history", "owner"),
+						Name = Clamp(r.String("name"), Match.NameMaxLength, "matches", "name"),
+						LobbyType = type,
+						RosterType = Clamp(r.String("match_roster_type"), 32, "matches", "roster_type"),
+						MapName = Clamp(r.String("map_name"), Match.MapNameMaxLength, "matches", "map_name"),
+						MapPath = ClampOptional(r.String("map_path"), Match.MapPathMaxLength, "matches", "map_path"),
+						IsOfficialMap = r.Long("map_official") != 0,
+						VanillaTeams = r.Long("vanilla_teams") != 0,
+						StartingCash = (uint)r.Long("starting_cash"),
+						LimitSuperweapons = r.Long("limit_superweapons") != 0,
+						TrackStats = r.Long("track_stats") != 0,
+						AllowObservers = r.Long("allow_observers") != 0,
+						MaxCamHeight = (ushort)r.Long("max_cam_height"),
+						ExeCrc = (uint)r.Long("exe_crc"),
+						IniCrc = (uint)r.Long("ini_crc"),
+						StartedAt = started,
+						FinishedAt = finished ? ValidDate(r.NullableDate("time_finished"), "match_history", "time_finished", id) : null
+					};
+
+					for (int slot = 0; slot < 8; slot++)
+					{
+						string? json = CleanJson(r.String($"member_slot_{slot}"));
+						if (string.IsNullOrWhiteSpace(json) || json.Trim() == "null")
+							continue;
+
+						players.Source++;
+
+						MatchdataMemberModel member;
+						try
+						{
+							member = JsonSerializer.Deserialize<MatchdataMemberModel>(json);
+						}
+						catch (JsonException)
+						{
+							players.Drop("invalid JSON");
+							Findings.Add(ImportFindings.InvalidJson, $"match_history.member_slot_{slot} of match {id}");
+							continue;
+						}
+
+						var details = new MatchPlayerDetails
+						{
+							display_name = member.display_name ?? string.Empty,
+							slot_state = member.slot_state,
+							startpos = member.startpos,
+							buildings_built = member.buildings_built,
+							buildings_killed = member.buildings_killed,
+							buildings_lost = member.buildings_lost,
+							units_built = member.units_built,
+							units_killed = member.units_killed,
+							units_lost = member.units_lost,
+							total_money = member.total_money,
+							desynced = member.desynced,
+							duration = member.duration,
+							metadata = member.metadata ?? new List<MemberMetadataModel>()
+						};
+
+						// A finished non-observer without a win lost; unfinished matches have no result yet
+						string? result = member.won ? MatchResults.Win
+							: finished && member.side != Constants.OBSERVER_SIDE_VALUE ? MatchResults.Loss
+							: null;
+
+						var player = new MatchPlayer
+						{
+							MatchId = id,
+							Slot = (short)slot,
+							UserId = OptionalUser(member.user_id, "match_history", $"member_slot_{slot} user"),
+							Team = (short)member.team,
+							Side = member.side,
+							Color = member.color,
+							Result = result,
+							Details = MatchHistory.WriteDetails(details)
+						};
+
+						match.Players.Add(player);
+						players.Written++;
+					}
+
+					_importedMatches.Add(id);
+					Write(matches, match);
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private async Task ConvertPublications()
+			{
+				var line = Line("external_publication", "match_publications");
+
+				await foreach (var r in Rows(_source, "SELECT match_id, next_attempt_at, published_at, attempts, last_error FROM external_publication ORDER BY match_id"))
+				{
+					line.Source++;
+					long matchId = r.Long("match_id");
+
+					if (!_importedMatches.Contains(matchId))
+					{
+						line.Drop("orphaned");
+						Findings.Add(ImportFindings.OrphanedRows, $"external_publication: match {matchId} does not exist");
+						continue;
+					}
+
+					DateTime? next = r.NullableDate("next_attempt_at");
+					DateTime? published = r.NullableDate("published_at");
+
+					Write(line, new MatchPublication
+					{
+						MatchId = matchId,
+						NextAttemptAt = next is { Year: >= 1970 } ? Micro(next.Value) : null,
+						PublishedAt = published is { Year: >= 1970 } ? Micro(published.Value) : null,
+						Attempts = (int)r.Long("attempts"),
+						LastError = ClampOptional(r.String("last_error"), 512, "match_publications", "last_error")
+					});
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private async Task ConvertLeaderboards()
+			{
+				await ConvertLeaderboard("leaderboard_daily", "day_of_year", LeaderboardPeriods.Day, (year, unit) =>
+					unit >= 1 && unit <= (DateTime.IsLeapYear(year) ? 366 : 365) ? new DateOnly(year, 1, 1).AddDays(unit - 1) : null);
+				await ConvertLeaderboard("leaderboard_monthly", "month_of_year", LeaderboardPeriods.Month, (year, unit) =>
+					unit >= 1 && unit <= 12 ? new DateOnly(year, unit, 1) : null);
+				await ConvertLeaderboard("leaderboard_yearly", null, LeaderboardPeriods.Year, (year, _) => new DateOnly(year, 1, 1));
+			}
+
+			private async Task ConvertLeaderboard(string table, string? unitColumn, string period, Func<int, int, DateOnly?> start)
+			{
+				var line = Line(table, $"leaderboard_entries ({period})");
+				string unit = unitColumn ?? "0";
+
+				await foreach (var r in Rows(_source, $"SELECT user_id, year, {unit} AS unit, points, wins, losses FROM {table} ORDER BY user_id, year, unit"))
+				{
+					line.Source++;
+					long userId = r.Long("user_id");
+					if (!KeepUserRow(line, userId, table))
+						continue;
+
+					int year = (int)r.Long("year");
+					int unitValue = (int)r.Long("unit");
+					DateOnly? periodStart = year >= 1970 && year <= 9999 ? start(year, unitValue) : null;
+
+					if (periodStart == null)
+					{
+						line.Drop("invalid period");
+						Findings.Add(ImportFindings.InvalidValues, $"{table}: user {userId} year {year} {unitColumn ?? ""} {unitValue}".TrimEnd());
+						continue;
+					}
+
+					Write(line, new LeaderboardEntry
+					{
+						Period = period,
+						PeriodStart = periodStart.Value,
+						UserId = userId,
+						Points = (int?)r.NullableLong("points") ?? EloConfig.BaseRating,
+						Wins = (int?)r.NullableLong("wins") ?? 0,
+						Losses = (int?)r.NullableLong("losses") ?? 0
+					});
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private async Task ConvertAnticheat()
+			{
+				var modules = Line("ac_reviews_modules", "anticheat_module_reports");
+				await foreach (var r in Rows(_source, "SELECT report_id, user_id, match_id, module_name, module_path, module_size FROM ac_reviews_modules ORDER BY report_id"))
+				{
+					modules.Source++;
+					if (!ValidReport(modules, r, "ac_reviews_modules", out long id, out long userId, out long matchId))
+						continue;
+
+					Write(modules, new AnticheatModuleReport
+					{
+						ReportId = id,
+						UserId = userId,
+						MatchId = matchId,
+						ModuleName = Clamp(r.String("module_name"), AntiCheat.ModuleNameMaxLength, "anticheat_module_reports", "module_name"),
+						ModulePath = Clamp(r.String("module_path"), AntiCheat.ModulePathMaxLength, "anticheat_module_reports", "module_path"),
+						ModuleSize = r.Long("module_size")
+					});
+					_writer?.MaybeFlush();
+				}
+
+				var games = Line("ac_reviews_new_account_games", "anticheat_new_account_games");
+				await foreach (var r in Rows(_source, "SELECT report_id, user_id, match_id FROM ac_reviews_new_account_games ORDER BY report_id"))
+				{
+					games.Source++;
+					if (!ValidReport(games, r, "ac_reviews_new_account_games", out long id, out long userId, out long matchId))
+						continue;
+
+					Write(games, new AnticheatNewAccountGame { ReportId = id, UserId = userId, MatchId = matchId });
+					_writer?.MaybeFlush();
+				}
+
+				var probes = Line("ac_reviews_probes", "anticheat_probe_reports");
+				await foreach (var r in Rows(_source, "SELECT report_id, user_id, match_id, reason FROM ac_reviews_probes ORDER BY report_id"))
+				{
+					probes.Source++;
+					if (!ValidReport(probes, r, "ac_reviews_probes", out long id, out long userId, out long matchId))
+						continue;
+
+					Write(probes, new AnticheatProbeReport { ReportId = id, UserId = userId, MatchId = matchId, Reason = Clamp(r.String("reason"), 256, "anticheat_probe_reports", "reason") });
+					_writer?.MaybeFlush();
+				}
+			}
+
+			private bool ValidReport(MappingLine line, SourceRow r, string table, out long id, out long userId, out long matchId)
+			{
+				id = r.Long("report_id");
+				userId = r.Long("user_id");
+				matchId = r.Long("match_id");
+
+				if (id <= 0 || matchId < 0)
+				{
+					line.Drop("invalid id");
+					Findings.Add(ImportFindings.InvalidValues, $"{table}: report {id} has an id out of range");
+					return false;
+				}
+
+				return KeepUserRow(line, userId, table);
+			}
+
+			public void PrintMapping()
+			{
+				_report.Line();
+				_report.Line("Mapping (source rows, rows dropped by reason, rows written):");
+
+				foreach (MappingLine line in _lines)
+				{
+					string dropped = line.Dropped.Count == 0 ? "" : "  dropped " + string.Join(", ", line.Dropped.Select(d => $"{d.Value} {d.Key}"));
+					long balance = line.Source - line.Dropped.Values.Sum() - line.Written;
+					_report.Line($"  {line.From,-48} -> {line.To,-30} source {line.Source,9}  written {line.Written,9}{dropped}{(balance == 0 ? "" : $"  UNBALANCED by {balance}")}");
+				}
+
+				if (_notes.Count > 0)
+				{
+					_report.Line();
+					_report.Line("Values adjusted to fit the new columns:");
+					foreach (var note in _notes.Counts.OrderBy(n => n.Key, StringComparer.Ordinal))
+					{
+						_report.Line($"  {note.Value,7} x {note.Key}");
+					}
+				}
+			}
+		}
+
+		private static bool IsJsonObject(string? json)
+		{
+			if (string.IsNullOrWhiteSpace(json))
+				return false;
+
+			try
+			{
+				return JsonNode.Parse(json) is JsonObject;
+			}
+			catch (JsonException)
+			{
+				return false;
+			}
+		}
+	}
+
+	internal sealed class OldUser
+	{
+		public long Id;
+		public int AccountType;
+		public long? SteamId;
+		public long? DiscordId;
+		public long? GameReplaysId;
+		public string? DisplayName;
+		public DateTime? LastLogin;
+		public long? FavoriteColor;
+		public long? FavoriteSide;
+		public string? FavoriteMap;
+		public long? FavoriteStartingMoney;
+		public long? FavoriteLimitSuperweapons;
+		public bool Admin;
+		public bool Banned;
+		public int EloRating;
+		public int MonthlyEloRating;
+		public int EloMatches;
+		public string? BanReason;
+		public string? BannedBy;
+		public string? BanVerifiedBy;
+		public string? BanAliases;
+		public string? GoogleId;
+		public string? GoogleEmail;
+		public long? PermissionsLevel;
+		public long? RelayRegion;
+		public long? PortmappingTech;
+
+		// Ties go to the most recent sign-in, then the lowest id
+		public static int Precedence(OldUser a, OldUser b)
+		{
+			int byLogin = Nullable.Compare(b.LastLogin, a.LastLogin);
+			return byLogin != 0 ? byLogin : a.Id.CompareTo(b.Id);
+		}
+	}
+
+	internal sealed class KeptIdentity
+	{
+		public string Provider = string.Empty;
+		public string ExternUid = string.Empty;
+		public bool Kept = true;
+	}
+
+	internal sealed class KeptUser
+	{
+		public string Username = string.Empty;
+		public string? Email;
+		public DateTime? LastSeen;
+		public List<KeptIdentity> Identities = new();
+	}
+
+	// Decisions about users made once, before both passes: which users stay, their usernames, identities and emails
+	internal sealed class Plan
+	{
+		public List<OldUser> AllUsers = new();
+		public Dictionary<long, KeptUser> Kept = new();
+		public HashSet<long> Dropped = new();
+		public Findings Findings = new();
+		public NoteCounter Notes = new();
+		public Dictionary<long, OldUser> KeptUsers = new();
+
+		public string DropReason(OldUser user) => user.AccountType switch
+		{
+			2 => "Ghost",
+			3 => "DevAccount",
+			_ => "invalid id"
+		};
+
+		public static Plan Build(List<OldUser> users, ImportReport report, ImportSettings settings)
+		{
+			var plan = new Plan { AllUsers = users };
+
+			foreach (OldUser user in users)
+			{
+				if (user.AccountType == 2 || user.AccountType == 3)
+				{
+					plan.Dropped.Add(user.Id);
+					continue;
+				}
+
+				if (user.Id <= 0)
+				{
+					plan.Dropped.Add(user.Id);
+					plan.Findings.Add(ImportFindings.InvalidValues, $"users: user id {user.Id}");
+					continue;
+				}
+
+				plan.KeptUsers[user.Id] = user;
+				plan.Kept[user.Id] = new KeptUser { LastSeen = user.LastLogin is { Year: >= 1970 } seen ? Import.Micro(seen) : null };
+			}
+
+			plan.AssignUsernames();
+			plan.AssignIdentities();
+			plan.AssignEmails();
+			plan.PrintUserReport(report, settings);
+			return plan;
+		}
+
+		// Outer whitespace is invalid too: MySQL compares with PAD SPACE, so "Bob " and "Bob" would meet in the unique indexes
+		private static bool IsValidUsername(string? name)
+		{
+			if (string.IsNullOrWhiteSpace(name) || name.Contains('\0') || name.Length > User.UsernameMaxLength || !string.Equals(name, name.Trim(), StringComparison.Ordinal))
+				return false;
+
+			return NameNormalizer.Normalize(name).Length <= User.UsernameMaxLength && GenOnlineService.Names.NameKey.Of(name).Length <= GenOnlineService.Names.NameKey.MaxLength;
+		}
+
+		// Every imported user takes tag 1, so a name must be free under both unique indexes: (username_normalized, name_tag)
+		// and (name_key, name_tag). Two names collide when either their normalized form or their look-alike key matches.
+		private static IEnumerable<string> UniquenessKeys(string name)
+		{
+			yield return "n:" + NameNormalizer.Normalize(name);
+			yield return "k:" + GenOnlineService.Names.NameKey.Of(name);
+		}
+
+		private void AssignUsernames()
+		{
+			var taken = new Dictionary<string, long>(StringComparer.Ordinal);
+			var needsName = new List<OldUser>();
+
+			// Valid names first, so a generated name can never take a real one, and the user who signed in last keeps a name
+			foreach (OldUser user in KeptUsers.Values.Where(u => IsValidUsername(u.DisplayName)).OrderBy(u => u, Comparer<OldUser>.Create(OldUser.Precedence)))
+			{
+				List<string> keys = UniquenessKeys(user.DisplayName!).ToList();
+				string? held = keys.FirstOrDefault(taken.ContainsKey);
+				if (held != null)
+				{
+					Findings.Add(ImportFindings.UsernameCollisions, $"\"{user.DisplayName}\": user {user.Id} collides with user {taken[held]}, who keeps it");
+					needsName.Add(user);
+					continue;
+				}
+
+				Kept[user.Id].Username = user.DisplayName!;
+				foreach (string key in keys)
+				{
+					taken[key] = user.Id;
+				}
+			}
+
+			foreach (OldUser user in KeptUsers.Values.Where(u => !IsValidUsername(u.DisplayName)))
+			{
+				Findings.Add(ImportFindings.InvalidUsernames, $"user {user.Id}: {(user.DisplayName == null ? "no name" : $"\"{user.DisplayName.Replace("\0", "\\0")}\"")}");
+				needsName.Add(user);
+			}
+
+			foreach (OldUser user in needsName.OrderBy(u => u.Id))
+			{
+				string suffix = "_" + user.Id.ToString(CultureInfo.InvariantCulture);
+				string stem = IsValidUsername(user.DisplayName) ? user.DisplayName! : "player";
+				string name = TextSanitizer.Clean(stem, User.UsernameMaxLength - suffix.Length) + suffix;
+
+				for (int attempt = 2; UniquenessKeys(name).Any(taken.ContainsKey); attempt++)
+				{
+					string more = suffix + "_" + attempt.ToString(CultureInfo.InvariantCulture);
+					name = TextSanitizer.Clean(stem, User.UsernameMaxLength - more.Length) + more;
+				}
+
+				foreach (string key in UniquenessKeys(name))
+				{
+					taken[key] = user.Id;
+				}
+				Kept[user.Id].Username = name;
+			}
+		}
+
+		private void AssignIdentities()
+		{
+			var all = new List<(OldUser User, KeptIdentity Identity)>();
+
+			foreach (OldUser user in KeptUsers.Values)
+			{
+				// the provider's id only, never its username (S17)
+				void Link(string provider, string? uid)
+				{
+					if (string.IsNullOrWhiteSpace(uid))
+						return;
+
+					var identity = new KeptIdentity { Provider = provider, ExternUid = uid.Trim() };
+					Kept[user.Id].Identities.Add(identity);
+					all.Add((user, identity));
+				}
+
+				Link(IdentityProviders.Steam, user.SteamId > 0 ? user.SteamId.Value.ToString(CultureInfo.InvariantCulture) : null);
+				Link(IdentityProviders.Discord, user.DiscordId > 0 ? user.DiscordId.Value.ToString(CultureInfo.InvariantCulture) : null);
+				Link(IdentityProviders.Google, user.GoogleId);
+				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null);
+			}
+
+			// the target allows one identity per provider per user; a second one on a user is reported and not kept
+			foreach (var group in all.GroupBy(x => (x.User.Id, x.Identity.Provider)).Where(g => g.Count() > 1))
+			{
+				foreach (var extra in group.Skip(1))
+				{
+					extra.Identity.Kept = false;
+				}
+
+				Findings.Add(ImportFindings.DuplicateIdentities,
+					$"user {group.Key.Id} has {group.Count()} {group.Key.Provider} identities ({string.Join(", ", group.Select(x => x.Identity.ExternUid))}); {group.First().Identity.ExternUid} is kept");
+			}
+
+			foreach (var group in all.GroupBy(x => (x.Identity.Provider, x.Identity.ExternUid)).Where(g => g.Count() > 1))
+			{
+				var ordered = group.OrderBy(x => x.User, Comparer<OldUser>.Create(OldUser.Precedence)).ToList();
+				foreach (var loser in ordered.Skip(1))
+				{
+					loser.Identity.Kept = false;
+				}
+
+				Findings.Add(ImportFindings.DuplicateIdentities,
+					$"{group.Key.Provider} {group.Key.ExternUid}: users {string.Join(", ", ordered.Select(x => x.User.Id))}; {ordered[0].User.Id} keeps it");
+			}
+		}
+
+		private void AssignEmails()
+		{
+			var candidates = new List<(OldUser User, string Email, string Normalized)>();
+
+			foreach (OldUser user in KeptUsers.Values)
+			{
+				string? email = user.GoogleEmail?.Trim();
+				if (string.IsNullOrEmpty(email))
+					continue;
+
+				if (!email.Contains('@') || email.Length > User.EmailMaxLength || email.Contains('\0') || NameNormalizer.Normalize(email).Length > User.EmailMaxLength)
+				{
+					Notes.Add("users.email: invalid Google email not imported");
+					continue;
+				}
+
+				candidates.Add((user, email, NameNormalizer.Normalize(email)));
+			}
+
+			foreach (var group in candidates.GroupBy(c => c.Normalized))
+			{
+				var ordered = group.OrderBy(c => c.User, Comparer<OldUser>.Create(OldUser.Precedence)).ToList();
+				Kept[ordered[0].User.Id].Email = ordered[0].Email;
+
+				if (ordered.Count > 1)
+				{
+					Findings.Add(ImportFindings.DuplicateEmails, $"{group.Key}: users {string.Join(", ", ordered.Select(c => c.User.Id))}; {ordered[0].User.Id} keeps it");
+				}
+			}
+		}
+
+		private void PrintUserReport(ImportReport report, ImportSettings settings)
+		{
+			report.Line();
+			report.Line($"Users: {AllUsers.Count} in the source, {Kept.Count} imported");
+			report.Line($"  dropped Ghost:       {AllUsers.Count(u => u.AccountType == 2)}");
+			report.Line($"  dropped DevAccount:  {AllUsers.Count(u => u.AccountType == 3)}");
+			report.Line($"  legacy bans:         {KeptUsers.Values.Count(u => u.Banned)} ({(settings.LegacyBansAsLocal ? "imported as local play bans" : "skipped")})");
+
+			var staff = KeptUsers.Values.Where(u => u.Admin || u.PermissionsLevel > 0).OrderBy(u => u.Id).ToList();
+			var droppedStaff = AllUsers.Where(u => Dropped.Contains(u.Id) && (u.Admin || u.PermissionsLevel > 0)).OrderBy(u => u.Id).ToList();
+
+			report.Line();
+			report.Line($"Staff remap report: admin and permissionslevel are NOT imported. Grant roles again with \"GenOnlineService roles grant\" ({staff.Count} users):");
+			foreach (OldUser user in staff)
+			{
+				report.Line($"  user {user.Id,-10} {Kept[user.Id].Username,-32} admin={(user.Admin ? 1 : 0)} permissionslevel={user.PermissionsLevel?.ToString(CultureInfo.InvariantCulture) ?? "null"}");
+			}
+
+			foreach (OldUser user in droppedStaff)
+			{
+				report.Line($"  user {user.Id,-10} (not imported, {DropReason(user)}) admin={(user.Admin ? 1 : 0)} permissionslevel={user.PermissionsLevel?.ToString(CultureInfo.InvariantCulture) ?? "null"}");
+			}
+		}
+	}
+
+	internal sealed class NoteCounter
+	{
+		public Dictionary<string, long> Counts = new(StringComparer.Ordinal);
+
+		public NoteCounter()
+		{
+		}
+
+		public NoteCounter(NoteCounter copy)
+		{
+			Counts = new Dictionary<string, long>(copy.Counts, StringComparer.Ordinal);
+		}
+		public int Count => Counts.Count;
+
+		public void Add(string note) => Counts[note] = Counts.GetValueOrDefault(note) + 1;
+	}
+
+	// Each finding kind keeps a count and the first examples; a second pass over the same data adds nothing new
+	internal sealed class Findings
+	{
+		private readonly Dictionary<string, (long Count, List<string> Examples, HashSet<string> Seen)> _byKind = new(StringComparer.Ordinal);
+
+		public void Add(string kind, string detail)
+		{
+			if (!_byKind.TryGetValue(kind, out var entry))
+			{
+				entry = (0, new List<string>(), new HashSet<string>(StringComparer.Ordinal));
+			}
+
+			if (!entry.Seen.Add(detail))
+				return;
+
+			entry.Count++;
+			if (entry.Examples.Count < 20)
+				entry.Examples.Add(detail);
+
+			_byKind[kind] = entry;
+		}
+
+		public bool HasUnwaived(IReadOnlySet<string> waivers) => _byKind.Keys.Any(k => !waivers.Contains(k));
+
+		public void Print(ImportReport report, IReadOnlySet<string> waivers)
+		{
+			report.Line();
+			report.Line(_byKind.Count == 0 ? "Validation: no findings." : "Validation findings:");
+
+			foreach (var (kind, entry) in _byKind.OrderBy(k => k.Key, StringComparer.Ordinal))
+			{
+				report.Line($"  {kind}: {entry.Count} {(waivers.Contains(kind) ? "(waived)" : "(BLOCKING)")}");
+				foreach (string example in entry.Examples)
+				{
+					report.Line($"    {example}");
+				}
+
+				if (entry.Count > entry.Examples.Count)
+				{
+					report.Line($"    ... and {entry.Count - entry.Examples.Count} more");
+				}
+			}
+		}
+	}
+
+	internal sealed class MappingLine
+	{
+		public MappingLine(string from, string to)
+		{
+			From = from;
+			To = to;
+		}
+
+		public string From { get; }
+		public string To { get; }
+		public long Source;
+		public long Written;
+		public Dictionary<string, long> Dropped { get; } = new(StringComparer.Ordinal);
+
+		public void Drop(string reason) => Dropped[reason] = Dropped.GetValueOrDefault(reason) + 1;
+	}
+
+	internal sealed class ImportReport
+	{
+		private readonly StringBuilder _text = new();
+
+		public void Line(string text = "")
+		{
+			Console.WriteLine(text);
+			_text.AppendLine(text);
+		}
+
+		public void Save(string path)
+		{
+			File.WriteAllText(path, _text.ToString());
+			Console.WriteLine($"Report written to {Path.GetFullPath(path)}");
+		}
+	}
+
+	internal sealed class SourceSchema
+	{
+		private static readonly Dictionary<string, string[]> Required = new(StringComparer.Ordinal)
+		{
+			["users"] = new[] { "user_id", "account_type", "steam_id", "discord_id", "gamereplays_id", "displayname", "lastlogin",
+				"favorite_color", "favorite_side", "favorite_map", "favorite_starting_money", "favorite_limit_superweapons", "admin", "banned",
+				"elo_rating", "monthly_elo_rating", "elo_num_matches", "ban_reason", "banned_by", "ban_verified_by", "ban_aliases" },
+			["user_devices"] = new[] { "user_id", "hwid_0", "hwid_1", "hwid_2", "hwid_3", "hwid_4", "hwid_5", "ip_addr" },
+			["user_stats_v2"] = new[] { "user_id", "stats" },
+			["friends"] = new[] { "user_id_1", "user_id_2" },
+			["friends_requests"] = new[] { "source_user_id", "target_user_id" },
+			["friends_blocked"] = new[] { "source_user_id", "target_user_id" },
+			["match_history"] = new[] { "match_id", "owner", "name", "finished", "started", "time_finished", "map_name", "map_official", "match_roster_type", "lobby_type",
+				"vanilla_teams", "starting_cash", "limit_superweapons", "track_stats", "allow_observers", "max_cam_height", "exe_crc", "ini_crc", "map_path",
+				"member_slot_0", "member_slot_1", "member_slot_2", "member_slot_3", "member_slot_4", "member_slot_5", "member_slot_6", "member_slot_7" },
+			["external_publication"] = new[] { "match_id", "next_attempt_at", "published_at", "attempts", "last_error" },
+			["leaderboard_daily"] = new[] { "user_id", "day_of_year", "year", "points", "wins", "losses" },
+			["leaderboard_monthly"] = new[] { "user_id", "month_of_year", "year", "points", "wins", "losses" },
+			["leaderboard_yearly"] = new[] { "user_id", "year", "points", "wins", "losses" },
+			["ac_reviews_modules"] = new[] { "report_id", "user_id", "match_id", "module_name", "module_path", "module_size" },
+			["ac_reviews_new_account_games"] = new[] { "report_id", "user_id", "match_id" },
+			["ac_reviews_probes"] = new[] { "report_id", "user_id", "match_id", "reason" }
+		};
+
+		private readonly Dictionary<string, HashSet<string>> _columns;
+
+		private SourceSchema(Dictionary<string, HashSet<string>> columns)
+		{
+			_columns = columns;
+		}
+
+		public static async Task<SourceSchema> Read(MySqlConnection source)
+		{
+			var columns = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+			await foreach (var r in Import.Rows(source, "SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE()"))
+			{
+				string table = r.String("t")!;
+				if (!columns.TryGetValue(table, out var set))
+				{
+					set = new HashSet<string>(StringComparer.Ordinal);
+					columns[table] = set;
+				}
+
+				set.Add(r.String("c")!);
+			}
+
+			var missing = Required
+				.SelectMany(t => columns.TryGetValue(t.Key, out var have)
+					? t.Value.Where(c => !have.Contains(c)).Select(c => $"{t.Key}.{c}")
+					: new[] { $"{t.Key} (table)" })
+				.ToList();
+
+			if (missing.Count > 0)
+			{
+				throw new ImportException($"The source is not the old GenOnline schema, it lacks: {string.Join(", ", missing)}.");
+			}
+
+			return new SourceSchema(columns);
+		}
+
+		// A column the website owned; NULL when the source never had it
+		public string Optional(string table, string column)
+		{
+			return _columns[table].Contains(column) ? column : $"NULL AS {column}";
+		}
+	}
+
+	internal sealed class SourceRow
+	{
+		private readonly MySqlDataReader _reader;
+		private Dictionary<string, int>? _ordinals;
+
+		public SourceRow(MySqlDataReader reader)
+		{
+			_reader = reader;
+		}
+
+		private int Ordinal(string column)
+		{
+			_ordinals ??= Enumerable.Range(0, _reader.FieldCount).ToDictionary(i => _reader.GetName(i), i => i, StringComparer.OrdinalIgnoreCase);
+			return _ordinals[column];
+		}
+
+		private object? Value(string column)
+		{
+			object value = _reader.GetValue(Ordinal(column));
+			return value is DBNull ? null : value;
+		}
+
+		public long? NullableLong(string column)
+		{
+			return Value(column) switch
+			{
+				null => null,
+				bool b => b ? 1 : 0,
+				ulong u => checked((long)u),
+				string s => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) ? parsed : null,
+				object o => Convert.ToInt64(o, CultureInfo.InvariantCulture)
 			};
-
-			// Target: PostgreSQL with every migration applied
-			var appliedTarget = (await targetDb.Database.GetAppliedMigrationsAsync()).ToList();
-			var pendingTarget = (await targetDb.Database.GetPendingMigrationsAsync()).ToList();
-
-			if (appliedTarget.Count == 0 || pendingTarget.Count > 0)
-			{
-				throw new ImportException($"The target PostgreSQL database does not have all migrations applied ({pendingTarget.Count} pending). Run \"GenOnlineService migrate --yes\" against it first.");
-			}
-
-			await using MySqlConnection sourceConnection = await OpenSource(source);
-			await using var targetConnection = new NpgsqlConnection(targetCsb.ConnectionString);
-			await targetConnection.OpenAsync();
-
-			// Source: MariaDB at this version or an older one the import can bridge
-			using MySqlAppDbContext sourceModel = new MySqlAppDbContextFactory().CreateDbContext(Array.Empty<string>());
-			var expected = sourceModel.Database.GetMigrations().OrderBy(m => m, StringComparer.Ordinal).ToList();
-			var unsafeReasons = ClassifyMigrations(sourceModel);
-			var appliedSource = await ReadSourceMigrations(sourceConnection);
-
-			if (appliedSource.Count == 0)
-			{
-				string first = await CheckLegacySource(sourceConnection);
-				Console.WriteLine($"The source database has no migration history and matches migration {first}, it is imported as that version.");
-				appliedSource.Add(first);
-			}
-
-			var unknown = appliedSource.Except(expected).ToList();
-
-			if (unknown.Count > 0)
-			{
-				throw new ImportException($"The source database has migration(s) this version does not know ({string.Join(", ", unknown)}). Use the same or a newer version of the service for the import.");
-			}
-
-			var missing = expected.Except(appliedSource).ToList();
-			var blocking = missing.Where(id => unsafeReasons[id] != null).Select(id => $"{id} ({unsafeReasons[id]})").ToList();
-
-			if (blocking.Count > 0)
-			{
-				throw new ImportException($"The source database is missing migration(s) the import cannot bridge: {string.Join(", ", blocking)}. On the MariaDB host run \"GenOnlineService migrate --yes\" with db_provider set to mysql, then run the import again.");
-			}
-
-			foreach (string id in missing)
-			{
-				Console.WriteLine($"Note: the source database has not applied migration {id}, the import bridges it.");
-			}
-
-			var warnings = new List<string>();
-			List<Table> tables = NarrowToSource(modelTables, await ReadSourceColumns(sourceConnection), warnings);
-
-			foreach (string warning in warnings)
-			{
-				Console.WriteLine($"Warning: {warning}.");
-			}
-
-			// a migration that changes data or the copied columns restarts an import in progress, any other migration does not
-			string lastApplied = appliedSource.Max(StringComparer.Ordinal)!;
-			string lastDataMigration = appliedSource.Where(id => unsafeReasons[id] != null).Max(StringComparer.Ordinal) ?? "none";
-			string sourceMigration = $"{lastDataMigration}, columns {Shape(tables)}";
-			object? version = await ScalarSource(sourceConnection, "SELECT VERSION()");
-
-			var run = new Run { Source = sourceConnection, Target = targetConnection, Config = source, SourceMigration = sourceMigration };
-			Dictionary<string, State>? existing = await LoadStates(targetConnection);
-
-			// Target guard: rows without a state table were not put there by an import
-			if (existing == null)
-			{
-				foreach (Table t in modelTables)
-				{
-					if (await HasRows(targetConnection, t))
-					{
-						throw new ImportException($"The target already has data (table {t.Name}) and no import is in progress. The import only fills an empty database; to repeat a completed import, recreate the PostgreSQL database and run \"GenOnlineService migrate --yes\" again.");
-					}
-				}
-			}
-			else
-			{
-				State any = existing.Values.First();
-				bool sameSource = string.Equals(any.SourceHost, source.Host, StringComparison.OrdinalIgnoreCase) && string.Equals(any.SourceName, source.Name, StringComparison.Ordinal);
-
-				if (!sameSource && !options.Restart)
-				{
-					throw new ImportException($"The import in progress reads from a different source (host {any.SourceHost}, database {any.SourceName}) than this run (host {source.Host}, database {source.Name}). Use the original source, or run with --restart to discard the imported data and start over.");
-				}
-
-				if (sameSource && any.SourceMigration != sourceMigration && !options.Restart)
-				{
-					throw new ImportException($"The source schema changed since the import started (was {any.SourceMigration}, now {sourceMigration}). Run with --restart to start over.");
-				}
-			}
-
-			bool restart = options.Restart && existing != null;
-
-			var sourceCounts = new Dictionary<string, long>();
-
-			foreach (Table t in tables)
-			{
-				sourceCounts[t.Name] = Convert.ToInt64(await ScalarSource(sourceConnection, $"SELECT COUNT(*) FROM {QM(t.Name)}"), CultureInfo.InvariantCulture);
-			}
-
-			Console.WriteLine($"Source: {source.Provider} {version} at {source.Host}:{source.Port}, database {source.Name} (migration {lastApplied}), opened read only.");
-			Console.WriteLine($"Target: postgres at {targetCsb.Host}:{targetCsb.Port}, database {targetCsb.Database}.");
-			Console.WriteLine(existing == null ? "No import in progress." : $"Import in progress: {existing.Values.Sum(s => s.RowsCopied)} rows recorded so far.{(restart ? " --restart discards it." : "")}");
-			Console.WriteLine("Plan:");
-
-			foreach (Table t in tables)
-			{
-				string action;
-
-				if (t.Name == AppendOnlyTable)
-				{
-					State? s = restart ? null : existing?.GetValueOrDefault(t.Name);
-					action = s?.LastKey == null ? "copy all rows" : $"copy rows after key {string.Join(",", s.LastKey)}";
-				}
-				else
-				{
-					action = "truncate and reload";
-				}
-
-				Console.WriteLine($"  {t.Name,-28} {sourceCounts[t.Name],12} rows  {action}");
-			}
-
-			Console.WriteLine("Then: reset the sequences, verify row count and min/max key per table; if everything matches, remove the import state and the import is complete.");
-
-			if (options.DryRun)
-			{
-				return await DryRun(run, tables);
-			}
-
-			Console.WriteLine();
-			Console.WriteLine("IMPORTANT: the run that completes the import must be done with the service stopped. A service that is still writing during the run can lose those writes without verification noticing.");
-			Console.WriteLine("A run with the service live is fine as a preparation: it ends with differences and keeps its progress.");
-
-			if (!options.Confirm(restart ? "Discard the imported data, start over and run the import?" : "Run the import?", "Input is not interactive. Pass --yes to run the import in an unattended run."))
-			{
-				return 1;
-			}
-
-			if (restart)
-			{
-				await ExecTarget(targetConnection, TruncateAllSql(modelTables));
-				await ExecTarget(targetConnection, $"DROP TABLE {StateTable}");
-				existing = null;
-				Console.WriteLine("Discarded the previous import.");
-			}
-
-			if (existing == null)
-			{
-				await using var tx = await targetConnection.BeginTransactionAsync();
-				await ExecTarget(targetConnection, $@"
-					CREATE TABLE {StateTable} (
-						table_name text PRIMARY KEY,
-						last_key text NULL,
-						rows_copied bigint NOT NULL DEFAULT 0,
-						status text NOT NULL,
-						source_migration text NOT NULL,
-						phase text NOT NULL,
-						source_host text NOT NULL,
-						source_name text NOT NULL,
-						updated_at timestamptz NOT NULL DEFAULT now())");
-
-				existing = new Dictionary<string, State>();
-
-				foreach (Table t in tables)
-				{
-					var state = new State { Table = t.Name, SourceMigration = sourceMigration, SourceHost = source.Host, SourceName = source.Name, Phase = "new" };
-					existing[t.Name] = state;
-					await SaveState(targetConnection, state);
-				}
-
-				await tx.CommitAsync();
-			}
-
-			run.States = existing;
-
-			foreach (Table t in tables.Where(t => t.Name == AppendOnlyTable))
-			{
-				await CatchUp(run, t);
-			}
-
-			foreach (Table t in tables.Where(t => t.Name != AppendOnlyTable))
-			{
-				await Reload(run, t);
-			}
-
-			await ExecTarget(targetConnection, SequencesSql);
-			Console.WriteLine("Sequences reset.");
-
-			List<string> differences = await Verify(run, tables);
-
-			if (differences.Count > 0)
-			{
-				Console.Error.WriteLine();
-				Console.Error.WriteLine("Catch-up run finished, the import is NOT complete yet: the source and the target differ.");
-
-				foreach (string line in differences)
-				{
-					Console.Error.WriteLine("  " + line);
-				}
-
-				Console.Error.WriteLine("This is the normal result of a run while the service is live: the differences are rows written while it copied. It is not an error, the progress is kept (the service cannot start on this database yet).");
-				Console.Error.WriteLine("Run the import again to catch up. The run that completes the import must be done with the service stopped.");
-				return 1;
-			}
-
-			await ExecTarget(targetConnection, $"DROP TABLE {StateTable}");
-			Console.WriteLine("Verified: row counts and min/max keys match for all tables. Import complete, the service can start on PostgreSQL (set db_provider to postgres).");
-			return 0;
 		}
 
-		// Reads everything and writes nothing, including no state table
-		private static async Task<int> DryRun(Run run, List<Table> tables)
+		public long Long(string column) => NullableLong(column) ?? 0;
+
+		public string? String(string column)
 		{
-			Console.WriteLine();
-			Console.WriteLine("Dry run: scanning every table for values PostgreSQL cannot store. Nothing is written.");
-
-			int total = 0;
-
-			foreach (Table t in tables)
+			return Value(column) switch
 			{
-				var watch = Stopwatch.StartNew();
-				string[]? last = null;
-				int issues = 0;
-				var reported = new List<Issue>();
-				long rows = 0;
-
-				while (true)
-				{
-					var parameters = new List<MySqlParameter>();
-					Batch batch = await ReadRows(run.Source, t, last == null ? null : KeysetWhere(t, last, parameters), parameters, BatchSize);
-
-					if (batch.Rows.Count == 0)
-					{
-						break;
-					}
-
-					rows += batch.Rows.Count;
-					issues += batch.Issues;
-					reported.AddRange(batch.IssueList.Take(MaxReportedIssues - reported.Count));
-					last = batch.LastKey;
-
-					if (batch.Rows.Count < BatchSize)
-					{
-						break;
-					}
-				}
-
-				total += issues;
-				Console.WriteLine($"  {t.Name}: {rows} rows scanned in {Elapsed(watch)}, {issues} unstorable value(s)");
-
-				if (issues > 0)
-				{
-					Console.WriteLine(DescribeIssues(reported));
-				}
-			}
-
-			if (total > 0)
-			{
-				Console.Error.WriteLine($"{total} value(s) cannot be stored in PostgreSQL and would stop the import. Fix them in the source, the import does not change data.");
-				return 1;
-			}
-
-			Console.WriteLine("Dry run finished: no unstorable values.");
-			return 0;
+				null => null,
+				string s => s,
+				byte[] bytes => Encoding.UTF8.GetString(bytes),
+				object o => Convert.ToString(o, CultureInfo.InvariantCulture)
+			};
 		}
 
-		private static async Task CatchUp(Run run, Table t)
+		// The old service stored UTC in datetime columns without a kind; zero dates read as MinValue
+		public DateTime? NullableDate(string column)
 		{
-			var watch = Stopwatch.StartNew();
-			State state = run.States[t.Name];
-			long copied = 0;
+			object? value = Value(column);
+			if (value is not DateTime date || date == DateTime.MinValue)
+				return null;
 
-			while (true)
+			return DateTime.SpecifyKind(date, DateTimeKind.Utc);
+		}
+	}
+
+	internal sealed class TableHash
+	{
+		public long Count;
+		public byte[] Checksum = new byte[32];
+
+		public void Add(byte[] rowHash)
+		{
+			Count++;
+			for (int i = 0; i < Checksum.Length; i++)
 			{
-				var parameters = new List<MySqlParameter>();
-				Batch batch = await ReadRows(run.Source, t, state.LastKey == null ? null : KeysetWhere(t, state.LastKey, parameters), parameters, BatchSize);
-				ThrowIfIssues(batch);
-
-				if (batch.Rows.Count == 0)
-				{
-					break;
-				}
-
-				// The rows and the state move together, a crash cannot lose or repeat a batch
-				await using var tx = await run.Target.BeginTransactionAsync();
-				await CopyRows(run.Target, t, batch.Rows);
-				state.LastKey = batch.LastKey;
-				state.RowsCopied += batch.Rows.Count;
-				state.Status = "copying";
-				state.Phase = "catch-up";
-				await SaveState(run.Target, state);
-				await tx.CommitAsync();
-
-				copied += batch.Rows.Count;
-
-				if (batch.Rows.Count < BatchSize)
-				{
-					break;
-				}
+				Checksum[i] ^= rowHash[i];
 			}
+		}
+	}
 
-			copied += await RepairGaps(run, t, state);
+	// Batches inserts and hashes every row after it is saved, when generated keys are known
+	internal sealed class TargetWriter
+	{
+		private readonly AppDbContext _db;
+		private readonly List<object> _pending = new();
+		private readonly Dictionary<string, TableHash> _expected = new(StringComparer.Ordinal);
+		private Task _flushing = Task.CompletedTask;
 
-			state.Status = "copied";
-			state.Phase = "catch-up";
-			await SaveState(run.Target, state);
-			Console.WriteLine($"  {t.Name}: {copied} new rows in {Elapsed(watch)}");
+		public TargetWriter(AppDbContext db)
+		{
+			_db = db;
+			_db.ChangeTracker.AutoDetectChangesEnabled = false;
 		}
 
-		// A row can commit after a row with a higher key was read (auto increment keys are assigned before commit), and
-		// would then be skipped for good. Compare the counts up to the last key and copy what is missing.
-		private static async Task<long> RepairGaps(Run run, Table t, State state)
+		public bool IsPostgres => _db.Database.IsNpgsql();
+
+		public void Add(object entity)
 		{
-			if (state.LastKey == null)
+			_pending.Add(entity);
+		}
+
+		public void MaybeFlush()
+		{
+			if (_pending.Count >= 2000)
 			{
-				return 0;
+				Flush();
 			}
+		}
 
-			Column key = t.Keys[0];
-			object? sourceCount = await ScalarSource(run.Source, $"SELECT COUNT(*) FROM {QM(t.Name)} WHERE {QM(key.Name)} <= @last",
-				new MySqlParameter("@last", Coerce(state.LastKey[0], key.SourceProviderClr)));
-			long targetCount = Convert.ToInt64(await ScalarTarget(run.Target, $"SELECT COUNT(*) FROM {Q(t.Name)}"), CultureInfo.InvariantCulture);
+		// Queues the pending rows; writes stay in order because each flush waits for the previous one
+		public void Flush()
+		{
+			if (_pending.Count == 0)
+				return;
 
-			if (Convert.ToInt64(sourceCount, CultureInfo.InvariantCulture) == targetCount)
+			var batch = _pending.ToList();
+			_pending.Clear();
+			Task previous = _flushing;
+			_flushing = WriteBatch(previous, batch);
+		}
+
+		public async Task FlushAll()
+		{
+			Flush();
+			await _flushing;
+		}
+
+		private async Task WriteBatch(Task previous, List<object> batch)
+		{
+			await previous;
+
+			_db.AddRange(batch);
+			await _db.SaveChangesAsync();
+
+			foreach (object entity in batch)
 			{
-				return 0;
-			}
-
-			var present = new HashSet<long>();
-			await using (var command = new NpgsqlCommand($"SELECT {Q(key.Name)} FROM {Q(t.Name)}", run.Target))
-			await using (var reader = await command.ExecuteReaderAsync())
-			{
-				while (await reader.ReadAsync())
+				Hash(entity);
+				if (entity is Match match)
 				{
-					present.Add(reader.GetInt64(0));
-				}
-			}
-
-			var missing = new List<long>();
-			await using (var command = new MySqlCommand($"SELECT {QM(key.Name)} FROM {QM(t.Name)} WHERE {QM(key.Name)} <= @last ORDER BY {QM(key.Name)}", run.Source))
-			{
-				command.Parameters.AddWithValue("@last", Coerce(state.LastKey[0], key.SourceProviderClr));
-				await using var reader = await command.ExecuteReaderAsync();
-
-				while (await reader.ReadAsync())
-				{
-					long id = Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture);
-
-					if (!present.Contains(id))
+					foreach (MatchPlayer player in match.Players)
 					{
-						missing.Add(id);
+						Hash(player);
 					}
 				}
 			}
 
-			long added = 0;
-
-			foreach (long[] chunk in missing.Chunk(BatchSize))
-			{
-				var parameters = chunk.Select((id, i) => new MySqlParameter("@m" + i, Coerce(id, key.SourceProviderClr))).ToList();
-				string where = $"{QM(key.Name)} IN ({string.Join(", ", parameters.Select(p => p.ParameterName))})";
-				Batch batch = await ReadRows(run.Source, t, where, parameters, null);
-				ThrowIfIssues(batch);
-
-				await using var tx = await run.Target.BeginTransactionAsync();
-				await CopyRows(run.Target, t, batch.Rows);
-				state.RowsCopied += batch.Rows.Count;
-				await SaveState(run.Target, state);
-				await tx.CommitAsync();
-				added += batch.Rows.Count;
-			}
-
-			return added;
+			_db.ChangeTracker.Clear();
 		}
 
-		private static async Task Reload(Run run, Table t)
+		private void Hash(object entity)
 		{
-			var watch = Stopwatch.StartNew();
-			State state = run.States[t.Name];
-			long rows = 0;
-			string[]? last = null;
+			IEntityType entityType = _db.Model.FindEntityType(entity.GetType())!;
+			string table = entityType.GetTableName()!;
 
-			// The whole table in one transaction: until it commits the previous contents stay
-			await using var tx = await run.Target.BeginTransactionAsync();
-			await ExecTarget(run.Target, $"TRUNCATE TABLE {Q(t.Name)}");
-
-			while (true)
+			if (!_expected.TryGetValue(table, out TableHash? hash))
 			{
-				var parameters = new List<MySqlParameter>();
-				Batch batch = await ReadRows(run.Source, t, last == null ? null : KeysetWhere(t, last, parameters), parameters, BatchSize);
-				ThrowIfIssues(batch);
+				hash = new TableHash();
+				_expected[table] = hash;
+			}
 
-				if (batch.Rows.Count == 0)
-				{
+			hash.Add(RowHash.Of(entityType, entity));
+		}
+
+		public TableHash Expected(string table) => _expected.TryGetValue(table, out TableHash? hash) ? hash : new TableHash();
+	}
+
+	// SHA-256 of a row's column values in column-name order, formatted so a value reads back identically on both providers
+	internal static class RowHash
+	{
+		public static byte[] Of(IEntityType entityType, object entity)
+		{
+			var text = new StringBuilder();
+
+			foreach (IProperty property in entityType.GetProperties().OrderBy(p => p.GetColumnName(), StringComparer.Ordinal))
+			{
+				object? value = property.PropertyInfo?.GetValue(entity);
+				string? columnType = property.GetColumnType();
+				bool isJson = columnType == "json" || columnType == "jsonb";
+
+				text.Append(property.GetColumnName()).Append('=').Append(Format(value, isJson)).Append('\u001f');
+			}
+
+			return SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString()));
+		}
+
+		private static string Format(object? value, bool isJson)
+		{
+			return value switch
+			{
+				null => "\u2400",
+				string s when isJson => CanonicalJson(s),
+				string s => s,
+				DateTime d => (d.Ticks - (d.Ticks % 10)).ToString(CultureInfo.InvariantCulture),
+				DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+				byte[] bytes => Convert.ToHexString(bytes),
+				bool b => b ? "1" : "0",
+				Enum e => e.ToString(),
+				IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+				_ => value.ToString() ?? string.Empty
+			};
+		}
+
+		// Sorted keys, no whitespace: jsonb reorders keys and drops formatting
+		private static string CanonicalJson(string json)
+		{
+			JsonNode? node = JsonNode.Parse(json);
+			using var stream = new MemoryStream();
+			using (var writer = new Utf8JsonWriter(stream))
+			{
+				Write(writer, node);
+			}
+
+			return Encoding.UTF8.GetString(stream.ToArray());
+		}
+
+		private static void Write(Utf8JsonWriter writer, JsonNode? node)
+		{
+			switch (node)
+			{
+				case null:
+					writer.WriteNullValue();
 					break;
-				}
-
-				await CopyRows(run.Target, t, batch.Rows);
-				rows += batch.Rows.Count;
-				last = batch.LastKey;
-
-				if (batch.Rows.Count < BatchSize)
-				{
+				case JsonObject obj:
+					writer.WriteStartObject();
+					foreach (var pair in obj.OrderBy(p => p.Key, StringComparer.Ordinal))
+					{
+						writer.WritePropertyName(pair.Key);
+						Write(writer, pair.Value);
+					}
+					writer.WriteEndObject();
 					break;
-				}
+				case JsonArray array:
+					writer.WriteStartArray();
+					foreach (JsonNode? item in array)
+					{
+						Write(writer, item);
+					}
+					writer.WriteEndArray();
+					break;
+				default:
+					node.WriteTo(writer);
+					break;
 			}
-
-			state.LastKey = last;
-			state.RowsCopied = rows;
-			state.Status = "copied";
-			state.Phase = "reload";
-			await SaveState(run.Target, state);
-			await tx.CommitAsync();
-
-			Console.WriteLine($"  {t.Name}: {rows} rows reloaded in {Elapsed(watch)}");
-		}
-
-		// ---------------------------------------------------------------- verify
-
-		private static async Task<List<string>> Verify(Run run, List<Table> tables)
-		{
-			Console.WriteLine("Verifying:");
-			var differences = new List<string>();
-
-			foreach (Table t in tables)
-			{
-				long sourceCount = Convert.ToInt64(await ScalarSource(run.Source, $"SELECT COUNT(*) FROM {QM(t.Name)}"), CultureInfo.InvariantCulture);
-				long targetCount = Convert.ToInt64(await ScalarTarget(run.Target, $"SELECT COUNT(*) FROM {Q(t.Name)}"), CultureInfo.InvariantCulture);
-				string sourceMin = await SourceKeyEdge(run.Source, t, false);
-				string targetMin = await TargetKeyEdge(run.Target, t, false);
-				string sourceMax = await SourceKeyEdge(run.Source, t, true);
-				string targetMax = await TargetKeyEdge(run.Target, t, true);
-
-				var problems = new List<string>();
-
-				if (sourceCount != targetCount)
-				{
-					problems.Add($"{t.Name}: {sourceCount} rows in the source, {targetCount} in the target");
-				}
-
-				if (sourceMin != targetMin)
-				{
-					problems.Add($"{t.Name}: lowest key is {sourceMin} in the source, {targetMin} in the target");
-				}
-
-				if (sourceMax != targetMax)
-				{
-					problems.Add($"{t.Name}: highest key is {sourceMax} in the source, {targetMax} in the target");
-				}
-
-				Console.WriteLine($"  {t.Name,-28} {sourceCount,12} / {targetCount,-12} {(problems.Count == 0 ? "ok" : "DIFFERS")}");
-				differences.AddRange(problems);
-			}
-
-			return differences;
-		}
-
-		// Text columns are compared by byte order on both sides, the two servers sort text differently otherwise
-		private static async Task<string> SourceKeyEdge(MySqlConnection source, Table t, bool max)
-		{
-			string direction = max ? "DESC" : "ASC";
-			string order = string.Join(", ", t.Keys.Select(k => (k.IsString ? $"CAST({QM(k.Name)} AS BINARY)" : QM(k.Name)) + " " + direction));
-			await using var command = new MySqlCommand($"SELECT {string.Join(", ", t.Keys.Select(k => QM(k.Name)))} FROM {QM(t.Name)} ORDER BY {order} LIMIT 1", source);
-			await using var reader = await command.ExecuteReaderAsync();
-
-			if (!await reader.ReadAsync())
-			{
-				return "none";
-			}
-
-			var parts = new List<string>();
-
-			for (int i = 0; i < t.Keys.Count; i++)
-			{
-				object? value = ConvertValue(t.Keys[i], reader.GetValue(i), out _);
-				parts.Add(Convert.ToString(value, CultureInfo.InvariantCulture) ?? "NULL");
-			}
-
-			return string.Join(",", parts);
-		}
-
-		private static async Task<string> TargetKeyEdge(NpgsqlConnection target, Table t, bool max)
-		{
-			string direction = max ? "DESC" : "ASC";
-			string order = string.Join(", ", t.Keys.Select(k => Q(k.Name) + (k.IsString ? " COLLATE \"C\" " : " ") + direction));
-			await using var command = new NpgsqlCommand($"SELECT {string.Join(", ", t.Keys.Select(k => Q(k.Name)))} FROM {Q(t.Name)} ORDER BY {order} LIMIT 1", target);
-			await using var reader = await command.ExecuteReaderAsync();
-
-			if (!await reader.ReadAsync())
-			{
-				return "none";
-			}
-
-			var parts = new List<string>();
-
-			for (int i = 0; i < t.Keys.Count; i++)
-			{
-				parts.Add(Convert.ToString(reader.GetValue(i), CultureInfo.InvariantCulture) ?? "NULL");
-			}
-
-			return string.Join(",", parts);
 		}
 	}
 }

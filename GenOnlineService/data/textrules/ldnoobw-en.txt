@@ -1,0 +1,325 @@
+# Imported from "List of Dirty, Naughty, Obscene, and Otherwise Bad Words" (en), by LDNOOBW and contributors,
+# https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words, commit 5faf2ba42d7b1c0977169ec3611df25a3c08eb13, retrieved 2026-11-18.
+# License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), its text in LDNOOBW-LICENSE next to this file.
+# Modified: deduplicated against the service's own lists, normalized (trimmed, lower case, NFC), some entries left out
+# (LICENSE-THIRD-PARTY.md lists them), and given a category, severity and match mode.
+# term	category	severity	match
+acrotomophilia	profanity	flag	anywhere
+alabama hot pocket	profanity	flag	word
+alaskan pipeline	profanity	flag	word
+anilingus	profanity	flag	anywhere
+apeshit	profanity	flag	anywhere
+arsehole	profanity	flag	anywhere
+assmunch	profanity	flag	anywhere
+auto erotic	profanity	flag	word
+autoerotic	profanity	flag	anywhere
+babeland	profanity	flag	anywhere
+baby batter	profanity	flag	word
+baby juice	profanity	flag	word
+ball gag	profanity	flag	word
+ball gravy	profanity	flag	word
+ball kicking	profanity	flag	word
+ball licking	profanity	flag	word
+ball sack	profanity	flag	word
+ball sucking	profanity	flag	word
+bangbros	profanity	flag	anywhere
+bangbus	profanity	flag	anywhere
+bareback	profanity	flag	anywhere
+barely legal	profanity	flag	word
+barenaked	profanity	flag	anywhere
+bastardo	profanity	flag	anywhere
+bastinado	profanity	flag	anywhere
+bbw	profanity	flag	word
+bdsm	profanity	flag	word
+beaners	profanity	flag	anywhere
+beaver cleaver	profanity	flag	word
+beaver lips	profanity	flag	word
+beastiality	profanity	flag	anywhere
+bestiality	profanity	flag	anywhere
+big breasts	profanity	flag	word
+big knockers	profanity	flag	word
+big tits	profanity	flag	word
+bimbos	profanity	flag	word
+birdlock	profanity	flag	anywhere
+bitches	profanity	flag	anywhere
+black cock	profanity	flag	word
+blonde action	profanity	flag	word
+blonde on blonde action	profanity	flag	word
+blow job	profanity	flag	word
+blow your load	profanity	flag	word
+blue waffle	profanity	flag	word
+blumpkin	profanity	flag	anywhere
+bondage	profanity	flag	anywhere
+boner	profanity	flag	word
+boob	profanity	flag	word
+booty call	profanity	flag	word
+brown showers	profanity	flag	word
+brunette action	profanity	flag	word
+bukkake	profanity	flag	anywhere
+bulldyke	profanity	flag	anywhere
+bullet vibe	profanity	flag	word
+bullshit	profanity	flag	anywhere
+bung hole	profanity	flag	word
+bunghole	profanity	flag	anywhere
+busty	profanity	flag	word
+butt	profanity	flag	word
+buttcheeks	profanity	flag	anywhere
+butthole	profanity	flag	anywhere
+camel toe	profanity	flag	word
+camgirl	profanity	flag	anywhere
+camslut	profanity	flag	anywhere
+camwhore	profanity	flag	anywhere
+carpet muncher	profanity	flag	word
+carpetmuncher	profanity	flag	anywhere
+chocolate rosebuds	profanity	flag	word
+cialis	profanity	flag	word
+circlejerk	profanity	flag	anywhere
+cleveland steamer	profanity	flag	word
+clit	profanity	flag	word
+clitoris	profanity	flag	anywhere
+clover clamps	profanity	flag	word
+clusterfuck	profanity	flag	anywhere
+cocks	profanity	flag	word
+coprolagnia	profanity	flag	anywhere
+coprophilia	profanity	flag	anywhere
+cornhole	profanity	flag	anywhere
+coons	profanity	flag	word
+creampie	profanity	flag	anywhere
+cumming	profanity	flag	anywhere
+cumshots	profanity	flag	anywhere
+cunnilingus	profanity	flag	anywhere
+darkie	profanity	flag	word
+date rape	profanity	flag	word
+daterape	profanity	flag	anywhere
+deep throat	profanity	flag	word
+deepthroat	profanity	flag	anywhere
+dendrophilia	profanity	flag	anywhere
+dingleberry	profanity	flag	anywhere
+dingleberries	profanity	flag	anywhere
+dirty pillows	profanity	flag	word
+dirty sanchez	profanity	flag	word
+doggie style	profanity	flag	word
+doggiestyle	profanity	flag	anywhere
+doggy style	profanity	flag	word
+doggystyle	profanity	flag	anywhere
+dog style	profanity	flag	word
+dolcett	profanity	flag	anywhere
+dominatrix	profanity	flag	anywhere
+dommes	profanity	flag	word
+donkey punch	profanity	flag	word
+double dong	profanity	flag	word
+double penetration	profanity	flag	word
+dp action	profanity	flag	word
+dry hump	profanity	flag	word
+dvda	profanity	flag	word
+eat my ass	profanity	flag	word
+ecchi	profanity	flag	word
+ejaculation	profanity	flag	anywhere
+erotic	profanity	flag	word
+erotism	profanity	flag	anywhere
+eunuch	profanity	flag	word
+fecal	profanity	flag	word
+felch	profanity	flag	word
+fellatio	profanity	flag	anywhere
+feltch	profanity	flag	word
+female squirting	profanity	flag	word
+femdom	profanity	flag	word
+figging	profanity	flag	anywhere
+fingerbang	profanity	flag	anywhere
+fingering	profanity	flag	anywhere
+fisting	profanity	flag	anywhere
+foot fetish	profanity	flag	word
+footjob	profanity	flag	anywhere
+frotting	profanity	flag	anywhere
+fuck buttons	profanity	flag	word
+fuckin	profanity	flag	word
+fucking	profanity	flag	anywhere
+fucktards	profanity	flag	anywhere
+fudge packer	profanity	flag	word
+fudgepacker	profanity	flag	anywhere
+futanari	profanity	flag	anywhere
+gangbang	profanity	flag	anywhere
+gang bang	profanity	flag	word
+gay sex	profanity	flag	word
+genitals	profanity	flag	anywhere
+giant cock	profanity	flag	word
+girl on top	profanity	flag	word
+girls gone wild	profanity	flag	word
+goatcx	profanity	flag	word
+goatse	profanity	flag	word
+god damn	profanity	flag	word
+gokkun	profanity	flag	word
+golden shower	profanity	flag	word
+goodpoop	profanity	flag	anywhere
+goo girl	profanity	flag	word
+goregasm	profanity	flag	anywhere
+grope	profanity	flag	word
+group sex	profanity	flag	word
+g-spot	profanity	flag	word
+guro	profanity	flag	word
+hand job	profanity	flag	word
+homoerotic	profanity	flag	anywhere
+honkey	profanity	flag	word
+hot carl	profanity	flag	word
+humping	profanity	flag	anywhere
+intercourse	profanity	flag	anywhere
+jack off	profanity	flag	word
+jail bait	profanity	flag	word
+jailbait	profanity	flag	anywhere
+jerk off	profanity	flag	word
+jigaboo	profanity	flag	anywhere
+jiggaboo	profanity	flag	anywhere
+jiggerboo	profanity	flag	anywhere
+juggs	profanity	flag	word
+kinbaku	profanity	flag	anywhere
+kinkster	profanity	flag	anywhere
+kinky	profanity	flag	word
+knobbing	profanity	flag	anywhere
+leather restraint	profanity	flag	word
+leather straight jacket	profanity	flag	word
+lemon party	profanity	flag	word
+livesex	profanity	flag	anywhere
+lolita	profanity	flag	word
+lovemaking	profanity	flag	anywhere
+male squirting	profanity	flag	word
+masturbate	profanity	flag	anywhere
+masturbating	profanity	flag	anywhere
+masturbation	profanity	flag	anywhere
+menage a trois	profanity	flag	word
+missionary position	profanity	flag	word
+mong	profanity	flag	word
+mound of venus	profanity	flag	word
+mr hands	profanity	flag	word
+muff diver	profanity	flag	word
+muffdiving	profanity	flag	anywhere
+nambla	profanity	flag	word
+nawashi	profanity	flag	anywhere
+negro	profanity	flag	word
+neonazi	profanity	flag	anywhere
+nig nog	profanity	flag	word
+nimphomania	profanity	flag	anywhere
+nipple	profanity	flag	word
+nipples	profanity	flag	anywhere
+nsfw	profanity	flag	word
+nsfw images	profanity	flag	word
+nude	profanity	flag	word
+nudity	profanity	flag	word
+nutten	profanity	flag	word
+nympho	profanity	flag	word
+nymphomania	profanity	flag	anywhere
+octopussy	profanity	flag	anywhere
+omorashi	profanity	flag	anywhere
+one cup two girls	profanity	flag	word
+one guy one jar	profanity	flag	word
+orgy	profanity	flag	word
+panties	profanity	flag	anywhere
+panty	profanity	flag	word
+pedobear	profanity	flag	anywhere
+pegging	profanity	flag	anywhere
+phone sex	profanity	flag	word
+piece of shit	profanity	flag	word
+pikey	profanity	flag	word
+pissing	profanity	flag	anywhere
+piss pig	profanity	flag	word
+pisspig	profanity	flag	anywhere
+playboy	profanity	flag	anywhere
+pleasure chest	profanity	flag	word
+pole smoker	profanity	flag	word
+ponyplay	profanity	flag	anywhere
+poof	profanity	flag	word
+poon	profanity	flag	word
+poontang	profanity	flag	anywhere
+punany	profanity	flag	word
+poop chute	profanity	flag	word
+poopchute	profanity	flag	anywhere
+porno	profanity	flag	word
+pornography	profanity	flag	anywhere
+prince albert piercing	profanity	flag	word
+pthc	profanity	flag	word
+pubes	profanity	flag	word
+queaf	profanity	flag	word
+queef	profanity	flag	word
+quim	profanity	flag	word
+raging boner	profanity	flag	word
+raping	profanity	flag	word
+rectum	profanity	flag	word
+reverse cowgirl	profanity	flag	word
+rimming	profanity	flag	anywhere
+rosy palm	profanity	flag	word
+rusty trombone	profanity	flag	word
+sadism	profanity	flag	word
+santorum	profanity	flag	anywhere
+scat	profanity	flag	word
+schlong	profanity	flag	anywhere
+scissoring	profanity	flag	anywhere
+semen	profanity	flag	word
+sexcam	profanity	flag	word
+sexo	profanity	flag	word
+sexy	profanity	flag	word
+sexual	profanity	flag	word
+sexually	profanity	flag	anywhere
+sexuality	profanity	flag	anywhere
+shaved beaver	profanity	flag	word
+shaved pussy	profanity	flag	word
+shibari	profanity	flag	anywhere
+shitblimp	profanity	flag	anywhere
+shitty	profanity	flag	word
+shota	profanity	flag	word
+shrimping	profanity	flag	anywhere
+skeet	profanity	flag	word
+slanteye	profanity	flag	anywhere
+smut	profanity	flag	word
+snatch	profanity	flag	word
+sodomize	profanity	flag	anywhere
+sodomy	profanity	flag	word
+spastic	profanity	flag	anywhere
+splooge	profanity	flag	anywhere
+splooge moose	profanity	flag	word
+spooge	profanity	flag	word
+spread legs	profanity	flag	word
+spunk	profanity	flag	word
+strap on	profanity	flag	word
+strapon	profanity	flag	anywhere
+strappado	profanity	flag	anywhere
+strip club	profanity	flag	word
+style doggy	profanity	flag	word
+suicide girls	profanity	flag	word
+sultry women	profanity	flag	word
+swastika	profanity	flag	anywhere
+swinger	profanity	flag	anywhere
+tea bagging	profanity	flag	word
+threesome	profanity	flag	anywhere
+throating	profanity	flag	anywhere
+thumbzilla	profanity	flag	anywhere
+tit	profanity	flag	word
+titty	profanity	flag	word
+topless	profanity	flag	anywhere
+tosser	profanity	flag	word
+tribadism	profanity	flag	anywhere
+tub girl	profanity	flag	word
+tubgirl	profanity	flag	anywhere
+tushy	profanity	flag	word
+twink	profanity	flag	word
+twinkie	profanity	flag	anywhere
+two girls one cup	profanity	flag	word
+undressing	profanity	flag	anywhere
+upskirt	profanity	flag	anywhere
+urethra play	profanity	flag	word
+urophilia	profanity	flag	anywhere
+venus mound	profanity	flag	word
+viagra	profanity	flag	word
+vibrator	profanity	flag	anywhere
+violet wand	profanity	flag	word
+vorarephilia	profanity	flag	anywhere
+voyeur	profanity	flag	word
+voyeurweb	profanity	flag	anywhere
+voyuer	profanity	flag	word
+vulva	profanity	flag	word
+wet dream	profanity	flag	word
+worldsex	profanity	flag	anywhere
+wrinkled starfish	profanity	flag	word
+xxx	profanity	flag	word
+yaoi	profanity	flag	word
+yellow showers	profanity	flag	word
+yiffy	profanity	flag	word
+zoophilia	profanity	flag	anywhere

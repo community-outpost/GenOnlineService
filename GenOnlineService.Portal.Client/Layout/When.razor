@@ -1,0 +1,23 @@
+@* One time, the same way on every page: in a table its age ("5m ago", then the day after a week), on a detail line or in
+   the audit log the full minute; the full UTC time is always in the tooltip and the datetime attribute *@
+@if (Value is DateTime value)
+{
+    <time datetime="@value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture)" title="@(PortalText.Date(value) + " UTC")" class="go-nowrap">@(Exact ? PortalText.Date(value) : PortalText.Recent(value, DateTime.UtcNow))</time>
+}
+else
+{
+    <span class="go-muted">@Empty</span>
+}
+
+@code {
+    [Parameter]
+    public DateTime? Value { get; set; }
+
+    // The full minute instead of the age
+    [Parameter]
+    public bool Exact { get; set; }
+
+    // What an absent time reads
+    [Parameter]
+    public string Empty { get; set; } = "—";
+}

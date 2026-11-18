@@ -1,0 +1,316 @@
+/*
+**    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
+**    Copyright (C) 2025  GeneralsOnline Development Team
+**
+**    This program is free software: you can redistribute it and/or modify
+**    it under the terms of the GNU Affero General Public License as
+**    published by the Free Software Foundation, either version 3 of the
+**    License, or (at your option) any later version.
+**
+**    This program is distributed in the hope that it will be useful,
+**    but WITHOUT ANY WARRANTY; without even the implied warranty of
+**    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**    GNU Affero General Public License for more details.
+**
+**    You should have received a copy of the GNU Affero General Public License
+**    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+using GenOnlineService.Identity;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+using OpenIddict.Abstractions;
+using System.Security.Claims;
+
+namespace GenOnlineService.Realtime
+{
+	// Realtime protocol v1 at /realtime, each area of the protocol lives in its own partial file
+	[Authorize(Roles = RealtimeAdmission.Roles)]
+	public sealed partial class RealtimeHub : Hub<IRealtimeClient>
+	{
+		public const string Path = "/realtime";
+		public const int ProtocolVersion = 1;
+		public const int ChatMaxLength = 512;
+		public const int ChatRateMessages = 3;
+		public const long ChatRateWindowMs = 9000;
+		public const int NameMinLength = 3;
+		public const int NameMaxLength = 16;
+		public const int DefaultGroupMaxMembers = 10;
+
+		internal const string ConnectionItem = "realtime.connection";
+
+		// Realtime:group_max_members, the most members of one group chat with the owner included
+		public static int GroupMaxMembers
+		{
+			get
+			{
+				int configured = Program.g_Config?.GetSection("Realtime").GetValue("group_max_members", DefaultGroupMaxMembers) ?? DefaultGroupMaxMembers;
+				return Math.Clamp(configured, 2, 50);
+			}
+		}
+
+		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly AccountsSettings m_accounts;
+		private readonly LobbyManager m_lobbyManager;
+		private readonly IAuthorizationService m_authorization;
+		private readonly IOpenIddictAuthorizationManager m_signIns;
+		private readonly ILogger<RealtimeHub> m_log;
+
+		public RealtimeHub(IDbContextFactory<AppDbContext> dbFactory, LobbyManager lobbyManager, IAuthorizationService authorization, IOpenIddictAuthorizationManager signIns, AccountsSettings accounts, ILogger<RealtimeHub> log)
+		{
+			m_accounts = accounts;
+			m_dbFactory = dbFactory;
+			m_lobbyManager = lobbyManager;
+			m_authorization = authorization;
+			m_signIns = signIns;
+			m_log = log;
+		}
+
+		public override async Task OnConnectedAsync()
+		{
+			ClaimsPrincipal user = Context.User!;
+			Int64 userID = RealtimeClaims.UserID(user);
+			EUserSessionType sessionType = RealtimeClaims.SessionType(user);
+			string clientID = RealtimeClaims.ClientID(user);
+			HubConnectionContext? transport = RealtimeLifetimeManager.Get(Context.ConnectionId);
+			if (transport == null)
+			{
+				Context.Abort();
+				return;
+			}
+
+			// the upgrade reaches the hub whatever the caller's token, ban or registration; a refused caller is closed before Ready
+			HttpContext? http = Context.GetHttpContext();
+			RealtimeAdmission.Refusal? refusal = await RealtimeAdmission.CheckAsync(GenOnlineService.Failover.RealtimeFailover.Serving, user,
+				http == null ? null : SessionTokenHandler.BanOf(http), () => LoadRegistrationAsync(userID, sessionType));
+			if (refusal == null && clientID.Length == 0)
+			{
+				refusal = new RealtimeAdmission.Refusal(CloseCodes.Unauthorized, false, null);
+			}
+			if (refusal != null)
+			{
+				await RealtimeAdmission.CloseAsync(transport, refusal);
+				return;
+			}
+
+			string ipAddress = IPHelpers.NormalizeIP(Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString());
+			GeoLocation geo = GeoLocation.Lookup(ipAddress);
+
+			// a live session of the same type is taken over, its old connection closes with session.superseded
+			UserSession? existing = WebSocketManager.GetSessionFromUser(userID, sessionType);
+			bool takeOver = existing != null && !existing.IsRetired;
+
+			RealtimeConnection? connection;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				connection = await WebSocketManager.CreateSession(db, sessionType, takeOver, userID, clientID, ipAddress, geo.Continent, geo.Country, geo.Latitude, geo.Longitude, transport, RealtimeClaims.AuthorizationID(user));
+			}
+
+			if (connection == null)
+			{
+				// the session vanished while connecting, a fresh connect builds a new one
+				await RealtimeConnectionClose(transport, CloseCodes.ServerRestarting, allowReconnect: true);
+				return;
+			}
+
+			Context.Items[ConnectionItem] = connection;
+			UserSession session = connection.OwnerSession;
+
+			// a logout that ran while this connection was opening found no session to close, so the sign-in is checked again once installed
+			if (!await IsSignInStillValidAsync(user, userID, sessionType))
+			{
+				// only this connection closes, a newer sign-in that already took the session over keeps it
+				await connection.CloseAsync(CloseCodes.AuthRevoked, allowReconnect: false);
+				if (ReferenceEquals(WebSocketManager.GetWebSocketForSession(session), connection))
+				{
+					await WebSocketManager.DeleteSession(userID, sessionType, connection, true, session);
+				}
+				return;
+			}
+
+			// both groups are joined right before Ready, so no event reaches the client ahead of it
+			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.UserSession(userID, sessionType));
+			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.User(userID));
+			await Clients.Caller.Ready(BuildReady(session));
+			await SendFriendsSnapshotAsync(session);
+			await SendConversationsSnapshotAsync(session);
+
+			// after an unplanned failover a member takes its seat in its restored lobby and a queued player gets its ticket back
+			await m_lobbyManager.AttachRestoredAsync(session);
+			await RestoreChannelAsync(session);
+			await RestoreLobbyAsync(session);
+			await OnConnectionOpenedAsync(session);
+		}
+
+		public override async Task OnDisconnectedAsync(Exception? exception)
+		{
+			if (Context.Items.TryGetValue(ConnectionItem, out object? item) && item is RealtimeConnection connection)
+			{
+				UserSession session = connection.OwnerSession;
+				LobbyListPublisher.Unwatch(Context.ConnectionId);
+				await WebSocketManager.DeleteSession(connection.m_UserID, connection.m_SessionType, connection, false, session);
+				await OnConnectionClosedAsync(session);
+			}
+
+			await base.OnDisconnectedAsync(exception);
+		}
+
+		// The stored registration, so a client registered on another copy (a handover) or before a restart connects here too
+		private async Task<GameSessionRegistration?> LoadRegistrationAsync(Int64 userID, EUserSessionType sessionType)
+		{
+			try
+			{
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(Context.ConnectionAborted);
+				return await GameSessions.LoadAsync(db, userID, sessionType, Context.ConnectionAborted);
+			}
+			catch (Exception ex) when (!Context.ConnectionAborted.IsCancellationRequested)
+			{
+				m_log.LogError(ex, "Reading the game session of user {UserId} failed, using this copy's cached one", userID);
+				return GameSessions.Get(userID, sessionType);
+			}
+		}
+
+		private async Task<bool> IsSignInStillValidAsync(ClaimsPrincipal user, Int64 userID, EUserSessionType sessionType)
+		{
+			string? authorizationID = RealtimeClaims.AuthorizationID(user);
+			if (sessionType == EUserSessionType.GameClient)
+			{
+				GameSessionRegistration? registration = GameSessions.Get(userID, sessionType);
+				if (registration == null || registration.AuthorizationID != authorizationID)
+				{
+					return false;
+				}
+			}
+
+			if (String.IsNullOrEmpty(authorizationID) || SignInRevocation.HasEnded(authorizationID))
+			{
+				return false;
+			}
+
+			object? authorization = await m_signIns.FindByIdAsync(authorizationID);
+			return authorization != null && await m_signIns.HasStatusAsync(authorization, OpenIddictConstants.Statuses.Valid);
+		}
+
+		private static ReadyEvent BuildReady(UserSession session)
+		{
+			Int64 userID = session.m_UserID;
+			return new ReadyEvent
+			{
+				ProtocolVersion = ProtocolVersion,
+				SessionType = RealtimeMembers.ClientOf(session.GetSessionType()),
+				User = RealtimeMembers.Of(userID),
+				Permissions = StaffRoles.PermissionsOf(userID).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
+				Features = ClientFeatures.Of(userID),
+				Badges = RealtimeBadges.Definitions,
+				Channels = RoomCatalog.Rooms.Select(channel => new ChannelInfo
+				{
+					Id = channel.ID,
+					Name = channel.Name,
+					ParentId = channel.ParentID,
+					ShowAllMatches = channel.ID == 0
+				}).ToArray(),
+				Limits = new Limits
+				{
+					ChatMaxLength = ChatMaxLength,
+					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
+					NameMinLength = NameMinLength,
+					NameMaxLength = NameMaxLength,
+					GroupMaxMembers = GroupMaxMembers
+				}
+			};
+		}
+
+		internal static async Task RealtimeConnectionClose(HubConnectionContext transport, string code, bool allowReconnect)
+		{
+			try
+			{
+				await transport.WriteAsync(new Microsoft.AspNetCore.SignalR.Protocol.CloseMessage(code, allowReconnect));
+			}
+			catch (Exception)
+			{
+			}
+			transport.Abort();
+		}
+
+		// The caller's connection; missing only when a method arrives on a connection that failed to open
+		private RealtimeConnection Connection
+		{
+			get
+			{
+				if (Context.Items.TryGetValue(ConnectionItem, out object? item) && item is RealtimeConnection connection
+					&& !connection.OwnerSession.IsRetired
+					&& ReferenceEquals(WebSocketManager.GetWebSocketForSession(connection.OwnerSession), connection))
+				{
+					return connection;
+				}
+
+				// a connection that lost its session is being closed, its calls are refused
+				Context.Abort();
+				throw new HubException("connection has no session");
+			}
+		}
+
+		private UserSession Session => Connection.OwnerSession;
+		private Int64 UserID => Connection.m_UserID;
+		private EUserSessionType SessionType => Connection.m_SessionType;
+
+		// The session type matrix of section 9, the param names the missing capability
+		private Failure? RequireAccess(ESessionAccessType access)
+		{
+			if (SessionHelpers.SessionTypeHasAccessTo(SessionType, access))
+			{
+				return null;
+			}
+
+			string capability = access switch
+			{
+				ESessionAccessType.ServerListReadOnly => "session.lobby_list",
+				ESessionAccessType.Gameplay => "session.gameplay",
+				_ => "session." + access.ToString().ToLowerInvariant()
+			};
+			return Result.Forbidden(capability);
+		}
+
+		// Checks one of the perm:<permission> policies against the caller
+		private async Task<Failure?> RequirePermissionAsync(string permission)
+		{
+			AuthorizationResult result = await m_authorization.AuthorizeAsync(Context.User!, PermissionPolicies.For(permission));
+			return result.Succeeded ? null : Result.Forbidden(permission);
+		}
+
+		private Database.ModerationActor Actor() => SanctionActions.ActorOf(UserID);
+
+		// Implemented by the area files
+
+		private partial Task SendFriendsSnapshotAsync(UserSession session);
+		private partial Task RestoreChannelAsync(UserSession session);
+		private partial Task RestoreLobbyAsync(UserSession session);
+		private partial Task OnConnectionOpenedAsync(UserSession session);
+		private partial Task OnConnectionClosedAsync(UserSession session);
+	}
+
+	// Reads the session principal built by SessionTokenHandler
+	public static class RealtimeClaims
+	{
+		public static Int64 UserID(ClaimsPrincipal user)
+		{
+			return Int64.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out Int64 id) ? id : -1;
+		}
+
+		public static EUserSessionType SessionType(ClaimsPrincipal user)
+		{
+			return int.TryParse(user.FindFirst("session_type")?.Value, out int value) && Enum.IsDefined(typeof(EUserSessionType), value)
+				? (EUserSessionType)value
+				: EUserSessionType.None;
+		}
+
+		// Empty unless the token's client is registered and enabled
+		public static string ClientID(ClaimsPrincipal user)
+		{
+			return Identity.ClientRegistry.FindEnabled(user.FindFirst(SessionTokenHandler.ClientIDClaim)?.Value)?.ClientID ?? String.Empty;
+		}
+
+		public static string? AuthorizationID(ClaimsPrincipal user) => user.FindFirst(SessionTokenHandler.AuthorizationIDClaim)?.Value;
+	}
+}

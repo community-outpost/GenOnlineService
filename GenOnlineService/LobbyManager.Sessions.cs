@@ -17,27 +17,28 @@
 */
 
 using Database;
-using System.Net.WebSockets;
+using GenOnlineService.Realtime;
+using Microsoft.AspNetCore.SignalR;
 
 namespace GenOnlineService;
 
 public partial class LobbyManager
 {
-	internal async Task<UserWebSocketInstance> OpenSessionAsync(AppDbContext db, EUserSessionType sessionType, bool reconnect,
-		long userID, KnownClients.EKnownClients clientID, string ipAddress, string continent, string country,
-		double latitude, double longitude, bool admin)
+	internal async Task<RealtimeConnection?> OpenSessionAsync(AppDbContext db, EUserSessionType sessionType, bool reconnect,
+		long userID, string clientID, string ipAddress, string continent, string country,
+		double latitude, double longitude, HubConnectionContext transport, string? authorizationID)
 	{
 		using var membership = await AcquireMembershipGateAsync(userID);
 		var previous = membershipConnections.GetSession(userID, sessionType);
 		if (!reconnect && previous != null) await DestroySessionAsync(previous);
 		if (reconnect && (previous == null || previous.IsRetired)) return null;
 		var installed = await WebSocketManager.InstallSession(db, sessionType, reconnect, userID, clientID,
-			ipAddress, continent, country, latitude, longitude, admin);
+			ipAddress, continent, country, latitude, longitude, transport, authorizationID);
 		if (reconnect && previous != null) await InvalidateSessionMeshAsync(previous);
 		return installed;
 	}
 
-	internal async Task DisconnectSessionAsync(UserSession? session, UserWebSocketInstance? socket, bool destroySession)
+	internal async Task DisconnectSessionAsync(UserSession? session, RealtimeConnection? socket, bool destroySession)
 	{
 		if (session == null) return;
 		using (await AcquireMembershipGateAsync(session.m_UserID))
@@ -56,7 +57,8 @@ public partial class LobbyManager
 					if (lobby?.State == ELobbyState.INGAME) lobby.RecordPlayerIngameAbandon(session.m_UserID);
 				}
 			}
-			if (socket != null) await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session being deleted");
+			// also reached when a new registration replaces the session, so the old connection must hear why
+			if (socket != null) await socket.CloseAsync(CloseCodes.SessionSuperseded, allowReconnect: false);
 		}
 	}
 
@@ -77,7 +79,7 @@ public partial class LobbyManager
 	// the other members. The in-lobby check, the write and the notify decision all happen under the user's membership
 	// gate (the one joins and leaves take), then the lobby gate: the documented acquisition order. The lobby callback
 	// only enqueues websocket sends and flips dirty flags, so it never re-enters either gate.
-	internal async Task<bool> ApplyMiddlewareIDAsync(long userID, EUserSessionType sessionType, string middlewareID)
+	internal async Task<WebSocketManager.EMiddlewareIDApplyResult> ApplyMiddlewareIDAsync(long userID, EUserSessionType sessionType, string middlewareID)
 	{
 		using var membership = await AcquireMembershipGateAsync(userID);
 		var session = membershipConnections.GetSession(userID, sessionType);
@@ -85,13 +87,13 @@ public partial class LobbyManager
 		// store the ID anyway (not in a lobby, nothing to notify) so the session that opens next picks it up.
 		bool live = session != null && !session.IsRetired;
 		bool inLobby = live && session!.currentLobbyID != -1;
-		bool changed = WebSocketManager.ApplyMiddlewareIDForUser(userID, middlewareID, inLobby);
-		if (changed && inLobby)
+		var result = WebSocketManager.ApplyMiddlewareIDForUser(userID, middlewareID, inLobby);
+		if (result == WebSocketManager.EMiddlewareIDApplyResult.Changed && inLobby)
 		{
 			var lobby = GetLobby(session.currentLobbyID);
 			if (lobby != null) await lobby.NotifyMemberMiddlewareIDResolved(userID);
 		}
-		return changed;
+		return result;
 	}
 
 	private bool IsCurrentSession(UserSession session) =>
@@ -120,7 +122,8 @@ public partial class LobbyManager
 		{
 			try
 			{
-				if (gameplay) await membershipConnections.DeleteRelayCredentialsAsync(session.m_UserID);
+				// a player switching to another copy keeps its relay credentials, a running match goes on there, and a fenced copy leaves them to the copy that serves now
+				if (gameplay && !session.KeepRelayCredentials && !GenOnlineService.Failover.RealtimeFailover.Fenced) await membershipConnections.DeleteRelayCredentialsAsync(session.m_UserID);
 			}
 			finally
 			{
@@ -131,9 +134,8 @@ public partial class LobbyManager
 				}
 				finally
 				{
-					// Send loops never invoke lifecycle operations. Stop the old queue reader
-					// before allowing a reconnect to attach another reader to the same session.
-					if (socket != null) await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session replaced or expired");
+					// a destroyed session takes its connection down, callers that need another close code close first
+					if (socket != null) await socket.CloseAsync(CloseCodes.SessionSuperseded, allowReconnect: false);
 				}
 			}
 		}
@@ -146,16 +148,16 @@ public partial class LobbyManager
 		if (lobby != null) await lobby.InvalidateMeshForSessionAsync(session);
 	}
 
-	internal async Task StartMeshCheckAsync(UserSession session, UserWebSocketInstance socket)
+	// Returns the new mesh check id, 0 when the caller may not start one now
+	internal async Task<long> StartMeshCheckAsync(UserSession session, RealtimeConnection socket)
 	{
 		using var membership = await AcquireMembershipGateAsync(session.m_UserID);
-		if (!IsCurrentSession(session) || session.IsRetired || !ReferenceEquals(WebSocketManager.GetWebSocketForSession(session), socket)) return;
+		if (!IsCurrentSession(session) || session.IsRetired || !ReferenceEquals(WebSocketManager.GetWebSocketForSession(session), socket)) return 0;
 		var lobby = GetLobby(session.currentLobbyID);
-		if (lobby != null) await lobby.StartMeshCheckAsync(session, socket);
+		return lobby == null ? 0 : await lobby.StartMeshCheckAsync(session, socket);
 	}
 
-	internal async Task StoreMeshResponseAsync(UserSession session, UserWebSocketInstance socket,
-		WebSocketMessage_FullMeshConnectivityCheckResponseFromUser response)
+	internal async Task StoreMeshResponseAsync(UserSession session, RealtimeConnection socket, MeshCheckResponseRequest response)
 	{
 		using var membership = await AcquireMembershipGateAsync(session.m_UserID);
 		if (!IsCurrentSession(session) || session.IsRetired || !ReferenceEquals(WebSocketManager.GetWebSocketForSession(session), socket)) return;

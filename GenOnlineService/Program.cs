@@ -18,13 +18,11 @@
 
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.WebSockets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -50,9 +48,10 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using System.Xml;
+using GenOnlineService.Identity;
+using GenOnlineService.Realtime;
 
 namespace GenOnlineService
 {
@@ -86,231 +85,10 @@ namespace GenOnlineService
 		}
 	}
 
-	public static class SecretComparer
-	{
-		// Constant-time string comparison so an attacker can't learn a secret from response timing.
-		public static bool FixedTimeEquals(string? a, string? b)
-		{
-			if (a == null || b == null)
-			{
-				return false;
-			}
-
-			byte[] bytesA = Encoding.UTF8.GetBytes(a);
-			byte[] bytesB = Encoding.UTF8.GetBytes(b);
-
-			return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(bytesA, bytesB);
-		}
-	}
-
-	public enum EApiKeyType
-	{
-		PartnerKey,
-		WebServerKey
-	}
-
-
-	public static class APIKeyHelpers
-	{
-		private static string? s_cachedWebServerAPIKey = null;
-		private static List<string>? s_cachedApiKeys = null;
-		private static readonly object s_cacheLock = new object();
-
-		public static bool ValidateKey(string strKey, EApiKeyType keyType)
-		{
-			if (Program.g_Config == null)
-			{
-				return false;
-			}
-
-			if (keyType == EApiKeyType.PartnerKey)
-			{
-				if (s_cachedApiKeys == null)
-				{
-					lock (s_cacheLock)
-					{
-						if (s_cachedApiKeys == null)
-						{
-							IConfiguration? apiSettings = Program.g_Config.GetSection("API");
-							if (apiSettings == null)
-							{
-								return false;
-							}
-							List<string>? api_keys = apiSettings.GetSection("keys").Get<List<string>>();
-							if (api_keys == null)
-							{
-								return false;
-							}
-
-							s_cachedApiKeys = api_keys.Select(k => k.ToUpperInvariant()).ToList();
-						}
-					}
-				}
-
-				string strKeyUpper = strKey.ToUpperInvariant();
-
-				// Compare against every key without short-circuiting, so timing doesn't leak which key
-				// (or how much of a key) matched.
-				bool bMatched = false;
-				foreach (string strKnownKey in s_cachedApiKeys)
-				{
-					bMatched |= SecretComparer.FixedTimeEquals(strKnownKey, strKeyUpper);
-				}
-
-				return bMatched;
-			}
-			else if (keyType == EApiKeyType.WebServerKey)
-			{
-				if (s_cachedWebServerAPIKey == null)
-				{
-					lock (s_cacheLock)
-					{
-						if (s_cachedWebServerAPIKey == null)
-						{
-							IConfiguration? apiSettings = Program.g_Config.GetSection("API");
-							if (apiSettings == null)
-							{
-								return false;
-							}
-							string? webserverkey = apiSettings.GetSection("webserver_key").Get<string>();
-							if (webserverkey == null)
-							{
-								return false;
-							}
-
-							s_cachedWebServerAPIKey = webserverkey.ToUpper();
-						}
-					}
-				}
-
-				string strKeyUpper = strKey.ToUpperInvariant();
-				return strKeyUpper == s_cachedWebServerAPIKey;
-			}
-
-			return false;
-		}
-	}
-	public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
-	{
-		public BasicAuthenticationHandler(
-			IOptionsMonitor<AuthenticationSchemeOptions> options,
-			ILoggerFactory logger,
-			UrlEncoder encoder,
-			TimeProvider timeProvider)
-			: base(options, logger, encoder) { }
-
-		protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-		{
-			if (!Request.Headers.ContainsKey("Authorization"))
-				return Task.FromResult(AuthenticateResult.Fail("Missing Authorization Header"));
-
-			try
-			{
-				var authType = Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").First();
-				var token = Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
-
-				if (authType != null && token != null)
-				{
-					// monitor (basic auth)
-					if (authType.ToLower() == "basic")
-					{
-						var decodedBytes = Convert.FromBase64String(token);
-						var decodedCredentials = Encoding.UTF8.GetString(decodedBytes);
-
-						var parts = decodedCredentials.Split(':', 2);
-						if (parts.Length == 2)
-						{
-							string strUsername = parts[0];
-							string strPassword = parts[1];
-
-							IConfigurationSection? monitorSettings = Program.g_Config.GetSection("Monitor");
-
-							if (monitorSettings == null)
-							{
-								throw new Exception("Monitor section missing in config");
-							}
-
-							string? monitorUsername = monitorSettings.GetValue<string>("username");
-							string? monitorPassword = monitorSettings.GetValue<string>("password");
-
-							if (monitorUsername == null)
-							{
-								throw new Exception("Monitor Username missing in config");
-							}
-
-							if (monitorPassword == null)
-							{
-								throw new Exception("Monitor Password missing in config");
-							}
-
-							if (SecretComparer.FixedTimeEquals(monitorUsername, strUsername)
-								& SecretComparer.FixedTimeEquals(monitorPassword, strPassword))
-							{
-								var claims = new[] { new Claim(ClaimTypes.Name, strUsername), new Claim(ClaimTypes.Role, "Monitor") };
-								var identity = new ClaimsIdentity(claims, "MonitorToken");
-								var principal = new ClaimsPrincipal(identity);
-								var ticket = new AuthenticationTicket(principal, Scheme.Name);
-
-								return Task.FromResult(AuthenticateResult.Success(ticket));
-							}
-							else
-							{
-								Response.StatusCode = 401;
-								return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
-							}
-						}
-					}
-
-					// shouldnt get here
-					Response.StatusCode = 401;
-					return Task.FromResult(AuthenticateResult.Fail("Authorization Failed"));
-				}
-				else
-				{
-					Response.StatusCode = 401;
-					return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Data"));
-				}
-			}
-			catch
-			{
-				Response.StatusCode = 401;
-				return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
-			}
-		}
-	}
-
-	public static class StatsTracker
-	{
-		public static async Task Update(int numLobbies, int numPlayers)
-		{
-			AppMetrics.RecordServiceSnapshot(numLobbies, numPlayers);
-			int hourOfDay = DateTime.Now.Hour;
-			// store stats
-
-			using var scope = ServiceLocator.Services.CreateScope();
-			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-			await using var db = await factory.CreateDbContextAsync();
-			await Database.ServiceStats.CommitStats(db, DateTime.Now.DayOfYear, hourOfDay, numPlayers, numLobbies);
-		}
-	}
-
-	// Marks the endpoints that accept refresh tokens (LoginWithToken and RefreshToken). Used instead
-	// of matching on the request path so a future route whose path happens to contain "loginwithtoken"
-	// can't silently accept them.
-	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
-	public sealed class RefreshTokenEndpointAttribute : Attribute
-	{
-	}
-
 	public static class TokenHelper
 	{
 		public static Int64 GetUserID(ControllerBase controller)
 		{
-			if (controller.User.IsInRole("Monitor"))
-			{
-				return -1;
-			}
-
 			var claim = controller.User.FindFirst(ClaimTypes.NameIdentifier);
 			if (claim == null || !Int64.TryParse(claim.Value, out Int64 userId))
 				return -1;
@@ -324,29 +102,10 @@ namespace GenOnlineService
 			return roles;
 		}
 
-		public static bool IsAdmin(ControllerBase controller)
+		// The access token's OAuth client id when it is a registered, enabled client; empty otherwise
+		public static string GetClientID(ControllerBase controller)
 		{
-			return controller.User.IsInRole("Admin");
-		}
-
-		public static KnownClients.EKnownClients GetClientID(ControllerBase controller)
-		{
-			var first = controller.User.FindFirst("client_id");
-
-			if (first == null)
-				return KnownClients.EKnownClients.unknown;
-
-			if (int.TryParse(first.Value, out int clientIDInt32))
-			{
-				// Validate if the int corresponds to a defined enum value
-				if (System.Enum.IsDefined(typeof(KnownClients.EKnownClients), clientIDInt32))
-				{
-					KnownClients.EKnownClients knownClientID = (KnownClients.EKnownClients)clientIDInt32;
-					return knownClientID;
-				}
-			}
-
-			return KnownClients.EKnownClients.unknown;
+			return ClientRegistry.FindEnabled(controller.User.FindFirst(SessionTokenHandler.ClientIDClaim)?.Value)?.ClientID ?? String.Empty;
 		}
 
 		public static EUserSessionType GetSessionType(ControllerBase controller)
@@ -631,7 +390,6 @@ namespace GenOnlineService
 
 	public class Program
 	{
-		private const string BannedUserContextKey = "GenOnlineService.BannedUserID";
 
 		// Main lobby/websocket tick interval. See the comment at the tick timer for why 50ms is sufficient.
 		private const int c_LobbyTickIntervalMS = 50;
@@ -668,6 +426,8 @@ namespace GenOnlineService
 					throw new Exception($"Unsupported Database:db_provider \"{value}\" in config. Supported values are \"postgres\" (default) and \"mysql\" (also \"mariadb\").");
 			}
 		}
+
+		internal static bool UsesPostgres(IConfiguration config) => GetDbProvider(config) == DbProvider.Postgres;
 
 		private static string BuildDbConnectionString(IConfiguration config, DbProvider provider)
 		{
@@ -858,6 +618,20 @@ namespace GenOnlineService
 			}
 		}
 
+		// The CLI commands use the same Database section as the service
+		internal static IConfiguration OpenConfiguration()
+		{
+			return WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+		}
+
+		internal static AppDbContext OpenConfiguredDbContext()
+		{
+			var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+			DbProvider provider = GetDbProvider(config);
+			string connectionString = BuildDbConnectionString(config, provider);
+			return CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
+		}
+
 		private static bool Confirm(bool assumeYes, string prompt, string nonInteractiveHint)
 		{
 			if (assumeYes)
@@ -883,12 +657,12 @@ namespace GenOnlineService
 			return true;
 		}
 
-		// "GenOnlineService migrate [--yes] [--baseline]": applies pending migrations without starting the web host.
-		// --baseline is the one-time step for databases created from the old structure.sql, see README.md.
+		// "GenOnlineService migrate [--yes]": applies pending migrations without starting the web host, then brings every
+		// users.name_key up to date and stops with a report when look-alike names collide (NameKeyBackfill), and reserves every
+		// name#tag users hold or held (NameReservationBackfill).
 		private static async Task<int> RunMigrateCommand(string[] args)
 		{
 			bool assumeYes = args.Skip(1).Any(a => a.Equals("--yes", StringComparison.OrdinalIgnoreCase));
-			bool baseline = args.Skip(1).Any(a => a.Equals("--baseline", StringComparison.OrdinalIgnoreCase));
 
 			try
 			{
@@ -899,11 +673,6 @@ namespace GenOnlineService
 
 				await using var db = CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
 
-				if (baseline)
-				{
-					return await RunBaseline(db, assumeYes);
-				}
-
 				var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 				var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
 
@@ -912,7 +681,7 @@ namespace GenOnlineService
 				if (pending.Count == 0)
 				{
 					Console.WriteLine("Database is up to date.");
-					return 0;
+					return await RunNameBackfills(db);
 				}
 
 				Console.WriteLine($"Pending migrations: {pending.Count}");
@@ -921,13 +690,25 @@ namespace GenOnlineService
 					Console.WriteLine($"  {name}");
 				}
 
-				// Applying the first migration to a database that already has the tables would fail halfway, so point
-				// the operator at the baseline step instead.
-				if (applied.Count == 0 && await MigrationBaseline.LooksLikeUnbaselinedInstall(db))
+				// the unique (user_id, provider) index would fail on existing duplicates; list them instead of a half-applied migration
+				if (applied.Count > 0 && pending.Any(m => m.EndsWith("_UniqueIdentityPerProvider", StringComparison.Ordinal)))
 				{
-					Console.Error.WriteLine("This database already contains the service's tables but has no migration history (an install from before migrations).");
-					Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then run \"GenOnlineService migrate\" again.");
-					return 1;
+					var duplicates = await db.Identities.AsNoTracking()
+						.GroupBy(i => new { i.UserID, i.Provider })
+						.Where(g => g.Count() > 1)
+						.Select(g => new { g.Key.UserID, g.Key.Provider, Count = g.Count() })
+						.ToListAsync();
+
+					if (duplicates.Count > 0)
+					{
+						Console.Error.WriteLine($"Cannot add the one-identity-per-provider index: {duplicates.Count} user(s) have several identities of one provider. Remove the extra rows from identities first:");
+						foreach (var duplicate in duplicates)
+						{
+							Console.Error.WriteLine($"  user {duplicate.UserID}: {duplicate.Count} {duplicate.Provider} identities");
+						}
+
+						return 2;
+					}
 				}
 
 				if (!Confirm(assumeYes, $"Apply {pending.Count} pending migration(s)?", "Input is not interactive. Pass --yes to apply pending migrations in an unattended run."))
@@ -937,7 +718,7 @@ namespace GenOnlineService
 
 				await db.Database.MigrateAsync();
 				Console.WriteLine($"Applied {pending.Count} migration(s) successfully.");
-				return 0;
+				return await RunNameBackfills(db);
 			}
 			catch (Exception ex)
 			{
@@ -946,16 +727,23 @@ namespace GenOnlineService
 			}
 		}
 
-		// "GenOnlineService import [--dry-run] [--restart] [--yes]": moves the data from the database in the Import
-		// section (MySQL/MariaDB) into the one in the Database section (PostgreSQL). See README.md.
+		// The name keys first, then the reservations keyed by them; only colliding name keys fail the run
+		private static async Task<int> RunNameBackfills(AppDbContext db)
+		{
+			int keys = await Names.NameKeyBackfill.RunCommand(db, Console.Out, Console.Error);
+			await Names.NameReservationBackfill.RunCommand(db, Console.Out);
+			return keys;
+		}
+
+		// "GenOnlineService import [--dry-run] [--yes]" converts the Import database into the empty Database database (docs/schema.md section 4)
 		private static async Task<int> RunImportCommand(string[] args)
 		{
 			var flags = args.Skip(1).Select(a => a.ToLowerInvariant()).ToList();
-			string? unknown = flags.FirstOrDefault(f => f != "--dry-run" && f != "--restart" && f != "--yes");
+			string? unknown = flags.FirstOrDefault(f => f != "--dry-run" && f != "--yes");
 
 			if (unknown != null)
 			{
-				Console.Error.WriteLine($"Unknown option \"{unknown}\". Usage: GenOnlineService import [--dry-run] [--restart] [--yes]");
+				Console.Error.WriteLine($"Unknown option \"{unknown}\". Usage: GenOnlineService import [--dry-run] [--yes]");
 				return 1;
 			}
 
@@ -966,19 +754,24 @@ namespace GenOnlineService
 				var config = WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
 
 				DbProvider provider = GetDbProvider(config);
-				Database.ImportSource source = Database.Import.ReadSource(config, provider == DbProvider.Postgres);
+				Database.ImportSettings settings = Database.Import.ReadSettings(config);
 				string connectionString = BuildDbConnectionString(config, provider);
 
-				await using var db = CreateDbContext(provider, connectionString, null);
+				await using var db = CreateDbContext(provider, connectionString, DetectMySqlServerVersion(provider, connectionString));
+
+				string keyPath = DeviceHasher.GetKeyPath(config);
+				if (DeviceHasher.Initialize(keyPath))
+				{
+					Console.WriteLine($"Created the device HMAC key at {keyPath}. Back it up with the database and give the service the same key.");
+				}
 
 				var options = new Database.ImportOptions
 				{
 					DryRun = flags.Contains("--dry-run"),
-					Restart = flags.Contains("--restart"),
 					Confirm = (prompt, hint) => Confirm(assumeYes, prompt, hint)
 				};
 
-				return await Database.Import.Execute(db, connectionString, source, options);
+				return await Database.Import.Execute(db, settings, options);
 			}
 			catch (Database.ImportException ex)
 			{
@@ -989,342 +782,8 @@ namespace GenOnlineService
 			{
 				// Message only: the full exception text can carry connection details
 				Console.Error.WriteLine($"Import failed: {ex.GetType().Name}: {ex.Message}");
-				Console.Error.WriteLine("Progress is kept, run the import again to resume.");
+				Console.Error.WriteLine("The import runs in one transaction, so nothing was written to the target.");
 				return 1;
-			}
-		}
-
-		private static async Task<int> RunBaseline(AppDbContext db, bool assumeYes)
-		{
-			var plan = await MigrationBaseline.Plan(db);
-
-			if (plan.Error != null)
-			{
-				Console.Error.WriteLine(plan.Error);
-				return 1;
-			}
-
-			Console.WriteLine($"Baseline: the {plan.ExpectedTableCount} tables, {plan.ExpectedColumnCount} columns and {plan.ExpectedIndexCount} indexes of migration {plan.MigrationId} all exist.");
-			Console.WriteLine($"This records {plan.MigrationId} as applied WITHOUT running it. No table or data is changed.");
-
-			if (!Confirm(assumeYes, "Baseline this database?", "Input is not interactive. Pass --yes to baseline in an unattended run."))
-			{
-				return 1;
-			}
-
-			await MigrationBaseline.Apply(db, plan);
-
-			Console.WriteLine($"Baselined: recorded {plan.MigrationId} as applied.");
-
-			var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
-			if (pending.Count > 0)
-			{
-				Console.WriteLine($"{pending.Count} migration(s) are still pending. Run \"GenOnlineService migrate\" to apply them:");
-				foreach (string name in pending)
-				{
-					Console.WriteLine($"  {name}");
-				}
-			}
-
-			return 0;
-		}
-
-		// The signing key is the only thing standing between a user and a forged token, so refuse to
-		// start with a placeholder or a key too short for HS256.
-		private static void ValidateSigningKey(string strKey)
-		{
-			int keyBytes = Encoding.UTF8.GetByteCount(strKey);
-
-			if (keyBytes < 32)
-			{
-				throw new Exception($"JwtSettings:Key is only {keyBytes} bytes; HS256 requires at least 32 bytes of key material.");
-			}
-
-			if (strKey.Contains("TODO", StringComparison.OrdinalIgnoreCase))
-			{
-				throw new Exception("JwtSettings:Key is still set to the placeholder value. Set a real secret before starting the service.");
-			}
-		}
-
-		private static bool IsRefreshTokenEndpoint(HttpContext httpContext)
-		{
-			Endpoint? endpoint = httpContext.GetEndpoint();
-			if (endpoint != null)
-			{
-				return endpoint.Metadata.GetMetadata<RefreshTokenEndpointAttribute>() != null;
-			}
-
-			// Routing hasn't resolved an endpoint yet. Fall back to an exact final-segment match
-			// rather than a substring search over the whole path.
-			string path = httpContext.Request.Path.ToString().TrimEnd('/');
-			int lastSlash = path.LastIndexOf('/');
-			string lastSegment = lastSlash >= 0 ? path.Substring(lastSlash + 1) : path;
-			return String.Equals(lastSegment, "loginwithtoken", StringComparison.OrdinalIgnoreCase)
-				|| String.Equals(lastSegment, "refreshtoken", StringComparison.OrdinalIgnoreCase);
-		}
-
-		private static Task AdditionalValidation(TokenValidatedContext context)
-		{
-			try
-			{
-				if (context.Principal == null || context.Principal.Claims == null)
-				{
-					context.Fail("Failed Validation #1");
-					return Task.CompletedTask;
-				}
-
-				Claim? userIdClaim = context.Principal.FindFirst(ClaimTypes.NameIdentifier);
-				if (userIdClaim == null || !Int64.TryParse(userIdClaim.Value, out Int64 userID))
-				{
-					context.Fail("Failed Validation #2");
-					return Task.CompletedTask;
-				}
-
-				Claim? nameClaim = context.Principal.FindFirst(JwtRegisteredClaimNames.Name);
-				if (nameClaim == null || String.IsNullOrEmpty(nameClaim.Value))
-				{
-					context.Fail("Failed Validation #3");
-					return Task.CompletedTask;
-				}
-
-				// refresh tokens are only valid on endpoints marked [RefreshTokenEndpoint]
-				Claim? firstType = context.Principal.FindFirst(JwtRegisteredClaimNames.Typ);
-
-				if (firstType == null || String.IsNullOrEmpty(firstType.Value))
-				{
-					context.Fail("Failed Validation #4");
-					return Task.CompletedTask;
-				}
-
-				if (!int.TryParse(firstType.Value, out int tokenTypeValue)
-					|| !System.Enum.IsDefined(typeof(JwtTokenGenerator.ETokenType), tokenTypeValue))
-				{
-					context.Fail("Failed Validation #10 - Unknown token type");
-					return Task.CompletedTask;
-				}
-
-				JwtTokenGenerator.ETokenType tokenType = (JwtTokenGenerator.ETokenType)tokenTypeValue;
-
-				bool bIsRefreshEndpoint = IsRefreshTokenEndpoint(context.HttpContext);
-
-				if (tokenType == JwtTokenGenerator.ETokenType.Refresh)
-				{
-					if (!bIsRefreshEndpoint)
-					{
-						context.Fail("Failed Validation #5 - Refresh token used on non-refresh endpoint");
-						return Task.CompletedTask;
-					}
-				}
-				else if (tokenType == JwtTokenGenerator.ETokenType.Session)
-				{
-					if (bIsRefreshEndpoint)
-					{
-						context.Fail("Failed Validation #6 - Session token used on refresh endpoint");
-						return Task.CompletedTask;
-					}
-				}
-
-				Claim? addressClaim = context.Principal.FindFirst(JwtRegisteredClaimNames.Address);
-				if (addressClaim == null)
-				{
-					context.Fail("Failed Validation #7");
-					return Task.CompletedTask;
-				}
-
-				EUserSessionType sessionType;
-				{
-					Claim? sessionTypeClaim = context.Principal.FindFirst("session_type");
-					if (sessionTypeClaim == null
-						|| !int.TryParse(sessionTypeClaim.Value, out int sessionTypeValue)
-						|| !System.Enum.IsDefined(typeof(EUserSessionType), sessionTypeValue))
-					{
-						context.Fail("Failed Validation #11 - Missing or invalid session type");
-						return Task.CompletedTask;
-					}
-
-					sessionType = (EUserSessionType)sessionTypeValue;
-				}
-
-				// Revocation checks. All in-memory, no database access per request.
-				if (TokenRevocationManager.IsUserBanned(userID))
-				{
-					context.HttpContext.Items[BannedUserContextKey] = userID;
-					context.Fail("Failed Validation #12 - User is banned");
-					return Task.CompletedTask;
-				}
-
-				{
-					// Tokens issued before this claim existed are treated as generation 0, so a deploy
-					// doesn't force every live client to re-login. They still get rejected once that
-					// user's generation is bumped by a revocation.
-					int tokenGeneration = 0;
-
-					Claim? generationClaim = context.Principal.FindFirst(JwtTokenGenerator.TokenGenerationClaim);
-					if (generationClaim != null && !int.TryParse(generationClaim.Value, out tokenGeneration))
-					{
-						context.Fail("Failed Validation #13 - Invalid token generation");
-						return Task.CompletedTask;
-					}
-
-					if (tokenGeneration != TokenRevocationManager.GetGeneration(userID, sessionType))
-					{
-						context.Fail("Failed Validation #14 - Token has been revoked");
-						return Task.CompletedTask;
-					}
-				}
-
-				// Refresh tokens are single use - only the most recently issued one is accepted.
-				if (tokenType == JwtTokenGenerator.ETokenType.Refresh)
-				{
-					Claim? jtiClaim = context.Principal.FindFirst(JwtRegisteredClaimNames.Jti);
-					if (jtiClaim == null || !TokenRevocationManager.IsCurrentRefreshToken(userID, sessionType, jtiClaim.Value))
-					{
-						context.Fail("Failed Validation #15 - Refresh token has been superseded");
-						return Task.CompletedTask;
-					}
-				}
-
-				if (Program.g_Config != null)
-				{
-					IConfiguration? jwtSettings = Program.g_Config.GetSection("JwtSettings");
-
-					if (jwtSettings != null)
-					{
-						if (jwtSettings.GetValue<bool>("enforce_ip_match"))
-						{
-							string strExpectedIP = addressClaim.Value;
-							string currentIP = IPHelpers.NormalizeIP(context.HttpContext.Connection.RemoteIpAddress?.ToString());
-							if (strExpectedIP != currentIP)
-							{
-								context.Fail("Failed Validation #8 - IP mismatch");
-								return Task.CompletedTask;
-							}
-						}
-					}
-				}
-			}
-			catch
-			{
-				context.Fail("Failed Validation #9");
-			}
-
-			return Task.CompletedTask;
-		}
-
-		private static async Task HandleJwtChallenge(JwtBearerChallengeContext context)
-		{
-			if (!context.HttpContext.Items.TryGetValue(BannedUserContextKey, out object? value)
-				|| value is not Int64 userID)
-			{
-				return;
-			}
-
-			IDbContextFactory<AppDbContext> dbFactory = context.HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>();
-			await using var db = await dbFactory.CreateDbContextAsync();
-			UserBanStatus? banStatus = await Database.Users.GetUserBanStatus(db, userID);
-
-			if (banStatus?.IsBanned != true)
-			{
-				return;
-			}
-
-			context.HandleResponse();
-			context.Response.StatusCode = StatusCodes.Status423Locked;
-			await context.Response.WriteAsJsonAsync(new { ban_reason = banStatus.BanReason });
-		}
-
-		public class JwtTokenGenerator
-		{
-			private readonly IConfiguration _configuration;
-
-			public JwtTokenGenerator(IConfiguration configuration)
-			{
-				_configuration = configuration;
-			}
-
-			public enum ETokenType
-			{
-				Session,
-				Refresh
-			}
-
-			public const string TokenGenerationClaim = "tgen";
-
-			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, bool bIsAdmin)
-			{
-				return GenerateToken(displayname, userID, ipAddr, tokenType, knownClientID, sessionType, bIsAdmin, out _);
-			}
-
-			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, bool bIsAdmin, out string jti)
-			{
-				var jwtSettings = _configuration.GetSection("JwtSettings");
-
-				if (jwtSettings == null)
-				{
-					throw new Exception("JWT Settings not found in configuration");
-				}
-
-				string? strKey = jwtSettings["Key"];
-				if (strKey == null)
-				{
-					throw new Exception("JWT Key not found in configuration");
-				}
-
-				var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(strKey));
-				var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-				jti = Guid.NewGuid().ToString();
-
-				List<Claim> claims = new List<Claim>
-				{
-					new Claim(JwtRegisteredClaimNames.Sub, userID.ToString()),
-					new Claim(JwtRegisteredClaimNames.Jti, jti),
-					new Claim(JwtRegisteredClaimNames.Name, displayname),
-					new Claim(JwtRegisteredClaimNames.Address, ipAddr),
-					new Claim(JwtRegisteredClaimNames.Typ, ((int)tokenType).ToString()),
-					new Claim("client_id", ((int)knownClientID).ToString()),
-					new Claim("session_type", ((int)sessionType).ToString()),
-
-					// Token generation, checked against the revocation manager on every request so
-					// that bans/logouts can invalidate tokens before they naturally expire.
-					new Claim(TokenGenerationClaim, TokenRevocationManager.GetGeneration(userID, sessionType).ToString())
-				};
-
-				// everyone gets the player role
-				claims.Add(new Claim(ClaimTypes.Role, "Player"));
-
-				if (sessionType == EUserSessionType.GameClient)
-				{
-					claims.Add(new Claim(ClaimTypes.Role, "GameClient"));
-				}
-				else if (sessionType == EUserSessionType.ChatClient)
-				{
-					claims.Add(new Claim(ClaimTypes.Role, "ChatClient"));
-				}
-				else if (sessionType == EUserSessionType.GameLauncher)
-				{
-					claims.Add(new Claim(ClaimTypes.Role, "GameLauncher"));
-				}
-				else
-				{
-					throw new Exception("Unhandled session type: " + sessionType);
-				}
-
-				if (bIsAdmin)
-				{
-					claims.Add(new Claim(ClaimTypes.Role, "Admin"));
-				}
-
-
-				var token = new JwtSecurityToken(
-					issuer: jwtSettings["Issuer"],
-					audience: jwtSettings["Audience"],
-					claims: claims,
-					expires: DateTime.Now.AddMinutes(Convert.ToDouble(tokenType == ETokenType.Session ? jwtSettings["ExpiresInMinutes_Session"] : jwtSettings["ExpiresInMinutes_Refresh"])),
-					signingCredentials: credentials
-				);
-
-				return new JwtSecurityTokenHandler().WriteToken(token);
 			}
 		}
 
@@ -1431,38 +890,13 @@ namespace GenOnlineService
 			return true;
 		}
 
-		public static string BuildWebSocketUrl(HttpRequest request, string environment, string contractVersion)
-		{
-			string webSocketScheme;
-			if (request.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
-			{
-				webSocketScheme = "wss";
-			}
-			else if (request.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase))
-			{
-				webSocketScheme = "ws";
-			}
-			else
-			{
-				throw new InvalidOperationException($"Cannot build a WebSocket URL from request scheme '{request.Scheme}'.");
-			}
-
-			if (!request.Host.HasValue)
-			{
-				throw new InvalidOperationException("Cannot build a WebSocket URL because the request Host is empty.");
-			}
-
-			return UriHelper.BuildAbsolute(
-				webSocketScheme,
-				request.Host,
-				request.PathBase,
-				new PathString($"/env/{Uri.EscapeDataString(environment)}/contract/{Uri.EscapeDataString(contractVersion)}/ws"));
-		}
-
-		private static async Task RunObservedBackgroundJobAsync(
+		// An UpstreamUnavailableException is an expected outage: one Warning line without the stack trace, the next run retries.
+		// An ObjectDisposedException once stopping fired is the service shutting down under the job, logged at Debug.
+		internal static async Task RunObservedBackgroundJobAsync(
 			string jobName,
 			ILogger logger,
-			Func<Task> operation)
+			Func<Task> operation,
+			CancellationToken stopping = default)
 		{
 			bool succeeded = true;
 			using Activity? activity = AppMetrics.StartActivity(
@@ -1474,14 +908,47 @@ namespace GenOnlineService
 			{
 				await operation();
 			}
+			catch (UpstreamUnavailableException ex)
+			{
+				succeeded = false;
+				AppMetrics.RecordException(activity, ex);
+				logger.LogWarning("Background job {JobName} could not reach its upstream: {Reason}", jobName, ex.Message);
+			}
 			catch (Exception ex)
 			{
 				succeeded = false;
 				AppMetrics.RecordException(activity, ex);
-				logger.LogError(ex, "Background job {JobName} failed", jobName);
+				if (GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+				{
+					logger.LogDebug(ex, "Background job {JobName} failed", jobName);
+				}
+				else
+				{
+					logger.LogError(ex, "Background job {JobName} failed", jobName);
+				}
 			}
 
 			AppMetrics.RecordBackgroundJob(jobName, succeeded);
+		}
+
+		// HTTPS enforcement (AccountsSettings.EnforceHttps, on unless Core:enforce_https is false): HSTS and the http to https
+		// redirect. A local plain http run sets it to false, which also lets sign-in and its cookies work over http.
+		internal static void UseHttpsEnforcement(IApplicationBuilder app, IConfiguration config, ILogger logger)
+		{
+			if (AccountsSettings.EnforceHttps(config))
+			{
+				app.UseHsts();
+
+				// WebSocket upgrades are exempt because redirecting an upgrade request breaks the handshake.
+				app.UseWhen(context => !context.WebSockets.IsWebSocketRequest, branch =>
+				{
+					branch.UseHttpsRedirection();
+				});
+			}
+			else
+			{
+				logger.LogWarning("Core:enforce_https is disabled. Bearer tokens will be sent in clear text over any plain-HTTP listener.");
+			}
 		}
 
 		public static async Task Main(string[] args)
@@ -1495,6 +962,72 @@ namespace GenOnlineService
 			if (args.Length > 0 && args[0].Equals("import", StringComparison.OrdinalIgnoreCase))
 			{
 				Environment.ExitCode = await RunImportCommand(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("roles", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunRoles(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("bans", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunBans(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("reports", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunReports(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("messages", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunMessages(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("connections", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunConnections(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("realtime", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ModerationCli.RunRealtime(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("service-accounts", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ApiTokensCli.RunServiceAccounts(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("tokens", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ApiTokensCli.RunTokens(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("clients", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await ClientsCli.RunClients(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("users", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await UsersCli.RunUsers(args);
+				return;
+			}
+
+			if (args.Length > 0 && args[0].Equals("mail", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await GenOnlineService.Mail.MailCli.Run(args);
 				return;
 			}
 
@@ -1569,6 +1102,9 @@ namespace GenOnlineService
 
 			g_Config = builder.Configuration;
 
+			// display name tags derive from this secret; outside Development a missing one stops the service here
+			Names.NameTags.Configure(builder.Configuration, builder.Environment);
+
 			// Process the original client IP, request scheme, and host only when
 			// one or more trusted reverse proxies are configured.
 			bool useForwardedHeaders = TryConfigureForwardedHeaders(builder.Services, builder.Configuration);
@@ -1602,10 +1138,7 @@ namespace GenOnlineService
 			}
 
 			// Informational version stamped into the build from the git tag (GoResolveVersion in the csproj)
-			string buildVersion = typeof(Program).Assembly
-				.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-				.OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-				.FirstOrDefault()?.InformationalVersion ?? "unknown";
+			string buildVersion = GenOnlineService.Rest.Compatibility.ServiceVersion;
 
 			if ((bool)sentry_enabled)
 			{
@@ -1651,40 +1184,44 @@ namespace GenOnlineService
 			}
 
 			builder.Services.AddHostedService<ExternalLeaderboardPublicationWorker>();
+			builder.Services.AddSingleton<ILobbyIdSource, DatabaseLobbyIdSource>();
+			builder.Services.AddSingleton(sp => new LobbyIdAllocator(sp.GetRequiredService<ILobbyIdSource>()));
+			builder.Services.AddSingleton<IMatchIdWorkerStore, DatabaseMatchIdWorkerStore>();
+			builder.Services.AddSingleton(sp => new MatchIdGenerator(sp.GetRequiredService<IMatchIdWorkerStore>(), TimeProvider.System, MatchIdGenerator.DefaultHolder()));
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
+			// add a provider by registering another ILinkedAccountProvider
+			builder.Services.AddSingleton<GenOnlineService.Rest.ILinkedAccountProvider>(sp => new GenOnlineService.Rest.EosLinkedAccountProvider(sp.GetRequiredService<LobbyManager>()));
 
-			var rateLimitingSettings = Program.g_Config.GetSection("RateLimiting");
-			bool bUseBuiltinRateLimiter = rateLimitingSettings.GetValue<bool>("use_builtin_ratelimiter"); // use built in Kestrel/dotnet rate limiting if you do not have a reverse proxy or other rate limiter in front of service
+			// realtime protocol v1, see docs/realtime-protocol.md; Realtime:backplane redis carries it between copies, see docs/realtime-scaling.md
+			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);
 
-			if (bUseBuiltinRateLimiter)
+			// Realtime:failover holds the lease of docs/realtime-failover.md. The host waits the handover budget plus 10 s on shutdown:
+			// handover_limit_s, three lease periods for the bounded statements and waits, the switch delay, ten lease periods for the queue move
+			// and the forced lobby moves, and 5 s for the last batch (168.5 s with the defaults). A handover cancelled during the shutdown and started again can exceed it, the host then aborts what is left.
+			GenOnlineService.Failover.FailoverSettings failoverSettings = GenOnlineService.Failover.FailoverSettings.Read(builder.Configuration);
+			if (failoverSettings.Enabled)
 			{
-				builder.Services.AddRateLimiter(options =>
-				{
-					options.OnRejected = (context, cancellationToken) =>
-					{
-						AppMetrics.RecordSecurityAction("http_rate_limit", "rejected");
-						return ValueTask.CompletedTask;
-					};
-					options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-					{
-						// Use authenticated user ID or fallback to IP address
-						var userKey = httpContext.User.Identity?.IsAuthenticated == true
-							? httpContext.User.Identity.Name
-							: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
-
-						return RateLimitPartition.GetTokenBucketLimiter(userKey, _ => new TokenBucketRateLimiterOptions
-						{
-							TokenLimit = 50, // max burst
-							TokensPerPeriod = 10, // refill rate
-							ReplenishmentPeriod = TimeSpan.FromSeconds(5),
-							AutoReplenishment = true,
-							QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-							QueueLimit = 10
-						});
-					});
-				});
+				builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMilliseconds(failoverSettings.HandoverBudgetMs + 10_000));
 			}
+			Microsoft.AspNetCore.SignalR.ISignalRServerBuilder signalR = builder.Services.AddSignalR(options =>
+			{
+				options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+				options.MaximumReceiveMessageSize = 64 * 1024;
+				options.EnableDetailedErrors = false;
+				Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Realtime.RealtimeAdmittedFilter());
+				if (failoverSettings.Enabled)
+				{
+					Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Failover.RealtimeFenceFilter());
+				}
+			}).AddJsonProtocol(options => GenOnlineService.Realtime.RealtimeJson.Configure(options.PayloadSerializerOptions));
+			if (realtimeBackplane.UsesRedis)
+			{
+				signalR.AddStackExchangeRedis(realtimeBackplane.ConfigureSignalR);
+			}
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, GenOnlineService.Realtime.RealtimeUserIdProvider>();
+			builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.HubLifetimeManager<GenOnlineService.Realtime.RealtimeHub>>(services => new RealtimeLifetimeManager(realtimeBackplane.CreateLifetimeManager(services), realtimeBackplane.UsesRedis ? GenOnlineService.Realtime.RealtimeFanout.Groups : null, realtimeBackplane.UsesRedis ? GenOnlineService.Realtime.RealtimeFanout.Outboxes : null));
 
 			CorsPolicy corsPolicy = BuildCorsPolicy(builder.Configuration);
 
@@ -1694,110 +1231,46 @@ namespace GenOnlineService
 			});
 
 
-			var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-			builder.Services.AddAuthentication(options =>
+			AccountsSettings accountsSettings = AccountsSettings.Read(builder.Configuration);
+			builder.Services.AddSingleton(accountsSettings);
+
+			builder.Services.AddSingleton<GenOnlineService.Names.PlayerNames>();
+
+			// The GeoIP and MAC vendor lookups of the staff pages, never shown to players
+			builder.Services.AddSingleton<GenOnlineService.Investigation.IAddressDirectory>(_ => GenOnlineService.Investigation.MaxMindAddressDirectory.Default);
+			builder.Services.AddSingleton(_ => GenOnlineService.Investigation.OuiRegistry.Default);
+
+			// bearer tokens everywhere, and the sign-in cookie on the /api/v1 routes the staff pages call (T16), where accounts run
+			GenOnlineService.Api.ApiAuthentication.AddApiAuthentication(builder.Services, signInCookie: accountsSettings.Enabled);
+
+			// account mail (Mail:delivery_method); a misconfigured method stops the start, naming the key
+			GenOnlineService.Mail.MailSetup.AddMail(builder.Services, builder.Configuration);
+
+			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
+			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
+
+			// the staff pages under /admin sign in with the accounts cookie, so they exist only where accounts run (S12)
+			if (accountsSettings.Enabled)
 			{
-				options.DefaultScheme = "JwtOrBasic"; // Custom policy scheme
-			})
-			.AddPolicyScheme("JwtOrBasic", "JWT or Basic", options =>
-			{
-				options.ForwardDefaultSelector = context =>
-				{
-					var authHeader = context.Request.Headers["Authorization"].ToString();
-					if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-						return JwtBearerDefaults.AuthenticationScheme;
-					else if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
-						return "Basic";
-					return JwtBearerDefaults.AuthenticationScheme; // fallback
-				};
-			})
-			.AddJwtBearer(options =>
-			{
-				var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+				GenOnlineService.Portal.PortalSetup.AddPortal(builder.Services);
+			}
 
-				string? strKey = jwtSettings["Key"];
-				if (strKey == null)
-				{
-					throw new Exception("JWT Key not found in configuration");
-				}
-
-				ValidateSigningKey(strKey);
-
-				options.TokenValidationParameters = new TokenValidationParameters
-				{
-					ValidateIssuer = true,
-					ValidateAudience = true,
-					ValidateLifetime = true,
-					ValidateIssuerSigningKey = true,
-					ValidIssuer = jwtSettings["Issuer"],
-					ValidAudience = jwtSettings["Audience"],
-					IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(strKey)),
-
-					// Pin the algorithm so only tokens signed the way we sign them are accepted.
-					ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
-
-					// Default is 5 minutes, which keeps expired tokens usable for that long.
-					ClockSkew = TimeSpan.FromSeconds(30)
-				};
-
-				options.Events = new JwtBearerEvents
-				{
-					OnTokenValidated = AdditionalValidation,
-					OnChallenge = HandleJwtChallenge
-				};
-			}).AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
+			// "perm:<name>" policies, shared by user sessions and API tokens
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
 
 			builder.Services.AddAuthorization(options =>
 			{
-				options.AddPolicy("MonitorOrApiKey", policy =>
+				options.AddPolicy(AuthPolicies.PlayerSessionOrLobbiesRead, policy =>
 					policy.RequireAssertion(context =>
-					{
-						// Check role
-						if (context.User.IsInRole("Monitor"))
-							return true;
-
-						// Check x-api-key header
-						var httpContext = context.Resource as HttpContext;
-						if (httpContext?.Request.Headers.TryGetValue("x-api-key", out var apiKey) == true)
-						{
-							return APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey) || APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.WebServerKey);
-						}
-
-						return false;
-					}));
-
-				options.AddPolicy("AnyClientOrMonitorOrApiKey", policy =>
-					policy.RequireAssertion(context =>
-					{
-						// Check roles
-						if (context.User.IsInRole("GameClient"))
-							return true;
-
-						if (context.User.IsInRole("ChatClient"))
-							return true;
-
-						if (context.User.IsInRole("GameLauncher"))
-							return true;
-
-						if (context.User.IsInRole("Monitor"))
-							return true;
-
-						// Check x-api-key header
-						var httpContext = context.Resource as HttpContext;
-						if (httpContext?.Request.Headers.TryGetValue("x-api-key", out var apiKey) == true)
-						{
-							return APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.PartnerKey) || APIKeyHelpers.ValidateKey(apiKey, EApiKeyType.WebServerKey);
-						}
-
-						return false;
-					}));
+						context.User.IsInRole("GameClient")
+						|| context.User.IsInRole("ChatClient")
+						|| context.User.IsInRole("GameLauncher")
+						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
 
-			// Add in-memory caching for performance optimization
-			builder.Services.AddMemoryCache(options =>
-			{
-				options.SizeLimit = 10000; // Limit cache entries
-			});
+			// OpenIddict stores cache entries without a size, so the cache has no size limit
+			builder.Services.AddMemoryCache();
 
 			// Add response compression for bandwidth optimization (60-80% reduction)
 			builder.Services.AddResponseCompression(options =>
@@ -1823,8 +1296,12 @@ namespace GenOnlineService
 				options.JsonSerializerOptions
 				.PropertyNamingPolicy = null;
 			});
-			// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-			//builder.Services.AddOpenApi();
+			builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+			{
+				options.InvalidModelStateResponseFactory = GenOnlineService.Rest.RestSetup.InvalidModelState;
+			});
+			// the OpenAPI document of /api/v1 and its viewer, unless OpenApi:enabled turns them off
+			GenOnlineService.OpenApi.ApiDocs.AddApiDocs(builder.Services, builder.Configuration);
 
 			ReloadingPemCertificateProvider? certificateProvider = null;
 
@@ -1946,10 +1423,60 @@ namespace GenOnlineService
 
 			var app = builder.Build();
 			ServiceLocator.Services = app.Services;
+			GenOnlineService.Realtime.RealtimeOut.Initialize(app.Services.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<GenOnlineService.Realtime.RealtimeHub, GenOnlineService.Realtime.IRealtimeClient>>());
+			await GenOnlineService.Realtime.RealtimeControl.StartAsync(realtimeBackplane);
+			app.Logger.LogInformation("Service copy {CopyId} starting", GenOnlineService.Failover.CopyIdentity.ID);
+			GenOnlineService.Failover.FailoverCoordinator? failover = null;
+			if (failoverSettings.Enabled)
+			{
+				GenOnlineService.Failover.RealtimeConnectionDrain drain = new();
+				failover = new GenOnlineService.Failover.FailoverCoordinator(failoverSettings, GenOnlineService.Failover.CopyIdentity.ID,
+					new GenOnlineService.Failover.DatabaseLeaseStore(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>()), drain);
+				GenOnlineService.Failover.RealtimeFailover.Install(failover);
+				if (!realtimeBackplane.UsesRedis)
+				{
+					app.Logger.LogWarning("Realtime:failover is on without the Redis backplane: during a handover chat between the two copies does not cross, and lobbies and the queue do not survive a failover.");
+				}
+				else
+				{
+					// build steps 3 and 4: the owner writes lobbies and the queue to Redis with compared owner epochs, the standby follows them,
+					// takes them over after an unplanned failover, and a planned handover moves the queue and the lobbies one by one
+					GenOnlineService.Failover.LiveStateSettings liveStateSettings = GenOnlineService.Failover.LiveStateSettings.Read(builder.Configuration);
+					GenOnlineService.Failover.RedisLiveStateStore liveStore = new(() => GenOnlineService.Realtime.RealtimeRedis.ConnectAsync(realtimeBackplane), realtimeBackplane.ChannelPrefix, liveStateSettings.StreamMaxLength);
+					GenOnlineService.Failover.FailoverCoordinator coordinator = failover;
+					GenOnlineService.Failover.LiveStateWriter liveWriter = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID, () => coordinator.OwnsState);
+					GenOnlineService.Failover.LiveStateFollower liveFollower = new(liveStore, GenOnlineService.Failover.CopyIdentity.ID,
+						() => coordinator.Role is GenOnlineService.Failover.FailoverRole.Standby or GenOnlineService.Failover.FailoverRole.Target, liveStateSettings.PollIntervalMs, failoverSettings.LeaseMs);
+					GenOnlineService.Failover.RealtimeLiveState.Install(liveWriter, liveFollower, liveStateSettings.RefreshMs, liveStateSettings.RewriteMs);
+					LobbyManager liveLobbies = app.Services.GetRequiredService<LobbyManager>();
+					GenOnlineService.Failover.LiveStateHandover handover = new(liveWriter, liveStore, liveLobbies, drain, failoverSettings.LeaseMs * 2);
+					liveWriter.Rejected += handover.OnRejected;
+					liveFollower.Owned += handover.OnOwned;
+					failover.Activating = handover.OnActivating;
+					failover.Fencing = handover.OnFencing;
+					failover.Mover = handover;
+					LobbyManager.MovingLeave = handover.OnMovingLeave;
+					failover.StandbyReady = () => liveFollower.InSync;
+					GenOnlineService.Failover.RealtimeFailover.InstallSwitcher(drain);
+
+					// the loops run until the process ends, a shutdown handover still writes and follows
+					_ = Task.Run(() => liveWriter.RunAsync(CancellationToken.None));
+					_ = Task.Run(() => liveFollower.RunAsync(CancellationToken.None));
+					app.Logger.LogInformation("Realtime live state on: lobbies and the queue go to Redis, a standby announces itself only while in sync");
+				}
+			}
 
 			// These log through AppLog, which only has a logger factory once ServiceLocator.Services is set, so they run after Build
 			MatchmakingManager.RemoveInvalidPlaylistsAtStartup();
 			S3CredentialManager.Initialize();
+
+			// A bad feature name in Features:roles stops the start, an unknown role there is only a warning
+			if (!ClientFeatures.Configure(builder.Configuration))
+			{
+				Console.Error.WriteLine("[ERROR] Features:roles has invalid feature names, see the log above.");
+				Environment.ExitCode = 1;
+				return;
+			}
 
 			// Schema changes only happen through "GenOnlineService migrate"
 			using (var migrationScope = app.Services.CreateScope())
@@ -1966,36 +1493,26 @@ namespace GenOnlineService
 						Console.Error.WriteLine($"  {name}");
 					}
 					Console.Error.WriteLine("Run \"GenOnlineService migrate\" to apply them, then start the service again.");
-
-					if (await MigrationBaseline.LooksLikeUnbaselinedInstall(migrationDb))
-					{
-						Console.Error.WriteLine("This database already contains the service's tables but has no migration history (an install from before migrations).");
-						Console.Error.WriteLine("Run \"GenOnlineService migrate --baseline\" once first (see README.md), then \"GenOnlineService migrate\".");
-					}
-
-					Environment.ExitCode = 1;
-					return;
-				}
-
-				// An import into this PostgreSQL database that was started and not completed
-				if (migrationDb.Database.IsNpgsql() && await Database.Import.IsUnfinished(migrationDb))
-				{
-					Console.Error.WriteLine("[ERROR] An import into this database is unfinished (table __import_state exists), so the service will not start on it.");
-					Console.Error.WriteLine("Run \"GenOnlineService import\" with the service stopped to complete it. To discard the imported data and start over, run \"GenOnlineService import --restart\".");
 					Environment.ExitCode = 1;
 					return;
 				}
 			}
+
+			// Device values are only ever stored as HMACs with this key
+			string deviceKeyPath = DeviceHasher.GetKeyPath(builder.Configuration);
+			if (DeviceHasher.Initialize(deviceKeyPath))
+			{
+				app.Logger.LogWarning("Created the device HMAC key at {DeviceKeyPath}. Back it up with the database: without it stored device values can never be matched again.", deviceKeyPath);
+			}
+
+			// Loaded now rather than on the first staff page, so a missing file shows in the startup log
+			GenOnlineService.Investigation.MaxMindAddressDirectory addressDirectory = GenOnlineService.Investigation.MaxMindAddressDirectory.Default;
+			app.Logger.LogInformation("Staff enrichment: GeoIP city {HasCity}, GeoIP ASN {HasAsn}, {OuiBlocks} OUI blocks", addressDirectory.HasCity, addressDirectory.HasAsn, GenOnlineService.Investigation.OuiRegistry.Default.Count);
 
 			if (useForwardedHeaders)
 			{
 				// Must run before anything that consumes client IP or request scheme.
 				app.UseForwardedHeaders();
-			}
-
-			if (bUseBuiltinRateLimiter)
-			{
-				app.UseRateLimiter();
 			}
 
 			// Enable response compression (must be early in pipeline)
@@ -2005,8 +1522,8 @@ namespace GenOnlineService
 
 			var webSocketOptions = new WebSocketOptions
 			{
-				KeepAliveInterval = UserWebSocketInstance.c_KeepAliveInterval,
-				KeepAliveTimeout = UserWebSocketInstance.c_KeepAliveTimeout
+				KeepAliveInterval = TimeSpan.FromSeconds(15),
+				KeepAliveTimeout = TimeSpan.FromSeconds(30)
 			};
 
 			app.UseWebSockets(webSocketOptions);
@@ -2029,12 +1546,6 @@ namespace GenOnlineService
 			// end websocket
 
 			// Configure the HTTP request pipeline.
-			/*
-			if (app.Environment.IsDevelopment())
-			{
-				app.MapOpenApi();
-			}
-			*/
 
 			app.Use((context, next) =>
 			{
@@ -2042,94 +1553,76 @@ namespace GenOnlineService
 				return next();
 			});
 
-			// HTTPS enforcement. Gated because TLS may be terminated upstream (or a plain-HTTP
-			// listener may be deliberately in use), in which case redirecting would break clients.
-			bool bEnforceHttps = builder.Configuration.GetSection("Core").GetValue<bool>("enforce_https");
-			if (bEnforceHttps)
-			{
-				app.UseHsts();
-
-				// WebSocket upgrades are exempt because redirecting an upgrade request breaks the handshake.
-				app.UseWhen(context => !context.WebSockets.IsWebSocketRequest, branch =>
-				{
-					branch.UseHttpsRedirection();
-				});
-			}
-			else
-			{
-				app.Logger.LogWarning("Core:enforce_https is disabled. Bearer tokens will be sent in clear text over any plain-HTTP listener.");
-			}
+			UseHttpsEnforcement(app, builder.Configuration, app.Logger);
 
 			app.UseCors();
+			app.Use(GenOnlineService.Rest.RestSetup.StatusBodies);
+			GenOnlineService.Failover.RealtimeFailover.UseRealtimeStandbyGate(app);
+			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
+			GenOnlineService.Api.ApiAuthentication.UseSignInCookieRules(app);
+			app.UseRealtimeRegistrationGate();
+			bool bTrustedProxiesConfigured = (builder.Configuration.GetSection("TrustedProxies").Get<string[]>() ?? Array.Empty<string>()).Any(v => !string.IsNullOrWhiteSpace(v));
+			app.Use((context, next) =>
+			{
+				ApiTokenCache.CheckAllowListBehindProxy(context, bTrustedProxiesConfigured);
+				return next(context);
+			});
+
 			app.UseAuthorization();
 
-			app.MapControllers();
-
-			// Unauthenticated liveness probe used by deployment tooling. Exposes only status and build version.
-			// Load balancers probe with HEAD as well as GET (Kestrel drops the body of a HEAD response).
-			app.MapMethods("/healthz", new[] { "GET", "HEAD" }, () => Results.Json(new
+			if (accountsSettings.Enabled)
 			{
-				status = "ok",
-				version = buildVersion
-			})).AllowAnonymous().DisableRateLimiting();
+				GenOnlineService.Portal.PortalSetup.UsePortal(app);
+			}
 
+			app.MapControllers();
+			// /api/openapi/v1.json and the viewer at /api/docs, which /api leads to
+			GenOnlineService.OpenApi.ApiDocs.MapApiDocs(app, builder.Configuration);
+			if (accountsSettings.Enabled)
+			{
+				// the sign-in pages' stylesheet, theme and theme script (PortalLook): wwwroot/portal and Blazor Blueprint's _content,
+				// and the WebAssembly files of the staff pages (_framework)
+				app.MapStaticAssets();
+				GenOnlineService.Portal.PortalSetup.MapPortal(app);
+			}
+			app.MapHub<GenOnlineService.Realtime.RealtimeHub>(GenOnlineService.Realtime.RealtimeHub.Path, options =>
+			{
+				options.Transports = Microsoft.AspNetCore.Http.Connections.HttpTransportType.WebSockets;
+				options.ApplicationMaxBufferSize = 64 * 1024;
+			});
+
+
+
+			// The background timers restart after each tick until the service stops, then they are stopped and disposed
+			CancellationToken stopping = app.Lifetime.ApplicationStopping;
 
 			// cleanup
-			System.Timers.Timer timerCleanup = new System.Timers.Timer(5000); // 5s tick
-			timerCleanup.AutoReset = false;
-			timerCleanup.Elapsed += async (sender, e) =>
+			GenOnlineService.Service.SelfRestartingTimer.Start(5000, stopping, app.Logger, "Service cleanup timer failed", async () => // 5s tick
 			{
-				try
+				await RunObservedBackgroundJobAsync("service_cleanup", app.Logger, async () =>
 				{
-					await RunObservedBackgroundJobAsync("service_cleanup", app.Logger, async () =>
-					{
-						await WebSocketManager.CheckForTimeouts();
+					await WebSocketManager.CheckForTimeouts();
 
-						var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-						int numLobbies = lobbyManager.GetNumLobbies();
-						await StatsTracker.Update(numLobbies, WebSocketManager.GetNumberOfUsersOnline());
-						await lobbyManager.Cleanup();
+					var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+					int numLobbies = lobbyManager.GetNumLobbies();
+					AppMetrics.RecordServiceSnapshot(numLobbies, WebSocketManager.GetNumberOfUsersOnline());
+					await lobbyManager.Cleanup();
 
-						int expiredLoginCount = PendingLoginManager.CleanupExpiredLogins();
-						if (expiredLoginCount > 0)
-						{
-							app.Logger.LogDebug("Removed {ExpiredLoginCount} expired pending logins", expiredLoginCount);
-						}
-					});
-				}
-				finally
-				{
-					timerCleanup.Start();
-				}
-			};
-			timerCleanup.Start();
+				}, stopping);
+			});
 
 			// tick lobby
 			// Nothing in the tick needs finer than 50ms resolution: initial lobby syncs are spaced 200ms apart, mesh check
 			// snapshots/retries/window are 1s/3s/8s, probes are 30s+, and the dirty-flag coalescing only adds up to one
 			// interval of latency. 5ms made every lobby spin ~200x/s while idle.
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(c_LobbyTickIntervalMS);
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(c_LobbyTickIntervalMS, stopping, app.Logger, "Lobby tick timer failed", async () =>
 				{
-					try
-					{
-						var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-						await lobbyManager.Tick();
-						WebSocketManager.Tick();
-					}
-					catch (Exception ex)
-					{
-						app.Logger.LogError(ex, "Lobby tick timer failed");
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+					var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+					await lobbyManager.Tick();
+					WebSocketManager.Tick();
+				});
 			}
 
 			// lobby destroy loop - this is separate from the main lobby tick to prevent the tick from being blocked by cleanup
@@ -2140,94 +1633,125 @@ namespace GenOnlineService
 
             // tick matchmaking (done at lower frequency)
             {
-				System.Timers.Timer timerTick = new System.Timers.Timer(1000); // 1s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(1000, stopping, app.Logger, "Matchmaking tick timer failed", async () => // 1s tick
 				{
-					try
-					{
-						await MatchmakingManager.Tick();
-					}
-					catch (Exception ex)
-					{
-						app.Logger.LogError(ex, "Matchmaking tick timer failed");
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+					await MatchmakingManager.Tick();
+				});
 			}
 
-			// tick network rooms (done at lower frequency)
+			// Faction win rates are recomputed from today's finished matches every minute
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(1000); // 1s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(60000, stopping, app.Logger, "Faction stats timer failed", async () => // 60s tick
 				{
-					try
+					await RunObservedBackgroundJobAsync("faction_stats_refresh", app.Logger, async () =>
 					{
-						WebSocketManager.TickRoomMemberList();
-					}
-					catch (Exception ex)
-					{
-						app.Logger.LogError(ex, "Network-room tick timer failed");
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await Database.FactionStats.Refresh(db, DateTime.UtcNow);
+					}, stopping);
+				});
 			}
 
-			// timer to save daily stats
+			// Devices, session events, chat messages and resolved reports past their retention are purged hourly
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(60000); // 60s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(TimeSpan.FromHours(1).TotalMilliseconds, stopping, app.Logger, "Retention purge timer failed", async () =>
 				{
-					try
+					await RunObservedBackgroundJobAsync("retention_purge", app.Logger, async () =>
 					{
-						await RunObservedBackgroundJobAsync("daily_stats_save", app.Logger, async () =>
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						try
 						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await DailyStatsManager.SaveToDB(db);
-						});
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+							var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
+							if (devices > 0 || sessionEvents > 0)
+							{
+								app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
+							}
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Device and session event retention purge failed");
+						}
+
+						// Runs on its own so a device purge failure never skips it
+						try
+						{
+							var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
+							if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0 || chat.ConnectionReports > 0)
+							{
+								app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers, {ChatReportCount} resolved reports and {ConnectionReportCount} connection reports", chat.Messages, chat.ReadMarkers, chat.Reports, chat.ConnectionReports);
+							}
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Chat retention purge failed");
+						}
+					}, stopping);
+				});
 			}
 
-			// Pick up bans applied directly in the database.
+			// Pick up bans and staff roles changed in the database
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(5000); // 5s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(5000, stopping, app.Logger, "Access control reload timer failed", async () => // 5s tick
 				{
-					try
+					await RunObservedBackgroundJobAsync("access_control_reload", app.Logger, async () =>
 					{
-						await RunObservedBackgroundJobAsync("token_revocation_reconcile", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await TokenRevocationManager.ReconcileBans(db);
-						});
-					}
-					finally
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await AccessControl.Reload(db);
+					}, stopping);
+
+					// a disabled client is noticed here and its authorizations are revoked
+					await RunObservedBackgroundJobAsync("client_registry_reload", app.Logger, async () =>
 					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await ClientRegistry.Reload(db);
+					}, stopping);
+
+					// a separate job, so a failed ban reconcile never keeps a revoked role in place
+					await RunObservedBackgroundJobAsync("staff_roles_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await StaffRoles.Reload(db);
+					}, stopping);
+
+					// a copy that missed a catalog change on the backplane picks it up here
+					await RunObservedBackgroundJobAsync("catalog_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);
+					}, stopping);
+
+					await RunObservedBackgroundJobAsync("api_tokens_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await ApiTokenCache.Reload(db);
+						await ApiTokenCache.FlushLastUsed(db);
+						await ApiTokenCache.Housekeeping(db, ApiTokenSettings.Read(builder.Configuration));
+					}, stopping);
+
+					// a change of the word lists or rules made on another copy is picked up here
+					await RunObservedBackgroundJobAsync("text_rules_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
+					}, stopping);
+
+					await RunObservedBackgroundJobAsync("oauth_prune", app.Logger, () => OAuthMaintenance.PruneDaily(app.Services), stopping);
+				});
 			}
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) =>
@@ -2235,20 +1759,48 @@ namespace GenOnlineService
 				app.Logger.LogInformation("Exit requested");
 			};
 
-			// create a token
-			g_tokenGenerator = new JwtTokenGenerator(builder.Configuration);
-
-			// load daily stats
 			using (var scope = app.Services.CreateScope())
 			{
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
 
-				// do a cleanup on startup
-				await DailyStatsManager.LoadFromDB(db);
+				await Database.FactionStats.Refresh(db, DateTime.UtcNow);
 
-				// must happen before any token is issued or validated
-				await TokenRevocationManager.Initialize(factory, db);
+				// seeds user state and bans before any token is validated
+				await AccessControl.Reload(db);
+				await AccessControl.SweepBlockedUsers(factory);
+				await StaffRoles.Reload(db);
+				StaffRoles.ValidateRoleDefinitions();
+				await ApiTokenCache.Reload(db);
+				await ClientRegistry.Reload(db);
+
+				// the word lists and rules of the text checks: the seed lists once, on the first start
+				await GenOnlineService.TextRules.TextChecks.SeedAsync(db);
+				await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
+
+				// the live flags revision; later revisions arrive through CatalogSignals and the reconcile tick
+				GenOnlineService.Catalog.CatalogSignals.Register(GenOnlineService.Catalog.CatalogResources.Flags, GenOnlineService.Flags.FlagCatalog.Reload);
+				await GenOnlineService.Flags.FlagSeed.EnsureAsync(db);
+				await GenOnlineService.Catalog.CatalogStartup.RunAsync(db);
+				await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);
+			}
+
+			if (accountsSettings.Enabled)
+			{
+				await AccountsSetup.SeedClients(app.Services, accountsSettings);
+				await ClientRegistry.SweepDisabledClients(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>());
+			}
+
+			if (failover != null)
+			{
+				// the stopping callback blocks the shutdown until the handover ends, the server still serves the connections meanwhile
+				CancellationTokenSource leaseLoopStop = new();
+				_ = Task.Run(() => failover.RunAsync(app.Lifetime.StopApplication, leaseLoopStop.Token));
+				app.Lifetime.ApplicationStopping.Register(() =>
+				{
+					failover.ShutdownAsync().GetAwaiter().GetResult();
+					leaseLoopStop.Cancel();
+				});
 			}
 
 			app.Run();
@@ -2293,7 +1845,6 @@ namespace GenOnlineService
 		}
 
 		public static DateTime g_LastStartTime = DateTime.Now;
-		public static JwtTokenGenerator? g_tokenGenerator = null;
 
 		public static void GlobalExceptionHandler(object sender, UnhandledExceptionEventArgs e)
 		{

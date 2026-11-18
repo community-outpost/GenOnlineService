@@ -1,0 +1,72 @@
+# Golden vectors for NameKey: the plugin's NameRules.normalize run on the JDK (NameKeyTests)
+# Generated on JDK 25 from genonline-keycloak 80d76aa (NameRules.java, Confusables.java, confusables.txt).
+# Columns: input code points, key code points, label.
+0042 006F 0062	0062 006F 0062	ASCII name
+0042 004F 0042	0062 006F 0062	ASCII upper case
+0078 0058 005F 0053 006E 0069 0070 0065 0072 005F 0058 0078	0078 0078 005F 0073 006E 0069 0070 0065 0072 005F 0078 0078	ASCII with underscores
+0050 006C 0061 0079 0065 0072 0020 0031	0070 006C 0061 0079 0065 0072 0020 006C	ASCII with a space
+0072 006E	0072 006E	r n looks like m
+006D	0072 006E	m
+0076 0076	0076 0076	v v looks like w
+0049 006C 0031 007C	0069 006C 006C 006C	capital I, small l, one, bar
+0042 0030 0062	0062 006F 0062	zero for o
+0035 0061 0076 0065	0035 0061 0076 0065	five for S
+0031 0033 0033 0037	006C 0033 0033 0037	digits only
+0068 0034 0078 0030 0072	0068 0034 0078 006F 0072	digits inside a word
+0130	0069 0307	capital I with dot above
+0130 0073 0074 0061 006E 0062 0075 006C	0069 0307 0073 0074 0061 006E 0062 0075 006C	capital I with dot above starting a word
+004B 0130 004E 0047	006B 0069 0307 006E 0067	capital I with dot above inside a word
+0131	0069	dotless small i
+0049 0131 0069 0130	0069 0069 0069 0069 0307	every Turkish I
+0044 0130 0059 0041 0052 0042 0041 004B 0049 0052	0064 0069 0307 0079 0061 0072 0062 0061 006B 0069 0072	Turkish upper case word
+03A3	006F	capital sigma alone
+0391 03A3	0061 03C2	capital sigma ending a word
+03A3 0391	006F 0061	capital sigma starting a word
+039F 0394 03A5 03A3 03A3 0395 03A5 03A3	006F 1E9F 0075 006F 006F A793 0075 03C2	ODYSSEUS in capitals, inner and final sigma
+03A3 0391 03A3	006F 0061 03C2	sigma at both ends
+03C3 03C2	006F 03C2	small sigma and final sigma
+0391 03A3 0020 0392	0061 03C2 0020 00DF	sigma before a space
+0391 03A3 005F 0392	0061 006F 005F 00DF	sigma before an underscore between letters
+0391 03A3 002D 0392	0061 006F 002D 00DF	sigma before a hyphen between letters
+0391 03A3 002D 002D 0392	0061 03C2 002D 002D 00DF	sigma before two hyphens
+0391 03A3 002E 0392	0061 006F 002E 00DF	sigma before a full stop between letters
+0391 03A3 0027 0392	0061 006F 0027 00DF	sigma before an apostrophe between letters
+0391 03A3 0031	0061 03C2 006C	sigma before a digit
+0391 03A3 0031 0392	0061 006F 006C 00DF	sigma before a digit and a letter
+0391 0031 002E 03A3	0061 006C 002E 006F	full stop between a digit and the sigma
+0391 0301 03A3	0061 0301 03C2	combining accent before the sigma
+0345 03A3	0328 006F	combining ypogegrammeni starting the text
+0391 4E2D 03A3	0061 4E2D 006F	CJK ideograph before the sigma
+0391 AC00 03A3	0061 1100 1161 03C2	Hangul syllable before the sigma
+0391 0964 03A3	0061 0964 006F	danda before the sigma
+0391 0964 0030 03A3	0061 0964 006F 03C2	danda and digit before the sigma
+10428 03A3	10428 03C2	Deseret letter starting the text before the sigma
+0391 10428 03A3	0061 10428 006F	Deseret letter inside the text before the sigma
+0391 10428 0345 03A3	0061 10428 0328 03C2	Deseret letter and a mark before the sigma
+1D6BA	0283	mathematical bold capital sigma
+FB03	0066 0066 0069	ffi ligature
+006F FB03 0063 0065	006F 0066 0066 0069 0063 0065	word with the ffi ligature
+FF22 FF2F FF22	0062 006F 0062	full width capitals
+FF22 FF4F FF42 FF11 FF12 FF13	0062 006F 0062 006C 0032 0033	full width letters and digits
+1D401 1D428 1D41B	0062 006F 0062	mathematical bold Bob
+24B7 24DE 24D1	0062 006F 0062	circled letters
+216B	0078 0069 0069	Roman numeral twelve
+210C	0068	black letter capital H
+FDFA	0635 0644 0649 0020 006C 0644 0644 006F 0020 0639 0644 0649 006F 0020 0648 0633 0644 0645	Arabic ligature, the longest key of one character
+AF66	1100 1100 1169 1161 4E28 1100 1100	Hangul syllable, the largest growth
+0042 043E 0062	0062 006F 0062	Cyrillic small o
+0410 0412 0421	0061 0299 0063	Cyrillic capitals A, Ve, Es
+0440 0430 0440 0440 0430	0070 0061 0070 0070 0061	Cyrillic word that looks Latin
+0042 03BF 0062	0062 006F 0062	Greek small omicron
+0392 039F 0392	00DF 006F 00DF	Greek capitals
+1E9E	00DF	capital sharp s
+0053 0074 0072 0061 00DF 0065	0073 0074 0072 0061 00DF 0065	small sharp s
+0065 0301	0065 0301	e and a combining acute
+00E9	0065 0301	precomposed e acute
+01C5	0064 007A 0306	title case dz with caron
+2126	03C9	ohm sign
+0042 006F 0431 03B2 4E2D	0062 006F 0036 00DF 4E2D	Latin, Cyrillic, Greek and CJK
+05D0 05D1 05D2	05D0 05D1 05D2	Hebrew
+0627 0644 0639 0631 0628	006C 0644 0639 0631 0628	Arabic
+0E01 0E32 0E23	0E01 0E32 0E23	Thai
+3042 30A2 4E2D	3042 30A2 4E2D	kana and kanji
