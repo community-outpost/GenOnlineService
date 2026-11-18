@@ -68,11 +68,13 @@ accountable for what they do.</p>
 
 <h3>Matches and statistics</h3>
 <p>We store your matches: the lobby settings, the map, the players with their teams, sides, colours and results, your rating
-and your statistics, and the leaderboards. The game uploads replays and screenshots of matches, which we store with our
-storage provider. Match data is part of the public record of the game and is kept without a fixed end. Replays and
-screenshots are deleted after 90 days, unless we tell you otherwise, for example when one is needed for a report or a ban.</p>
-<!-- TODO(operator): the 90 days for replays and screenshots is the operator's decision (2026-11-18); no purge or bucket
-     lifecycle rule enforcing it is visible in the code or the infrastructure yet. -->
+and your statistics, and the leaderboards. Match data is part of the public record of the game and is kept without a fixed
+end.</p>
+<p>The game can upload replays and screenshots of matches; this is switched off at the moment. When it is on, they are stored
+in the European Union and deleted after 90 days. Screenshots taken by the anti-cheat are kept apart and for as long as a
+review or a sanction needs them, since they can be the evidence for a ban.</p>
+<!-- Uploads are off (MatchData:upload_match_data false) and no bucket exists (2026-11-18). When they return, the bucket gets the
+     90-day expiry in IaC and anti-cheat screenshots a separate place without it; keep this paragraph true. -->
 
 <h3>Logs and error reports</h3>
 <ul>
@@ -128,7 +130,6 @@ team, colour and match statistics, so that they appear on its leaderboards.</li>
 connect the game to its online services.</li>
 <li><strong>Cloudflare</strong> relays the game's network traffic between players when a direct connection is not possible. It
 then sees your IP address.</li>
-<li><strong>Backblaze</strong> stores the replays and screenshots of matches, in its EU (Amsterdam) region.</li>
 <li><strong>Cloudflare</strong> stores our encrypted database backups in R2, with the data kept in the European Union.</li>
 <li>Our <strong>hosting providers</strong> run the servers that hold the data: netcup in Germany, OVHcloud in France, Germany and the
 United Kingdom, and Worldstream in the Netherlands. The United Kingdom is outside the European Economic Area; the European
