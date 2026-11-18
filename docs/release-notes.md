@@ -31,6 +31,10 @@ The deploy is greenfield: no client of the old routes is served. The game client
 
 New operator routes: personal access tokens, service accounts, player roles, audit events, application settings and announcements (see `docs/api.md`). New permissions `audit.read` and `settings.manage` are held by admins.
 
+### The service config moves into the database
+
+The game config of `GET /api/v1/config` is now database flags with draft, publish and rollback (`docs/flags.md`); `data/serviceconfig.json` is no longer read or shipped. The `Flags` migration adds the `flags` and `flag_revisions` tables, and the first start after it seeds revision 1 from the values the file held, so the game gets the same answer until staff publish. Staff with the new `flags.manage` permission (admins and owners) edit it on `/admin/config` or over `/api/v1/flags`; the game can also read it with OFREP at `POST /ofrep/v1/evaluate/flags`.
+
 ### Match ids are snowflakes
 
 New matches get 48 bit snowflake ids made by the service: 32 bits of seconds since 2026-01-01 UTC, 5 bits of worker slot, 11 bits of sequence (`docs/schema.md`, Match ids). They are JSON numbers below 2^53 like before, never 0, and larger than every older match id, so ordering by id and `GET /api/v1/matches?after_id=` keep working. Older matches keep their ids. Player and lobby ids do not change.
