@@ -240,6 +240,10 @@ Every applied push or pull entry logs one Information line with its seq and play
 
 Only prod's client also holds `genonline-rename`, the role for the plugin's rename endpoint: a compromised test or dev environment then cannot rename prod players. Calling that endpoint from `PATCH /api/v1/me` and the staff rename is the hub session's part.
 
+## 5d. The look of the pages (T19)
+
+The sign-in and account pages follow the Generals Online design system (boards Main, ChooseName, TwoFactor, CheckEmail, Refused, PhoneArabic and Account): `wwwroot/portal/tokens.css` (the `--go-*` tokens, dark only), the `gp-*` classes in `wwwroot/portal/generals.css`, self-hosted Play, IBM Plex Sans and IBM Plex Sans Arabic. `Accounts:cover_images` is a list of public paths on this service; missing means the three faction images, an empty list means no image, and an entry that is not a path on this service (an address with a host, whitespace or a quote) stops the start. The footer links come from `Agreements:terms:url`, `Agreements:privacy:url` and `Agreements:rules:url`; a document without an address has no link, and there is no Help link until a help page exists.
+
 ## 5c. Agreements (S19)
 
 Each account agrees to the current version of two documents, the Rules of Engagement (`rules`) and the Terms of Service (`terms`); the Privacy Policy is only linked. Versions, days and links are configuration (`Agreements:rules:version|date|url`, `Agreements:terms:version|date|url`, `Agreements:privacy:url`). A document without a version is not required, and with neither version nothing is gated, so self-hosters and tests sign in as before. A version without its url, or a date that is not `yyyy-MM-dd`, stops the start. A wording-only fix keeps the version; a new version asks every player again.
