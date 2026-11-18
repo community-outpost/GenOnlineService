@@ -119,7 +119,7 @@ public class UserRole
 	public string? Reason { get; set; }
 }
 
-// A kick, mute or ban, lifted ones stay as history and sanctions are never purged
+// A kick, mute or ban, lifted ones stay as history until the retention purge removes them two years after they ended
 public class Sanction
 {
 	public Int64 ID { get; set; }
@@ -143,7 +143,7 @@ public class Sanction
 	public Int64? ReportID { get; set; }
 }
 
-// Append only, every row is an action that already happened
+// Append only, every row is an action that already happened; the retention purge removes rows after two years
 public class AuditLogEntry
 {
 	public Int64 ID { get; set; }
@@ -212,6 +212,7 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLogEntry>
 
 		builder.HasKey(e => e.ID);
 		builder.HasIndex(e => new { e.TargetKind, e.TargetID }).HasDatabaseName("ix_audit_log_target");
+		builder.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_audit_log_created_at");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
@@ -241,6 +242,25 @@ namespace Database
 	public static class Moderation
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Moderation));
+
+		// Privacy Policy: a sanction is kept until two years after it ended, the staff log for two years
+		public const int SanctionRetentionYears = 2;
+		public const int AuditLogRetentionYears = 2;
+
+		// A sanction ended when it was lifted or expired, whichever came first; an active permanent ban never ends. Nothing
+		// refers to a sanction row by key: audit rows only name its id in their details text, and a report it answered is purged sooner
+		public static async Task<(int Sanctions, int AuditLog)> PurgeExpired(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
+		{
+			DateTime sanctionCutoff = utcNow.AddYears(-SanctionRetentionYears);
+			DateTime auditCutoff = utcNow.AddYears(-AuditLogRetentionYears);
+
+			int sanctions = await db.Sanctions
+				.Where(s => (s.LiftedAt != null && s.LiftedAt < sanctionCutoff) || (s.ExpiresAt != null && s.ExpiresAt < sanctionCutoff))
+				.ExecuteDeleteAsync(cancellationToken);
+			int auditLog = await db.AuditLog.Where(e => e.CreatedAt < auditCutoff).ExecuteDeleteAsync(cancellationToken);
+
+			return (sanctions, auditLog);
+		}
 
 		// Unlifted and unexpired, so a kick is never active
 		public static IQueryable<Sanction> ActiveSanctions(AppDbContext db, string type, DateTime now)

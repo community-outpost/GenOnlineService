@@ -87,7 +87,7 @@ user_roles
   granted_by varchar(64) null, granted_at, reason varchar(512) null
   pk (user_id, role, source)
 
-sanctions                 -- never purged
+sanctions                 -- retention: purged 2 years after it ended (lifted or expired); an active permanent ban is kept
   id, user_id, type varchar(16) ('kick' | 'mute' | 'ban'), source varchar(32) ('local' | 'upstream:<provider>'),
   reason varchar(512) null, created_by_kind varchar(16), created_by_id bigint null, created_at,
   expires_at null, lifted_at null, lifted_by_kind varchar(16) null, lifted_by_id bigint null,
@@ -96,10 +96,11 @@ sanctions                 -- never purged
   -- kick: expires_at = created_at, never active; mute: expires_at required; ban: null expires_at is permanent
   -- several active sanctions per user allowed; the longest lasting ban decides what the player sees
 
-audit_log                 -- append-only, no retention purge
+audit_log                 -- append-only, purged 2 years after created_at
   id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account' | 'upstream'; upstream rows: actor = provider name),
   actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token' | 'client'),
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
+  index (target_kind, target_id), index (created_at)
                           -- source: where the action came in, for example 'api' (REST), 'realtime' (hub), 'discord', 'cli', 'import', 'startup_sweep'
 ```
 

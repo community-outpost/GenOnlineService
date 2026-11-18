@@ -405,6 +405,9 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.HasKey("ID");
 
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_audit_log_created_at");
+
                     b.HasIndex("TargetKind", "TargetID")
                         .HasDatabaseName("ix_audit_log_target");
 

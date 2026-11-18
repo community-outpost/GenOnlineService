@@ -1666,7 +1666,8 @@ namespace GenOnlineService
 				});
 			}
 
-			// Devices, session events, chat messages and resolved reports past their retention are purged hourly
+			// Devices, session events, chat messages, resolved reports, ended sanctions and the staff log past their retention are
+			// purged hourly
 			{
 				GenOnlineService.Service.SelfRestartingTimer.Start(TimeSpan.FromHours(1).TotalMilliseconds, stopping, app.Logger, "Retention purge timer failed", async () =>
 				{
@@ -1700,6 +1701,19 @@ namespace GenOnlineService
 						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
 						{
 							app.Logger.LogError(ex, "Chat retention purge failed");
+						}
+
+						try
+						{
+							var (sanctions, auditLog) = await Database.Moderation.PurgeExpired(db, DateTime.UtcNow);
+							if (sanctions > 0 || auditLog > 0)
+							{
+								app.Logger.LogInformation("Retention purge removed {SanctionCount} sanctions and {AuditLogCount} staff log rows", sanctions, auditLog);
+							}
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Sanction and staff log retention purge failed");
 						}
 					}, stopping);
 				});

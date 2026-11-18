@@ -87,4 +87,51 @@ public class RetentionPurgeTests
 			Assert.Equal((0, 0), await Database.Retention.Purge(db, now));
 		}
 	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task SanctionsGoTwoYearsAfterTheyEndAndTheStaffLogAfterTwoYears(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		DateTime now = DateTime.UtcNow;
+		DateTime longAgo = now.AddYears(-5);
+		DateTime cutoff = now.AddYears(-2);
+
+		await using (AppDbContext db = probe.Open())
+		{
+			db.Sanctions.AddRange(
+				new Sanction { UserID = 1, Reason = "permanent", CreatedAt = longAgo },                                                      // permanent and active: stays
+				new Sanction { UserID = 1, Reason = "expired long ago", Type = SanctionTypes.Mute, CreatedAt = longAgo, ExpiresAt = cutoff.AddDays(-1) }, // goes
+				new Sanction { UserID = 1, Reason = "expired recently", Type = SanctionTypes.Ban, CreatedAt = longAgo, ExpiresAt = cutoff.AddDays(1) },  // stays
+				new Sanction { UserID = 1, Reason = "lifted long ago", CreatedAt = longAgo, LiftedAt = cutoff.AddDays(-1) },                 // permanent ban lifted: goes
+				new Sanction { UserID = 1, Reason = "lifted recently", CreatedAt = longAgo, LiftedAt = cutoff.AddDays(1) },                  // stays
+				new Sanction { UserID = 1, Reason = "lifted early", CreatedAt = longAgo, ExpiresAt = now.AddYears(1), LiftedAt = cutoff.AddDays(-1) }, // ended when lifted: goes
+				new Sanction { UserID = 1, Reason = "old kick", Type = SanctionTypes.Kick, CreatedAt = cutoff.AddDays(-1), ExpiresAt = cutoff.AddDays(-1) }, // goes
+				new Sanction { UserID = 1, Reason = "new kick", Type = SanctionTypes.Kick, CreatedAt = cutoff.AddDays(1), ExpiresAt = cutoff.AddDays(1) });   // stays
+			db.AuditLog.AddRange(
+				new AuditLogEntry { CreatedAt = cutoff.AddDays(-1), ActorKind = "cli", Actor = "cli", Action = "ban", TargetKind = "user", TargetID = 1, Source = "local" }, // goes
+				new AuditLogEntry { CreatedAt = cutoff.AddDays(1), ActorKind = "cli", Actor = "cli", Action = "lift", TargetKind = "user", TargetID = 1, Source = "local" }); // stays
+			await db.SaveChangesAsync();
+		}
+
+		await using (AppDbContext db = probe.Open())
+		{
+			var (sanctions, auditLog) = await Database.Moderation.PurgeExpired(db, now);
+			Assert.Equal(4, sanctions);
+			Assert.Equal(1, auditLog);
+		}
+
+		await using (AppDbContext db = probe.Open())
+		{
+			List<string?> left = await db.Sanctions.OrderBy(s => s.ID).Select(s => s.Reason).ToListAsync();
+			Assert.Equal(new[] { "permanent", "expired recently", "lifted recently", "new kick" }, left);
+			Assert.Equal("lift", Assert.Single(await db.AuditLog.ToListAsync()).Action);
+		}
+
+		await using (AppDbContext db = probe.Open())
+		{
+			Assert.Equal((0, 0), await Database.Moderation.PurgeExpired(db, now));
+		}
+	}
 }
