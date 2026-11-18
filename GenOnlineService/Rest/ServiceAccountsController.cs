@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -34,6 +35,8 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Lists the service accounts of partners.")]
+		[ProducesResponseType<ServiceAccountsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/service_accounts")]
 		public async Task<IActionResult> List()
 		{
@@ -62,6 +65,8 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Reads one service account.")]
+		[ProducesResponseType<ServiceAccountInfo>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/service_accounts/{accountID:long}")]
 		public async Task<IActionResult> Get(long accountID)
 		{
@@ -82,6 +87,9 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Creates a service account.")]
+		[ProducesResponseType<ServiceAccountInfo>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(CreateServiceAccountRequest))]
 		[HttpPost("~/api/v1/service_accounts")]
 		public async Task<IActionResult> Create()
 		{
@@ -115,6 +123,9 @@ namespace GenOnlineService.Rest
 		// Checks every change first, then writes the description, grants, removals, the disable or enable and their audit entries
 		// in one save
 		[AllowSignInCookie]
+		[EndpointSummary("Changes the description, the state or the permissions of a service account.")]
+		[ProducesResponseType<ServiceAccountInfo>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(UpdateServiceAccountRequest))]
 		[HttpPatch("~/api/v1/service_accounts/{accountID:long}")]
 		public async Task<IActionResult> Update(long accountID)
 		{
@@ -177,6 +188,8 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Lists the tokens of a service account.")]
+		[ProducesResponseType<PersonalAccessTokensResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens")]
 		public async Task<IActionResult> ListAccountTokens(long accountID)
 		{
@@ -191,6 +204,9 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Creates a token for a service account; the answer is the only time the secret is shown.")]
+		[ProducesResponseType<CreatedPersonalAccessToken>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(CreatePersonalAccessTokenRequest))]
 		[HttpPost("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens")]
 		public async Task<IActionResult> CreateToken(long accountID)
 		{
@@ -206,6 +222,8 @@ namespace GenOnlineService.Rest
 
 		// Same query as the personal token rotate; a token of another owner answers not_found {what: token}
 		[AllowSignInCookie]
+		[EndpointSummary("Replaces a token of a service account with a new secret.")]
+		[ProducesResponseType<CreatedPersonalAccessToken>(StatusCodes.Status201Created)]
 		[HttpPost("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens/{tokenID:long}/rotate")]
 		public async Task<IActionResult> RotateAccountToken(long accountID, long tokenID)
 		{
@@ -220,6 +238,8 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Revokes a token of a service account.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens/{tokenID:long}")]
 		public async Task<IActionResult> RevokeAccountToken(long accountID, long tokenID)
 		{

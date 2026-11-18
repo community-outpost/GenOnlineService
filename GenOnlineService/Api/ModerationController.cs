@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Names;
+using GenOnlineService.OpenApi;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,10 @@ namespace GenOnlineService.Api
 
 		// Replaces an offensive name, the tag stays
 		[AllowSignInCookie]
+		[EndpointSummary("Renames a player as staff.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(RenamePlayerRequest))]
+		[ApiPermission(Permissions.ModerationRename)]
 		[HttpPatch("~/api/v1/players/{userID:long}")]
 		public async Task<IActionResult> RenamePlayer(long userID)
 		{
@@ -60,6 +65,10 @@ namespace GenOnlineService.Api
 		// Flags an inappropriate name: a placeholder replaces it, the player chooses a new one at their next sign-in, which
 		// this forces by ending every sign-in (S17)
 		[AllowSignInCookie]
+		[EndpointSummary("Resets a player name to a generated one as staff.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(ResetNameRequest))]
+		[ApiPermission(Permissions.ModerationRename)]
 		[HttpPost("~/api/v1/players/{userID:long}/reset_name")]
 		public async Task<IActionResult> ResetPlayerName(long userID)
 		{
@@ -77,6 +86,10 @@ namespace GenOnlineService.Api
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Kicks, mutes or bans a player.")]
+		[ProducesResponseType<CreateSanctionResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(CreateSanctionRequest))]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpPost("~/api/v1/players/{userID:long}/sanctions")]
 		public async Task<IActionResult> CreateSanction(long userID)
 		{
@@ -89,6 +102,9 @@ namespace GenOnlineService.Api
 		}
 
 		// moderation.kick or higher reads the list
+		[EndpointSummary("Lists the sanctions of a player.")]
+		[ProducesResponseType<SanctionsResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/players/{userID:long}/sanctions")]
 		public async Task<IActionResult> GetSanctions(long userID, [FromQuery] string? active)
 		{
@@ -106,6 +122,10 @@ namespace GenOnlineService.Api
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Lifts a mute or a ban.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(ReasonRequest))]
+		[ApiPermission(Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpDelete("~/api/v1/sanctions/{sanctionID:long}")]
 		public async Task<IActionResult> LiftSanction(long sanctionID)
 		{
@@ -125,6 +145,10 @@ namespace GenOnlineService.Api
 
 		// The report queue of the staff pages deletes a reported message with the sign-in cookie
 		[AllowSignInCookie]
+		[EndpointSummary("Deletes a chat message for everyone.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(ReasonRequest))]
+		[ApiPermission(Permissions.ChatDeleteAny)]
 		[HttpDelete("~/api/v1/messages/{messageID}")]
 		public async Task<IActionResult> DeleteMessage(string messageID)
 		{
@@ -137,6 +161,9 @@ namespace GenOnlineService.Api
 		}
 
 		// The staff queue, moderation.kick or higher; status is open (default), actioned, dismissed or all
+		[EndpointSummary("Lists player reports by status.")]
+		[ProducesResponseType<ReportsResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/reports")]
 		public async Task<IActionResult> GetReports([FromQuery] string? status)
 		{
@@ -160,6 +187,9 @@ namespace GenOnlineService.Api
 		// The staff queue of the staff pages: several statuses (comma separated) or all, a search, oldest (asc, default) or
 		// newest (desc) first, filtered and offset paged in the database; moderation.kick or higher
 		[AllowSignInCookie]
+		[EndpointSummary("Searches the player report queue with paging.")]
+		[ProducesResponseType<ReportsResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/reports/search")]
 		public async Task<IActionResult> SearchReports([FromQuery] string? status, [FromQuery] string? search, [FromQuery] string? sort)
 		{
@@ -216,6 +246,10 @@ namespace GenOnlineService.Api
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Resolves or reopens a player report.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(ResolveReportRequest))]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpPatch("~/api/v1/reports/{reportID:long}")]
 		public async Task<IActionResult> ResolveReport(long reportID)
 		{
@@ -245,6 +279,9 @@ namespace GenOnlineService.Api
 		}
 
 		// A report of a message or of a player, open to every player
+		[EndpointSummary("Reports a player or a chat message.")]
+		[ProducesResponseType<CreateReportResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(CreateReportRequest))]
 		[HttpPost("~/api/v1/reports")]
 		public async Task<IActionResult> CreateReport()
 		{

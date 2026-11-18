@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.OpenApi;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,6 +29,8 @@ namespace GenOnlineService.Rest
 		{
 		}
 
+		[EndpointSummary("Lists the personal access tokens of the caller.")]
+		[ProducesResponseType<PersonalAccessTokensResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/personal_access_tokens")]
 		public async Task<IActionResult> List()
 		{
@@ -40,6 +43,9 @@ namespace GenOnlineService.Rest
 			return await ListTokens(db, ApiTokenOwner.User(Me));
 		}
 
+		[EndpointSummary("Creates a personal access token; the answer is the only time the secret is shown.")]
+		[ProducesResponseType<CreatedPersonalAccessToken>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(CreatePersonalAccessTokenRequest))]
 		[HttpPost("~/api/v1/personal_access_tokens")]
 		public async Task<IActionResult> Create()
 		{
@@ -53,6 +59,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// Describes the gopat- token making the request; any other caller has no such token
+		[EndpointSummary("Reads the personal access token the call is made with.")]
+		[ProducesResponseType<PersonalAccessTokenInfo>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/personal_access_tokens/self")]
 		public async Task<IActionResult> Self()
 		{
@@ -68,6 +76,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// ?overlap_minutes= (0 to 1440, default 0) keeps the old token working that long; ?expires_at= replaces the old lifetime
+		[EndpointSummary("Replaces a personal access token with a new secret.")]
+		[ProducesResponseType<CreatedPersonalAccessToken>(StatusCodes.Status201Created)]
 		[HttpPost("~/api/v1/personal_access_tokens/{tokenID:long}/rotate")]
 		public async Task<IActionResult> Rotate(long tokenID)
 		{
@@ -82,6 +92,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// Revoking needs no staff permission, so a user who lost their role can still stop their own tokens
+		[EndpointSummary("Revokes a personal access token.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/personal_access_tokens/{tokenID:long}")]
 		public async Task<IActionResult> Revoke(long tokenID)
 		{

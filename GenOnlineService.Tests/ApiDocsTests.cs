@@ -25,11 +25,15 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -43,6 +47,7 @@ public class ApiDocsTests
 {
 	private const string Host = "docs.test";
 	private const string ProbeSecret = "probe-secret-value-1f3a";
+	private static readonly string s_fixtureDir = Path.Combine(AppContext.BaseDirectory, "api-fixtures");
 
 	[Fact]
 	public async Task DocumentIsOpenApi3AndListsEveryApiRoute()
@@ -59,6 +64,64 @@ public class ApiDocsTests
 		Assert.True(missing.Count == 0, "routes without docs: " + String.Join(", ", missing));
 		Assert.True(docs.ApiRoutes().Count >= 70, $"only {docs.ApiRoutes().Count} /api/v1 routes found");
 		Assert.All(paths.Select(p => p.Key), path => Assert.StartsWith("/api/v1/", path));
+	}
+
+	[Fact]
+	public async Task EveryOperationHasSummaryBodyAnswerAndSecurity()
+	{
+		var docs = new DocsHost();
+		JsonNode document = JsonNode.Parse((await docs.Get("/openapi/v1.json")).Body)!;
+		List<string> problems = new();
+
+		foreach ((string method, string path, ControllerActionDescriptor action) in docs.ApiRoutes())
+		{
+			JsonNode operation = document["paths"]![path]![method]!;
+			string name = $"{method} {path}";
+
+			if (String.IsNullOrWhiteSpace((string?)operation["summary"]))
+			{
+				problems.Add(name + ": no summary");
+			}
+
+			if (ReadsBody(action) && operation["requestBody"]?["content"]?["application/json"]?["schema"] == null)
+			{
+				problems.Add(name + ": reads a body but has no request schema");
+			}
+
+			JsonObject responses = operation["responses"]!.AsObject();
+			bool answers = responses.Any(r => r.Key is "200" or "201" && r.Value?["content"]?["application/json"]?["schema"] != null)
+				|| responses.Any(r => r.Key == "204" && r.Value?["content"] == null);
+			if (!answers)
+			{
+				problems.Add(name + ": no 2xx schema and no 204");
+			}
+			if (responses["default"]?["content"]?["application/json"]?["schema"]?["$ref"]?.ToString() != "#/components/schemas/ApiError")
+			{
+				problems.Add(name + ": no shared error answer");
+			}
+
+			bool anonymous = action.EndpointMetadata.OfType<IAllowAnonymous>().Any() || !action.EndpointMetadata.OfType<IAuthorizeData>().Any();
+			int requirements = operation["security"]?.AsArray().Count ?? 0;
+			if (anonymous != (requirements == 0))
+			{
+				problems.Add(name + (anonymous ? ": anonymous but has security" : ": has no security requirement"));
+			}
+			if (action.EndpointMetadata.OfType<AllowSignInCookieAttribute>().Any() && operation["security"]?.AsArray().All(r => r?["sign_in_cookie"] == null) != false)
+			{
+				problems.Add(name + ": takes the sign-in cookie but does not say so");
+			}
+
+			string description = (string?)operation["description"] ?? "";
+			foreach (string permission in action.EndpointMetadata.OfType<IAuthorizeData>().Select(a => a.Policy).OfType<string>().Where(p => p.StartsWith(PermissionPolicies.Prefix)))
+			{
+				if (!description.Contains($"`{permission.Substring(PermissionPolicies.Prefix.Length)}`"))
+				{
+					problems.Add(name + ": does not name " + permission);
+				}
+			}
+		}
+
+		Assert.True(problems.Count == 0, String.Join("\n", problems));
 	}
 
 	[Fact]
@@ -84,6 +147,23 @@ public class ApiDocsTests
 		// a game client route takes no gopat- token
 		JsonArray session = document["paths"]!["/api/v1/auth/session"]!["post"]!["security"]!.AsArray();
 		Assert.Equal("access_token", Assert.Single(session)!.AsObject().Single().Key);
+	}
+
+	[Theory]
+	[InlineData("get-service_accounts-item.response")]
+	[InlineData("get-personal_access_tokens-self.response")]
+	[InlineData("post-service_accounts.request")]
+	[InlineData("post-personal_access_tokens.request")]
+	public async Task SchemaNamesMatchTheFixture(string fixture)
+	{
+		var docs = new DocsHost();
+		JsonNode document = JsonNode.Parse((await docs.Get("/openapi/v1.json")).Body)!;
+		Type type = typeof(ApiError).Assembly.GetTypes().Single(t => t.GetCustomAttributes<ApiFixtureAttribute>().Any(a => a.Name == fixture));
+		JsonObject expected = JsonNode.Parse(File.ReadAllText(Path.Combine(s_fixtureDir, fixture + ".json")))!.AsObject();
+
+		JsonObject? properties = document["components"]?["schemas"]?[type.Name]?["properties"]?.AsObject();
+		Assert.True(properties != null, $"no schema {type.Name}");
+		Assert.Equal(expected.Select(p => p.Key).Order(), properties!.Select(p => p.Key).Order());
 	}
 
 	[Fact]
@@ -154,6 +234,51 @@ public class ApiDocsTests
 		Assert.Equal(404, (await docs.Get("/openapi/v1.yaml")).Status);
 		Assert.Equal(404, (await docs.Get("/docs/api")).Status);
 		Assert.Equal(404, (await docs.Get("/docs/api/")).Status);
+	}
+
+	// A body read through ReadBodyAsync, JsonSerializer or [FromBody], in the action or a helper of its controller
+	private static bool ReadsBody(ControllerActionDescriptor action)
+	{
+		if (action.Parameters.Any(p => p.BindingInfo?.BindingSource == BindingSource.Body))
+		{
+			return true;
+		}
+		return Calls(action.MethodInfo, action.ControllerTypeInfo, 3).Any(method =>
+			method.Name == "ReadBodyAsync" || (method.DeclaringType == typeof(JsonSerializer) && method.Name.StartsWith("Deserialize")));
+	}
+
+	private static IEnumerable<MethodBase> Calls(MethodInfo method, Type controller, int depth)
+	{
+		MethodInfo body = method.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public) ?? method;
+		byte[] il = body.GetMethodBody()?.GetILAsByteArray() ?? [];
+		for (int i = 0; i + 4 < il.Length; i++)
+		{
+			if (il[i] != OpCodes.Call.Value && il[i] != OpCodes.Callvirt.Value)
+			{
+				continue;
+			}
+			MethodBase? called;
+			try
+			{
+				called = body.Module.ResolveMethod(BitConverter.ToInt32(il, i + 1), body.DeclaringType?.GetGenericArguments(), null);
+			}
+			catch (ArgumentException)
+			{
+				continue;
+			}
+			if (called == null)
+			{
+				continue;
+			}
+			yield return called;
+			if (depth > 0 && called is MethodInfo helper && called.DeclaringType != null && called.DeclaringType.IsAssignableFrom(controller) && called.DeclaringType != typeof(object))
+			{
+				foreach (MethodBase inner in Calls(helper.IsGenericMethod ? helper.GetGenericMethodDefinition() : helper, controller, depth - 1))
+				{
+					yield return inner;
+				}
+			}
+		}
 	}
 
 	// The services and middleware of Program that decide the document: the controllers, /api/v1 authentication

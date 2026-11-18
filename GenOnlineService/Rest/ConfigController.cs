@@ -34,6 +34,8 @@ namespace GenOnlineService.Rest
 			m_dbFactory = dbFactory;
 		}
 
+		[EndpointSummary("Reads the service configuration a game client needs.")]
+		[ProducesResponseType<ConfigResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/config")]
 		public async Task<IActionResult> Get()
 		{

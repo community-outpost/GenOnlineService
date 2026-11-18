@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -92,6 +93,8 @@ namespace GenOnlineService.Rest
 
 		// The settings page of the staff pages takes the sign-in cookie too
 		[AllowSignInCookie]
+		[EndpointSummary("Reads the settings staff tune at runtime, such as the message of the day.")]
+		[ProducesResponseType<ApplicationSettingsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/application/settings")]
 		public async Task<IActionResult> Get()
 		{
@@ -100,6 +103,9 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Changes runtime settings; null clears one.")]
+		[ProducesResponseType<ApplicationSettingsResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(ApplicationSettingsRequest))]
 		[HttpPut("~/api/v1/application/settings")]
 		public async Task<IActionResult> Put([FromBody] JsonNode? body)
 		{
