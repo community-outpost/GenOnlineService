@@ -340,7 +340,7 @@ public class DiscordBot
 				.AddOption("user_id", ApplicationCommandOptionType.Integer, "User id of the player", isRequired: true, minValue: 1)
 				.AddOption("reason", ApplicationCommandOptionType.String, "Reason shown to the player", isRequired: false, maxLength: ModerationManager.MaximumReasonLength)
 				.Build(),
-			Staff("rename", "Replaces an offensive display name, the tag stays")
+			Staff("rename", "Replaces an offensive display name, the tag follows the new name")
 				.AddOption("user_id", ApplicationCommandOptionType.Integer, "User id of the player", isRequired: true, minValue: 1)
 				.AddOption("name", ApplicationCommandOptionType.String, "The new display name", isRequired: true, maxLength: GenOnlineService.Realtime.RealtimeHub.NameMaxLength)
 				.AddOption("reason", ApplicationCommandOptionType.String, "Reason kept in the audit log", isRequired: false, maxLength: ModerationManager.MaximumReasonLength)

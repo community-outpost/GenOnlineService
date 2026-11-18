@@ -116,7 +116,7 @@ namespace GenOnlineService.Identity
 			profile.Append(PortalLook.Separator());
 			profile.Append(PortalLook.Field("display_name", "Display name", $"type=\"text\" name=\"{RenameField}\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required" + (error == null ? String.Empty : " aria-invalid=\"true\""), typed ?? user.Username, icon: "user"));
 			profile.Append(error == null
-				? "<p class=\"go-field-hint\">Your tag stays the same when you rename.</p>"
+				? "<p class=\"go-field-hint\">Your tag follows the name: switching back to an earlier name brings back its tag.</p>"
 				: $"<p class=\"go-field-error\" role=\"alert\">{WebUtility.HtmlEncode(error)}</p>");
 			body.Append(FormStart(AccountPath, AccountPath));
 			body.Append(PortalLook.Card("Profile", "The name other players see. The tag after the # keeps it unique.", profile.ToString(),
