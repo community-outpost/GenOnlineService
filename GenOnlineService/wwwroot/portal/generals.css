@@ -1,127 +1,27 @@
-/* Generals Online over the stock dark theme of theme.css, in the Swiss International Style: stone neutrals, hierarchy by
-   opacity of one text colour, and exactly one accent, the gold of the Generals Online logo, kept for primary buttons,
-   the active navigation item, focus rings and the numbers that need attention. Rectilinear shapes, IBM Plex Sans, an 8px
-   grid. The layouts follow GitLab: a grouped left sidebar, page headers with their actions on the right, compact tables,
-   settings sections with their title on the left. Every page is dark only (PortalLook and PortalDocument set .dark).
-   This file is not in a cascade layer, so it wins over blazorblueprint.css, which is: the components restyle through the
-   variables below, and the go-* classes cover only what no component or prebuilt bb: utility does. */
+/* The page classes of every portal page on the Generals Online design system. The staff area at /admin uses the go-*
+   classes and the restyle of Blazor Blueprint's components below, and the sign-in and account pages use the gp-* classes
+   at the end. The values are the --go-* tokens of tokens.css, which every page links first, and the fonts are in
+   fonts.css. Every page is dark only, as PortalLook and PortalDocument set .dark. This file is not in a cascade layer, so
+   it wins over blazorblueprint.css and the design's theme.css, which are. The components restyle through the theme's
+   variables and the rules below, and the go-* classes cover only what no component or prebuilt bb: utility does. */
 
-/* IBM Plex Sans 1.1.0 (SIL Open Font License, fonts/OFL.txt), the Latin1 subsets of npm @ibm/plex-sans
-   (cdn.jsdelivr.net/npm/@ibm/plex-sans@1.1.0/fonts/split/woff2), served from here: a font host would learn the address
-   of every visitor of the sign-in pages */
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-Light-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-Regular-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-Medium-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-SemiBold-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-/* The theme: stone-950 page, stone-900 surfaces, stone-800 borders, stone-50 text at full, 70% and 40% */
+/* The Blueprint knobs that the design's theme.css leaves at Blueprint's defaults, set to the design's values, and three
+   short names the staff rules below use for the tokens */
 .dark {
-  --go-gold: #f0b429;
-  --go-text-2: rgb(250 250 249 / 0.7);
-  --go-text-3: rgb(250 250 249 / 0.4);
+  --go-gold: var(--go-color-accent-default);
+  --go-text-2: var(--go-color-text-secondary);
+  --go-text-3: var(--go-color-text-muted);
 
-  --background: #0c0a09;
-  --foreground: #fafaf9;
-  --card: #1c1917;
-  --card-foreground: #fafaf9;
-  --popover: #1c1917;
-  --popover-foreground: #fafaf9;
-  --primary: var(--go-gold);
-  --primary-foreground: #0c0a09;
-  --secondary: #292524;
-  --secondary-foreground: #fafaf9;
-  --muted: #1c1917;
-  --muted-foreground: var(--go-text-2);
-  --accent: #292524;
-  --accent-foreground: #fafaf9;
-  /* the one exception to the single accent: a danger action and a ban stay recognisable, in a brick red muted towards
-     the stone and kept to solid fills on the two ban buttons and 10% tints on the restriction badges */
-  --destructive: #9c4a41;
-  --destructive-foreground: #fafaf9;
-  --border: #292524;
-  --input: rgb(250 250 249 / 0.16);
-  --ring: var(--go-gold);
-
-  --radius: 0.125rem;
-  --bb-radius-xs: 0.125rem;
-  --bb-radius-xl: 0.125rem;
-  --sidebar-menu-button-radius: 0;
-  --sidebar-group-label-radius: 0;
-  --sidebar-sub-button-radius: 0;
-  --sidebar-badge-radius: 0.125rem;
+  --bb-radius-xs: var(--go-radius-sm);
+  --bb-radius-xl: var(--go-radius-md);
+  --sidebar-menu-button-radius: var(--go-radius-md);
+  --sidebar-group-label-radius: var(--go-radius-md);
+  --sidebar-sub-button-radius: var(--go-radius-md);
+  --sidebar-badge-radius: var(--go-radius-sm);
+  --sidebar-badge-bg: var(--go-color-accent-tint-14);
+  --sidebar-badge-color: var(--go-color-accent-default);
   --bb-card-shadow: none;
-  --shadow-2xs: none;
-  --shadow-xs: none;
-  --shadow-sm: none;
-  --shadow: none;
-  --shadow-md: none;
-
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --bb-default-font-family: var(--font-sans);
-
-  /* alerts: neutral, the warning in the accent, the danger in the muted red */
-  --alert-success: var(--go-text-2);
-  --alert-success-foreground: #fafaf9;
-  --alert-success-bg: #1c1917;
-  --alert-info: var(--go-text-2);
-  --alert-info-foreground: #fafaf9;
-  --alert-info-bg: #1c1917;
-  --alert-warning: var(--go-gold);
-  --alert-warning-foreground: #fafaf9;
-  --alert-warning-bg: rgb(240 180 41 / 0.1);
-  --alert-danger: var(--destructive);
-  --alert-danger-foreground: #fafaf9;
-  --alert-danger-bg: rgb(156 74 65 / 0.12);
-
-  /* GitLab's left sidebar: a surface beside the page, the active item marked in gold (.go-admin rules below) */
-  --sidebar: #1c1917;
-  --sidebar-foreground: var(--go-text-2);
-  --sidebar-primary: var(--go-gold);
-  --sidebar-primary-foreground: #0c0a09;
-  --sidebar-accent: transparent;
-  --sidebar-accent-foreground: #fafaf9;
-  --sidebar-border: #292524;
-  --sidebar-ring: var(--go-gold);
-  --sidebar-badge-bg: #292524;
-  --sidebar-badge-color: var(--go-text-2);
-
-  /* charts: the accent, then the text colour at falling opacities */
-  --chart-1: var(--go-gold);
-  --chart-2: rgb(250 250 249 / 0.7);
-  --chart-3: rgb(250 250 249 / 0.5);
-  --chart-4: rgb(250 250 249 / 0.35);
-  --chart-5: rgb(250 250 249 / 0.2);
+  --bb-default-font-family: var(--go-font-body);
 }
 
 .dark body {
@@ -1291,10 +1191,10 @@ a.go-list-item:hover {
 }
 
 /* ===== The sign-in and account pages on the Generals Online design system (T19) =====
-   Everything below belongs to the gp-* classes of PortalLook's pages; the staff area never uses them, and the rules above
-   stay as they were. The values are the --go-* tokens of tokens.css (linked before this file): no colour is written
-   here, except the four provider brands, whose own guidelines fix theirs. Right to left works through logical properties
-   (inline-start, inline-end), never left and right. The fonts of these pages are in fonts.css, which only they link. */
+   Everything below belongs to the gp-* classes of PortalLook's pages; the staff area never uses them. The values are the
+   --go-* tokens of tokens.css (linked before this file): no colour is written here, except the four provider brands,
+   whose own guidelines fix theirs. Right to left works through logical properties (inline-start, inline-end), never left
+   and right. The fonts of these pages are in fonts.css, which every page links. */
 
 .gp { margin: 0; background: var(--go-color-bg-ground); color: var(--go-color-text-secondary); font-family: var(--go-font-body); font-size: var(--go-font-size-md); line-height: 1.5; -webkit-text-size-adjust: 100%; }
 .gp *, .gp *::before, .gp *::after { box-sizing: border-box; }

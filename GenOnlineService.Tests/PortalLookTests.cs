@@ -96,22 +96,21 @@ public class PortalLookTests
 		Assert.DoesNotContain("http", generals.Split("*/", 2)[1]);
 	}
 
-	// The staff area (/admin) shares generals.css and its fonts: the file holds exactly the four @font-face rules it held before
-	// the sign-in pages moved to the design system (IBM Plex Sans Latin1 at 300, 400, 500 and 600), and the new faces live in
-	// fonts.css, which only the new pages link
+	// Every page, the staff area (/admin) included, loads its fonts from fonts.css: generals.css holds no @font-face, so the
+	// staff area reads Play and IBM Plex Sans at the design's weights (400, 600, 700) like the sign-in pages
 	[Fact]
-	public void TheSharedStylesheetKeepsOnlyTheStaffAreasFontFaces()
+	public void TheFontsLiveOnlyInTheFontsStylesheet()
 	{
 		string css = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
-		string[] faces = Regex.Matches(css, @"@font-face\s*\{[^}]*\}").Select(m => Regex.Replace(m.Value, @"\s+", " ")).ToArray();
-		Assert.Equal(4, faces.Length);
-		foreach ((string weight, string file) in new[] { ("300", "Light"), ("400", "Regular"), ("500", "Medium"), ("600", "SemiBold") })
-		{
-			Assert.Contains(faces, f => f.Contains("font-family: \"IBM Plex Sans\";") && f.Contains($"font-weight: {weight};") && f.Contains($"url(\"/portal/fonts/IBMPlexSans-{file}-Latin1.woff2\")"));
-		}
+		Assert.DoesNotMatch(@"@font-face", css);
+		Assert.DoesNotContain("Latin1", css);
 		string fonts = File.ReadAllText(FileOf(PortalLook.FontsPath));
 		Assert.Contains("font-family: \"Play\"", fonts);
 		Assert.Contains("font-family: \"IBM Plex Sans Arabic\"", fonts);
+		foreach (string weight in new[] { "400", "600", "700" })
+		{
+			Assert.Matches("font-family: \"IBM Plex Sans\"; font-style: normal; font-weight: " + weight + ";", fonts);
+		}
 		Assert.DoesNotContain("Latin1", fonts);
 	}
 
