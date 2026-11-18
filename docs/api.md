@@ -11,6 +11,7 @@ Every REST route of the service. The realtime hub is `/realtime` (`docs/realtime
 - Every failure is `{"error": "<code>", "params": {...}}` with the codes of section 7 of `docs/realtime-protocol.md`: 400 `invalid_argument {field}`, 401 `unauthorized`, 403 `forbidden {permission}` (or `{}` when no single permission applies), 404 `not_found {what}`, 409 conflicts, 422 other rule failures, 503 `service.unavailable {what}`. An unknown `/api` or `/-/` path answers 404 `not_found {what: "route"}`, a known path with another method 405 `method_not_allowed`.
 - Offset pages: `?page=&per_page=` (default 20, at most 100) with `X-Total`, `X-Page`, `X-Per-Page`, `X-Next-Page` and `Link rel="next"`. Keyset pages (matches, audit events): `after_id` and a `Link rel="next"` when the page is full.
 - Example bodies: `docs/api-fixtures/`, one file per request and response type, checked by `ApiFixtureTests`.
+- Interactive docs: `/docs/api` on each environment, built on the OpenAPI 3 document `/openapi/v1.json` (also `.yaml`) that the service generates from its controllers; no sign-in, a call from the page is checked like any other. `OpenApi:enabled` (default `true`) turns both off, and a proxy in front must pass `/docs/api` and `/openapi` (the outpost-infra route allowlist). This file stays the reference for the rules; the generated document carries the shapes.
 
 ## The caller
 

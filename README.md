@@ -135,6 +135,13 @@ Machines (website backend, Discord bot, partners, monitoring) call the API with 
 - `genonline.api_token.expires_in{token_id,name,owner}` reports the seconds left per active token (alert at 14 and 3 days); the service also logs a daily warning for tokens inside `ApiTokens:expiry_warning_days`. Revoked and expired rows are deleted after `ApiTokens:retention_days` (90)
 - `allowed_ips` needs the real client address: set `TrustedProxies` when the service runs behind a proxy
 
+# API Docs
+Interactive docs of the REST API are at `/docs/api` (Scalar, its page and script served by this service, nothing from a CDN): every `/api/v1` route with its summary, body, answers and errors, how it authenticates and the permission it needs, and a "try it" that sends the call from the page with a pasted access token or `gopat-` token. The OpenAPI 3 document behind it is `/openapi/v1.json` (also `/openapi/v1.yaml`), generated from the controllers on each request with the request's own base URL.
+- Both are read-only metadata: they need no sign-in, and a call made from the page passes the same authentication and permission checks as any other call. The realtime hub is not in them (`docs/realtime-protocol.md`)
+- `OpenApi:enabled` (default `true`) turns both off; they then answer 404
+- A proxy in front must pass `/docs/api` and `/openapi` for them to be public (the outpost-infra route allowlist); without that they answer only on the service itself
+- `docs/api.md` stays the reference for the rules behind each route; the document is generated from the code and its attributes (`GenOnlineService/OpenApi`), and `ApiDocsTests` fails for an `/api/v1` route without a summary, a request or answer schema or a security requirement
+
 # Observability
 
 The service can export OpenTelemetry logs, metrics, and traces over OTLP, with Sentry as an optional destination for errors, logs, and traces. See [docs/observability.md](docs/observability.md) for configuration, coverage, metric names, privacy controls, and an Alloy example.
