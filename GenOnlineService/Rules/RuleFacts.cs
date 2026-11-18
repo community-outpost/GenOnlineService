@@ -64,6 +64,9 @@ namespace GenOnlineService.Rules
 			return values;
 		}
 
+		// The trigger of the event, the value of event.action
+		public object?[] ActionValue() => [m_event.Trigger];
+
 		public object?[] EventValue(string key) => m_event.Fields.TryGetValue(key, out object? value) && value != null ? [Normalize(value)] : [];
 
 		private static object Normalize(object value) => value switch

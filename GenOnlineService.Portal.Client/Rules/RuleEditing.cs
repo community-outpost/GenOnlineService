@@ -176,7 +176,7 @@ namespace GenOnlineService.Portal.Client.Rules
 		public static string Where(string path) => path switch
 		{
 			"" => "This node",
-			"trigger" => "The trigger",
+			"trigger" or "event.action" => "The trigger",
 			"action" => "The action",
 			"reason" => "The reason",
 			"duration_s" => "The length",

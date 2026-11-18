@@ -120,15 +120,16 @@
     private IEnumerable<PortalRuleField> Fields() =>
         (Catalog?.Fields ?? []).Where(f => Trigger == null || f.Triggers.Contains(Trigger) || f.Key == Condition.Field);
 
-    private static string SectionOf(string key) => key.Split('.')[0] switch
+    // The section of a field by its Elastic Common Schema key
+    private static string SectionOf(string key) => key switch
     {
-        "device" or "mac" => "Devices",
-        "network" => "Network",
-        "account" => "Account",
-        "sanctions" or "reports" => "Sanctions and reports",
-        "anticheat" => "Anti-cheat",
-        "stats" => "Match stats",
-        "event" => "The event",
+        _ when key.StartsWith("host.", StringComparison.Ordinal) => "Devices",
+        _ when key.StartsWith("source.", StringComparison.Ordinal) => "Network",
+        _ when key.StartsWith("user.sanctions.", StringComparison.Ordinal) || key.StartsWith("user.reports.", StringComparison.Ordinal) => "Sanctions and reports",
+        _ when key.StartsWith("user.anticheat.", StringComparison.Ordinal) => "Anti-cheat",
+        _ when key.StartsWith("user.stats.", StringComparison.Ordinal) => "Match stats",
+        _ when key.StartsWith("user.", StringComparison.Ordinal) => "Account",
+        _ when key.StartsWith("event.", StringComparison.Ordinal) || key.StartsWith("game.", StringComparison.Ordinal) => "The event",
         _ => "Other"
     };
 

@@ -12,14 +12,14 @@ A rule document is a graph of nodes and edges, in JSON with snake case keys:
 ```json
 {
   "nodes": [
-    { "id": "t", "kind": "trigger", "trigger": "sign_in" },
+    { "id": "t", "kind": "trigger", "event": { "action": "sign_in" } },
     { "id": "c", "kind": "condition", "query": {
         "match": "all",
         "rules": [
-          { "field": "device.machine_guid", "operator": "in_list", "value": ["AB12-CD34-YY"] },
+          { "field": "host.id", "operator": "in_list", "value": ["AB12-CD34-YY"] },
           { "match": "any", "rules": [
-            { "field": "account.age_days", "operator": "less_than", "value": 7 },
-            { "field": "network.ip", "operator": "cidr", "value": "203.0.113.0/24" }
+            { "field": "user.age_days", "operator": "less_than", "value": 7 },
+            { "field": "source.ip", "operator": "cidr", "value": "203.0.113.0/24" }
           ] }
         ] } },
     { "id": "a", "kind": "action", "action": "ban", "duration_s": null, "reason": "Ban evasion" }
@@ -31,7 +31,8 @@ A rule document is a graph of nodes and edges, in JSON with snake case keys:
 }
 ```
 
-- `trigger`: exactly one, the event the rule is checked on (see Triggers).
+- `trigger`: exactly one, with the event the rule is checked on as `event.action` (see Triggers). A document saved
+  before the rename names it `"trigger": "sign_in"`; that form is still read, and is never written.
 - `condition`: a query tree. A group is `{match: all | any, rules: [...]}`, a condition is `{field, operator, value}`;
   groups nest. The node has two outputs, `true` and `false`.
 - `action`: `flag`, `kick`, `mute` or `ban` with a `reason` (1 to 512 characters, written to the audit log). A mute
@@ -60,28 +61,82 @@ A document is checked before it is stored, and every problem comes back with its
 ## Fields
 
 Every field reads as a list of values: a player has several devices and sign-in providers, and an unknown fact is an
-empty list. `GET /api/v1/staff/rules/fields` lists the catalogue with each field's type, label, triggers and operators.
+empty list. `GET /api/v1/staff/rules/fields` lists the catalogue with each field's type, label, triggers and operators,
+the two states of each yes or no field as `true_label` and `false_label` (such as `Email is confirmed` and
+`Email is not confirmed`), and the keys before the rename as `renamed [{from, to}]`.
+
+Field keys follow the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html): `host` for the
+devices, `source` for the address and its GeoIP, `user` for the account, `event` for the event and `game` for the match
+and lobby of the event. Fields ECS does not define, such as `host.mac_virtual` and every `user` field but `user.name`,
+are custom fields in the same style.
 
 | Field | Type | Source |
 |---|---|---|
-| `device.machine_guid`, `device.mac`, `device.volume_serial` | device | every device id the player signed in with (`devices`) |
-| `mac.vendor` | text | the IEEE OUI vendor of each MAC address, or `locally administered / virtual` |
-| `mac.locally_administered` | bool | true when any MAC address of the player is locally administered |
-| `network.ip` | ip | the address of the event, else of the last session event |
-| `network.country`, `network.city`, `network.asn`, `network.owner` | text, number | GeoIP of that address; the country falls back to the one the sign-in stored |
-| `account.age_days` | number | whole days since the account was created |
-| `account.email_domain`, `account.email_confirmed` | text, bool | the email address |
-| `account.providers` | text | `password` and every linked sign-in provider |
-| `account.name`, `account.name_key` | text | the display name and its look-alike key |
-| `account.two_factor` | bool | two-factor sign-in on |
-| `sanctions.count`, `sanctions.active_ban`, `sanctions.active_mute` | number, bool | every sanction ever, and the active ban and mute |
-| `anticheat.new_accounts`, `anticheat.modules`, `anticheat.probes`, `anticheat.devices`, `anticheat.quickmatch_rules` | number | unreviewed rows of each anti-cheat review list |
-| `reports.open` | number | open player reports against the player |
-| `stats.elo`, `stats.games_played` | number | the all time rating once rated, and the matches played |
+| `host.id`, `host.mac`, `host.volume_serial` | device | every machine GUID, MAC address and volume serial the player signed in with (`devices`) |
+| `host.mac_vendor` | text | the IEEE OUI vendor of each MAC address, or `locally administered / virtual` |
+| `host.mac_virtual` | bool | true when any MAC address of the player is locally administered |
+| `source.ip` | ip | the address of the event, else of the last session event |
+| `source.geo.country_iso_code`, `source.geo.city_name`, `source.as.number`, `source.as.organization.name` | text, number | GeoIP of that address; the country falls back to the one the sign-in stored |
+| `user.age_days` | number | whole days since the account was created |
+| `user.email_domain`, `user.email_confirmed` | text, bool | the email address |
+| `user.providers` | text | `password` and every linked sign-in provider |
+| `user.name`, `user.name_key` | text | the display name and its look-alike key |
+| `user.two_factor` | bool | two-factor sign-in on |
+| `user.sanctions.count`, `user.sanctions.active_ban`, `user.sanctions.active_mute` | number, bool | every sanction ever, and the active ban and mute |
+| `user.anticheat.new_accounts`, `user.anticheat.modules`, `user.anticheat.probes`, `user.anticheat.devices`, `user.anticheat.quickmatch_rules` | number | unreviewed rows of each anti-cheat review list |
+| `user.reports.open` | number | open player reports against the player |
+| `user.stats.elo`, `user.stats.games_played` | number | the all time rating once rated, and the matches played |
+| `event.action` | text | the trigger of the event, one of the trigger values below |
 
-Event fields come only with the triggers whose event carries them: `event.provider` (sign_in), `event.client`
-(game_session), `event.lobby_id` (lobby_join), `event.match_id` (match_result, anticheat_report), `event.won`,
-`event.desynced` and `event.duration_s` (match_result), `event.anticheat_kind` (anticheat_report).
+Event fields come only with the triggers whose event carries them: `event.sign_in_provider` (sign_in),
+`game.client.id` (game_session), `game.lobby.id` (lobby_join), `game.match.id` (match_result, anticheat_report),
+`game.match.won`, `game.match.desynced` and `game.match.duration_s` (match_result), `game.anticheat.kind`
+(anticheat_report).
+
+### Keys before the rename
+
+Rules saved before the rename to the Elastic Common Schema still use the keys on the left. The service reads every one
+of them as its current key, so such a rule compiles, evaluates and shows the same, and it writes only the current keys
+when a rule is saved. A match recorded under an earlier key reads under the current key. The stored documents are not
+rewritten by a migration: each one moves to the current keys on its next save.
+
+| Before | Now |
+|---|---|
+| `device.machine_guid` | `host.id` |
+| `device.mac` | `host.mac` |
+| `device.volume_serial` | `host.volume_serial` |
+| `mac.vendor` | `host.mac_vendor` |
+| `mac.locally_administered` | `host.mac_virtual` |
+| `network.ip` | `source.ip` |
+| `network.country` | `source.geo.country_iso_code` |
+| `network.city` | `source.geo.city_name` |
+| `network.asn` | `source.as.number` |
+| `network.owner` | `source.as.organization.name` |
+| `account.age_days` | `user.age_days` |
+| `account.email_domain` | `user.email_domain` |
+| `account.email_confirmed` | `user.email_confirmed` |
+| `account.providers` | `user.providers` |
+| `account.name` | `user.name` |
+| `account.name_key` | `user.name_key` |
+| `account.two_factor` | `user.two_factor` |
+| `sanctions.count` | `user.sanctions.count` |
+| `sanctions.active_ban` | `user.sanctions.active_ban` |
+| `sanctions.active_mute` | `user.sanctions.active_mute` |
+| `reports.open` | `user.reports.open` |
+| `stats.elo` | `user.stats.elo` |
+| `stats.games_played` | `user.stats.games_played` |
+| `anticheat.<list>` | `user.anticheat.<list>` |
+| `event.provider` | `event.sign_in_provider` |
+| `event.client` | `game.client.id` |
+| `event.lobby_id` | `game.lobby.id` |
+| `event.match_id` | `game.match.id` |
+| `event.won` | `game.match.won` |
+| `event.desynced` | `game.match.desynced` |
+| `event.duration_s` | `game.match.duration_s` |
+| `event.anticheat_kind` | `game.anticheat.kind` |
+| `"trigger": "<value>"` on the trigger node | `"event": {"action": "<value>"}` |
+
+The operators keep their names.
 
 Operators by type, text compared without case:
 

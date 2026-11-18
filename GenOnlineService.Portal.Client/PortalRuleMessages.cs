@@ -155,12 +155,27 @@ namespace GenOnlineService.Portal.Client
 	{
 		public string Id { get; set; } = "";
 		public string Kind { get; set; } = "";
-		public string? Trigger { get; set; }
+
+		// trigger nodes: the event the rule is checked on, as event.action
+		public PortalRuleNodeEvent? Event { get; set; }
 		public PortalRuleQuery? Query { get; set; }
 		public string? Action { get; set; }
 		public long? DurationS { get; set; }
 		public string? Reason { get; set; }
 		public PortalRulePosition? Position { get; set; }
+
+		// The event.action of a trigger node, null when the node has none
+		[JsonIgnore]
+		public string? Trigger
+		{
+			get => Event?.Action;
+			set => Event = value == null ? null : new PortalRuleNodeEvent { Action = value };
+		}
+	}
+
+	public sealed class PortalRuleNodeEvent
+	{
+		public string? Action { get; set; }
 	}
 
 	public sealed class PortalRulePosition
@@ -254,6 +269,10 @@ namespace GenOnlineService.Portal.Client
 		public string Description { get; init; } = "";
 		public IReadOnlyList<string> Triggers { get; init; } = [];
 		public IReadOnlyList<string> Operators { get; init; } = [];
+
+		// a yes or no field only: its two states as whole sentences, such as Email is not confirmed
+		public string? TrueLabel { get; init; }
+		public string? FalseLabel { get; init; }
 	}
 
 	public sealed record PortalRuleCatalog

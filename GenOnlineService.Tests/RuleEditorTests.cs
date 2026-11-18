@@ -34,14 +34,14 @@ public class RuleEditorTests
 	private const string Example = """
 	{
 	  "nodes": [
-	    { "id": "t", "kind": "trigger", "trigger": "sign_in" },
+	    { "id": "t", "kind": "trigger", "event": { "action": "sign_in" } },
 	    { "id": "c", "kind": "condition", "query": {
 	        "match": "all",
 	        "rules": [
-	          { "field": "device.machine_guid", "operator": "in_list", "value": ["AB12-CD34-YY"] },
+	          { "field": "host.id", "operator": "in_list", "value": ["AB12-CD34-YY"] },
 	          { "match": "any", "rules": [
-	            { "field": "account.age_days", "operator": "less_than", "value": 7 },
-	            { "field": "network.ip", "operator": "cidr", "value": "203.0.113.0/24" }
+	            { "field": "user.age_days", "operator": "less_than", "value": 7 },
+	            { "field": "source.ip", "operator": "cidr", "value": "203.0.113.0/24" }
 	          ] }
 	        ] } },
 	    { "id": "a", "kind": "action", "action": "ban", "reason": "Ban evasion" }
@@ -171,7 +171,7 @@ public class RuleEditorTests
 			""".Replace("\t", "").Trim(), RuleOutline.Text(lines));
 		// a line that starts a node names it, so the outline view selects that node on the canvas
 		Assert.Equal(["t", "c", "a", "m", "m", "lost"], lines.Where(l => l.NodeId != null).Select(l => l.NodeId));
-		Assert.Equal("Nothing happens", RuleOutline.Lines(Parse("""{"nodes":[{"id":"t","kind":"trigger","trigger":"sweep"}],"edges":[]}"""))[1].Text);
+		Assert.Equal("Nothing happens", RuleOutline.Lines(Parse("""{"nodes":[{"id":"t","kind":"trigger","event":{"action":"sweep"}}],"edges":[]}"""))[1].Text);
 	}
 
 	[Fact]

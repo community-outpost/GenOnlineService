@@ -151,6 +151,17 @@ namespace GenOnlineService.Rules
 		public string Description { get; init; } = "";
 		public IReadOnlyList<string> Triggers { get; init; } = [];
 		public IReadOnlyList<string> Operators { get; init; } = [];
+
+		// a yes or no field only: its two states as whole sentences, such as Email is not confirmed
+		public string? TrueLabel { get; init; }
+		public string? FalseLabel { get; init; }
+	}
+
+	// A key before the rename and the current key it reads as
+	public sealed record RuleRenamedFieldView
+	{
+		public string From { get; init; } = "";
+		public string To { get; init; } = "";
 	}
 
 	// What a rule document may use: the fields with their operators and triggers, the actions and the modes
@@ -160,6 +171,9 @@ namespace GenOnlineService.Rules
 		public IReadOnlyList<string> Triggers { get; init; } = [];
 		public IReadOnlyList<string> Actions { get; init; } = [];
 		public IReadOnlyList<string> Modes { get; init; } = [];
+
+		// every key before the Elastic Common Schema rename, which documents saved earlier still use
+		public IReadOnlyList<RuleRenamedFieldView> Renamed { get; init; } = [];
 	}
 
 	// A saved rule by id or an unsaved document
@@ -328,10 +342,14 @@ namespace GenOnlineService.Rules
 		{
 			return RestResults.Ok(new RuleCatalogResponse
 			{
-				Fields = RuleFields.All.Select(f => new RuleFieldView { Key = f.Key, Type = f.Type, Label = f.Label, Description = f.Description, Triggers = f.Triggers, Operators = f.Operators }).ToList(),
+				Fields = RuleFields.All.Select(f => new RuleFieldView
+				{
+					Key = f.Key, Type = f.Type, Label = f.Label, Description = f.Description, Triggers = f.Triggers, Operators = f.Operators, TrueLabel = f.TrueLabel, FalseLabel = f.FalseLabel
+				}).ToList(),
 				Triggers = RuleTriggers.All,
 				Actions = RuleActionKinds.All,
-				Modes = RuleModes.All
+				Modes = RuleModes.All,
+				Renamed = RuleFields.Renamed.Select(r => new RuleRenamedFieldView { From = r.Key, To = r.Value }).ToList()
 			});
 		}
 
