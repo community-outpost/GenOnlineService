@@ -79,12 +79,12 @@ public class PortalLookTests
 	[Fact]
 	public void TheStylesheetsFontsAndImagesAreServed()
 	{
-		foreach (string path in new[] { PortalLook.TokensPath, PortalLook.GeneralsPath, PortalLook.LogoPath, PortalLook.GameReplaysLogoPath, PortalLook.ThemePath, PortalLook.StylesheetPath }.Concat(AccountsSettings.DefaultCoverImages))
+		foreach (string path in new[] { PortalLook.TokensPath, PortalLook.FontsPath, PortalLook.GeneralsPath, PortalLook.LogoPath, PortalLook.GameReplaysLogoPath, PortalLook.ThemePath, PortalLook.StylesheetPath }.Concat(AccountsSettings.DefaultCoverImages))
 		{
 			Assert.True(File.Exists(FileOf(path)), path);
 		}
 		// every font the stylesheet names is a file of the service
-		string generals = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		string generals = File.ReadAllText(FileOf(PortalLook.FontsPath));
 		string[] fonts = Regex.Matches(generals, @"url\(""(/portal/fonts/[^""]+\.woff2)""\)").Select(m => m.Groups[1].Value).Distinct().ToArray();
 		Assert.Contains(fonts, f => f.Contains("Play-latin-700"));
 		Assert.Contains(fonts, f => f.Contains("IBMPlexSans-cyrillic-400"));
@@ -93,7 +93,41 @@ public class PortalLookTests
 		{
 			Assert.True(File.Exists(FileOf(font)), font);
 		}
-		Assert.DoesNotContain("http", generals.Substring(generals.IndexOf("The sign-in and account pages on the Generals Online design system", StringComparison.Ordinal)).Split("*/")[1]);
+		Assert.DoesNotContain("http", generals.Split("*/", 2)[1]);
+	}
+
+	// The staff area (/admin) shares generals.css and its fonts: the file holds exactly the four @font-face rules it held before
+	// the sign-in pages moved to the design system (IBM Plex Sans Latin1 at 300, 400, 500 and 600), and the new faces live in
+	// fonts.css, which only the new pages link
+	[Fact]
+	public void TheSharedStylesheetKeepsOnlyTheStaffAreasFontFaces()
+	{
+		string css = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		string[] faces = Regex.Matches(css, @"@font-face\s*\{[^}]*\}").Select(m => Regex.Replace(m.Value, @"\s+", " ")).ToArray();
+		Assert.Equal(4, faces.Length);
+		foreach ((string weight, string file) in new[] { ("300", "Light"), ("400", "Regular"), ("500", "Medium"), ("600", "SemiBold") })
+		{
+			Assert.Contains(faces, f => f.Contains("font-family: \"IBM Plex Sans\";") && f.Contains($"font-weight: {weight};") && f.Contains($"url(\"/portal/fonts/IBMPlexSans-{file}-Latin1.woff2\")"));
+		}
+		string fonts = File.ReadAllText(FileOf(PortalLook.FontsPath));
+		Assert.Contains("font-family: \"Play\"", fonts);
+		Assert.Contains("font-family: \"IBM Plex Sans Arabic\"", fonts);
+		Assert.DoesNotContain("Latin1", fonts);
+	}
+
+	// every control a player is asked to press is at least 44px: a large button never also carries the small size
+	[Fact]
+	public void ALargeButtonIsNeverAlsoSmall()
+	{
+		foreach (string button in new[] { PortalLook.Submit("a", narrow: true, large: true, fill: true), PortalLook.Submit("a", narrow: true, large: true), PortalLook.Submit("a", large: true),
+			PortalLook.LinkButton("/", "a", narrow: true, large: true, fill: true), PortalLook.LinkButton("/", "a", large: true) })
+		{
+			Assert.Contains("gp-btn-lg", button);
+			Assert.DoesNotContain("gp-btn-sm", button);
+		}
+		Assert.Contains("gp-btn-sm", PortalLook.Submit("a", narrow: true));
+		Assert.Contains("gp-btn-block", PortalLook.Submit("a"));
+		Assert.Contains("gp-btn-fill", PortalLook.Submit("a", narrow: true, large: true, fill: true));
 	}
 
 	// the design's tokens, linked by the pages, and no colour of our own in the new rules but the four provider brands'
@@ -137,7 +171,7 @@ public class PortalLookTests
 	public void TheFilesAreLinkedByAddressesCachedForAYear()
 	{
 		using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(PortalAssets.ManifestPath));
-		foreach (string path in new[] { PortalLook.TokensPath, PortalLook.GeneralsPath, PortalLook.LogoPath, PortalLook.GameReplaysLogoPath }.Concat(AccountsSettings.DefaultCoverImages))
+		foreach (string path in new[] { PortalLook.TokensPath, PortalLook.FontsPath, PortalLook.GeneralsPath, PortalLook.LogoPath, PortalLook.GameReplaysLogoPath }.Concat(AccountsSettings.DefaultCoverImages))
 		{
 			string url = PortalAssets.Url(path);
 			string extension = Path.GetExtension(path);
@@ -168,7 +202,7 @@ public class PortalLookTests
 		foreach (string page in new[] { Page(null, language), Page(null, language, "mail"), Page(null, language, null, 1) })
 		{
 			Assert.StartsWith("<!doctype html><html lang=\"en\" dir=\"ltr\">", page);
-			Assert.Matches("<link rel=\"stylesheet\" href=\"" + Regex.Escape(PortalAssets.Url(PortalLook.TokensPath)) + "\"><link rel=\"stylesheet\" href=\"" + Regex.Escape(PortalAssets.Url(PortalLook.GeneralsPath)) + "\">", page);
+			Assert.Matches("<link rel=\"stylesheet\" href=\"" + Regex.Escape(PortalAssets.Url(PortalLook.TokensPath)) + "\"><link rel=\"stylesheet\" href=\"" + Regex.Escape(PortalAssets.Url(PortalLook.FontsPath)) + "\"><link rel=\"stylesheet\" href=\"" + Regex.Escape(PortalAssets.Url(PortalLook.GeneralsPath)) + "\">", page);
 			Assert.DoesNotContain(PortalLook.StylesheetPath, page);
 			Assert.DoesNotContain(PortalLook.ThemePath, page);
 			Assert.Contains("<body class=\"gp\">", page);

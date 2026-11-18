@@ -47,6 +47,8 @@ namespace GenOnlineService.Identity
 		public const string GeneralsPath = "/portal/generals.css";
 		// The design system's tokens (--go-*), linked first on every sign-in and account page
 		public const string TokensPath = "/portal/tokens.css";
+		// Their self-hosted fonts, linked after the tokens and before generals.css (which the staff area shares)
+		public const string FontsPath = "/portal/fonts.css";
 		// Generals Online's radar-van logo (the project's own), top left of every page, and GameReplays' mark on its button
 		public const string LogoPath = "/portal/logo.svg";
 		public const string GameReplaysLogoPath = "/portal/gamereplays.png";
@@ -151,7 +153,7 @@ namespace GenOnlineService.Identity
 			=> $"<!doctype html><html lang=\"{E(culture.Name)}\" dir=\"{(AccountsText.IsRightToLeft(culture) ? "rtl" : "ltr")}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
 				+ "<meta name=\"color-scheme\" content=\"dark\"><meta name=\"theme-color\" content=\"#0B1114\">"
 				+ $"<title>{AccountsText.Format("Page.Title", culture, E(title))}</title>"
-				+ $"<link rel=\"stylesheet\" href=\"{PortalAssets.Url(TokensPath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(GeneralsPath)}\">"
+				+ $"<link rel=\"stylesheet\" href=\"{PortalAssets.Url(TokensPath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(FontsPath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(GeneralsPath)}\">"
 				+ "</head><body class=\"gp\">";
 
 		// The footer: the language menu and, for each document with an address, its link (Help has no page yet)
@@ -301,7 +303,7 @@ namespace GenOnlineService.Identity
 			=> $"<a href=\"{E(href)}\" class=\"{ButtonClass(outline, narrow, large, fill)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</a>";
 
 		private static string ButtonClass(bool outline, bool narrow, bool large, bool fill)
-			=> "gp-btn " + (outline ? "gp-btn-outline" : "gp-btn-primary") + (narrow ? " gp-btn-sm" : fill ? " gp-btn-fill" : " gp-btn-block") + (large ? " gp-btn-lg" : String.Empty);
+			=> "gp-btn " + (outline ? "gp-btn-outline" : "gp-btn-primary") + (large ? " gp-btn-lg" : narrow ? " gp-btn-sm" : String.Empty) + (fill ? " gp-btn-fill" : narrow ? String.Empty : " gp-btn-block");
 
 		// The pinned row of a card with steps: a quiet button for the way back and the one primary action beside it
 		public static string Actions(string? back, string primary) => $"<div class=\"gp-actions gp-actions-pinned\">{back}{primary}</div>";
