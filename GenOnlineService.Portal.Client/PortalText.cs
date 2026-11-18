@@ -82,6 +82,8 @@ namespace GenOnlineService.Portal.Client
 			"roles.upstream" => "That role comes from a sign-in provider and follows its sign-ins.",
 			"conflict" => "That name is in use, or the token is already revoked, expired or rotated.",
 			"token.limit_reached" => "This owner already holds the most active tokens allowed.",
+			"account.no_password" => "This account signs in with a provider only and has no password.",
+			"account.no_two_factor" => "Two-factor sign-in is not on for this account.",
 			_ => "The service answered: " + code
 		};
 	}

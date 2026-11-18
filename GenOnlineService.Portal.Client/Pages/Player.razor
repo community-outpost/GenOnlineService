@@ -2,7 +2,8 @@
    and tabs of cards with data tables (data-01) for sessions, sanctions, roles, recent matches (paged from
    /api/v1/matches/search, as Matches.razor) and the personal data. Sanctions go through the
    sanction rules of the service, the personal data needs players.inspect, granting and revoking roles roles.manage
-   under the host's rank rule *@
+   under the host's rank rule, and the account menu's password and two-factor resets accounts.support; a new password
+   shows once, in a dialog with a copy button *@
 @page "/admin/players/{Id:long}"
 @inject PortalApi Api
 @inject ToastService Toasts
@@ -109,6 +110,28 @@ else
                     <LucideIcon Name="eraser" Class="bb:h-4 bb:w-4" />
                     Reset name
                 </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.AccountsSupport))
+            {
+                <BbDropdownMenu>
+                    <BbDropdownMenuTrigger>
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-testid="account-menu">
+                            <LucideIcon Name="key-round" Class="bb:h-4 bb:w-4" />
+                            Account
+                            <LucideIcon Name="chevron-down" Class="bb:h-4 bb:w-4" />
+                        </BbButton>
+                    </BbDropdownMenuTrigger>
+                    <BbDropdownMenuContent Align="PopoverAlign.End">
+                        <BbDropdownMenuItem OnClick="@(_ => Open("password_reset"))" data-testid="reset-password">
+                            <LucideIcon Name="key-round" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Reset password
+                        </BbDropdownMenuItem>
+                        <BbDropdownMenuItem OnClick="@(_ => Open("two_factor_reset"))" data-testid="reset-two-factor">
+                            <LucideIcon Name="shield-off" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Reset two-factor
+                        </BbDropdownMenuItem>
+                    </BbDropdownMenuContent>
+                </BbDropdownMenu>
             }
             @if (Session.Can(PortalPermissions.Ban))
             {
@@ -624,14 +647,44 @@ else
                 @if (m_action != "revoke_role")
                 {
                     <div class="bb:space-y-2">
-                        <BbLabel For="reason">Reason@(m_action == "ban" ? "" : " (optional)")</BbLabel>
+                        <BbLabel For="reason">Reason@(ReasonRequired ? "" : " (optional)")</BbLabel>
                         <BbTextarea Id="reason" @bind-Value="m_reason" Placeholder="Kept in the audit log…" autocomplete="off" />
                     </div>
                 }
             </div>
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
-                <BbButton Variant="@(m_action == "ban" || m_action == "revoke_role" || m_action == "reset_name" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
+                <BbButton Variant="@(m_action is "ban" or "revoke_role" or "reset_name" or "password_reset" or "two_factor_reset" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" Disabled="@(ReasonRequired && m_action != "ban" && String.IsNullOrWhiteSpace(m_reason))" data-testid="confirm">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog Open="@(m_password != null)" OpenChanged="@((bool open) => { if (!open) m_password = null; })">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Copy the new password now</BbDialogTitle>
+                <BbDialogDescription>The new password of @player.FullName</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <BbAlert Variant="AlertVariant.Warning">
+                    <Icon>
+                        <LucideIcon Name="triangle-alert" Class="bb:h-4 bb:w-4" />
+                    </Icon>
+                    <ChildContent>
+                        <BbAlertTitle>This is the only time the password is shown</BbAlertTitle>
+                        <BbAlertDescription>Give it only to the owner of the account, in a private message after checking who they are, never in a public channel. Ask them to change it after signing in. Once this dialog closes, a lost password can only be reset again.</BbAlertDescription>
+                    </ChildContent>
+                </BbAlert>
+                <div class="bb:flex bb:items-center bb:gap-2">
+                    <BbInput Value="@m_password" readonly Class="bb:font-mono bb:flex-1" AriaLabel="The new password" data-testid="password-secret" />
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="CopyPasswordAsync" data-testid="copy-password">
+                        <LucideIcon Name="copy" Class="bb:h-4 bb:w-4" />
+                        Copy
+                    </BbButton>
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton OnClick="@(() => m_password = null)" data-testid="password-done">I passed it on</BbButton>
             </BbDialogFooter>
         </BbDialogContent>
     </BbDialog>
@@ -670,6 +723,12 @@ else
     private string? m_role;
     private string? m_grantRole;
     private bool m_granting;
+
+    // The new password of a reset, until the dialog that shows it once closes
+    private string? m_password;
+
+    // A ban and the account resets carry a reason for the audit log
+    private bool ReasonRequired => m_action is "ban" or "password_reset" or "two_factor_reset";
 
     // the Matches tab: 10 or 20 rows a page
     private static readonly int[] s_matchPageSizes = { 10, 20 };
@@ -756,6 +815,8 @@ else
         "revoke_role" => $"Revoke {m_role} from {player.FullName}",
         "rename" => $"Rename {player.FullName}",
         "reset_name" => $"Reset the name of {player.FullName}",
+        "password_reset" => $"Reset the password of {player.FullName}",
+        "two_factor_reset" => $"Turn off two-factor sign-in of {player.FullName}",
         _ => $"{char.ToUpperInvariant(m_action[0])}{m_action.Substring(1)} {player.FullName}"
     };
 
@@ -766,6 +827,8 @@ else
         "ban" => "The player cannot play until the ban ends or is lifted. A ban needs a reason.",
         "rename" => "Replaces an offensive name. The tag stays.",
         "reset_name" => "A placeholder replaces the name and every sign-in of the player ends now. The player picks a new name at the next sign-in.",
+        "password_reset" => "A new random password replaces the current one at once and is shown to you once. The old password stops working, a lockout ends and website sign-ins end within a minute; game sign-ins made before stay. Only do this after checking that you are talking to the owner of the account.",
+        "two_factor_reset" => "Two-factor sign-in turns off at once: the authenticator app and every recovery code are removed, the password stays. A lockout ends and website sign-ins end within a minute. The player can set it up again. Only do this after checking that you are talking to the owner of the account.",
         "revoke_role" => "The player loses this role and its permissions at once. The change is in the audit log.",
         _ => "The sanction ends now and stays on record."
     };
@@ -786,12 +849,29 @@ else
         long? duration = long.TryParse(m_duration, out long seconds) ? seconds : null;
 
         m_saving = true;
+        if (m_action == "password_reset")
+        {
+            PortalAnswer<PortalPasswordReset> reset = await Api.ResetPasswordAsync(Id, reason);
+            m_saving = false;
+            m_dialogOpen = false;
+            if (reset.Ok)
+            {
+                m_password = reset.Value!.Password;
+            }
+            else
+            {
+                Toasts.Error(PortalText.Error(reset.Error), "Not done");
+            }
+            return;
+        }
+
         PortalOutcome outcome = m_action switch
         {
             "revoke_role" => await Api.RevokeRoleAsync(Id, m_role!),
             "lift" => await Api.LiftSanctionAsync(m_lifting!.Id, reason),
             "rename" => await Api.RenamePlayerAsync(Id, m_name, reason),
             "reset_name" => await Api.ResetNameAsync(Id, reason),
+            "two_factor_reset" => await Api.ResetTwoFactorAsync(Id, reason),
             "kick" => await Api.CreateSanctionAsync(Id, m_action, null, reason),
             _ => await Api.CreateSanctionAsync(Id, m_action, duration, reason)
         };
@@ -807,6 +887,14 @@ else
             Toasts.Error(PortalText.Error(outcome.Error), "Not done");
         }
         await LoadAsync();
+    }
+
+    private async Task CopyPasswordAsync()
+    {
+        if (m_password != null && await Api.CopyAsync(m_password))
+        {
+            Toasts.Success("The password is on the clipboard.", "Copied");
+        }
     }
 
     // Revoking asks first; the dialog carries no reason, the roles routes take none
