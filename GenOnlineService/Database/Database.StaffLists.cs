@@ -201,14 +201,15 @@ namespace Database
 			}
 		}
 
-		// The players with an unreviewed anti-cheat row, of these ids or of all
+		// The players with an unreviewed anti-cheat row or a flagged automated rule match, of these ids or of all
 		private static async Task<HashSet<long>> UnreviewedPlayers(AppDbContext db, long[]? ids, CancellationToken cancellationToken)
 		{
 			IQueryable<long> modules = db.AnticheatModuleReports.AsNoTracking().Where(r => r.ReviewedAt == null).Select(r => r.UserId);
 			IQueryable<long> newAccounts = db.AnticheatNewAccountGames.AsNoTracking().Where(r => r.ReviewedAt == null).Select(r => r.UserId);
 			IQueryable<long> probes = db.AnticheatProbeReports.AsNoTracking().Where(r => r.ReviewedAt == null).Select(r => r.UserId);
+			IQueryable<long> ruleMatches = db.AutomatedRuleMatches.AsNoTracking().Where(m => m.ReviewState == GenOnlineService.Rules.RuleReviewStates.Pending).Select(m => m.UserID);
 			var found = new HashSet<long>();
-			foreach (IQueryable<long> source in new[] { modules, newAccounts, probes })
+			foreach (IQueryable<long> source in new[] { modules, newAccounts, probes, ruleMatches })
 			{
 				found.UnionWith(await (ids == null ? source : source.Where(id => ids.Contains(id))).Distinct().ToListAsync(cancellationToken));
 			}

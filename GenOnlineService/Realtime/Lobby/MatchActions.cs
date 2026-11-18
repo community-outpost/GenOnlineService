@@ -88,6 +88,9 @@ namespace GenOnlineService.Realtime
 					stats.BuildingsBuilt, stats.BuildingsKilled, stats.BuildingsLost, stats.UnitsBuilt, stats.UnitsKilled, stats.UnitsLost,
 					(int)Math.Clamp(stats.TotalMoney, Int32.MinValue, Int32.MaxValue), request.Won, request.Desynced, (UInt32)request.DurationS);
 			}
+			GenOnlineService.Rules.RuleRunner.Raise(GenOnlineService.Rules.RuleEvent.Of(GenOnlineService.Rules.RuleTriggers.MatchResult, me, null,
+				(GenOnlineService.Rules.RuleEventFields.MatchId, matchIDValue), (GenOnlineService.Rules.RuleEventFields.Won, request.Won),
+				(GenOnlineService.Rules.RuleEventFields.Desynced, request.Desynced), (GenOnlineService.Rules.RuleEventFields.DurationS, (long)request.DurationS)));
 
 			MatchResultResponse answer = new MatchResultResponse { ScreenshotUrl = screenshotURL, ReplayUrl = replayURL };
 			DateTime now = DateTime.UtcNow;

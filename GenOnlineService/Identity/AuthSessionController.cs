@@ -119,6 +119,7 @@ namespace GenOnlineService.Identity
 			await WebSocketManager.ClearDataFromUser(userID, sessionType);
 			await GameSessions.RegisterAsync(db, userID, sessionType, new GameSessionRegistration(authorizationID, client.ClientID, client.Game, DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
 			AppMetrics.RecordAuthentication("session", client.ClientID, "success");
+			GenOnlineService.Rules.RuleRunner.Raise(GenOnlineService.Rules.RuleEvent.Of(GenOnlineService.Rules.RuleTriggers.GameSession, userID, ipAddress, (GenOnlineService.Rules.RuleEventFields.Client, client.ClientID)));
 
 			return Ok(new
 			{

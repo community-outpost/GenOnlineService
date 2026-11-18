@@ -1,0 +1,180 @@
+@* One condition of the query builder: a field of the catalogue the trigger provides, an operator of the field's type and
+   a value of that type, with the problems the host found at this condition *@
+
+@{
+    PortalRuleField? field = Catalog?.Find(Condition.Field);
+    string type = field?.Type ?? "text";
+    string op = Condition.Operator ?? "";
+}
+<div class="go-rule-condition" data-testid="rule-condition">
+    <div class="go-rule-condition-row">
+        <BbNativeSelect TValue="string" Id="@($"{m_id}-field")" Value="@(Condition.Field ?? "")" ValueChanged="@((string v) => SetFieldAsync(v))" AriaLabel="Field" Class="go-rule-field">
+            @if (field == null)
+            {
+                <option value="@(Condition.Field ?? "")">@(String.IsNullOrEmpty(Condition.Field) ? "Choose a field" : Condition.Field + " (unknown)")</option>
+            }
+            @foreach (IGrouping<string, PortalRuleField> section in Fields().GroupBy(f => SectionOf(f.Key)))
+            {
+                <optgroup label="@section.Key">
+                    @foreach (PortalRuleField choice in section)
+                    {
+                        <option value="@choice.Key">@choice.Label</option>
+                    }
+                </optgroup>
+            }
+        </BbNativeSelect>
+        <BbNativeSelect TValue="string" Id="@($"{m_id}-operator")" Value="@op" ValueChanged="@((string v) => SetOperatorAsync(v, type))" AriaLabel="Operator" Class="go-rule-operator">
+            @foreach (string choice in field?.Operators ?? [op])
+            {
+                <option value="@choice">@PortalRuleWords.OperatorLabel(choice)</option>
+            }
+        </BbNativeSelect>
+        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OnRemove.InvokeAsync())" AriaLabel="Remove this condition" Class="go-rule-remove">
+            <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+        </BbButton>
+    </div>
+    @if (op == PortalRuleWords.Between)
+    {
+        <div class="go-rule-condition-row">
+            <BbInput Type="InputType.Number" Value="@m_low" ValueChanged="@((string? v) => SetRangeAsync(v ?? "", m_high))" UpdateTiming="UpdateTiming.OnChange" AriaLabel="From" AriaInvalid="@Invalid" Class="go-rule-value" />
+            <span class="go-muted bb:text-sm">and</span>
+            <BbInput Type="InputType.Number" Value="@m_high" ValueChanged="@((string? v) => SetRangeAsync(m_low, v ?? ""))" UpdateTiming="UpdateTiming.OnChange" AriaLabel="To" AriaInvalid="@Invalid" Class="go-rule-value" />
+        </div>
+    }
+    else if (op == PortalRuleWords.InList)
+    {
+        <BbTextarea Value="@m_text" ValueChanged="@((string? v) => SetTextAsync(v ?? "", type))" UpdateTiming="UpdateTiming.OnChange" Placeholder="One value a line" AriaLabel="Values, one a line" AriaInvalid="@Invalid" Class="go-rule-list" spellcheck="false" />
+    }
+    else if (type == "bool" && op != PortalRuleWords.IsEmpty)
+    {
+        <BbNativeSelect TValue="string" Value="@m_text" ValueChanged="@((string v) => SetTextAsync(v, type))" AriaLabel="Value" Class="go-rule-value">
+            <option value="true">true</option>
+            <option value="false">false</option>
+        </BbNativeSelect>
+    }
+    else if (op != PortalRuleWords.IsEmpty)
+    {
+        <BbInput Type="@(type == "number" ? InputType.Number : InputType.Text)" Value="@m_text" ValueChanged="@((string? v) => SetTextAsync(v ?? "", type))" UpdateTiming="UpdateTiming.OnChange"
+                 Placeholder="@Hint(type)" AriaLabel="Value" AriaInvalid="@Invalid" Class="go-rule-value" autocomplete="off" spellcheck="false" />
+    }
+    @if (m_problem != null)
+    {
+        <p class="go-rule-problem" role="alert">@m_problem</p>
+    }
+    @foreach (RuleNodeProblem problem in RuleProblems.At(Problems, NodeId, Path))
+    {
+        <p class="go-rule-problem" role="alert">@RuleProblems.Where(problem.Path): @problem.Reason</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public PortalRuleQuery Condition { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public string Path { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public string NodeId { get; set; } = "";
+
+    [Parameter]
+    public string? Trigger { get; set; }
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<RuleNodeProblem> Problems { get; set; } = [];
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    private string m_id = "";
+    private string m_text = "";
+    private string m_low = "";
+    private string m_high = "";
+    private string? m_problem;
+
+    // the value the texts were last taken from, so a change made elsewhere shows and a typed text stays
+    private string? m_shown;
+
+    private bool? Invalid => m_problem != null || RuleProblems.At(Problems, NodeId, Path).Any() ? true : null;
+
+    protected override void OnParametersSet()
+    {
+        m_id = "rule-" + System.Text.RegularExpressions.Regex.Replace(NodeId + "-" + Path, "[^A-Za-z0-9-]", "-");
+        string raw = Condition.Value?.GetRawText() ?? "";
+        if (raw != m_shown)
+        {
+            m_shown = raw;
+            m_text = RuleValues.Text(Condition.Value);
+            (m_low, m_high) = RuleValues.Range(Condition.Value);
+            m_problem = null;
+        }
+    }
+
+    // The fields the rule's trigger provides, and the one the condition holds even when it does not
+    private IEnumerable<PortalRuleField> Fields() =>
+        (Catalog?.Fields ?? []).Where(f => Trigger == null || f.Triggers.Contains(Trigger) || f.Key == Condition.Field);
+
+    private static string SectionOf(string key) => key.Split('.')[0] switch
+    {
+        "device" or "mac" => "Devices",
+        "network" => "Network",
+        "account" => "Account",
+        "sanctions" or "reports" => "Sanctions and reports",
+        "anticheat" => "Anti-cheat",
+        "stats" => "Match stats",
+        "event" => "The event",
+        _ => "Other"
+    };
+
+    private static string Hint(string type) => type switch
+    {
+        "device" => "The raw id or the device key",
+        "ip" => "An address, a prefix or a range",
+        "number" => "A number",
+        _ => "A value"
+    };
+
+    // A new field keeps the operator when the field has it, otherwise takes its first, and starts without a value
+    private Task SetFieldAsync(string key)
+    {
+        PortalRuleField? field = Catalog?.Find(key);
+        Condition.Field = key;
+        if (field != null && !field.Operators.Contains(Condition.Operator ?? ""))
+        {
+            Condition.Operator = field.Operators.FirstOrDefault();
+        }
+        Condition.Value = field == null ? null : RuleValues.Default(field.Type, Condition.Operator ?? "");
+        return OnChanged.InvokeAsync();
+    }
+
+    // The typed value is kept when it still fits the new operator
+    private Task SetOperatorAsync(string op, string type)
+    {
+        Condition.Operator = op;
+        Condition.Value = op == PortalRuleWords.Between ? RuleValues.ParseRange(m_low, m_high, out _) : RuleValues.Parse(type, op, m_text, out _) ?? RuleValues.Default(type, op);
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetTextAsync(string text, string type)
+    {
+        m_text = text;
+        Condition.Value = RuleValues.Parse(type, Condition.Operator ?? "", text, out m_problem);
+        m_shown = Condition.Value?.GetRawText() ?? "";
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetRangeAsync(string low, string high)
+    {
+        m_low = low;
+        m_high = high;
+        Condition.Value = RuleValues.ParseRange(low, high, out m_problem);
+        m_shown = Condition.Value?.GetRawText() ?? "";
+        return OnChanged.InvokeAsync();
+    }
+}

@@ -1896,6 +1896,557 @@ a.go-list-item:hover {
   accent-color: var(--primary);
 }
 
+/* ===== The automated rules editor under /admin/rules: the node canvas, the panel of the selected node and the outline =====
+   The canvas library draws from its --bit-blow-* properties, set here from the --go-* tokens. Selection is the light
+   text colour, focus the shared ring, so tan stays on the primary button, focus and the current page of the sidebar. */
+.dark .bit-blow.go-rule-flow {
+  --bit-blow-bg: var(--go-color-bg-panel);
+  --bit-blow-node-bg: var(--go-color-bg-surface);
+  --bit-blow-node-border: var(--go-color-border-default);
+  --bit-blow-node-input-border: var(--go-color-border-default);
+  --bit-blow-node-output-border: var(--go-color-border-default);
+  --bit-blow-node-color: var(--go-color-text-primary);
+  --bit-blow-node-selected: var(--go-color-text-secondary);
+  --bit-blow-edge-stroke: var(--go-color-border-control);
+  --bit-blow-edge-selected: var(--go-color-text-secondary);
+  --bit-blow-connection-stroke: var(--go-color-text-secondary);
+  --bit-blow-handle-bg: var(--go-color-border-control);
+  --bit-blow-handle-valid: var(--go-color-status-live);
+  --bit-blow-handle-invalid: var(--go-color-status-danger);
+  --bit-blow-error: var(--go-color-status-danger);
+  --bit-blow-warning: var(--go-color-status-alert);
+  --bit-blow-badge-text: var(--go-color-text-primary);
+  --bit-blow-run-active: var(--go-color-status-live);
+  --bit-blow-run-succeeded: var(--go-color-status-live);
+  --bit-blow-run-failed: var(--go-color-status-danger);
+  --bit-blow-run-muted: var(--go-color-text-muted);
+  --bit-blow-surface: var(--go-color-bg-surface);
+  --bit-blow-surface-hover: var(--go-color-bg-raised);
+  --bit-blow-surface-muted: var(--go-color-bg-raised);
+  --bit-blow-surface-muted-hover: var(--go-color-bg-raised);
+  --bit-blow-surface-translucent: var(--go-color-bg-header);
+  --bit-blow-border: var(--go-color-border-default);
+  --bit-blow-border-subtle: var(--go-color-border-subtle);
+  --bit-blow-text: var(--go-color-text-secondary);
+  --bit-blow-text-muted: var(--go-color-text-muted);
+  --bit-blow-shadow: var(--go-color-bg-topbar);
+  --bit-blow-group-bg: var(--go-color-bg-surface);
+  --bit-blow-group-border: var(--go-color-border-default);
+  --bit-blow-background-pattern: var(--go-color-border-default);
+  --bit-blow-minimap-node: var(--go-color-border-control);
+  --bit-blow-minimap-mask: var(--go-color-bg-header);
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-body);
+}
+
+.dark .go-rule-flow .bit-blow-node {
+  padding: var(--go-space-2) var(--go-space-3);
+  border-radius: var(--go-radius-md);
+  font: inherit;
+  text-align: start;
+}
+
+.dark .go-rule-flow .bit-blow-node:focus-visible,
+.dark .go-rule-flow.bit-blow:focus-visible,
+.dark .go-rule-flow .bit-blow-controls-button:focus-visible {
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
+}
+
+.dark .go-rule-flow .bit-blow-controls-button {
+  color: var(--go-color-text-secondary);
+}
+
+/* a false branch is dashed, so true and false differ by more than their label */
+.go-rule-flow .go-rule-edge-false .bit-blow-edge-path {
+  stroke-dasharray: 6 4;
+}
+
+.go-rule-flow .bit-blow-edge-label {
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-xs);
+}
+
+/* a small node: what it is on one line and its summary on the next */
+.go-rule-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 13rem;
+  min-height: var(--go-space-8);
+}
+
+.go-rule-node-condition {
+  padding-inline-end: var(--go-space-8);
+}
+
+.go-rule-node-kind {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-1);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--go-color-text-muted);
+}
+
+.go-rule-node-trigger .go-rule-node-kind {
+  color: var(--go-color-status-live);
+}
+
+.go-rule-node-condition .go-rule-node-kind {
+  color: var(--go-color-text-secondary);
+}
+
+.go-rule-node-action .go-rule-node-kind {
+  color: var(--go-color-status-danger-text);
+}
+
+.go-rule-node-text {
+  overflow: hidden;
+  font-size: var(--go-font-size-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--go-color-text-primary);
+}
+
+.go-rule-flow .bit-blow-handle {
+  width: 10px;
+  height: 10px;
+}
+
+.go-rule-flow .bit-blow-handle.go-rule-handle-true {
+  top: 32%;
+}
+
+.go-rule-flow .bit-blow-handle.go-rule-handle-false {
+  top: 72%;
+}
+
+.go-rule-port {
+  position: absolute;
+  inset-inline-end: var(--go-space-2);
+  font-family: var(--go-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--go-color-text-muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.go-rule-port-true {
+  top: 32%;
+}
+
+.go-rule-port-false {
+  top: 72%;
+}
+
+/* the mode and the switch above the canvas */
+.go-rule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--go-space-4) var(--go-space-8);
+}
+
+.go-rule-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--go-space-2) var(--go-space-3);
+}
+
+.go-rule-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-rule-toolbar-hint {
+  margin-inline-start: auto;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+}
+
+.go-rule-facts-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+/* the canvas, then the outline and the panel beside it on a wide screen and under it on a narrow one */
+.go-rule-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--go-space-4);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .go-rule-workspace.go-rule-with-panel {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+  }
+
+  .go-rule-workspace.go-rule-with-outline {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+
+  /* with both open the outline goes under the canvas, so the canvas keeps its width */
+  .go-rule-workspace.go-rule-with-outline.go-rule-with-panel {
+    grid-template-areas: "canvas panel" "outline panel";
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-rows: auto 1fr;
+  }
+
+  .go-rule-with-outline.go-rule-with-panel > .go-rule-canvas {
+    grid-area: canvas;
+  }
+
+  .go-rule-with-outline.go-rule-with-panel > .go-rule-outline {
+    grid-area: outline;
+  }
+
+  .go-rule-with-outline.go-rule-with-panel > .go-rule-panel {
+    grid-area: panel;
+  }
+}
+
+.go-rule-canvas {
+  height: 34rem;
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-panel);
+}
+
+@media (max-width: 48rem) {
+  .go-rule-canvas {
+    height: 22rem;
+  }
+
+  .go-rule-toolbar-hint {
+    margin-inline-start: 0;
+  }
+}
+
+/* the panel of the selected node, and the outline, as the panels of the staff pages */
+.go-rule-panel,
+.go-rule-outline {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-panel);
+}
+
+.go-rule-outline {
+  gap: var(--go-space-3);
+  padding: var(--go-space-4);
+  overflow-x: auto;
+}
+
+.go-rule-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--go-space-2);
+  padding: var(--go-space-3) var(--go-space-4);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+}
+
+.go-rule-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+  margin: 0;
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-md);
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-primary);
+}
+
+.go-rule-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-4);
+  padding: var(--go-space-4);
+}
+
+.go-rule-panel-foot {
+  padding: var(--go-space-3) var(--go-space-4);
+  border-top: 1px solid var(--go-color-border-subtle);
+}
+
+.go-rule-field-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-2);
+}
+
+.go-rule-hint {
+  margin: 0;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+}
+
+.go-rule-problem {
+  margin: 0;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-status-danger-text);
+}
+
+.go-rule-problem-list {
+  display: grid;
+  gap: var(--go-space-1);
+  margin: var(--go-space-2) 0 0;
+  padding-inline-start: var(--go-space-4);
+  list-style: disc;
+}
+
+.go-rule-permanent {
+  font-weight: var(--go-font-weight-regular);
+}
+
+/* the query builder: a group frames its rules, a nested group sits indented inside */
+.go-rule-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--go-space-3);
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.go-rule-group .go-rule-group {
+  background: var(--go-color-bg-panel);
+}
+
+.go-rule-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+  width: 100%;
+  padding: 0;
+}
+
+.go-rule-rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.go-rule-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--go-space-2);
+}
+
+.go-rule-condition {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-2);
+  padding-block-end: var(--go-space-3);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+}
+
+.go-rule-condition-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-rule-field,
+.go-rule-match {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.go-rule-operator {
+  flex: 0 1 9rem;
+  min-width: 0;
+}
+
+.go-rule-condition-row .go-rule-value {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.go-rule-list {
+  min-height: 5rem;
+  font-family: var(--go-font-mono);
+}
+
+.go-rule-remove {
+  flex: none;
+}
+
+/* where an output leads, as a list */
+.go-rule-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-2);
+}
+
+.go-rule-links-title {
+  margin: 0;
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-secondary);
+}
+
+.go-rule-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.go-rule-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--go-space-2);
+  padding-inline-start: var(--go-space-2);
+  border-inline-start: 2px solid var(--go-color-border-control);
+}
+
+.go-rule-link-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--go-font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* the outline: nested lists, each level indented, a node line a button that selects the node */
+.go-rule-outline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--go-font-size-sm);
+  line-height: 1.6;
+}
+
+.go-rule-outline-list .go-rule-outline-list {
+  padding-inline-start: var(--go-space-4);
+  border-inline-start: 1px solid var(--go-color-border-subtle);
+}
+
+.go-rule-outline-text {
+  color: var(--go-color-text-muted);
+}
+
+.dark .go-rule-outline-node {
+  padding: 0 var(--go-space-1);
+  border: 0;
+  border-radius: var(--go-radius-sm);
+  background: none;
+  color: var(--go-color-text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.dark .go-rule-outline-node:hover,
+.dark .go-rule-outline-node[aria-pressed="true"] {
+  background: var(--go-color-bg-raised);
+}
+
+/* the facts that decided a match */
+.go-rule-facts {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--go-font-size-xs);
+}
+
+.go-rule-fact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--go-space-2);
+}
+
+.go-rule-fact dt {
+  color: var(--go-color-text-muted);
+}
+
+.go-rule-fact dd {
+  margin: 0;
+  font-family: var(--go-font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* the sweep progress, the consequences of Enforce and the difference of two versions */
+.go-rule-sweep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-2);
+}
+
+.go-rule-progress {
+  width: 100%;
+  height: var(--go-space-2);
+  accent-color: var(--go-color-status-live);
+}
+
+.go-rule-consequences {
+  display: grid;
+  gap: var(--go-space-1);
+  margin: 0;
+  padding-inline-start: var(--go-space-4);
+  font-size: var(--go-font-size-sm);
+  list-style: disc;
+}
+
+.dark .go-rule-diff {
+  margin: 0;
+  padding: var(--go-space-3);
+  overflow-x: auto;
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-topbar);
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-xs);
+  line-height: 1.6;
+}
+
+.go-rule-diff > span {
+  display: block;
+  white-space: pre;
+}
+
+.go-rule-diff-same {
+  color: var(--go-color-text-muted);
+}
+
+.go-rule-diff-added {
+  background: var(--go-color-status-live-tint);
+  color: var(--go-color-status-live);
+}
+
+.go-rule-diff-removed {
+  background: var(--go-color-status-danger-tint);
+  color: var(--go-color-status-danger-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .go-rule-flow .bit-blow-edge-path {
+    transition: none;
+  }
+}
+
 /* ===== The sign-in and account pages on the Generals Online design system (T19) =====
    Everything below belongs to the gp-* classes of PortalLook's pages; the staff area never uses them. The values are the
    --go-* tokens of tokens.css (linked before this file): no colour is written here, except the four provider brands,

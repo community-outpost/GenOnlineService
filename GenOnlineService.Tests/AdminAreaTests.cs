@@ -358,12 +358,12 @@ public class AdminAreaTests
 		}
 
 		// the WebAssembly shell, dark only, on the design system: its tokens and fonts, the design's Blueprint theme, Blueprint's
-		// stylesheet and generals.css, in that order so the design's values win
+		// stylesheet, the rule canvas stylesheet and generals.css, in that order so the design's values win
 		PageResponse page = await moderator.Get("/admin/reports");
 		Assert.Equal(200, page.Status);
 		Assert.Contains("<html lang=\"en\" class=\"dark\">", page.Body);
 		string[] sheets = Regex.Matches(page.Body, "<link rel=\"stylesheet\" href=\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
-		Assert.Equal(new[] { PortalLook.TokensPath, PortalLook.FontsPath, PortalLook.ThemePath, PortalLook.StylesheetPath, PortalLook.GeneralsPath }, sheets);
+		Assert.Equal(new[] { PortalLook.TokensPath, PortalLook.FontsPath, PortalLook.ThemePath, PortalLook.StylesheetPath, PortalLook.BlowPath, PortalLook.GeneralsPath }, sheets);
 		Assert.Contains("_framework/blazor.web.js", page.Body);
 		Assert.DoesNotContain("theme-init.js", page.Body);
 		Assert.Equal("DENY", page.FrameOptions);
@@ -649,6 +649,47 @@ public class AdminAreaTests
 		Assert.Equal(
 			[("new_accounts", 2), ("modules", 1), ("probes", 1), ("devices", 1), ("quickmatch_rules", 0)],
 			full.GetProperty("anticheat").EnumerateArray().Select(q => (q.GetProperty("kind").GetString()!, q.GetProperty("unreviewed").GetInt32())));
+	}
+
+	// The rules pages open for every staff member and show their own refusal, the routes behind them need rules.manage for
+	// the rules and anticheat.review for their matches, which only admin holds
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheRulesPagesNeedTheirPermissions(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null)
+		{
+			return;
+		}
+		var moderator = new AdminBrowser(probe);
+		await moderator.SignUp("Warden", "warden@example.org");
+		await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		var admin = new AdminBrowser(probe);
+		await admin.SignUp("Chief", "chief@example.org");
+		await AdminArea.Grant(probe, "chief@example.org", StaffRoles.Admin);
+		await using (AppDbContext db = probe.Open())
+		{
+			await StaffRoles.Reload(db);
+		}
+
+		foreach (string page in new[] { "/admin/rules", "/admin/rules/1", "/admin/rules/matches" })
+		{
+			Assert.Equal(200, (await moderator.Get(page)).Status);
+			Assert.Equal(302, (await new AdminBrowser(probe).Get(page)).Status);
+		}
+		JsonElement session = JsonDocument.Parse(AdminArea.Meta(await moderator.Get("/admin/rules"), "go-portal-session")).RootElement;
+		Assert.DoesNotContain("rules.manage", session.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+		JsonElement chief = JsonDocument.Parse(AdminArea.Meta(await admin.Get("/admin/rules"), "go-portal-session")).RootElement;
+		Assert.Contains("rules.manage", chief.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+		Assert.Contains("anticheat.review", chief.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+
+		foreach (string api in new[] { "/api/v1/staff/rules", "/api/v1/staff/rules/fields", "/api/v1/staff/rules/matches" })
+		{
+			PageResponse denied = await moderator.Get(api);
+			Assert.Equal((403, "forbidden"), (denied.Status, AdminArea.ErrorOf(denied)));
+			Assert.Equal(200, (await admin.Get(api)).Status);
+		}
 	}
 
 	[ProbeTheory]

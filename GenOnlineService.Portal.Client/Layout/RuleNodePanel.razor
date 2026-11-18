@@ -1,0 +1,231 @@
+@* The side panel of the selected node: the event of the trigger, the query of a condition, or the action with its length
+   and reason; then where the node leads, which a keyboard can change here as well as on the canvas *@
+
+@{
+    PortalRuleNode rule = RuleGraph.RuleOf(Node);
+}
+<section class="go-rule-panel" aria-labelledby="rule-panel-title" data-testid="rule-panel">
+    <header class="go-rule-panel-head">
+        <h2 id="rule-panel-title" class="go-rule-panel-title">
+            <LucideIcon Name="@RuleNodeCard.IconOf(rule)" Class="bb:h-4 bb:w-4" />
+            @Title(rule)
+        </h2>
+        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OnClose.InvokeAsync())" AriaLabel="Close the panel">
+            <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+        </BbButton>
+    </header>
+    <div class="go-rule-panel-body">
+        @foreach (RuleNodeProblem problem in Problems.Where(p => p.NodeId == Node.Id && !p.Path.StartsWith("query.", StringComparison.Ordinal)))
+        {
+            <p class="go-rule-problem" role="alert">@RuleProblems.Where(problem.Path): @problem.Reason</p>
+        }
+
+        @switch (rule.Kind)
+        {
+            case PortalRuleWords.Trigger:
+                <div class="go-rule-field-block">
+                    <BbLabel For="rule-trigger">Checked on</BbLabel>
+                    <BbNativeSelect TValue="string" Id="rule-trigger" Value="@(rule.Trigger ?? "")" ValueChanged="@((string v) => SetAsync(() => rule.Trigger = v))" Class="bb:w-full">
+                        @foreach (string trigger in PortalRuleWords.Triggers)
+                        {
+                            <option value="@trigger">@PortalRuleWords.TriggerLabel(trigger)</option>
+                        }
+                    </BbNativeSelect>
+                    <p class="go-rule-hint">The rule runs after the event, so the event never waits for it. A manual sweep runs only from the Sweep button. Event fields come only with the triggers whose event carries them.</p>
+                </div>
+                break;
+            case PortalRuleWords.Condition:
+                <RuleQueryGroup Group="RootOf(rule)" Path="query" NodeId="@Node.Id" Trigger="@Trigger" Catalog="Catalog" Problems="Problems" OnChanged="@(() => OnChanged.InvokeAsync())" />
+                break;
+            case PortalRuleWords.Action:
+                <div class="go-rule-field-block">
+                    <BbLabel For="rule-action">Action</BbLabel>
+                    <BbNativeSelect TValue="string" Id="rule-action" Value="@(rule.Action ?? "")" ValueChanged="@((string v) => SetActionAsync(rule, v))" Class="bb:w-full">
+                        @foreach (string action in PortalRuleWords.Actions)
+                        {
+                            <option value="@action">@PortalRuleWords.ActionLabel(action)</option>
+                        }
+                    </BbNativeSelect>
+                </div>
+                @if (rule.Action is PortalRuleWords.Mute or PortalRuleWords.Ban)
+                {
+                    <div class="go-rule-field-block">
+                        <BbLabel For="rule-length">Length</BbLabel>
+                        @if (rule.Action == PortalRuleWords.Ban)
+                        {
+                            <label class="go-check go-rule-permanent">
+                                <input type="checkbox" checked="@(rule.DurationS == null)" @onchange="@(e => SetPermanentAsync(rule, e.Value is true))" />
+                                Permanent
+                            </label>
+                        }
+                        @if (rule.Action == PortalRuleWords.Mute || rule.DurationS != null)
+                        {
+                            <div class="go-rule-condition-row">
+                                <BbInput Id="rule-length" Type="InputType.Number" Value="@m_amount" ValueChanged="@((string? v) => SetLengthAsync(rule, v ?? "", m_unit))" UpdateTiming="UpdateTiming.OnChange" Class="go-rule-value" AriaInvalid="@(m_lengthProblem != null ? true : null)" />
+                                <BbNativeSelect TValue="string" Value="@m_unit" ValueChanged="@((string v) => SetLengthAsync(rule, m_amount, v))" AriaLabel="Unit" Class="go-rule-operator">
+                                    <option value="60">minutes</option>
+                                    <option value="3600">hours</option>
+                                    <option value="86400">days</option>
+                                </BbNativeSelect>
+                            </div>
+                        }
+                        @if (m_lengthProblem != null)
+                        {
+                            <p class="go-rule-problem" role="alert">@m_lengthProblem</p>
+                        }
+                    </div>
+                }
+                <div class="go-rule-field-block">
+                    <BbLabel For="rule-reason">Reason</BbLabel>
+                    <BbTextarea Id="rule-reason" Value="@rule.Reason" ValueChanged="@((string? v) => SetAsync(() => rule.Reason = v))" UpdateTiming="UpdateTiming.OnChange" MaxLength="512" ShowCharacterCount="true" />
+                    <p class="go-rule-hint">Written to the audit log and, for a sanction, shown to the player as the staff reason is.</p>
+                </div>
+                break;
+        }
+
+        @if (rule.Kind == PortalRuleWords.Trigger)
+        {
+            <RuleNodeLinks Title="Then" From="@Node.Id" Output="null" Nodes="Nodes" Edges="Edges" Catalog="Catalog" OnConnect="OnConnect" OnDisconnect="OnDisconnect" />
+        }
+        else if (rule.Kind == PortalRuleWords.Condition)
+        {
+            <RuleNodeLinks Title="If true" From="@Node.Id" Output="@PortalRuleWords.OutputTrue" Nodes="Nodes" Edges="Edges" Catalog="Catalog" OnConnect="OnConnect" OnDisconnect="OnDisconnect" />
+            <RuleNodeLinks Title="If false" From="@Node.Id" Output="@PortalRuleWords.OutputFalse" Nodes="Nodes" Edges="Edges" Catalog="Catalog" OnConnect="OnConnect" OnDisconnect="OnDisconnect" />
+        }
+        else
+        {
+            <p class="go-rule-hint">An action ends its branch, nothing follows it.</p>
+        }
+    </div>
+    @if (rule.Kind != PortalRuleWords.Trigger)
+    {
+        <footer class="go-rule-panel-foot">
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OnRemove.InvokeAsync(Node))" data-testid="remove-node">
+                <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4" />
+                Remove this @rule.Kind
+            </BbButton>
+        </footer>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public BlowNode Node { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<BlowNode> Nodes { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<BlowEdge> Edges { get; set; } = [];
+
+    [Parameter]
+    public string? Trigger { get; set; }
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<RuleNodeProblem> Problems { get; set; } = [];
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<(string From, string? Output, string To)> OnConnect { get; set; }
+
+    [Parameter]
+    public EventCallback<BlowEdge> OnDisconnect { get; set; }
+
+    [Parameter]
+    public EventCallback<BlowNode> OnRemove { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private string? m_nodeId;
+    private string m_amount = "";
+    private string m_unit = "86400";
+    private string? m_lengthProblem;
+
+    // the host takes lengths of whole minutes from one minute up to ten years
+    private const long MaximumSeconds = 315360000;
+
+    protected override void OnParametersSet()
+    {
+        if (m_nodeId != Node.Id)
+        {
+            m_nodeId = Node.Id;
+            m_lengthProblem = null;
+            ShowLength(RuleGraph.RuleOf(Node).DurationS);
+        }
+    }
+
+    private static string Title(PortalRuleNode rule) => rule.Kind switch
+    {
+        PortalRuleWords.Trigger => "Trigger",
+        PortalRuleWords.Condition => "Condition",
+        PortalRuleWords.Action => "Action",
+        _ => rule.Kind
+    };
+
+    // A condition node holds a group at its top, so a lone condition is wrapped in one
+    private static PortalRuleQuery RootOf(PortalRuleNode rule)
+    {
+        if (rule.Query == null || !rule.Query.IsGroup)
+        {
+            rule.Query = rule.Query == null ? PortalRuleQuery.Group(PortalRuleWords.All) : PortalRuleQuery.Group(PortalRuleWords.All, rule.Query);
+        }
+        return rule.Query;
+    }
+
+    private void ShowLength(long? seconds)
+    {
+        long s = seconds ?? 86400;
+        m_unit = s % 86400 == 0 ? "86400" : s % 3600 == 0 ? "3600" : "60";
+        m_amount = (s / Int64.Parse(m_unit, System.Globalization.CultureInfo.InvariantCulture)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private Task SetAsync(Action change)
+    {
+        change();
+        return OnChanged.InvokeAsync();
+    }
+
+    // A kick and a flag take no length, a mute needs one, a ban is permanent until a length is given
+    private Task SetActionAsync(PortalRuleNode rule, string action)
+    {
+        rule.Action = action;
+        if (action == PortalRuleWords.Mute)
+        {
+            rule.DurationS ??= 86400;
+        }
+        else if (action != PortalRuleWords.Ban)
+        {
+            rule.DurationS = null;
+        }
+        ShowLength(rule.DurationS);
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetPermanentAsync(PortalRuleNode rule, bool permanent)
+    {
+        rule.DurationS = permanent ? null : 86400 * 7;
+        ShowLength(rule.DurationS);
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetLengthAsync(PortalRuleNode rule, string amount, string unit)
+    {
+        m_amount = amount;
+        m_unit = unit;
+        if (!Int64.TryParse(amount.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long n) || n <= 0
+            || n * Int64.Parse(unit, System.Globalization.CultureInfo.InvariantCulture) > MaximumSeconds)
+        {
+            m_lengthProblem = "Type a whole number from one minute up to ten years.";
+            return Task.CompletedTask;
+        }
+        m_lengthProblem = null;
+        rule.DurationS = n * Int64.Parse(unit, System.Globalization.CultureInfo.InvariantCulture);
+        return OnChanged.InvokeAsync();
+    }
+}

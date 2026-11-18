@@ -138,6 +138,11 @@ public abstract partial class AppDbContext : DbContext
 	public DbSet<GenOnlineService.TextRules.TextRuleException> TextRuleExceptions => Set<GenOnlineService.TextRules.TextRuleException>();
 	public DbSet<GenOnlineService.TextRules.TextRuleWorkflow> TextRuleWorkflows => Set<GenOnlineService.TextRules.TextRuleWorkflow>();
 
+	// Automated rules: the rules, their immutable versions and every match
+	public DbSet<GenOnlineService.Rules.AutomatedRule> AutomatedRules => Set<GenOnlineService.Rules.AutomatedRule>();
+	public DbSet<GenOnlineService.Rules.AutomatedRuleVersion> AutomatedRuleVersions => Set<GenOnlineService.Rules.AutomatedRuleVersion>();
+	public DbSet<GenOnlineService.Rules.AutomatedRuleMatch> AutomatedRuleMatches => Set<GenOnlineService.Rules.AutomatedRuleMatch>();
+
 	// ASP.NET Core data protection key ring, shared by every copy
 	public DbSet<GenOnlineService.Identity.DataProtectionKeyRow> DataProtectionKeys => Set<GenOnlineService.Identity.DataProtectionKeyRow>();
 
@@ -200,6 +205,8 @@ public abstract partial class AppDbContext : DbContext
 		configure(modelBuilder.Entity<PlayerReport>().Property(e => e.Evidence));
 		configure(modelBuilder.Entity<FlagRow>().Property(e => e.Definition));
 		configure(modelBuilder.Entity<FlagRevision>().Property(e => e.Document));
+		configure(modelBuilder.Entity<GenOnlineService.Rules.AutomatedRuleVersion>().Property(e => e.Document));
+		configure(modelBuilder.Entity<GenOnlineService.Rules.AutomatedRuleMatch>().Property(e => e.Facts));
 		ConfigurePlaylistJson(modelBuilder, configure);
 		ConfigureChannelJson(modelBuilder, configure);
 		ConfigureBroadcastJson(modelBuilder, configure);
@@ -266,6 +273,9 @@ public abstract partial class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleWorkflowConfiguration());
 		modelBuilder.ApplyConfiguration(new FlagRowConfiguration());
 		modelBuilder.ApplyConfiguration(new FlagRevisionConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.Rules.AutomatedRuleConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.Rules.AutomatedRuleVersionConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.Rules.AutomatedRuleMatchConfiguration());
 		ConfigurePlaylists(modelBuilder);
 		ConfigureChannels(modelBuilder);
 		ConfigureBroadcasts(modelBuilder);

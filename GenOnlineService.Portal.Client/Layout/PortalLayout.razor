@@ -144,6 +144,12 @@
                                     }
                                 </BbSidebarMenuItem>
                             }
+                            <BbSidebarMenuItem>
+                                <BbSidebarMenuButton Href="@PortalRoutes.RuleMatchesPage" Tooltip="Matches of the automated rules">
+                                    <LucideIcon Name="workflow" Class="bb:h-4 bb:w-4" />
+                                    <span>Rule matches</span>
+                                </BbSidebarMenuButton>
+                            </BbSidebarMenuItem>
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
@@ -182,7 +188,7 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
-                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage) || staff.Can(PortalPermissions.FlagsManage))
+                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage) || staff.Can(PortalPermissions.FlagsManage) || staff.Can(PortalPermissions.RulesManage))
                 {
                     <BbSidebarGroup>
                         <BbSidebarGroupLabel>Administration</BbSidebarGroupLabel>
@@ -193,6 +199,15 @@
                                     <BbSidebarMenuButton Href="@PortalRoutes.ConfigPage" Tooltip="Game config">
                                         <LucideIcon Name="sliders-horizontal" Class="bb:h-4 bb:w-4" />
                                         <span>Game config</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.RulesManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.RulesPage" Tooltip="Automated rules">
+                                        <LucideIcon Name="git-fork" Class="bb:h-4 bb:w-4" />
+                                        <span>Automated rules</span>
                                     </BbSidebarMenuButton>
                                 </BbSidebarMenuItem>
                             }
@@ -405,6 +420,21 @@
                 break;
             case "config":
                 yield return ("Game config", null);
+                break;
+            case "rules":
+                yield return ("Automated rules", item == null ? null : PortalRoutes.RulesPage);
+                if (item == "matches")
+                {
+                    yield return ("Matches", null);
+                }
+                else if (item == "new")
+                {
+                    yield return ("New rule", null);
+                }
+                else if (item != null)
+                {
+                    yield return ("Rule " + item, null);
+                }
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);
