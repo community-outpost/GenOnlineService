@@ -322,4 +322,28 @@ public class PasswordPagesTests
 		Assert.Equal(404, (await off.Get("/users/sign_up")).Status);
 		Assert.Equal(404, (await off.Post("/users/sign_in", new())).Status);
 	}
+
+	// with a provider on the page the email form opens from "Sign in with email" (a disclosure, no script) and comes back
+	// open after a refused attempt; with no provider it is shown directly
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheEmailFormOpensFromItsButtonWhenProvidersAreShown(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+
+		PageResponse withSteam = await new AccountsBrowser(probe, Enabled(("Accounts:providers:steam:enabled", "true"))).Get("/users/sign_in");
+		Assert.Contains("<details class=\"gp-email\">", withSteam.Body);
+		Assert.Contains("Sign in with email", withSteam.Body);
+		Assert.Contains("Use another way to sign in", withSteam.Body);
+		Assert.Contains("name=\"password\"", withSteam.Body);
+
+		PageResponse refused = await SignIn(new AccountsBrowser(probe, Enabled(("Accounts:providers:steam:enabled", "true"))), "nobody@example.org", "a wrong password");
+		Assert.Equal(401, refused.Status);
+		Assert.Contains("<details class=\"gp-email\" open>", refused.Body);
+
+		PageResponse alone = await new AccountsBrowser(probe, Enabled()).Get("/users/sign_in");
+		Assert.DoesNotContain("gp-email", alone.Body);
+		Assert.Contains("name=\"password\"", alone.Body);
+	}
 }

@@ -208,9 +208,15 @@ namespace GenOnlineService.Identity
 				($"/users/auth/{Uri.EscapeDataString(p.Name)}?returnUrl={Uri.EscapeDataString(target)}", p.Name, p.DisplayName)), Culture));
 			if (passwords)
 			{
-				if (providers.Count > 0)
+				// next to providers the form opens from "Sign in with email", as the design's sign-in; a disclosure, so no
+				// script is needed, and it comes back open after a refused attempt so the typed address and the message show
+				bool collapsed = providers.Count > 0;
+				if (collapsed)
 				{
 					body.Append(PortalLook.Separator(T("SignIn.Or")));
+					body.Append($"<details class=\"gp-email\"{(email != null || message != null ? " open" : String.Empty)}><summary class=\"gp-email-toggle\">")
+						.Append($"<span class=\"gp-email-show\">{PortalLook.Icon("mail")}{WebUtility.HtmlEncode(T("SignIn.WithEmail"))}</span>")
+						.Append($"<span class=\"gp-email-hide\">{WebUtility.HtmlEncode(T("SignIn.OtherWay"))}</span></summary>");
 				}
 				body.Append(FormStart("/users/sign_in", target));
 				body.Append(PortalLook.Field("email", T("Field.Email"), "type=\"email\" name=\"email\" autocomplete=\"username\" required", email ?? String.Empty));
@@ -218,6 +224,10 @@ namespace GenOnlineService.Identity
 				string? forgot = m_mail.Enabled ? $"<a href=\"{ResetRequestPath}\">{WebUtility.HtmlEncode(T("SignIn.Forgot"))}</a>" : null;
 				body.Append(PortalLook.Field("password", T("Field.Password"), "type=\"password\" name=\"password\" autocomplete=\"current-password\" required", aside: forgot));
 				body.Append(PortalLook.Submit(T("SignIn.Submit"))).Append("</form>");
+				if (collapsed)
+				{
+					body.Append("</details>");
+				}
 			}
 			// the way to sign up under the card
 			string? register = passwords && m_settings.Password.AllowSignUp

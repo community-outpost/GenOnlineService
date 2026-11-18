@@ -1384,6 +1384,18 @@ select.gp-input { width: auto; min-width: 240px; }
 
 /* provider buttons: one 44px frame in an equal grid, each in its brand's own colours */
 .gp-providers { display: flex; flex-direction: column; gap: 10px; }
+/* "Sign in with email" opens the email form in place (a disclosure, no script); open, the toggle reads "Use another way to sign in" */
+.gp-email { display: flex; flex-direction: column; gap: 14px; }
+.gp-email > summary { list-style: none; }
+.gp-email > summary::-webkit-details-marker { display: none; }
+.gp-email-toggle { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; border: 1px solid var(--go-color-border-default); border-radius: var(--go-radius-md); color: var(--go-color-text-primary); font-family: var(--go-font-body); font-weight: var(--go-font-weight-semibold); font-size: 15px; cursor: pointer; transition: background-color 120ms; }
+.gp-email-toggle:hover { background-color: var(--go-color-bg-surface); }
+.gp-email-show { display: inline-flex; align-items: center; gap: 10px; }
+.gp-email-hide { display: none; }
+.gp-email[open] > .gp-email-toggle { order: 2; align-self: center; min-height: 32px; padding-inline: var(--go-space-2); border-color: transparent; color: var(--go-color-text-muted); font-weight: var(--go-font-weight-regular); font-size: 13px; }
+.gp-email[open] > .gp-email-toggle:hover { background-color: transparent; color: var(--go-color-text-primary); }
+.gp-email[open] .gp-email-show { display: none; }
+.gp-email[open] .gp-email-hide { display: inline; }
 .gp-prov { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--go-radius-md); font-family: var(--go-font-body); font-weight: var(--go-font-weight-semibold); font-size: 15px; line-height: 1.2; text-align: center; text-decoration: none; }
 .gp .gp-prov:hover { filter: brightness(1.12); }
 .gp-prov svg, .gp-prov img { flex: none; width: 20px; height: 20px; }
