@@ -7,15 +7,16 @@ using Xunit;
 
 namespace GenOnlineService.Tests;
 
-// Runs only when GENONLINE_PROBE_POSTGRES / GENONLINE_PROBE_MARIADB hold a server connection string (no database name);
-// each test migrates its own new database on that server and drops it afterwards
+// Runs only when GENONLINE_PROBE_POSTGRES / GENONLINE_PROBE_MARIADB / GENONLINE_PROBE_MYSQL hold a server connection string (no database name);
+// each test migrates its own new database on that server and drops it afterwards. MySQL and MariaDB share the MySqlAppDbContext.
 public sealed class ProbeTheoryAttribute : TheoryAttribute
 {
 	public ProbeTheoryAttribute()
 	{
-		if (Environment.GetEnvironmentVariable(ProbeDatabase.PostgresVariable) == null && Environment.GetEnvironmentVariable(ProbeDatabase.MariaDbVariable) == null)
+		if (Environment.GetEnvironmentVariable(ProbeDatabase.PostgresVariable) == null && Environment.GetEnvironmentVariable(ProbeDatabase.MariaDbVariable) == null
+			&& Environment.GetEnvironmentVariable(ProbeDatabase.MySqlVariable) == null)
 		{
-			Skip = $"Set {ProbeDatabase.PostgresVariable} and/or {ProbeDatabase.MariaDbVariable} to run the database probes";
+			Skip = $"Set {ProbeDatabase.PostgresVariable}, {ProbeDatabase.MariaDbVariable} and/or {ProbeDatabase.MySqlVariable} to run the database probes";
 		}
 	}
 }
@@ -24,11 +25,13 @@ public sealed class ProbeDatabase : IAsyncDisposable
 {
 	public const string PostgresVariable = "GENONLINE_PROBE_POSTGRES";
 	public const string MariaDbVariable = "GENONLINE_PROBE_MARIADB";
+	public const string MySqlVariable = "GENONLINE_PROBE_MYSQL";
 
 	public static IEnumerable<object[]> Providers()
 	{
 		yield return new object[] { "postgres" };
 		yield return new object[] { "mariadb" };
+		yield return new object[] { "mysql" };
 	}
 
 	private readonly Func<AppDbContext> m_create;
@@ -43,7 +46,13 @@ public sealed class ProbeDatabase : IAsyncDisposable
 	// Null when this provider's server is not configured
 	public static async Task<ProbeDatabase?> Create(string provider, bool migrate = true)
 	{
-		string? server = Environment.GetEnvironmentVariable(provider == "postgres" ? PostgresVariable : MariaDbVariable);
+		string? server = Environment.GetEnvironmentVariable(provider switch
+		{
+			"postgres" => PostgresVariable,
+			"mariadb" => MariaDbVariable,
+			"mysql" => MySqlVariable,
+			_ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "postgres, mariadb or mysql"),
+		});
 		if (server == null)
 		{
 			return null;

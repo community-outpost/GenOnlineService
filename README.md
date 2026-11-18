@@ -50,6 +50,14 @@ GeneralsOnline Game Services Code provides RESTful web services which act as a r
 - `Core:enforce_https` is one switch, `true` when missing: sign-in requires https (the accounts server refuses plain http requests and its cookies are https-only), http requests are redirected to https when the service knows its https port (`ASPNETCORE_HTTPS_PORT` or an https endpoint; an http-only container behind a TLS proxy relies on the proxy for that), and responses over https send HSTS except to localhost. Behind a TLS-terminating proxy list it in `TrustedProxies` so the forwarded scheme counts as https. A local run over plain http (no TLS in front, for example `http://127.0.0.1:5000`) must set it to `false` explicitly, with `"Core": { "enforce_https": false }` in appsettings.json or the environment variable `Core__enforce_https=false`; `false` turns off all of these at once. Keep it `true` wherever the service is reachable from other machines
 - When upgrading, stop the service, run `GenOnlineService migrate --yes`, then start the new version. With multiple instances, the old instances may keep running during the migration only if it is backward compatible, then roll the instances
 
+# Running The Tests
+- `dotnet test GenOnlineService.Tests/GenOnlineService.Tests.csproj -p:Platform=x64` runs the unit tests. The database probe tests are skipped unless at least one probe server is set
+- Each probe variable holds a server connection string without a database name; every probe test creates its own database on that server and drops it afterwards. Set any combination:
+  - `GENONLINE_PROBE_POSTGRES`: PostgreSQL, for example `Host=127.0.0.1;Port=5432;Username=postgres;Password=<password>`
+  - `GENONLINE_PROBE_MARIADB`: MariaDB, for example `Server=127.0.0.1;Port=3306;User=root;Password=<password>`
+  - `GENONLINE_PROBE_MYSQL`: MySQL 8.4, for example `Server=127.0.0.1;Port=3307;User=root;Password=<password>`. MySQL and MariaDB use the same `mysql` provider but differ (for example `json` columns are real JSON on MySQL and text on MariaDB), so run both before changing MySQL/MariaDB queries
+- CI sets `GENONLINE_PROBE_POSTGRES` and `GENONLINE_PROBE_MARIADB`
+
 # Releases
 - Releases are tags on `main` using semantic versioning. The service is in alpha: versions are `0.x`, and a minor version (`0.2` to `0.3`) may contain breaking changes to the client protocol, the configuration or the schema; patch versions only contain fixes
 - A `vX.Y.Z` tag (only plain tags count as versions; any other tag is ignored) builds the linux-x64 artifact (`genonlineservice-<version>-linux-x64.tar.gz` plus its SHA-256, attached to the GitHub release, marked as a pre-release while in `0.x`) and the container image `ghcr.io/<owner>/genonlineservice:<version>` (also tagged with the 8-character commit). `latest` points at the newest release; deployments should still pin an exact version or commit
