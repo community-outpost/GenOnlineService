@@ -52,6 +52,20 @@ public sealed class MemoryMatchDataStore : IMatchDataStore
 	}
 }
 
+// Lists keys whose objects are already gone, as when the purge deletes a shared copy right after a listing
+public sealed class VanishingMatchDataStore : IMatchDataStore
+{
+	public MemoryMatchDataStore Inner { get; } = new();
+	public HashSet<string> Vanished { get; } = new(StringComparer.Ordinal);
+
+	public async Task<IReadOnlyList<string>> ListAsync(string prefix, CancellationToken cancellationToken = default) =>
+		(await Inner.ListAsync(prefix, cancellationToken)).Concat(Vanished.Where(k => k.StartsWith(prefix, StringComparison.Ordinal))).ToList();
+
+	public Task<StoredObject?> GetAsync(string key, CancellationToken cancellationToken = default) => Inner.GetAsync(key, cancellationToken);
+	public Task PutAsync(string key, StoredObject value, CancellationToken cancellationToken = default) => Inner.PutAsync(key, value, cancellationToken);
+	public Task DeleteAsync(string key, CancellationToken cancellationToken = default) => Inner.DeleteAsync(key, cancellationToken);
+}
+
 // Privacy Policy: a screenshot a sanction relies on is kept until 90 days after that sanction ends
 public class SanctionEvidenceTests
 {
@@ -246,6 +260,27 @@ public class SanctionEvidenceTests
 			Assert.Equal(1, store.Puts);
 			Assert.Equal(2, await db.SanctionEvidence.CountAsync(e => e.ObjectKey == key));
 		}
+	}
+
+	// a shared copy the purge removed after the listing is counted missing, and no row is left pointing at nothing
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AHoldWhoseSharedCopyVanishedCountsItMissing(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		DateTime now = DateTime.UtcNow;
+		DateTime matchStart = now.AddDays(-100);
+		var store = new VanishingMatchDataStore();
+		string copy = "evidence/" + Folder(Player, matchStart).Substring("screenshots/".Length) + "screenshot_scorescreen_1_2.jpg";
+		store.Vanished.Add(copy);
+
+		await using AppDbContext db = probe.Open();
+		long sanctionID = await Seed(db, matchStart, new Sanction { UserID = Player, Type = SanctionTypes.Ban, CreatedAt = now });
+		EvidenceResult result = await SanctionEvidenceStore.HoldMatchScreenshots(db, store, sanctionID, MatchID, Staff, now);
+		Assert.Empty(result.Held);
+		Assert.Equal(1, result.Missing);
+		Assert.Equal(0, await db.SanctionEvidence.CountAsync());
 	}
 
 	// --match belongs to bans evidence only, and evidence takes no --days or --reason: each is refused, not ignored

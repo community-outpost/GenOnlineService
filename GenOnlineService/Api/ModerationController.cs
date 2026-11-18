@@ -171,10 +171,13 @@ namespace GenOnlineService.Api
 				SanctionTypes.Mute => Permissions.ModerationMute,
 				_ => Permissions.ModerationKick,
 			};
-			// a caller without the permission learns nothing about the sanction
+			// a caller without the permission learns nothing about the sanction: staff who may kick (and so ask about a missing
+			// id) get the same not_found for a sanction they may not give, other callers the forbidden of the kick permission
 			if (await RequirePermissionAsync(permission) is Failure denied)
 			{
-				return ApiResults.Fail(denied);
+				return await RequirePermissionAsync(Permissions.ModerationKick) == null
+					? ApiResults.Fail(Result.NotFound("sanction"))
+					: ApiResults.Fail(denied);
 			}
 
 			EvidenceResult result = await Database.SanctionEvidenceStore.HoldMatchScreenshots(db, S3CredentialManager.Store, sanctionID, matchID, SanctionActions.ApiActorOf(Me), DateTime.UtcNow);

@@ -58,6 +58,17 @@ namespace GenOnlineService.Identity
 		// "Deleted" and six digits: never a name a player owes or chose, and it spreads over many names so tags never run out
 		public static string TombstoneName() => "Deleted" + Random.Shared.Next(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
 
+		private static readonly string s_tombstoneKey = Names.NameKey.Of("Deleted");
+		private static readonly HashSet<string> s_digitKeys = Enumerable.Range(0, 10).Select(d => Names.NameKey.Of(d.ToString(CultureInfo.InvariantCulture))).ToHashSet(StringComparer.Ordinal);
+
+		// The shape of TombstoneName, look-alikes included (De1eted, OOOOOO), which no live player may take as a name
+		public static bool IsTombstoneShaped(string name)
+		{
+			return name.Length == 13
+				&& String.Equals(Names.NameKey.Of(name.Substring(0, 7)), s_tombstoneKey, StringComparison.Ordinal)
+				&& name.Substring(7).All(c => s_digitKeys.Contains(Names.NameKey.Of(c.ToString())));
+		}
+
 		public static async Task<ErasureResult> Erase(AppDbContext db, Int64 userID, Database.ModerationActor actor, string? reason, bool live, CancellationToken cancellationToken = default)
 		{
 			User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID, cancellationToken);
@@ -74,6 +85,20 @@ namespace GenOnlineService.Identity
 			bool banned = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, now).AnyAsync(s => s.UserID == userID, cancellationToken);
 
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+			// the erased_accounts row is claimed first: a second erasure running at the same time waits on its key and then
+			// fails on it, so only one erasure writes and audits
+			db.ErasedAccounts.Add(new ErasedAccount { UserID = userID, ErasedAt = now });
+			try
+			{
+				await db.SaveChangesAsync(cancellationToken);
+			}
+			catch (DbUpdateException)
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				db.ChangeTracker.Clear();
+				return new ErasureResult(true, true, false, 0);
+			}
 
 			// sign-ins, game sessions and personal tokens end first, as a password reset ends them
 			(int signIns, int tokens) = await UserResets.RevokeSignIns(db, userID, actor, Action);
@@ -96,7 +121,6 @@ namespace GenOnlineService.Identity
 			user.NameRequiredAt = null;
 			user.State = UserStates.Deactivated;
 			user.UpdatedAt = now;
-			db.ErasedAccounts.Add(new ErasedAccount { UserID = userID, ErasedAt = now });
 			await db.SaveChangesAsync(cancellationToken);
 			db.ChangeTracker.Clear();
 

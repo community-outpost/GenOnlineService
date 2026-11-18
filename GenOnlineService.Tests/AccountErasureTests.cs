@@ -189,4 +189,50 @@ public class AccountErasureTests
 			Assert.True(await db.Identities.AnyAsync(i => i.UserID == s.Other));
 		}
 	}
+
+	// two erasures of one account at the same time: one erases and audits, the other finds it already erased
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TwoErasuresAtOnceWriteOneAuditRow(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		Seeded s = await Seed(probe, banned: false);
+
+		async Task<ErasureResult> EraseOnce()
+		{
+			await using AppDbContext db = probe.Open();
+			return await AccountErasure.Erase(db, s.Erased, Operator, "request", live: false);
+		}
+		ErasureResult[] results = await Task.WhenAll(EraseOnce(), EraseOnce());
+
+		Assert.Single(results, r => !r.AlreadyErased);
+		Assert.Single(results, r => r.AlreadyErased);
+		await using AppDbContext check = probe.Open();
+		Assert.Equal(1, await check.AuditLog.CountAsync(a => a.Action == AccountErasure.Action));
+		Assert.Equal(1, await check.ErasedAccounts.CountAsync());
+		Assert.Null((await check.Users.SingleAsync(u => u.ID == s.Erased)).Email);
+	}
+
+	// a live player cannot take a name that reads as an erased account's, look-alikes included
+	[Theory]
+	[InlineData("Deleted123456", true)]
+	[InlineData("deleted000001", true)]
+	[InlineData("DELETED999999", true)]
+	[InlineData("De1eted123456", true)]
+	[InlineData("DeletedOOOOOO", true)]
+	[InlineData("Deleted12345", false)]
+	[InlineData("Deleted1234567", false)]
+	[InlineData("Deletedabcdef", false)]
+	[InlineData("Delete1234567", false)]
+	public void TombstoneShapedNamesAreRecognised(string name, bool shaped)
+	{
+		Assert.Equal(shaped, AccountErasure.IsTombstoneShaped(name));
+	}
+
+	[Fact]
+	public void ATombstoneShapedNameIsAReservedWord()
+	{
+		Assert.Equal("deleted", GenOnlineService.Realtime.ProfileActions.ReservedWordIn(AccountErasure.TombstoneName()));
+	}
 }

@@ -183,6 +183,13 @@ namespace Database
 					{
 						await store.PutAsync(target, screenshot, cancellationToken);
 					}
+					else if (await store.GetAsync(target, cancellationToken) == null)
+					{
+						// the purge deleted the shared copy between the listing and the row: nothing is left to hold
+						await db.SanctionEvidence.Where(e => e.ID == row.ID).ExecuteDeleteAsync(cancellationToken);
+						missing++;
+						continue;
+					}
 					alreadyHeld.Add(target);
 					held.Add(target);
 				}
@@ -196,7 +203,9 @@ namespace Database
 		}
 
 		// Deletes the copies whose sanctions ended more than 90 days ago or no longer exist. A copy another sanction still
-		// holds stays; the object goes before its row, so a failed delete is retried on the next run.
+		// holds stays: that is checked right before each delete, so a hold recorded while the purge runs keeps its copy (and a
+		// hold that finds its shared copy gone counts it missing). The object goes before its row, so a failed delete is
+		// retried on the next run.
 		public static async Task<int> PurgeExpired(AppDbContext db, IMatchDataStore? store, DateTime utcNow, CancellationToken cancellationToken = default)
 		{
 			DateTime cutoff = utcNow - HoldAfterEnd;
@@ -220,18 +229,13 @@ namespace Database
 				return 0;
 			}
 
-			List<string> keys = expired.Select(e => e.ObjectKey).Distinct().ToList();
-			HashSet<string> stillHeld = (await db.SanctionEvidence.AsNoTracking()
-				.Where(e => keys.Contains(e.ObjectKey) && holding.Contains(e.SanctionID))
-				.Select(e => e.ObjectKey)
-				.ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
-
 			int removed = 0;
 			foreach (IGrouping<string, SanctionEvidence> rows in expired.GroupBy(e => e.ObjectKey))
 			{
-				if (!stillHeld.Contains(rows.Key))
+				string key = rows.Key;
+				if (!await db.SanctionEvidence.AsNoTracking().AnyAsync(e => e.ObjectKey == key && holding.Contains(e.SanctionID), cancellationToken))
 				{
-					await store.DeleteAsync(rows.Key, cancellationToken);
+					await store.DeleteAsync(key, cancellationToken);
 				}
 
 				List<Int64> ids = rows.Select(r => r.ID).ToList();

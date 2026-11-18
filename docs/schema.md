@@ -112,7 +112,8 @@ sanction_evidence         -- retention: the row and its object go 90 days after 
   unique (sanction_id, object_key), index (object_key)
   -- a screenshot a sanction relies on: screenshots/ objects expire after 90 days (filer TTL), so staff copy the
   -- sanctioned player's screenshots of a match to evidence/<same key> (no TTL, the service deletes it). The copy is a GET
-  -- then PUT of the bytes, never an S3 CopyObject, which may carry the source's TTL. No foreign key, like the other
+  -- then PUT of the bytes, never an S3 CopyObject, which may carry the source's TTL. A copy another sanction made is
+  -- shared; the purge checks right before each delete that no holding sanction still has the key. No foreign key, like the other
   -- moderation tables
                           -- source: where the action came in, for example 'api' (REST), 'realtime' (hub), 'discord', 'cli', 'import', 'startup_sweep'
 ```
