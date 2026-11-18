@@ -284,6 +284,11 @@ namespace GenOnlineService.Realtime
 
 			return ChangeLobbyAsync(hostOnly: true, resetsReady: changes, async (lobby, member) =>
 			{
+				if (RealtimeLobbies.RefuseQuickMatchSettings(lobby, request) is Failure locked)
+				{
+					await ReportQuickMatchRuleAsync(lobby, nameof(UpdateLobby), []);
+					return locked;
+				}
 				if (request.Map != null || request.Settings?.StartingCash != null || request.Settings?.LimitSuperweapons != null)
 				{
 					// map and settings changes also store the host's favorites
