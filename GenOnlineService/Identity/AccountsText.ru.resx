@@ -662,6 +662,14 @@
   <data name="SignIn.Heading" xml:space="preserve">
     <value>Вход в Generals Online</value>
   </data>
+  <data name="SignIn.WithEmail" xml:space="preserve">
+    <value>Войти по электронной почте</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="SignIn.OtherWay" xml:space="preserve">
+    <value>Войти другим способом</value>
+    <comment>needs native review</comment>
+  </data>
   <data name="SignIn.Or" xml:space="preserve">
     <value>или</value>
   </data>

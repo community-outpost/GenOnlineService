@@ -662,6 +662,14 @@
   <data name="SignIn.Heading" xml:space="preserve">
     <value>تسجيل الدخول إلى Generals Online</value>
   </data>
+  <data name="SignIn.WithEmail" xml:space="preserve">
+    <value>تسجيل الدخول بالبريد الإلكتروني</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="SignIn.OtherWay" xml:space="preserve">
+    <value>تسجيل الدخول بطريقة أخرى</value>
+    <comment>needs native review</comment>
+  </data>
   <data name="SignIn.Or" xml:space="preserve">
     <value>أو</value>
   </data>

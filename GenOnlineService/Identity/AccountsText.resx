@@ -609,6 +609,12 @@
   <data name="SignIn.Heading" xml:space="preserve">
     <value>Sign in to Generals Online</value>
   </data>
+  <data name="SignIn.WithEmail" xml:space="preserve">
+    <value>Sign in with email</value>
+  </data>
+  <data name="SignIn.OtherWay" xml:space="preserve">
+    <value>Use another way to sign in</value>
+  </data>
   <data name="SignIn.Or" xml:space="preserve">
     <value>or</value>
   </data>
