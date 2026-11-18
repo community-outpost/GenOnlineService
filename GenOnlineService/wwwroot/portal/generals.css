@@ -75,7 +75,7 @@ html.dark {
 
 /* touch targets of at least 44px on a phone or any coarse pointer */
 @media (pointer: coarse), (max-width: 47.99rem) {
-  .dark button:not([role="switch"]),
+  .dark button:not([role="switch"]):not(.go-motd-swatch),
   .dark [role="tab"],
   .dark [role="menuitem"],
   .dark [data-sidebar="menu-button"],
@@ -86,7 +86,7 @@ html.dark {
     min-height: 44px;
   }
 
-  .dark button[aria-label],
+  .dark button[aria-label]:not(.go-motd-swatch),
   .dark [data-sidebar="trigger"] {
     min-width: 44px;
   }
@@ -1688,6 +1688,189 @@ a.go-list-item:hover {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* the message of the day: a full-width monospace editor with a colour swatch in the margin of every line */
+.go-motd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-3);
+}
+
+.go-motd-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+}
+
+.go-motd-title {
+  margin: 0;
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-lg);
+  font-weight: var(--go-font-weight-bold);
+  color: var(--go-color-text-primary);
+}
+
+.go-motd-hint,
+.go-motd-count {
+  max-width: 80ch;
+  margin: 0;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-motd-count {
+  font-size: var(--go-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the gutter and the text share one line height, so each swatch sits beside its line; the text never wraps */
+.go-motd-editor {
+  --motd-line: 20px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.go-motd-editor:focus-within {
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
+}
+
+.go-motd-gutter {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: var(--go-space-8);
+  padding: var(--go-space-3) 0;
+  border-inline-end: 1px solid var(--go-color-border-default);
+}
+
+.dark .go-motd-gutter button.go-motd-swatch[class] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  min-width: 0;
+  margin-block: 3px;
+  padding: 0;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-sm);
+  background: var(--swatch);
+  cursor: pointer;
+}
+
+.dark .go-motd-gutter button.go-motd-swatch[class]:hover,
+.dark .go-motd-gutter button.go-motd-swatch[class][aria-expanded="true"] {
+  background: var(--swatch);
+  border-color: var(--go-color-text-primary);
+}
+
+.dark .go-motd-text {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: var(--go-space-3);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-sm);
+  line-height: var(--motd-line);
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+  resize: none;
+}
+
+.dark .go-motd-text:focus {
+  outline: 0;
+}
+
+.go-motd-chip {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-sm);
+  background: var(--swatch);
+}
+
+.go-motd-code {
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-xs);
+}
+
+.go-motd-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-3);
+}
+
+.dark .go-motd-picker {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 2px;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.go-motd-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-status-danger-text);
+}
+
+.go-motd-warnings li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--go-space-2);
+}
+
+.go-motd-warnings svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--go-color-status-danger);
+}
+
+/* the game's welcome list box: 488 by 208 pixels at 800 by 600, Arial 10, a dark box with a thin frame */
+.go-motd-game {
+  width: 488px;
+  max-width: 100%;
+  height: 208px;
+  padding: var(--go-space-2) var(--go-space-3);
+  overflow-y: auto;
+  border: 1px solid var(--go-color-border-control);
+  background: var(--go-color-bg-topbar);
+  font-family: Arial, "Liberation Sans", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.go-motd-line {
+  min-height: 16px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.go-motd-empty {
+  margin: 0;
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
 }
 
 /* The agreement pages (S19): a rule card's items, and the Terms tick box */

@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Identity;
+using GenOnlineService.Portal.Client;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Text.Json;
@@ -436,5 +437,67 @@ public class PortalLookTests
 		Assert.Contains("class=\"gp-card gp-card-wizard\"", welcome.Body);
 		Assert.Contains("<ol class=\"gp-steps\"", welcome.Body);
 		AssertPage(welcome);
+	}
+}
+
+// The message of the day editor reads each line as WOLWelcomeMenu.cpp in the game does: the colour prefix, the double
+// backslash, the trim, the blank line and the cut of a prefix that is no colour code
+public class PortalMotdTests
+{
+	[Fact]
+	public void AColourPrefixColoursTheWholeLineAndIsStripped()
+	{
+		PortalMotdLine line = PortalMotd.ParseLine(@"\ffff7f2fTournament tonight");
+		Assert.Equal("Tournament tonight", line.Text);
+		Assert.Equal((255, 255, 127, 47), ((int)line.Alpha, (int)line.Red, (int)line.Green, (int)line.Blue));
+		Assert.Equal("ffff7f2f", line.Code);
+		Assert.Equal(PortalMotdProblem.None, line.Problem);
+		Assert.Equal("rgb(255 0 0 / 1)", PortalMotd.ParseLine(@"\FFFF0000Red").Css);
+	}
+
+	[Fact]
+	public void TwoBackslashesShowOneAndLinesAreTrimmed()
+	{
+		PortalMotdLine escaped = PortalMotd.ParseLine(@"  \\ffff0000 is how red starts  ");
+		Assert.Equal(@"\ffff0000 is how red starts", escaped.Text);
+		Assert.Null(escaped.Code);
+		Assert.Equal((255, 255, 255, 255), ((int)escaped.Alpha, (int)escaped.Red, (int)escaped.Green, (int)escaped.Blue));
+		Assert.Equal("Welcome", PortalMotd.ParseLine("\tWelcome \r").Text);
+	}
+
+	[Fact]
+	public void AnEmptyLineIsABlankRowAndCountsFillIn()
+	{
+		IReadOnlyList<PortalMotdLine> lines = PortalMotd.Parse("{0} players online\r\n\r\n   \nBye", 1234);
+		Assert.Equal(new[] { "1234 players online", " ", " ", "Bye" }, lines.Select(l => l.Text));
+		Assert.Empty(PortalMotd.Parse("", 1));
+		// the same format rule as the service, a broken template kept as it is
+		foreach (string template in new[] { "{0} online", "braces {{ kept }}", "broken {1", "plain" })
+		{
+			Assert.Equal(GenOnlineService.Rest.ConfigSources.FormatMotd(template, 7), PortalMotd.Fill(template, 7));
+		}
+	}
+
+	[Fact]
+	public void APrefixThatIsNoColourCodeIsCutAndWarned()
+	{
+		PortalMotdLine invalid = PortalMotd.ParseLine(@"\Welcome to Generals Online");
+		Assert.Equal(PortalMotdProblem.InvalidCode, invalid.Problem);
+		Assert.Equal("to Generals Online", invalid.Text);
+		Assert.Null(invalid.Code);
+		PortalMotdLine bare = PortalMotd.ParseLine(@"\ffff0000");
+		Assert.Equal(PortalMotdProblem.CodeWithoutText, bare.Problem);
+		Assert.Equal(@"\ffff0000", bare.Text);
+	}
+
+	[Fact]
+	public void TheEditorWritesAndRemovesThePrefix()
+	{
+		Assert.Equal(@"\ffff7f2fNews", PortalMotd.WithCode("News", "FFFF7F2F"));
+		Assert.Equal(@"\ffff0000News", PortalMotd.WithCode(@"\ffff7f2fNews", "ffff0000"));
+		Assert.Equal("News", PortalMotd.WithCode(@"\ffff7f2fNews", null));
+		Assert.Equal(@"\\path", PortalMotd.WithCode(@"\ffff7f2f\path", null));
+		Assert.Equal(@"\ffff7f2f\path", PortalMotd.WithCode(@"\\path", "ffff7f2f"));
+		Assert.Equal(new[] { "ffff7f2f", "ffff0000" }, PortalMotd.CodesOf("\\ffff7f2fA\nB\n\\FFFF0000C\n\\ffff7f2fD"));
 	}
 }
