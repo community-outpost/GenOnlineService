@@ -1312,6 +1312,8 @@ a.go-list-item:hover {
 .gp-cover { object-fit: cover; object-position: 50% 30%; filter: grayscale(1); opacity: 0.45; }
 .gp-vignette { background: radial-gradient(ellipse at 50% 45%, rgb(11 17 20 / 0.55) 0%, rgb(11 17 20 / 0.94) 70%); }
 .gp-main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: var(--go-space-6); padding: 56px var(--go-space-6) var(--go-space-8); }
+/* the logo, title and card sit centred in the space above the footer (both take an auto margin) */
+.gp-main > :first-child { margin-top: auto; }
 .gp-logo { display: block; }
 .gp-logo img { display: block; height: 64px; width: auto; }
 .gp-title { margin: 0; font-family: var(--go-font-display); font-weight: var(--go-font-weight-bold); font-size: var(--go-font-size-xl); line-height: 1.2; color: var(--go-color-text-primary); }
@@ -1381,7 +1383,7 @@ select.gp-input { width: auto; min-width: 240px; }
 .gp-actions-pinned .gp-btn-primary { flex: 1; }
 
 /* provider buttons: one 44px frame in an equal grid, each in its brand's own colours */
-.gp-providers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.gp-providers { display: flex; flex-direction: column; gap: 10px; }
 .gp-prov { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--go-radius-md); font-family: var(--go-font-body); font-weight: var(--go-font-weight-semibold); font-size: 15px; line-height: 1.2; text-align: center; text-decoration: none; }
 .gp .gp-prov:hover { filter: brightness(1.12); }
 .gp-prov svg, .gp-prov img { flex: none; width: 20px; height: 20px; }
@@ -1493,7 +1495,6 @@ select.gp-input { width: auto; min-width: 240px; }
   .gp-main { padding-inline: var(--go-space-4); padding-top: var(--go-space-8); }
   .gp-card, .gp-card-icon, .gp-card-wizard { padding: var(--go-space-4); }
   .gp-card-wizard { min-height: 0; }
-  .gp-providers { grid-template-columns: minmax(0, 1fr); }
   .gp-actions-pinned { flex-wrap: wrap; }
   select.gp-input { width: 100%; }
 }
