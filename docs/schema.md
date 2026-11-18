@@ -53,7 +53,7 @@ users
   name_key                varchar(255)           -- the plugin's look-alike key (NameKey); unique (name_key, name_tag), utf8mb4_bin on MySQL
   email                   varchar(254) null
   email_normalized        varchar(254) null unique
-  email_confirmed_at      timestamp null
+  email_confirmed_at      timestamp null         -- the address is confirmed (mail link); password accounts that existed before T4c got created_at (PasswordAccountsConfirmed)
   password_hash           varchar(255) null      -- null without local passwords
   security_stamp          varchar(64)
   authenticator_key       varchar(512) null      -- TOTP key, encrypted with Data Protection; null without an authenticator app
