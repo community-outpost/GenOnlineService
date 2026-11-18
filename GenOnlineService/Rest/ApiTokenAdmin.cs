@@ -333,13 +333,20 @@ namespace GenOnlineService.Rest
 				: ApiTokenOwner.User(token.OwnerUserID!.Value);
 		}
 
-		// Same scopes and allow-list, the old token stops after the overlap; a null expiry keeps the old lifetime
-		public static async Task<(ApiToken Token, string Secret)> Rotate(AppDbContext db, ApiTokenSettings settings, ApiTokenActor actor, ApiToken old, Func<int> readOverlap, Func<DateTime?> readExpiresAt)
+		// Same scopes and allow-list, the old token stops after the overlap; a null expiry keeps the old lifetime. A token with
+		// a privileged scope is rotated only from the host, as it is minted
+		public static async Task<(ApiToken Token, string Secret)> Rotate(AppDbContext db, ApiTokenSettings settings, ApiTokenActor actor, ApiToken old, Func<int> readOverlap, Func<DateTime?> readExpiresAt, bool bFromHost)
 		{
 			DateTime now = DateTime.UtcNow;
 			if (old.ExpiresAt <= now || old.RevokedAt != null)
 			{
 				throw new ApiTokenAdminException($"Token {old.ID} is revoked, expired or already rotated; rotate its replacement or create a new one.", Result.Fail(RestCodes.Conflict));
+			}
+
+			string? privileged = bFromHost ? null : ApiTokenFormat.ParseScopes(old.Scopes).FirstOrDefault(Permissions.IsPrivileged);
+			if (privileged != null)
+			{
+				throw Forbidden(privileged, $"{privileged} is privileged; tokens carrying it are rotated through the CLI on the host.");
 			}
 
 			int overlap = readOverlap();

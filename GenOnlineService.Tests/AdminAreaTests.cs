@@ -103,6 +103,9 @@ internal sealed class AdminBrowser
 
 	public AccountsSettings Settings { get; }
 
+	// The client address of every request, as the proxy or Kestrel reports it; null as a bare in-process request
+	public IPAddress? RemoteAddress { get; set; }
+
 	// The clients of the settings, written as Program seeds them at start
 	public Task SeedClients() => AccountsSetup.SeedClients(m_services, Settings);
 
@@ -123,6 +126,7 @@ internal sealed class AdminBrowser
 		context.Request.Method = method;
 		context.Request.Scheme = "http";
 		context.Request.Host = new HostString(Host);
+		context.Connection.RemoteIpAddress = RemoteAddress;
 		int query = pathAndQuery.IndexOf('?');
 		context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery.Substring(0, query);
 		context.Request.QueryString = query < 0 ? QueryString.Empty : new QueryString(pathAndQuery.Substring(query));

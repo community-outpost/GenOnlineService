@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Rest;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using System.Text.Json;
@@ -377,6 +378,100 @@ public class PartnerTokensCookieTests
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
+		(AdminBrowser admin, User chief, Dictionary<string, string> bearer) = await AppSessionAsync(probe);
+
+		// the access token is signed with this browser's ephemeral keys, so the same pipeline reads it; any bearer value
+		// keeps the bearer path even next to the sign-in cookie
+		AdminBrowser api = admin;
+		PageResponse created = await api.SendJson("POST", "/api/v1/service_accounts", new { name = "partner" }, bearer);
+		Assert.Equal(201, created.Status);
+		// the earlier fields keep their names and values; active_tokens and last_token_used_at are added
+		Assert.Equal(["id", "name", "description", "created_at", "disabled_at", "permissions", "active_tokens", "last_token_used_at"], Json(created).EnumerateObject().Select(p => p.Name));
+		Assert.Equal((JsonValueKind.Null, 0, JsonValueKind.Null), (Json(created).GetProperty("description").ValueKind, Json(created).GetProperty("active_tokens").GetInt32(), Json(created).GetProperty("last_token_used_at").ValueKind));
+		Assert.Equal(200, (await api.Get("/api/v1/service_accounts", bearer)).Status);
+		Assert.Equal(200, (await api.Get("/api/v1/personal_access_tokens", bearer)).Status);
+		PageResponse mine = await api.SendJson("POST", "/api/v1/personal_access_tokens", new { name = "mine", scopes = new[] { "moderation.kick" }, expires_at = InDays(30) }, bearer);
+		Assert.Equal(201, mine.Status);
+		Assert.Equal(["id", "name", "scopes", "created_at", "expires_at", "last_used_at", "last_used_ip", "revoked_at", "token_last4", "allowed_ips", "token"], Json(mine).EnumerateObject().Select(p => p.Name));
+		Assert.Empty(Json(mine).GetProperty("allowed_ips").EnumerateArray());
+		JsonElement listed = Assert.Single(Json(await api.Get("/api/v1/personal_access_tokens", bearer)).GetProperty("personal_access_tokens").EnumerateArray());
+		Assert.Equal(["id", "name", "scopes", "created_at", "expires_at", "last_used_at", "last_used_ip", "revoked_at", "token_last4", "allowed_ips"], listed.EnumerateObject().Select(p => p.Name));
+		Assert.Equal(204, (await api.SendJson("DELETE", $"/api/v1/personal_access_tokens/{Json(mine).GetProperty("id").GetInt64()}", s_empty, bearer)).Status);
+		Assert.Equal(AuditActorKinds.User, (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Single().ActorKind);
+		Assert.Equal(chief.ID, (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Single().ActorID);
+	}
+
+	// A privileged token rotates on the host only: REST refuses it before any write, and revoking it stays allowed
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task APrivilegedTokenRotatesOnlyOnTheHost(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _, Dictionary<string, string> bearer) = await AppSessionAsync(probe);
+		Dictionary<string, string> csrf = await admin.Csrf();
+		long id = Json(await admin.SendJson("POST", "/api/v1/service_accounts", new { name = "operator" }, csrf)).GetProperty("id").GetInt64();
+
+		// as the CLI mints it: a privileged token needs an allow-list
+		string secret = ApiTokenFormat.Generate();
+		long tokenID;
+		await using (AppDbContext db = probe.Open())
+		{
+			db.ServiceAccountPermissions.Add(new ServiceAccountPermission { ServiceAccountID = id, Permission = Permissions.OpsDatabase, GrantedBy = "cli:test", GrantedAt = DateTime.UtcNow });
+			var token = new ApiToken
+			{
+				OwnerServiceID = id, Name = "ops", TokenHash = ApiTokenFormat.Hash(secret), TokenLast4 = ApiTokenFormat.Last4(secret),
+				Scopes = Permissions.OpsDatabase, AllowedIPs = "203.0.113.4/32", CreatedBy = "cli:test", CreatedAt = DateTime.UtcNow, ExpiresAt = DateTime.UtcNow.AddDays(10)
+			};
+			db.ApiTokens.Add(token);
+			await db.SaveChangesAsync();
+			tokenID = token.ID;
+			await ApiTokenCache.Reload(db);
+		}
+		string rotate = $"/api/v1/service_accounts/{id}/personal_access_tokens/{tokenID}/rotate";
+
+		foreach (PageResponse refused in new[]
+		{
+			await admin.SendJson("POST", rotate, s_empty, csrf),
+			await admin.SendJson("POST", rotate + "?overlap_minutes=60", s_empty, bearer)
+		})
+		{
+			Assert.Equal(403, refused.Status);
+			Assert.Equal(("forbidden", Permissions.OpsDatabase), (AdminArea.ErrorOf(refused), Json(refused).GetProperty("params").GetProperty("permission").GetString()));
+			Assert.DoesNotContain("gopat-", refused.Body);
+		}
+
+		await using (AppDbContext db = probe.Open())
+		{
+			ApiToken kept = await db.ApiTokens.AsNoTracking().SingleAsync();
+			Assert.Equal((tokenID, (DateTime?)null), (kept.ID, kept.RevokedAt));
+			Assert.DoesNotContain(await db.AuditLog.Select(e => e.Action).ToListAsync(), a => a == "token_rotate");
+		}
+		// the old token still authenticates from its allowed address: 403 for a permission it lacks, not 401
+		Assert.Equal(403, (await new AdminBrowser(probe) { RemoteAddress = System.Net.IPAddress.Parse("203.0.113.4") }.Get("/api/v1/matches/999999", Bearer(secret))).Status);
+
+		// the CLI's shared helper still rotates it
+		await using (AppDbContext db = probe.Open())
+		{
+			ApiToken old = await db.ApiTokens.AsTracking().SingleAsync(t => t.ID == tokenID);
+			(ApiToken rotated, string fresh) = await ApiTokenAdmin.Rotate(db, new ApiTokenSettings(), ApiTokenActor.Cli(), old, () => 0, () => null, bFromHost: true);
+			Assert.Equal(Permissions.OpsDatabase, rotated.Scopes);
+			Assert.StartsWith("gopat-", fresh);
+			Assert.Equal("token_rotate", (await db.AuditLog.AsNoTracking().OrderBy(e => e.ID).LastAsync()).Action);
+		}
+
+		// revoking the replacement over REST de-escalates, so it stays allowed
+		long replacement;
+		await using (AppDbContext db = probe.Open())
+		{
+			replacement = await db.ApiTokens.Where(t => t.RevokedAt == null).Select(t => t.ID).SingleAsync();
+		}
+		Assert.Equal(204, (await admin.SendJson("DELETE", $"/api/v1/service_accounts/{id}/personal_access_tokens/{replacement}", s_empty, csrf)).Status);
+	}
+
+	// A staff admin signed in with a registered app client: its browser and the bearer value of its session
+	private static async Task<(AdminBrowser Admin, User User, Dictionary<string, string> Bearer)> AppSessionAsync(ProbeDatabase probe)
+	{
 		(AdminBrowser admin, User chief) = await StaffAsync(probe, "Chief", StaffRoles.Admin,
 			("Accounts:clients:0:client_id", "partner_portal"),
 			("Accounts:clients:0:display_name", "Partner portal"),
@@ -400,26 +495,6 @@ public class PartnerTokensCookieTests
 			["client_id"] = "partner_portal", ["code_verifier"] = verifier
 		});
 		Assert.Equal(200, issued.Status);
-		Dictionary<string, string> bearer = Bearer(Json(issued).GetProperty("access_token").GetString()!);
-
-		// the access token is signed with this browser's ephemeral keys, so the same pipeline reads it; any bearer value
-		// keeps the bearer path even next to the sign-in cookie
-		AdminBrowser api = admin;
-		PageResponse created = await api.SendJson("POST", "/api/v1/service_accounts", new { name = "partner" }, bearer);
-		Assert.Equal(201, created.Status);
-		// the earlier fields keep their names and values; active_tokens and last_token_used_at are added
-		Assert.Equal(["id", "name", "description", "created_at", "disabled_at", "permissions", "active_tokens", "last_token_used_at"], Json(created).EnumerateObject().Select(p => p.Name));
-		Assert.Equal((JsonValueKind.Null, 0, JsonValueKind.Null), (Json(created).GetProperty("description").ValueKind, Json(created).GetProperty("active_tokens").GetInt32(), Json(created).GetProperty("last_token_used_at").ValueKind));
-		Assert.Equal(200, (await api.Get("/api/v1/service_accounts", bearer)).Status);
-		Assert.Equal(200, (await api.Get("/api/v1/personal_access_tokens", bearer)).Status);
-		PageResponse mine = await api.SendJson("POST", "/api/v1/personal_access_tokens", new { name = "mine", scopes = new[] { "moderation.kick" }, expires_at = InDays(30) }, bearer);
-		Assert.Equal(201, mine.Status);
-		Assert.Equal(["id", "name", "scopes", "created_at", "expires_at", "last_used_at", "last_used_ip", "revoked_at", "token_last4", "allowed_ips", "token"], Json(mine).EnumerateObject().Select(p => p.Name));
-		Assert.Empty(Json(mine).GetProperty("allowed_ips").EnumerateArray());
-		JsonElement listed = Assert.Single(Json(await api.Get("/api/v1/personal_access_tokens", bearer)).GetProperty("personal_access_tokens").EnumerateArray());
-		Assert.Equal(["id", "name", "scopes", "created_at", "expires_at", "last_used_at", "last_used_ip", "revoked_at", "token_last4", "allowed_ips"], listed.EnumerateObject().Select(p => p.Name));
-		Assert.Equal(204, (await api.SendJson("DELETE", $"/api/v1/personal_access_tokens/{Json(mine).GetProperty("id").GetInt64()}", s_empty, bearer)).Status);
-		Assert.Equal(AuditActorKinds.User, (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Single().ActorKind);
-		Assert.Equal(chief.ID, (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Single().ActorID);
+		return (admin, chief, Bearer(Json(issued).GetProperty("access_token").GetString()!));
 	}
 }

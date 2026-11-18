@@ -65,8 +65,8 @@ The management routes need a web session (never a game session or a `gopat-` tok
 | `GET /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | one account with its permissions; `not_found {what: service_account}` |
 | `PATCH /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | `{description?, grants?: {add?, remove?}, disabled?}`; privileged grants stay CLI only; a changed description writes `sa_update {name, old_description, description}`, an empty one clears it |
 | `GET /api/v1/service_accounts/:id/personal_access_tokens`, `POST` | web session, `tokens.manage`; cookie | the account's tokens; mint (201) |
-| `POST /api/v1/service_accounts/:id/personal_access_tokens/:token_id/rotate?overlap_minutes=&expires_at=` | web session, `tokens.manage`; cookie | 201 with the new secret, as the personal token rotate; a token of another owner `not_found {what: token}` |
-| `DELETE /api/v1/service_accounts/:id/personal_access_tokens/:token_id` | web session, `tokens.manage`; cookie | 204, `token_revoke` in the audit log; a token of another owner `not_found {what: token}` |
+| `POST /api/v1/service_accounts/:id/personal_access_tokens/:token_id/rotate?overlap_minutes=&expires_at=` | web session, `tokens.manage`; cookie | 201 with the new secret, as the personal token rotate; a token of another owner `not_found {what: token}`; a token with a privileged scope rotates through the CLI only (`forbidden {permission}`, nothing changes) |
+| `DELETE /api/v1/service_accounts/:id/personal_access_tokens/:token_id` | web session, `tokens.manage`; cookie | 204, `token_revoke` in the audit log, privileged tokens included; a token of another owner `not_found {what: token}` |
 
 ## Administration
 

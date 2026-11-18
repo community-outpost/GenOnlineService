@@ -217,11 +217,11 @@ The CLI and the routes below share one implementation (`Rest/ApiTokenAdmin.cs`),
 - Caller must be a staff web session: a session of a registered `app` client, or on the service account routes the staff pages' sign-in cookie under the cookie rules of `docs/api.md` (antiforgery header on changes, own origin only, two-factor sign-in set up); never a game, launcher or chat client session, never a `gopat-` token. Any other caller gets `forbidden {permission: "tokens.manage"}`. A web session without any staff permission gets `forbidden {}` on the personal token routes, except `DELETE`, so a user who lost a role can still revoke their own tokens.
 - A caller only sees and changes their own personal tokens; another owner's token id answers `not_found {what: "token"}`, as does a token id of another owner under `/service_accounts/:id`. `/self` answers `not_found {what: "token"}` to a session.
 - The create body is `{name, scopes: [permission], expires_at, allowed_ips?: [cidr]}`; `expires_at` is an ISO 8601 date (midnight UTC) or a UTC timestamp.
-- Privileged permissions are refused: grant and mint them through the CLI (`forbidden {permission}`). Removing a privileged grant is allowed.
+- Privileged permissions are refused: grant, mint and rotate them through the CLI (`forbidden {permission}`). Removing a privileged grant and revoking a privileged token are allowed.
 - Granting a human permission to a service account requires the caller to hold it (`forbidden {permission}`).
 - Personal tokens: scopes must be human permissions the caller holds (`forbidden {permission}`); an unknown scope is `invalid_argument {field: "scopes"}`.
 - Failures: `invalid_argument {field}` (`name`, `description`, `scopes`, `grants`, `expires_at`, `allowed_ips`, `overlap_minutes`), `token.limit_reached {max}` (422), `conflict` (409: a service account name in use, or rotating a revoked, expired or already rotated token), `not_found {what}` (`token`, `service_account`).
-- Tokens of a service account are rotated and revoked through the CLI or the service account routes; a token carrying a privileged permission is minted only through the CLI, and rotating one keeps its scopes.
+- Tokens of a service account are rotated and revoked through the CLI or the service account routes. A token carrying a privileged permission is minted and rotated only through the CLI: a REST rotate of one answers `forbidden {permission}` and changes nothing. Revoking one over REST is allowed, it only takes access away.
 
 ### Staff pages
 
@@ -229,7 +229,7 @@ Staff with `tokens.manage` manage partners at `/admin/partners` (S1: partner API
 
 - The partner list shows each service account's description, status, permissions, active tokens and last token use, as the host counts them (`active_tokens`, `last_token_used_at`). "New partner" creates the account and grants the chosen machine permissions (`match_history.read`, `lobbies.read`).
 - A partner's page edits its description, disables and enables it, grants and removes non-privileged machine permissions (privileged ones show as CLI only), and lists its tokens with scopes, status, allowed addresses (`allowed_ips`), creation, expiry and last use.
-- "New token" takes a name, scopes from the partner's non-privileged permissions, an expiry (90 days by default, at most `ApiTokens:max_lifetime_days`) and optional allowed addresses. The secret of a new or rotated token shows once, with a copy button and a warning; rotate (with an overlap of none, 1 hour or 24 hours) and revoke ask first.
+- "New token" takes a name, scopes from the partner's non-privileged permissions, an expiry (90 days by default, at most `ApiTokens:max_lifetime_days`) and optional allowed addresses. The secret of a new or rotated token shows once, with a copy button and a warning; rotate (with an overlap of none, 1 hour or 24 hours) and revoke ask first. A token with a privileged scope shows rotate as CLI only; it can still be revoked.
 
 ### Rules for both
 
