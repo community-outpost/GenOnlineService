@@ -5,13 +5,8 @@
    it wins over blazorblueprint.css and the design's theme.css, which are. The components restyle through the theme's
    variables and the rules below, and the go-* classes cover only what no component or prebuilt bb: utility does. */
 
-/* The Blueprint knobs that the design's theme.css leaves at Blueprint's defaults, set to the design's values, and three
-   short names the staff rules below use for the tokens */
+/* The Blueprint knobs that the design's theme.css leaves at Blueprint's defaults, set to the design's values */
 .dark {
-  --go-gold: var(--go-color-accent-default);
-  --go-text-2: var(--go-color-text-secondary);
-  --go-text-3: var(--go-color-text-muted);
-
   --bb-radius-xs: var(--go-radius-sm);
   --bb-radius-xl: var(--go-radius-md);
   --sidebar-menu-button-radius: var(--go-radius-md);
@@ -40,12 +35,6 @@ html.dark {
 /* the round pieces of the components (avatars, skeletons, timeline marks) square like everything else */
 .dark [class~="bb:rounded-full"] {
   border-radius: var(--radius);
-}
-
-/* dialog titles and empty-state titles at normal weight: Swiss headings are never bold */
-.dark [role="dialog"] h2,
-.dark [role="alertdialog"] h2 {
-  font-weight: 400;
 }
 
 /* explanatory copy no wider than 60 characters */
@@ -80,8 +69,8 @@ html.dark {
 
 .go-skip:focus-visible {
   transform: none;
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
 }
 
 /* touch targets of at least 44px on a phone or any coarse pointer */
@@ -126,434 +115,6 @@ html.dark {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
-}
-
-/* ===== The sign-in pages: login-02's split, the form beside the cover ===== */
-
-.go-split {
-  display: grid;
-  min-height: 100vh;
-}
-
-@media (min-width: 64rem) {
-  .go-split {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.go-main {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 6.5rem 1rem 2rem;
-}
-
-/* Generals Online's logo, top left of the form column (top right when the page reads right to left) */
-.go-logo {
-  position: absolute;
-  top: 2rem;
-  inset-inline-start: 1rem;
-  display: block;
-}
-
-@media (min-width: 48rem) {
-  .go-logo {
-    inset-inline-start: 2rem;
-  }
-}
-
-.go-logo > img {
-  display: block;
-  height: 2.5rem;
-  width: auto;
-}
-
-/* the cover: the box art without its colours under a flat veil, so the accent stays the only hue. The grey, the darkening
-   and the veil are baked into poster.webp; the page sets --go-poster to its fingerprinted address (PortalLook.Document) */
-.go-cover {
-  display: none;
-  position: relative;
-  overflow: hidden;
-  border-inline-start: 1px solid var(--border);
-  background-color: var(--background);
-  background-image: var(--go-poster);
-  background-size: cover;
-  background-position: center;
-}
-
-@media (min-width: 64rem) {
-  .go-main {
-    padding: 2rem;
-  }
-
-  .go-cover {
-    display: block;
-  }
-}
-
-/* the language switch: each language in its own words, the current one in gold; under the form, or in the top bar */
-.go-languages {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.25rem 1rem;
-  font-size: 0.8125rem;
-}
-
-.go-language {
-  color: var(--go-text-2);
-  text-underline-offset: 4px;
-}
-
-.go-language:hover {
-  color: var(--foreground);
-  text-decoration: underline;
-}
-
-.go-language[aria-current="true"] {
-  color: var(--go-gold);
-  font-weight: 500;
-}
-
-@media (pointer: coarse), (max-width: 47.99rem) {
-  .go-language {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-  }
-}
-
-/* an arrow points the way the text reads: mirrored on a right-to-left page */
-[dir="rtl"] .go-directional {
-  transform: scaleX(-1);
-}
-
-/* a page title: light, tight, as the Swiss H2 */
-.go-heading {
-  font-size: 2rem;
-  font-weight: 300;
-  line-height: 2.5rem;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
-}
-
-/* a form's fields and button, on the 8px grid */
-.go-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* a label and its field */
-.go-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.go-field > label {
-  color: var(--go-text-2);
-}
-
-/* an icon inside the start edge of a field: the left, or the right when the page reads right to left */
-.go-field-icon {
-  position: absolute;
-  top: 50%;
-  inset-inline-start: 0.75rem;
-  display: flex;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.go-iconed {
-  padding-inline-start: 2.25rem;
-}
-
-/* login-02's "Or continue with": a caption on the rule */
-.go-or {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.go-or > div {
-  position: absolute;
-  inset: 50% 0 auto 0;
-}
-
-.go-or > span {
-  position: relative;
-  padding: 0 0.5rem;
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-2);
-  background: var(--background);
-}
-
-/* the providers full width, one under another, as login-02 */
-.go-providers {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-/* a provider button: its mark a little further from its name */
-.go-provider {
-  gap: 0.5rem;
-}
-
-/* each provider in its brand's colours, the one place another hue appears: Discord blurple, Steam's dark navy,
-   Google's dark-theme button and GameReplays' blue (from its logo) */
-.go-provider-discord {
-  border-color: #5865f2;
-  background: #5865f2;
-  color: #fff;
-}
-
-.go-provider-discord:hover {
-  border-color: #4752c4;
-  background: #4752c4;
-  color: #fff;
-}
-
-.go-provider-steam {
-  border-color: #2a475e;
-  background: #171a21;
-  color: #fff;
-}
-
-.go-provider-steam:hover {
-  background: #2a475e;
-  color: #fff;
-}
-
-.go-provider-google {
-  border-color: #8e918f;
-  background: #131314;
-  color: #e3e3e3;
-}
-
-.go-provider-google:hover {
-  background: #1f1f20;
-  color: #e3e3e3;
-}
-
-.go-provider-gamereplays {
-  border-color: #0090d8;
-  background: #0b4f7a;
-  color: #fff;
-}
-
-.go-provider-gamereplays:hover {
-  background: #0d6197;
-  color: #fff;
-}
-
-/* ===== /profile: GitLab's user settings, a top bar and settings sections ===== */
-
-.go-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 3.5rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
-}
-
-@media (min-width: 48rem) {
-  .go-topbar {
-    padding: 0.5rem 2rem;
-  }
-}
-
-.go-topbar-logo > img {
-  display: block;
-  height: 2rem;
-  width: auto;
-}
-
-.go-topbar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.go-topbar-actions form {
-  margin: 0;
-}
-
-/* the page: a title, then one settings section under another */
-.go-column {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  width: 100%;
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: 2rem 1rem 4rem;
-}
-
-@media (min-width: 48rem) {
-  .go-column {
-    padding: 3rem 2rem 6rem;
-  }
-}
-
-/* a settings section: its title and a short description in the left column, the form or content on the right, a rule
-   above each, as GitLab's user settings */
-.go-settings {
-  display: grid;
-  gap: 1rem;
-  padding-top: 2rem;
-  border-top: 1px solid var(--border);
-}
-
-@media (min-width: 64rem) {
-  .go-settings {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    gap: 2rem;
-  }
-}
-
-.go-settings-title {
-  font-size: 1.25rem;
-  font-weight: 400;
-  line-height: 1.75rem;
-}
-
-.go-settings-intro > p {
-  max-width: 60ch;
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.5rem;
-  color: var(--go-text-2);
-}
-
-.go-settings-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
-  font-size: 0.875rem;
-}
-
-/* the buttons under a section's form */
-.go-card-footer {
-  display: flex;
-  justify-content: flex-start;
-  gap: 0.5rem;
-  padding-top: 0.5rem;
-}
-
-/* a button its own width: in a section or the top bar */
-.go-narrow {
-  width: auto;
-  align-self: flex-start;
-}
-
-/* a muted label: a role, a state; the accent only for a staff role */
-.go-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid rgb(240 180 41 / 0.3);
-  border-radius: var(--radius);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  background: rgb(240 180 41 / 0.1);
-  color: var(--go-gold);
-}
-
-.go-badge-muted {
-  border-color: var(--border);
-  background: var(--secondary);
-  color: var(--go-text-2);
-}
-
-.go-avatar {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 4rem;
-  height: 4rem;
-  border-radius: var(--radius);
-  font-size: 1.25rem;
-  font-weight: 400;
-  background: var(--secondary);
-  color: var(--go-text-2);
-}
-
-/* the profile's name and its tag */
-.go-profile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.go-profile-name {
-  font-size: 1.5rem;
-  font-weight: 300;
-  letter-spacing: -0.02em;
-}
-
-.go-tag {
-  color: var(--go-text-3);
-}
-
-.go-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-/* a label and its value on one line, ruled like a table row */
-.go-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.go-row-value {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.go-provider-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 500;
-}
-
-/* a field's message under it: the rule it broke */
-.go-field-error {
-  font-size: 0.875rem;
-  color: var(--destructive);
-}
-
-.go-field-hint {
-  font-size: 0.75rem;
-  color: var(--go-text-2);
 }
 
 /* ===== The staff pages (/admin): the shell of the design's Admin board =====
@@ -635,7 +196,7 @@ html.dark {
 }
 
 /* the account menu at the end of the top bar: the avatar, the name and its tag */
-.dark .go-admin-me {
+.dark .go-admin-top button.go-admin-me[class] {
   gap: var(--go-space-2);
   height: 36px;
   padding: 0 var(--go-space-2);
@@ -939,6 +500,423 @@ html.dark {
   overflow-wrap: anywhere;
 }
 
+/* ----- The design's components on Blazor Blueprint: focus, buttons, chips, fields, badges, cards, tables, tabs ----- */
+
+/* the shared focus ring: 2px sand, 3px outside, for keyboard focus, and on any focus of a text field */
+.dark :focus-visible,
+.dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark textarea:focus,
+.dark select:focus {
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+.dark [data-sidebar="menu-button"]:focus-visible,
+.dark .go-admin-menu [role="menuitem"]:focus-visible,
+.dark table a:focus-visible {
+  outline-offset: -2px;
+}
+
+/* hover and pressed changes take about 120 ms */
+.dark button,
+.dark a,
+.dark input,
+.dark select,
+.dark textarea,
+.dark [data-sidebar="menu-button"] {
+  transition-duration: 120ms;
+}
+
+/* a button: Play, bold, uppercase with tracking, 4px corners, flat. Blueprint's sizes become the design's 32, 40 and 48px */
+.dark :where(button, a)[class~="bb:inline-flex"][class~="bb:disabled:cursor-not-allowed"] {
+  gap: var(--go-space-2);
+  height: 40px;
+  padding: 0 var(--go-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--go-radius-md);
+  box-shadow: none;
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dark :where(button, a)[class~="bb:h-9"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button)[class~="bb:h-8"][class~="bb:disabled:cursor-not-allowed"] {
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  font-size: var(--go-font-size-xs);
+}
+
+.dark :where(button)[class~="bb:h-11"][class~="bb:disabled:cursor-not-allowed"] {
+  height: var(--go-space-12);
+  padding: 0 var(--go-space-6);
+  font-size: var(--go-font-size-md);
+}
+
+.dark :where(button)[class~="bb:w-10"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button)[class~="bb:w-9"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button)[class~="bb:w-8"][class~="bb:disabled:cursor-not-allowed"] {
+  width: var(--go-space-8);
+  height: var(--go-space-8);
+  padding: 0;
+}
+
+/* default: the one tan action of a region */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-primary"] {
+  background: var(--go-color-accent-default);
+  color: var(--go-color-text-on-accent);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-primary"]:hover {
+  background: var(--go-color-accent-hover);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-primary"]:active {
+  background: var(--go-color-accent-deep);
+}
+
+/* secondary: raised with a line */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-secondary"] {
+  background: var(--go-color-bg-raised);
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-secondary"]:hover {
+  border-color: var(--go-color-text-muted);
+}
+
+/* outline: a neutral line on the surface below */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:border-input"] {
+  background: transparent;
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:border-input"]:hover {
+  background: var(--go-color-bg-raised);
+}
+
+/* ghost: no fill and no line until a hover */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:hover:bg-accent"]:not([class~="bb:border-input"]) {
+  background: transparent;
+  color: var(--go-color-text-secondary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:hover:bg-accent"]:not([class~="bb:border-input"]):hover {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+}
+
+/* destructive: the alert red, a light ring inside on hover */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-destructive"] {
+  background: var(--go-color-status-alert);
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-destructive"]:hover {
+  box-shadow: inset 0 0 0 1px var(--go-color-status-danger-text);
+}
+
+/* pressed moves 1px down, and the neutral variants press to the surface */
+.dark [class~="bb:disabled:cursor-not-allowed"]:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:border-input"]:active,
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-secondary"]:active {
+  background: var(--go-color-bg-surface);
+}
+
+/* disabled in solid colours, never by opacity, the same for every variant */
+.dark button:disabled,
+.dark button[aria-disabled="true"],
+.dark input:disabled,
+.dark select:disabled,
+.dark textarea:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.dark button[class~="bb:disabled:cursor-not-allowed"]:disabled {
+  background: var(--go-color-bg-surface);
+  border-color: var(--go-color-border-subtle);
+  color: var(--go-color-text-disabled);
+  box-shadow: none;
+}
+
+.dark button[class~="bb:disabled:cursor-not-allowed"][class~="bb:hover:bg-accent"]:not([class~="bb:border-input"]):disabled {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* a toggle filter is a chip: body type, the pressed one raised, never tan */
+.dark button[aria-pressed][class~="bb:disabled:cursor-not-allowed"] {
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  background: transparent;
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-secondary);
+  font-family: var(--go-font-body);
+  font-weight: var(--go-font-weight-regular);
+  font-size: var(--go-font-size-sm);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.dark button[aria-pressed][class~="bb:disabled:cursor-not-allowed"]:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+.dark button[aria-pressed="true"][class~="bb:disabled:cursor-not-allowed"],
+.dark button[aria-pressed="true"][class~="bb:disabled:cursor-not-allowed"]:hover {
+  background: var(--go-color-bg-raised);
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-primary);
+}
+
+/* a field: the surface, the steel outline, 4px corners; 40px in forms and 32px in filter bars */
+.dark :where(input[class~="bb:border-input"]:not([type="checkbox"]):not([type="radio"]), textarea[class~="bb:border-input"], select) {
+  background: var(--go-color-bg-surface);
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-md);
+  box-shadow: none;
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+}
+
+.dark :where(input[class~="bb:border-input"]:not([type="checkbox"]):not([type="radio"]), select) {
+  height: 40px;
+  padding-block: 0;
+  padding-inline: var(--go-space-3);
+}
+
+.dark :where(.go-filterbar input[class~="bb:border-input"], .go-filterbar select, .go-audit-filters input[class~="bb:border-input"], .go-audit-filters select, input[class~="bb:h-8"]) {
+  height: var(--go-space-8);
+  padding-inline: var(--go-space-2);
+}
+
+.dark input[class~="bb:border-input"]:hover,
+.dark textarea[class~="bb:border-input"]:hover,
+.dark select:hover {
+  border-color: var(--go-color-text-muted);
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--go-color-text-muted);
+}
+
+.dark input[aria-invalid="true"],
+.dark textarea[aria-invalid="true"] {
+  border-color: var(--go-color-status-danger);
+}
+
+.dark input:disabled,
+.dark textarea:disabled,
+.dark select:disabled {
+  background: var(--go-color-bg-panel);
+  border-color: var(--go-color-border-subtle);
+  color: var(--go-color-text-disabled);
+}
+
+.dark label {
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-secondary);
+}
+
+/* a badge: Play 12px bold uppercase, 20px tall, 2px corners; Blueprint's Soft is the design's default */
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:font-semibold"] {
+  gap: var(--go-space-1);
+  height: 20px;
+  padding: 0 var(--go-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--go-radius-sm);
+  background: var(--go-color-accent-tint-14);
+  color: var(--go-color-accent-default);
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-xs);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-secondary"] {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-secondary);
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:text-foreground"] {
+  background: transparent;
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-secondary);
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-destructive/10"],
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-destructive"] {
+  background: var(--go-color-status-danger-tint);
+  color: var(--go-color-status-danger-text);
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-destructive/10"] svg {
+  color: var(--go-color-status-danger);
+}
+
+/* live: something happening now, the one round badge, green */
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"].go-badge-live {
+  padding: 0 var(--go-space-3);
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-status-live-tint);
+  color: var(--go-color-status-live);
+}
+
+.go-badge-live .go-dot {
+  width: var(--go-space-2);
+  height: var(--go-space-2);
+  margin: 0;
+  border-radius: var(--go-radius-pill);
+}
+
+/* a card: the panel, a 1px line, 4px corners, no shadow, a bold Play title */
+.dark [class~="bb:bg-card"][class~="bb:border"] {
+  background: var(--go-color-bg-panel);
+  border-color: var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  box-shadow: none;
+}
+
+.dark [class~="bb:text-2xl"][class~="bb:font-semibold"][class~="bb:tracking-tight"] {
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-lg);
+  font-weight: var(--go-font-weight-bold);
+  line-height: 1.2;
+  letter-spacing: normal;
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:bg-card"] [class~="bb:text-muted-foreground"] {
+  color: var(--go-color-text-muted);
+}
+
+/* a table as the board draws it: Play headings, 12px by 16px cells, a surface row on hover, no line under the last row */
+.dark table {
+  border-collapse: collapse;
+}
+
+.dark table th {
+  height: auto;
+  padding: 10px var(--go-space-4);
+  border-bottom: 1px solid var(--go-color-border-default);
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: start;
+  white-space: nowrap;
+  color: var(--go-color-text-muted);
+}
+
+.dark table thead,
+.dark table thead tr,
+.dark table tbody tr {
+  background: transparent;
+}
+
+.dark table td {
+  padding: var(--go-space-3) var(--go-space-4);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+  color: var(--go-color-text-secondary);
+}
+
+.dark table tr {
+  border: 0;
+}
+
+.dark table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.dark table tbody tr:hover td {
+  background: var(--go-color-bg-surface);
+}
+
+/* tabs on a detail page: a ruled line of labels, the open one marked under in the primary text */
+.dark .go-page [role="tablist"] {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  gap: var(--go-space-2);
+  border-bottom: 1px solid var(--go-color-border-default);
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dark .go-page [role="tab"] {
+  position: relative;
+  padding: var(--go-space-3) var(--go-space-2);
+  border-radius: var(--go-radius-md) var(--go-radius-md) 0 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-regular);
+}
+
+.dark .go-page [role="tab"]:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+.dark .go-page [role="tab"][data-state="active"] {
+  background: transparent;
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.dark .go-page [role="tab"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--go-color-text-primary);
+}
+
+/* alerts and dialogs on the design's surfaces */
+.dark [role="dialog"],
+.dark [role="alertdialog"] {
+  background: var(--go-color-bg-panel);
+  border-color: var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+}
+
+.dark [role="dialog"] h2,
+.dark [role="alertdialog"] h2 {
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  color: var(--go-color-text-primary);
+}
+
+/* without motion when the visitor asks for less */
+@media (prefers-reduced-motion: reduce) {
+  .dark [class~="bb:disabled:cursor-not-allowed"]:active:not(:disabled) {
+    transform: none;
+  }
+}
+
 /* body copy no wider than 60 characters */
 .go-measure {
   max-width: 60ch;
@@ -957,12 +935,12 @@ html.dark {
 
 @media (prefers-reduced-motion: no-preference) {
   .go-stat {
-    transition: border-color 150ms;
+    transition: border-color 120ms;
   }
 }
 
 .go-stat:has(.go-stat-link):hover {
-  border-color: var(--go-text-3);
+  border-color: var(--go-color-text-muted);
 }
 
 /* the whole card is the link to the page behind its number */
@@ -974,21 +952,19 @@ html.dark {
 }
 
 .go-stat-link:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
 }
 
 .go-stat-label {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-2);
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-secondary);
 }
 
 .go-stat-value {
   font-size: 2rem;
-  font-weight: 300;
+  font-weight: var(--go-font-weight-bold);
   line-height: 2.5rem;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
@@ -996,7 +972,7 @@ html.dark {
 
 /* a number that needs a staff member: open reports, unreviewed rows */
 .go-stat-value-attention {
-  color: var(--go-gold);
+  color: var(--go-color-accent-default);
 }
 
 .go-stat-icon {
@@ -1008,7 +984,7 @@ html.dark {
   height: 2rem;
   border-radius: var(--radius);
   background: var(--secondary);
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 /* the cards under the stats: two columns on a wide screen, one track that may shrink otherwise */
@@ -1047,17 +1023,17 @@ html.dark {
 @media (prefers-reduced-motion: no-preference) {
   .go-feed-item,
   a.go-list-item {
-    transition: background-color 150ms;
+    transition: background-color 120ms;
   }
 }
 
 .go-feed-item:hover {
-  background: rgb(250 250 249 / 0.04);
+  background: var(--go-color-bg-surface);
 }
 
 .go-feed-item:focus-visible,
 a.go-list-item:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--go-color-accent-hover);
   outline-offset: -2px;
 }
 
@@ -1079,7 +1055,7 @@ a.go-list-item:focus-visible {
 }
 
 a.go-list-item:hover {
-  background: rgb(250 250 249 / 0.04);
+  background: var(--go-color-bg-surface);
 }
 
 /* GitLab's filtered search: the grid's search field takes the toolbar's width, its filters and column picker beside it */
@@ -1097,87 +1073,28 @@ a.go-list-item:hover {
   }
 }
 
-/* compact tables: GitLab's row height, the header as Swiss labels */
-.dark table th {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-2);
-}
-
-/* card titles (BbCardTitle's text-2xl semibold) as the Swiss H3: smaller, normal weight */
-.dark [class~="bb:text-2xl"][class~="bb:font-semibold"][class~="bb:tracking-tight"] {
-  font-size: 1.125rem;
-  font-weight: 400;
-  line-height: 1.5rem;
-  letter-spacing: normal;
-}
-
-/* names in tables and lists (BbLink, inline) read as text until pointed at, so the gold stays for actions */
+/* names in tables and lists read as primary text without a line, and turn sand when pointed at, as the board draws them */
 .dark .go-page a[class~="bb:inline"],
 .dark table a {
-  color: var(--foreground);
-  text-decoration: underline;
-  text-decoration-color: var(--go-text-3);
-  text-underline-offset: 4px;
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+  text-decoration: none;
 }
 
 .dark .go-page a[class~="bb:inline"]:hover,
 .dark table a:hover {
-  text-decoration-color: var(--foreground);
+  color: var(--go-color-accent-hover);
+  text-decoration: none;
 }
 
-/* GitLab's tabs on a detail page: a ruled line of labels, the open one marked underneath in the accent */
-.dark .go-page [role="tablist"] {
-  display: flex;
-  justify-content: flex-start;
-  width: 100%;
-  height: auto;
-  padding: 0;
-  gap: 0.5rem;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.dark .go-page [role="tab"] {
-  position: relative;
-  padding: 1rem 0.5rem;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--go-text-2);
-}
-
-.dark .go-page [role="tab"][data-state="active"] {
-  background: transparent;
-  color: var(--foreground);
-}
-
-.dark .go-page [role="tab"][data-state="active"]::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--go-gold);
-}
-
-.dark .go-page [role="tab"]:hover {
-  color: var(--foreground);
-}
-
+/* a word as its first letter capital */
 .go-capitalize {
   text-transform: capitalize;
 }
 
 /* tertiary text: captions, metadata */
 .go-text-3 {
-  color: var(--go-text-3);
+  color: var(--go-color-text-muted);
 }
 
 /* a column header that screen readers read but that shows nothing: a th cannot be taken out of the table's flow */
@@ -1232,7 +1149,7 @@ a.go-list-item:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 .go-nowrap {
@@ -1272,7 +1189,7 @@ a.go-list-item:hover {
   align-items: center;
   gap: 0.375rem;
   font-size: 0.75rem;
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 .go-date > span {
@@ -1304,10 +1221,10 @@ a.go-list-item:hover {
 }
 
 .go-muted {
-  color: var(--go-text-3);
+  color: var(--go-color-text-muted);
 }
 
-/* counts and durations in tabular figures, on the left edge like their column title */
+/* counts and durations in tabular figures, at the start edge like their column title */
 .go-num {
   font-variant-numeric: tabular-nums;
 }
@@ -1316,7 +1233,7 @@ a.go-list-item:hover {
   display: inline-block;
   width: 0.375rem;
   height: 0.375rem;
-  margin-right: 0.375rem;
+  margin-inline-end: 0.375rem;
   background: currentColor;
 }
 
@@ -1327,14 +1244,14 @@ a.go-list-item:hover {
 
 .go-cell-players a.go-won {
   opacity: 1;
-  font-weight: 500;
+  font-weight: var(--go-font-weight-semibold);
 }
 
 .go-icon-inline {
   display: inline-block;
   vertical-align: -0.125rem;
-  margin-right: 0.25rem;
-  color: var(--go-text-2);
+  margin-inline-end: 0.25rem;
+  color: var(--go-color-text-secondary);
 }
 
 @media (max-width: 47.99rem) {
@@ -1352,11 +1269,11 @@ a.go-list-item:hover {
 
 /* the player page's Matches tab (T17g): a won match reads at full weight, as a winner does on the match list */
 .go-result-won {
-  font-weight: 500;
+  font-weight: var(--go-font-weight-semibold);
   white-space: nowrap;
 }
 
-/* a card header with its action on the right, as the page header has (the Matches tab's “All matches”) */
+/* a card header with its action at the end, as the page header has (the Matches tab's “All matches”) */
 .go-card-head {
   display: flex;
   flex-wrap: wrap;
@@ -1378,7 +1295,7 @@ a.go-list-item:hover {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 /* a match id: 48-bit snowflakes run to 13 digits, kept on one line in tabular figures */
@@ -1400,7 +1317,7 @@ a.go-list-item:hover {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  font-weight: 500;
+  font-weight: var(--go-font-weight-semibold);
   cursor: pointer;
 }
 

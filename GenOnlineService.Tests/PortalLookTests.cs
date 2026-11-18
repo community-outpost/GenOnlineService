@@ -147,6 +147,26 @@ public class PortalLookTests
 		Assert.Contains("prefers-reduced-motion: reduce", mine);
 	}
 
+	// The staff rules use the tokens too: from the staff shell to the sign-in pages no colour is written, every rule places
+	// things by the start and end of a line, the focus ring is the shared one, and the live badge is the design's green
+	[Fact]
+	public void TheStaffRulesUseTheTokens()
+	{
+		string css = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		int start = css.IndexOf("The staff pages (/admin): the shell of the design's Admin board", StringComparison.Ordinal);
+		int end = css.IndexOf("The sign-in and account pages on the Generals Online design system", StringComparison.Ordinal);
+		Assert.True(start > 0 && end > start);
+		string staff = css[start..end];
+		Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,8}\b|rgb\(", staff);
+		foreach (System.Text.RegularExpressions.Match rule in Regex.Matches(staff, @"[^{}]+\{([^}]*)\}"))
+		{
+			Assert.DoesNotMatch(@"(^|[\s;-])(left|right)\s*:|-(left|right)\s*:|text-align:\s*(left|right)", rule.Groups[1].Value);
+		}
+		Assert.Matches(@"\.dark :focus-visible[^{]*\{\s*outline: 2px solid var\(--go-color-accent-hover\);\s*outline-offset: 3px", staff);
+		Assert.Matches(@"\.go-badge-live \{[^}]*background: var\(--go-color-status-live-tint\);\s*color: var\(--go-color-status-live\)", staff);
+		Assert.Contains("prefers-reduced-motion: reduce", staff);
+	}
+
 	private static readonly (string, string, string)[] s_providers = [("/a", "discord", "Discord"), ("/b", "steam", "Steam"), ("/c", "google", "Google"), ("/d", "gamereplays", "GameReplays")];
 
 	// The pages read right to left in Arabic: their own rules place things by the start and end of a line, never by left and

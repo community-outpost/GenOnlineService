@@ -1262,7 +1262,7 @@ namespace GenOnlineService.Portal.Client
 	// The choices of the text rules, as the host's TextKinds, TextLanguages, TextCategories, TextSeverities and TextMatchModes
 	public static class PortalTextChoices
 	{
-		public static readonly IReadOnlyList<(string Value, string Title)> Kinds = [("display_name", "Display name"), ("lobby_name", "Lobby name"), ("chat", "Chat message")];
+		public static readonly IReadOnlyList<(string Value, string Title)> Kinds = [("display_name", "Player name"), ("lobby_name", "Lobby name"), ("chat", "Chat message")];
 		public static readonly IReadOnlyList<(string Value, string Title)> Languages = [("en", "English"), ("ar", "Arabic")];
 		public static readonly IReadOnlyList<string> Categories = ["slur", "sexual", "profanity", "insult", "impersonation", "reserved"];
 		public static readonly IReadOnlyList<string> Severities = ["block", "flag"];
