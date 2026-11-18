@@ -224,7 +224,33 @@ public class NameTagTests
 			}
 
 			User[] created = await Task.WhenAll(Task.Run(() => SignUp(name)), Task.Run(() => SignUp(name.ToUpperInvariant())));
-			Assert.Equal(Sequence(0, name, 2).Order(), created.Select(u => u.NameTag).Order());
+			Assert.Contains(Sequence(0, name, 1)[0], created.Select(u => u.NameTag));
+			Assert.Equal(2, created.Select(u => u.NameTag).Distinct().Count());
+		}
+	}
+
+	// many sign-ups of one name at once all succeed: each lost race moves further along the sequence, then to a random tag
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task EightConcurrentSignUpsOfOneNameAllSucceed(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+
+		for (int round = 0; round < 3; round++)
+		{
+			string name = "Crowd" + round;
+			async Task<User> SignUp()
+			{
+				await using AppDbContext db = probe.Open();
+				return await Users.Create(db, name);
+			}
+
+			User[] created = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(SignUp)));
+			Assert.Equal(8, created.Select(u => u.NameTag).Distinct().Count());
+			Assert.Contains(Sequence(0, name, 1)[0], created.Select(u => u.NameTag));
+			await using AppDbContext check = probe.Open();
+			Assert.Equal(8, await check.NameReservations.CountAsync(r => r.NameKey == NameKey.Of(name)));
 		}
 	}
 
@@ -379,16 +405,26 @@ public class NameTagTests
 			StringWriter output = new();
 			await NameReservationBackfill.RunCommand(db, output);
 			Assert.Contains("Reserved 4 name#tag pair(s) and removed 0 outdated reservation(s).", output.ToString());
-			Assert.Contains("2 name#tag pair(s) were held by more than one user", output.ToString());
+			Assert.Contains("2 name#tag claim(s) lost to another user", output.ToString());
 		}
 
-		Assert.Equal(new[]
+		var expected = new[]
 		{
 			(ids["Ann"], "Ann", "ann", 5),
 			(ids["Bob"], "ANNIE", "annie", 9),
 			(ids["Bob"], "Bob", "bob", 3),
 			(ids["Carl"], "Carl", "carl", 9)
-		}, await Reservations(probe));
+		};
+		Assert.Equal(expected, await Reservations(probe));
+
+		// one user per batch reaches the same rows, beating rows of earlier batches, and counts each lost claim once
+		await using (AppDbContext db = probe.Open())
+		{
+			await db.NameReservations.ExecuteDeleteAsync();
+			NameReservationBackfill.Outcome batched = await NameReservationBackfill.Run(db, 1, null);
+			Assert.Equal((2, 0), (batched.Lost, batched.Skipped));
+		}
+		Assert.Equal(expected, await Reservations(probe));
 		Assert.Equal(("Ann", 5), await Read(probe, ids["Ann"]));
 		Assert.Equal(("Bob", 3), await Read(probe, ids["Bob"]));
 		Assert.Equal(("Carl", 9), await Read(probe, ids["Carl"]));
@@ -401,8 +437,8 @@ public class NameTagTests
 			Assert.StartsWith("Name reservations are up to date.", output.ToString());
 
 			await db.Database.ExecuteSqlRawAsync("UPDATE name_reservations SET name_key = 'stale' WHERE name_key = 'carl'");
-			Assert.Equal(new NameReservationBackfill.Outcome(1, 1, 2), await NameReservationBackfill.Run(db));
-			Assert.Equal(new NameReservationBackfill.Outcome(0, 0, 2), await NameReservationBackfill.Run(db));
+			Assert.Equal(new NameReservationBackfill.Outcome(1, 1, 2, 0), await NameReservationBackfill.Run(db));
+			Assert.Equal(new NameReservationBackfill.Outcome(0, 0, 2, 0), await NameReservationBackfill.Run(db));
 		}
 
 		// Bob held Annie#0009 last, so Ann gets her own candidate for it and Bob his old tag
@@ -411,5 +447,63 @@ public class NameTagTests
 		Assert.Equal(("Annie", Sequence(ids["Ann"], "Annie").First(t => t != 9)), await Read(probe, ids["Ann"]));
 		await Rename(names, ids["Bob"], "Annie");
 		Assert.Equal(("Annie", 9), await Read(probe, ids["Bob"]));
+
+		// renames by the service leave rows the backfill already agrees with
+		await Rename(names, ids["Carl"], "Carlos");
+		await Rename(names, ids["Carl"], "Carl");
+		await using (AppDbContext db = probe.Open())
+		{
+			NameReservationBackfill.Outcome again = await NameReservationBackfill.Run(db);
+			Assert.Equal((0, 0), (again.Added, again.Removed));
+		}
+	}
+
+	// a pair the running service reserves while the backfill runs is skipped and counted, never a failed run
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheBackfillSkipsAPairTheServiceReservesMeanwhile(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User ann = await AddUser(probe, "Ann", 5);
+		User bob = await AddUser(probe, "Bob", 3);
+
+		async Task Race()
+		{
+			await using AppDbContext other = probe.Open();
+			other.NameReservations.Add(new NameReservation { UserID = bob.ID, Name = "Ann", NameTag = 5, HeldAt = DateTime.UtcNow.AddDays(-1) });
+			await other.SaveChangesAsync();
+		}
+
+		await using AppDbContext db = probe.Open();
+		Assert.Equal(new NameReservationBackfill.Outcome(1, 0, 0, 1), await NameReservationBackfill.Run(db, NameReservationBackfill.DefaultBatchSize, Race));
+		// the next run gives the pair back to the player who holds it
+		Assert.Equal(new NameReservationBackfill.Outcome(1, 1, 1, 0), await NameReservationBackfill.Run(db));
+		Assert.Equal(new[] { (ann.ID, "Ann", "ann", 5), (bob.ID, "Bob", "bob", 3) }, await Reservations(probe));
+	}
+
+	// a pair reserved for another player cannot be taken: the name change starts over instead of landing on it
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TakingAnotherPlayersReservedPairIsAConflict(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User owner = await AddUser(probe, "Owner", 1);
+		User other = await AddUser(probe, "Other", 2);
+		await using (AppDbContext db = probe.Open())
+		{
+			db.NameReservations.Add(new NameReservation { UserID = owner.ID, Name = "Gone", NameTag = 5, HeldAt = DateTime.UtcNow });
+			await db.SaveChangesAsync();
+		}
+
+		await using (AppDbContext db = probe.Open())
+		{
+			await Assert.ThrowsAsync<NameReservationConflictException>(() => DisplayNames.Reserve(db, other.ID, "G0ne", 5, DateTime.UtcNow, take: true));
+			// leaving such a pair keeps the other player's reservation as it is
+			await DisplayNames.Reserve(db, other.ID, "Gone", 5, DateTime.UtcNow, take: false);
+			await db.SaveChangesAsync();
+		}
+		Assert.Equal(owner.ID, Assert.Single(await Reservations(probe)).UserID);
 	}
 }

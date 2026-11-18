@@ -113,9 +113,21 @@ namespace GenOnlineService.Identity
 						CreatedAt = now,
 						UpdatedAt = now
 					};
-					await Database.DisplayNames.AssignNewUser(db, user);
-					db.Users.Add(user);
-					await db.SaveChangesAsync();
+					for (int attempt = 1; ; attempt++)
+					{
+						await Database.DisplayNames.AssignNewUser(db, user, attempt);
+						db.Users.Add(user);
+						try
+						{
+							await db.SaveChangesAsync();
+							break;
+						}
+						catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < Database.DisplayNames.NewUserAttempts)
+						{
+							// a sign-up took the same placeholder and tag at the same moment; EF rolled back to its savepoint
+							db.Entry(user).State = EntityState.Detached;
+						}
+					}
 					s_log.LogInformation("Created user {UserId} from {Provider} sign-up", user.ID, provider.Name);
 				}
 
