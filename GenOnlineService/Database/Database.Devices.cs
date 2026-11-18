@@ -320,7 +320,8 @@ namespace Database
 	}
 
 	// A stored device as staff see it: a short fingerprint of the keyed hash, never a raw value
-	public sealed record InspectedDevice(string Kind, string Fingerprint, DateTime FirstSeenAt, DateTime LastSeenAt, string? LastIp);
+	// Key is the whole keyed hash for the investigation search, ValueRaw stays on the host to look up a MAC vendor
+	public sealed record InspectedDevice(string Kind, string Fingerprint, DateTime FirstSeenAt, DateTime LastSeenAt, string? LastIp, string Key, string? ValueRaw);
 
 	public sealed record InspectedAddress(string Ip, string? Country, DateTime FirstSeenAt, DateTime LastSeenAt, int Events);
 
@@ -344,6 +345,9 @@ namespace Database
 
 		public static string FingerprintOf(byte[] valueHmac) => Convert.ToHexString(valueHmac, 0, Math.Min(FingerprintBytes, valueHmac.Length)).ToLowerInvariant();
 
+		// The whole keyed hash in hex, the device key the investigation search takes; never the raw value
+		public static string KeyOf(byte[] valueHmac) => Convert.ToHexString(valueHmac).ToLowerInvariant();
+
 		public static async Task<List<InspectedDevice>> GetDevices(AppDbContext db, long userID, CancellationToken cancellationToken = default)
 		{
 			List<Device> rows = await db.Devices.AsNoTracking()
@@ -352,7 +356,7 @@ namespace Database
 				.ThenBy(d => d.ID)
 				.Take(MaximumRows)
 				.ToListAsync(cancellationToken);
-			return rows.Select(d => new InspectedDevice(d.Kind, FingerprintOf(d.ValueHmac), d.FirstSeenAt, d.LastSeenAt, d.LastIp)).ToList();
+			return rows.Select(d => new InspectedDevice(d.Kind, FingerprintOf(d.ValueHmac), d.FirstSeenAt, d.LastSeenAt, d.LastIp, KeyOf(d.ValueHmac), d.ValueRaw)).ToList();
 		}
 
 		// The distinct addresses of the session events, most recent first

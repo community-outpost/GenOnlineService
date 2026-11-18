@@ -490,13 +490,25 @@ else
                     <BbCard>
                         <BbCardHeader>
                             <BbCardTitle As="h2">Devices</BbCardTitle>
-                            <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows, never the value itself.</BbCardDescription>
+                            <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows, never the value itself. A MAC address shows its vendor from the IEEE registry; virtual adapters and randomized addresses read locally administered. Open a fingerprint to find every account of the device.</BbCardDescription>
                         </BbCardHeader>
                         <BbCardContent>
                             <BbDataTable TData="PortalDevice" Data="@inspection.Devices" ShowToolbar="false" ShowPagination="@(inspection.Devices.Count > 10)" InitialPageSize="10" AriaLabel="Devices">
                                 <Columns>
                                     <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Kind)" Header="Kind" />
-                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Fingerprint)" Header="Fingerprint" CellClass="bb:font-mono" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Fingerprint)" Header="Fingerprint">
+                                        <CellTemplate Context="device">
+                                            @if (device.Key.Length > 0)
+                                            {
+                                                <BbLink Href="@PortalRoutes.InvestigateDevice(device.Kind, device.Key)" data-testid="device-investigate"><span class="bb:font-mono">@device.Fingerprint</span></BbLink>
+                                            }
+                                            else
+                                            {
+                                                <span class="bb:font-mono">@device.Fingerprint</span>
+                                            }
+                                        </CellTemplate>
+                                    </BbDataTableColumn>
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Vendor ?? "")" Header="Vendor" />
                                     <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => PortalText.Date(d.FirstSeenAt))" Header="First seen" />
                                     <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => PortalText.Date(d.LastSeenAt))" Header="Last seen" />
                                     <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.LastIp)" Header="Last address" CellClass="bb:font-mono" />
@@ -511,13 +523,26 @@ else
                     <BbCard>
                         <BbCardHeader>
                             <BbCardTitle As="h2">IP addresses</BbCardTitle>
-                            <BbCardDescription>The addresses of the sessions of the last 90 days.</BbCardDescription>
+                            <BbCardDescription>The addresses of the sessions of the last 90 days, with the place and network the GeoIP databases give. Open an address or a country to find every account seen there.</BbCardDescription>
                         </BbCardHeader>
                         <BbCardContent>
                             <BbDataTable TData="PortalAddress" Data="@inspection.Addresses" ShowToolbar="false" ShowPagination="@(inspection.Addresses.Count > 10)" InitialPageSize="10" AriaLabel="IP addresses">
                                 <Columns>
-                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Ip)" Header="Address" CellClass="bb:font-mono" />
-                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Country)" Header="Country" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Ip)" Header="Address">
+                                        <CellTemplate Context="address">
+                                            <BbLink Href="@PortalRoutes.InvestigateOf("ip", address.Ip)" data-testid="address-investigate"><span class="bb:font-mono">@address.Ip</span></BbLink>
+                                        </CellTemplate>
+                                    </BbDataTableColumn>
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Country)" Header="Country">
+                                        <CellTemplate Context="address">
+                                            @if (address.Country != null)
+                                            {
+                                                <BbLink Href="@PortalRoutes.InvestigateOf("country", address.Country)">@address.Country</BbLink>
+                                            }
+                                        </CellTemplate>
+                                    </BbDataTableColumn>
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.City ?? "")" Header="City" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Network(a.Asn, a.NetworkOwner))" Header="Network" />
                                     <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Date(a.FirstSeenAt))" Header="First seen" />
                                     <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Date(a.LastSeenAt))" Header="Last seen" />
                                     <BbDataTableColumn TData="PortalAddress" TValue="int" Property="@(a => a.Events)" Header="Sessions" />

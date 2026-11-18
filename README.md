@@ -34,6 +34,8 @@ GeneralsOnline Game Services Code provides RESTful web services which act as a r
 - Discord App ID
 - S3 compatible storage
 - STUN + TURN servers
+- MaxMind GeoLite2 databases in `data/`: `GeoLite2-City.mmdb` places players for lobby regions and gives the staff pages the country and city of an address, `GeoLite2-ASN.mmdb` the network (AS number and owner); without them the staff pages show neither and sign-in uses fixed coordinates. The deployment fetches them with geoipupdate (edition ids `GeoLite2-City GeoLite2-ASN`)
+- The IEEE OUI registry `data/oui.tsv` for the MAC vendors of the staff pages, refreshed with `python3 scripts/update-oui.py` (sources in `LICENSE-THIRD-PARTY.md`); without it vendors are unknown and locally administered addresses are still labelled
 
 # How To Build
 - Sync the repository

@@ -51,6 +51,7 @@ namespace GenOnlineService.Portal.Client
 		public const string StaffRealtime = "api/v1/staff/realtime";
 		public const string StaffLobbies = "api/v1/staff/lobbies";
 		public const string Lobbies = "api/v1/lobbies";
+		public const string StaffInvestigate = "api/v1/staff/investigate";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -72,6 +73,7 @@ namespace GenOnlineService.Portal.Client
 		public const string AnnouncementsPage = "/admin/announcements";
 		public const string LivePage = "/admin/live";
 		public const string LobbiesPage = "/admin/lobbies";
+		public const string InvestigatePage = "/admin/investigate";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -92,6 +94,11 @@ namespace GenOnlineService.Portal.Client
 
 		// the audit log with the actions on one player
 		public static string AuditOf(long target) => AuditPage + "?target=" + target;
+
+		// the investigation search for one identifier, or for a stored device by its key
+		public static string InvestigateOf(string kind, string value) => InvestigatePage + "?kind=" + Uri.EscapeDataString(kind) + "&value=" + Uri.EscapeDataString(value);
+
+		public static string InvestigateDevice(string kind, string key) => InvestigatePage + "?kind=" + Uri.EscapeDataString(kind) + "&key=" + Uri.EscapeDataString(key);
 	}
 
 	// The permission names the pages show or hide parts by, the host checks each one again
@@ -133,7 +140,7 @@ namespace GenOnlineService.Portal.Client
 			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
 			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
 			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
-			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
+			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "investigate_search"
 		];
 	}
 
@@ -373,6 +380,12 @@ namespace GenOnlineService.Portal.Client
 		public DateTime FirstSeenAt { get; init; }
 		public DateTime LastSeenAt { get; init; }
 		public string? LastIp { get; init; }
+
+		// The whole keyed hash, the investigation search finds the other accounts of the device with it
+		public string Key { get; init; } = "";
+
+		// A MAC address: its vendor in the IEEE registry, or "locally administered / virtual"; null when unknown
+		public string? Vendor { get; init; }
 	}
 
 	public sealed record PortalAddress
@@ -382,6 +395,61 @@ namespace GenOnlineService.Portal.Client
 		public DateTime FirstSeenAt { get; init; }
 		public DateTime LastSeenAt { get; init; }
 		public int Events { get; init; }
+
+		// From the GeoIP databases of the host, null when unknown
+		public string? City { get; init; }
+		public long? Asn { get; init; }
+		public string? NetworkOwner { get; init; }
+	}
+
+	// What the GeoIP databases of the host know about an address
+	public sealed record PortalAddressFacts
+	{
+		public string? Country { get; init; }
+		public string? City { get; init; }
+		public long? Asn { get; init; }
+		public string? NetworkOwner { get; init; }
+	}
+
+	// An account that used the searched identifier; events counts its sessions on the addresses, null for devices
+	public sealed record PortalInvestigationAccount
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public string? Tag { get; init; }
+		public string State { get; init; } = "";
+		public DateTime FirstSeenAt { get; init; }
+		public DateTime LastSeenAt { get; init; }
+		public int? Events { get; init; }
+
+		[JsonIgnore]
+		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	// GET /api/v1/staff/investigate: every account that used one identifier, with players.inspect and audited
+	public sealed record PortalInvestigation
+	{
+		public static readonly IReadOnlyList<(string Kind, string Label, string Hint)> Kinds =
+		[
+			("mac", "MAC address", "AA:BB:CC:DD:EE:FF, with colons, dashes or nothing"),
+			("machine_guid", "Machine id", "The Windows machine GUID"),
+			("volume_serial", "Volume serial", "1234-ABCD, as the vol command shows it"),
+			("ip", "IP address", "IPv4 or IPv6"),
+			("ip_range", "IP range", "CIDR, at most a /16 for IPv4 and a /48 for IPv6"),
+			("country", "Country", "Two letter code, such as NL")
+		];
+
+		public string Kind { get; init; } = "";
+		// the searched value as the host normalized it
+		public string Value { get; init; } = "";
+		// a MAC search: the vendor of the address
+		public string? Vendor { get; init; }
+		// an IP search: what the GeoIP databases know about the address
+		public PortalAddressFacts? Network { get; init; }
+		public IReadOnlyList<PortalInvestigationAccount> Accounts { get; init; } = [];
+
+		[JsonIgnore]
+		public bool HasNext { get; init; }
 	}
 
 	// Another account on the same device ("device") or only on the same address ("ip")
