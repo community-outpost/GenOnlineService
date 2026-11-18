@@ -1,62 +1,83 @@
-@* One condition of the query builder: a field of the catalogue the trigger provides, an operator of the field's type and
-   a value of that type, with the problems the host found at this condition *@
+@using System.Text.Json
+
+@* One condition of the query builder on one row: a field of the catalogue the trigger provides, an operator of the
+   field's type and a value of that type, then the remove button. A yes or no field is one choice that names its state,
+   such as Email is not confirmed, in place of an operator and a value. The problems the host found show under the row. *@
 
 @{
     PortalRuleField? field = Catalog?.Find(Condition.Field);
     string type = field?.Type ?? "text";
     string op = Condition.Operator ?? "";
+    string? state = StateOf(field);
+    string shape = state != null ? "go-rule-condition-row-choice" : op == PortalRuleWords.InList ? "go-rule-condition-row-list" : op == PortalRuleWords.IsEmpty ? "go-rule-condition-row-bare" : "";
 }
 <div class="go-rule-condition" data-testid="rule-condition">
-    <div class="go-rule-condition-row">
-        <BbNativeSelect TValue="string" Id="@($"{m_id}-field")" Value="@(Condition.Field ?? "")" ValueChanged="@((string v) => SetFieldAsync(v))" AriaLabel="Field" Class="go-rule-field">
+    <div class="go-rule-condition-row @shape">
+        <BbNativeSelect TValue="string" Id="@($"{m_id}-field")" Value="@(state ?? Condition.Field ?? "")" ValueChanged="@((string v) => SetFieldAsync(v))" AriaLabel="@(state != null ? "Condition" : "Field")" Class="go-rule-field">
             @if (field == null)
             {
                 <option value="@(Condition.Field ?? "")">@(String.IsNullOrEmpty(Condition.Field) ? "Choose a field" : Condition.Field + " (unknown)")</option>
+            }
+            else if (field.Type == "bool" && state == null)
+            {
+                @* a yes or no field with another operator, as rules saved by hand may hold, keeps its plain choice *@
+                <option value="@field.Key">@field.Label</option>
             }
             @foreach (IGrouping<string, PortalRuleField> section in Fields().GroupBy(f => SectionOf(f.Key)))
             {
                 <optgroup label="@section.Key">
                     @foreach (PortalRuleField choice in section)
                     {
-                        <option value="@choice.Key">@choice.Label</option>
+                        @if (choice.Type == "bool" && choice.TrueLabel != null && choice.FalseLabel != null)
+                        {
+                            <option value="@(choice.Key + StateTrue)">@choice.TrueLabel</option>
+                            <option value="@(choice.Key + StateFalse)">@choice.FalseLabel</option>
+                        }
+                        else
+                        {
+                            <option value="@choice.Key">@choice.Label</option>
+                        }
                     }
                 </optgroup>
             }
         </BbNativeSelect>
-        <BbNativeSelect TValue="string" Id="@($"{m_id}-operator")" Value="@op" ValueChanged="@((string v) => SetOperatorAsync(v, type))" AriaLabel="Operator" Class="go-rule-operator">
-            @foreach (string choice in field?.Operators ?? [op])
+        @if (state == null)
+        {
+            <BbNativeSelect TValue="string" Id="@($"{m_id}-operator")" Value="@op" ValueChanged="@((string v) => SetOperatorAsync(v, type))" AriaLabel="Operator" Class="go-rule-operator">
+                @foreach (string choice in field?.Operators ?? [op])
+                {
+                    <option value="@choice" aria-label="@PortalRuleWords.OperatorLabel(choice)" title="@PortalRuleWords.OperatorLabel(choice)">@PortalRuleWords.OperatorSymbol(choice)</option>
+                }
+            </BbNativeSelect>
+            @if (op == PortalRuleWords.Between)
             {
-                <option value="@choice">@PortalRuleWords.OperatorLabel(choice)</option>
+                <span class="go-rule-range">
+                    <BbInput Type="InputType.Number" Value="@m_low" ValueChanged="@((string? v) => SetRangeAsync(v ?? "", m_high))" UpdateTiming="UpdateTiming.OnChange" AriaLabel="From" AriaInvalid="@Invalid" Class="go-rule-value" />
+                    <span class="go-muted bb:text-sm">and</span>
+                    <BbInput Type="InputType.Number" Value="@m_high" ValueChanged="@((string? v) => SetRangeAsync(m_low, v ?? ""))" UpdateTiming="UpdateTiming.OnChange" AriaLabel="To" AriaInvalid="@Invalid" Class="go-rule-value" />
+                </span>
             }
-        </BbNativeSelect>
+            else if (op == PortalRuleWords.InList)
+            {
+                <BbTextarea Value="@m_text" ValueChanged="@((string? v) => SetTextAsync(v ?? "", type))" UpdateTiming="UpdateTiming.OnChange" Placeholder="One value a line" AriaLabel="Values, one a line" AriaInvalid="@Invalid" Class="go-rule-list" spellcheck="false" />
+            }
+            else if (type == "bool" && op != PortalRuleWords.IsEmpty)
+            {
+                <BbNativeSelect TValue="string" Value="@m_text" ValueChanged="@((string v) => SetTextAsync(v, type))" AriaLabel="Value" Class="go-rule-value">
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                </BbNativeSelect>
+            }
+            else if (op != PortalRuleWords.IsEmpty)
+            {
+                <BbInput Type="@(type == "number" ? InputType.Number : InputType.Text)" Value="@m_text" ValueChanged="@((string? v) => SetTextAsync(v ?? "", type))" UpdateTiming="UpdateTiming.OnChange"
+                         Placeholder="@Hint(type)" AriaLabel="Value" AriaInvalid="@Invalid" Class="go-rule-value" autocomplete="off" spellcheck="false" />
+            }
+        }
         <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OnRemove.InvokeAsync())" AriaLabel="Remove this condition" Class="go-rule-remove">
             <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
         </BbButton>
     </div>
-    @if (op == PortalRuleWords.Between)
-    {
-        <div class="go-rule-condition-row">
-            <BbInput Type="InputType.Number" Value="@m_low" ValueChanged="@((string? v) => SetRangeAsync(v ?? "", m_high))" UpdateTiming="UpdateTiming.OnChange" AriaLabel="From" AriaInvalid="@Invalid" Class="go-rule-value" />
-            <span class="go-muted bb:text-sm">and</span>
-            <BbInput Type="InputType.Number" Value="@m_high" ValueChanged="@((string? v) => SetRangeAsync(m_low, v ?? ""))" UpdateTiming="UpdateTiming.OnChange" AriaLabel="To" AriaInvalid="@Invalid" Class="go-rule-value" />
-        </div>
-    }
-    else if (op == PortalRuleWords.InList)
-    {
-        <BbTextarea Value="@m_text" ValueChanged="@((string? v) => SetTextAsync(v ?? "", type))" UpdateTiming="UpdateTiming.OnChange" Placeholder="One value a line" AriaLabel="Values, one a line" AriaInvalid="@Invalid" Class="go-rule-list" spellcheck="false" />
-    }
-    else if (type == "bool" && op != PortalRuleWords.IsEmpty)
-    {
-        <BbNativeSelect TValue="string" Value="@m_text" ValueChanged="@((string v) => SetTextAsync(v, type))" AriaLabel="Value" Class="go-rule-value">
-            <option value="true">true</option>
-            <option value="false">false</option>
-        </BbNativeSelect>
-    }
-    else if (op != PortalRuleWords.IsEmpty)
-    {
-        <BbInput Type="@(type == "number" ? InputType.Number : InputType.Text)" Value="@m_text" ValueChanged="@((string? v) => SetTextAsync(v ?? "", type))" UpdateTiming="UpdateTiming.OnChange"
-                 Placeholder="@Hint(type)" AriaLabel="Value" AriaInvalid="@Invalid" Class="go-rule-value" autocomplete="off" spellcheck="false" />
-    }
     @if (m_problem != null)
     {
         <p class="go-rule-problem" role="alert">@m_problem</p>
@@ -91,6 +112,10 @@
 
     [Parameter]
     public EventCallback OnRemove { get; set; }
+
+    // the choice of a yes or no field names its state after the key
+    private const string StateTrue = "=true";
+    private const string StateFalse = "=false";
 
     private string m_id = "";
     private string m_text = "";
@@ -141,9 +166,35 @@
         _ => "A value"
     };
 
-    // A new field keeps the operator when the field has it, otherwise takes its first, and starts without a value
+    // The choice the row shows for a yes or no field that is equal to true or false, null for any other condition
+    private string? StateOf(PortalRuleField? field)
+    {
+        if (field is not { Type: "bool", TrueLabel: not null, FalseLabel: not null } || Condition.Operator != "equals" || Condition.Value is not JsonElement value)
+        {
+            return null;
+        }
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => field.Key + StateTrue,
+            JsonValueKind.False => field.Key + StateFalse,
+            _ => null
+        };
+    }
+
+    // A new field keeps the operator when the field has it, otherwise takes its first, and starts without a value. The
+    // choice of a yes or no field sets the field, equals and the state at once.
     private Task SetFieldAsync(string key)
     {
+        foreach ((string suffix, bool wanted) in new[] { (StateTrue, true), (StateFalse, false) })
+        {
+            if (key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                Condition.Field = key.Substring(0, key.Length - suffix.Length);
+                Condition.Operator = "equals";
+                Condition.Value = JsonSerializer.SerializeToElement(wanted);
+                return OnChanged.InvokeAsync();
+            }
+        }
         PortalRuleField? field = Catalog?.Find(key);
         Condition.Field = key;
         if (field != null && !field.Operators.Contains(Condition.Operator ?? ""))

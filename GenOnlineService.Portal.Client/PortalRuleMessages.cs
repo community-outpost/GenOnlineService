@@ -114,6 +114,22 @@ namespace GenOnlineService.Portal.Client
 			_ => op ?? ""
 		};
 
+		// The short form of an operator on a condition row, the words of OperatorLabel stay with it for screen readers
+		public static string OperatorSymbol(string? op) => op switch
+		{
+			"equals" => "=",
+			"not_equals" => "\u2260",
+			InList => "in",
+			"contains" => "contains",
+			"starts_with" => "starts with",
+			"greater_than" => ">",
+			"less_than" => "<",
+			Between => "between",
+			IsEmpty => "is empty",
+			"cidr" => "in range",
+			_ => op ?? ""
+		};
+
 		public static string OutcomeLabel(string? outcome) => outcome switch
 		{
 			"watched" => "Watched",

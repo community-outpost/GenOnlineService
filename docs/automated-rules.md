@@ -245,7 +245,12 @@ switch, current version, last match and circuit breaker, with create, archive an
 mode and switched off. `/admin/rules/:id` is the editor: a node canvas (Bit.Blow, pinned to one version) of the trigger,
 condition and action nodes, whose handles allow only the connections the service accepts, the panel of the selected
 node with the AND/OR query builder from the field catalogue, and an outline of the same graph beside the canvas for
-keyboard and screen reader use. Saving sends `base_version` and shows a conflict, problems land on the node and field
+keyboard and screen reader use. The query builder reads as a sentence: each group opens with "Match all or any of the
+following", nested groups sit indented inside it, and each condition is one row of field, operator and value with a
+remove button. A yes or no field is one choice that names its state, such as "Email is not confirmed" or "MAC is
+virtual", in place of an operator and a true or false value. Operators show as short symbols where they are
+universal: `=`, `≠`, `<`, `>`, `in`, `contains`, `starts with`, `between`; screen readers hear the words, such as "is
+less than". On a narrow screen the field takes its own line with the operator and value under it. Saving sends `base_version` and shows a conflict, problems land on the node and field
 their path names, switching to Enforce asks first and names what the rule does, and the preview runs the document on
 the canvas, saved or not. The versions show any version and the difference of two outlines. The persisted format is
 the rule document above, mapped to the canvas in `GenOnlineService.Portal.Client/Rules/RuleGraph.cs` alone.
@@ -266,7 +271,7 @@ Every route takes the staff sign-in cookie and needs `rules.manage` (admins and 
 | `PATCH /api/v1/staff/rules/:id` | body `{name?, description?, mode?, enabled?}`; the rule |
 | `POST /api/v1/staff/rules/:id/archive`, `POST /api/v1/staff/rules/:id/restore` | the rule |
 | `POST /api/v1/staff/rules/validate` | body `{document}`; `{valid, problems: [{path, reason}]}` |
-| `GET /api/v1/staff/rules/fields` | `{fields: [{key, type, label, description, triggers, operators}], triggers, actions, modes}` |
+| `GET /api/v1/staff/rules/fields` | `{fields: [{key, type, label, description, triggers, operators, true_label, false_label}], triggers, actions, modes, renamed: [{from, to}]}` |
 | `POST /api/v1/staff/rules/preview` | body `{rule_id}` or `{document}`; `{scanned, matched, complete, timed_out, players: [{player, actions, facts}]}` |
 | `POST /api/v1/staff/rules/:id/sweep`, `GET`, `DELETE` | 201, 200 and 200 `{rule_id, rule_version, state, total, scanned, matched, started_by, started_at, finished_at}` |
 

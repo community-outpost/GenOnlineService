@@ -1,12 +1,16 @@
-@* One AND/OR group of the query builder: all or any of its rules, each a condition or a nested group, with the buttons
-   that add a condition or a group and the problems the host found at this group *@
+@* One AND/OR group of the query builder under the header Match all or any of the following: its rules, each a
+   condition row or a nested group indented inside it, with the buttons that add a condition or a group and the problems
+   the host found at this group *@
 
 <div class="go-rule-group" role="group" aria-label="@(Depth == 0 ? "Query" : "Nested group")" data-testid="rule-group">
     <div class="go-rule-group-head">
-        <BbNativeSelect TValue="string" Value="@(Group.Match ?? PortalRuleWords.All)" ValueChanged="@((string v) => SetMatchAsync(v))" AriaLabel="@(Depth == 0 ? "Match" : "Match of the nested group")" Class="go-rule-match">
-            <option value="@PortalRuleWords.All">All of these hold</option>
-            <option value="@PortalRuleWords.Any">Any of these holds</option>
+        <span class="go-rule-group-word" aria-hidden="true">Match</span>
+        <BbNativeSelect TValue="string" Value="@(Group.Match ?? PortalRuleWords.All)" ValueChanged="@((string v) => SetMatchAsync(v))"
+                        AriaLabel="@(Depth == 0 ? "Match all or any of the following" : "Match all or any of the following, nested group")" Class="go-rule-match">
+            <option value="@PortalRuleWords.All">all</option>
+            <option value="@PortalRuleWords.Any">any</option>
         </BbNativeSelect>
+        <span class="go-rule-group-word" aria-hidden="true">of the following</span>
         @if (OnRemove.HasDelegate)
         {
             <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OnRemove.InvokeAsync())" AriaLabel="Remove this group">
