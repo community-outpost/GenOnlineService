@@ -30,11 +30,8 @@ namespace GenOnlineService.Flags
 	// The evaluation context comes from the session; whatever context the client sends is ignored.
 	public sealed class OfrepController : ApiControllerBase
 	{
-		private readonly IHostEnvironment m_environment;
-
-		public OfrepController(IAuthorizationService authorization, IHostEnvironment environment) : base(authorization)
+		public OfrepController(IAuthorizationService authorization) : base(authorization)
 		{
-			m_environment = environment;
 		}
 
 		// Every enabled client flag; If-None-Match with the last ETag answers 304 while nothing changed
@@ -71,15 +68,20 @@ namespace GenOnlineService.Flags
 			return Json(Evaluation(key, FlagEvaluator.Evaluate(key, flag, ContextOf())));
 		}
 
-		private JsonObject ContextOf() => ContextOf(HttpContext, m_environment);
+		private JsonObject ContextOf() => ContextOf(HttpContext);
 
 		// The caller's evaluation context: user id, roles, client id, country of the address, environment
-		internal static JsonObject ContextOf(HttpContext http, IHostEnvironment environment)
+		// The environment is the service environment live, test or dev, never the ASP.NET environment name
+		internal static JsonObject ContextOf(HttpContext http)
 		{
 			Int64 userID = RealtimeClaims.UserID(http.User);
 			string ipAddress = IPHelpers.NormalizeIP(http.Connection.RemoteIpAddress?.ToString());
-			return FlagContext.Create(userID, StaffRoles.RolesOf(userID), RealtimeClaims.ClientID(http.User), null, GeoLocation.Lookup(ipAddress).Country, environment.EnvironmentName);
+			ServiceEnvironment environment = http.RequestServices.GetRequiredService<ServiceEnvironment>();
+			return FlagContext.Create(userID, StaffRoles.RolesOf(userID), RealtimeClaims.ClientID(http.User), null, GeoLocation.Lookup(ipAddress).Country, environment.Name);
 		}
+
+		// ConfigController still passes its host environment, which the context no longer reads
+		internal static JsonObject ContextOf(HttpContext http, IHostEnvironment _) => ContextOf(http);
 
 		private static JsonObject Evaluation(string key, FlagResult result)
 		{

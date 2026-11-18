@@ -189,7 +189,7 @@ GenOnlineService service-accounts create website --description "Website backend"
 GenOnlineService service-accounts grant website users.revoke
 GenOnlineService service-accounts revoke-grant website users.revoke
 GenOnlineService service-accounts disable website
-GenOnlineService tokens create --owner service:website --name website-prod --scopes users.revoke --expires 2026-05-01 --allowed-ips 203.0.113.4/32
+GenOnlineService tokens create --owner service:website --name website-live --scopes users.revoke --expires 2026-05-01 --allowed-ips 203.0.113.4/32
 GenOnlineService tokens list [--owner service:website]
 GenOnlineService tokens rotate <id> [--overlap-minutes 60]
 GenOnlineService tokens revoke <id>
@@ -262,7 +262,7 @@ Staff with `tokens.manage` manage partners at `/admin/partners` (S1: partner API
 
 - Lookup by hash of the full token needs no constant-time compare.
 - Tokens are never logged; logs carry `token_id` and `token_last4`.
-- Tokens are per environment: separate databases, so a prod token never works on dev or test.
+- Tokens are per environment: separate databases, so a live token never works on test or dev.
 - Banning or deleting a user disables their personal tokens within one tick.
 - Rotation guidance: privileged tokens 30 days, website and Discord 90 days, partners at most 365 days.
 
