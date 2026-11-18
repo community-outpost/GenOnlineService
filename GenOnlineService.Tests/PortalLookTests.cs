@@ -96,6 +96,40 @@ public class PortalLookTests
 		Assert.Matches(@"\[dir=""rtl""\]\s*\.go-directional\s*\{\s*transform:\s*scaleX\(-1\)", css);
 	}
 
+	// Every file the sign-in pages link has a fingerprinted address that the static assets serve for a year without a check;
+	// the plain addresses are revalidated, so a page linking them made the browser ask again on later visits
+	[Fact]
+	public void TheSignInFilesAreLinkedByAddressesCachedForAYear()
+	{
+		using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(PortalAssets.ManifestPath));
+		foreach (string path in new[] { PortalLook.ThemePath, PortalLook.StylesheetPath, PortalLook.GeneralsPath, PortalLook.PosterPath, PortalLook.LogoPath, PortalLook.GameReplaysLogoPath })
+		{
+			string url = PortalAssets.Url(path);
+			string extension = Path.GetExtension(path);
+			Assert.Matches("^" + Regex.Escape(path[..^extension.Length]) + @"\.[a-z0-9]{10}" + Regex.Escape(extension) + "$", url);
+			JsonElement endpoint = manifest.RootElement.GetProperty("Endpoints").EnumerateArray()
+				.First(e => e.GetProperty("Route").GetString() == url.TrimStart('/') && e.GetProperty("Selectors").GetArrayLength() == 0);
+			Assert.Contains(endpoint.GetProperty("ResponseHeaders").EnumerateArray(),
+				h => h.GetProperty("Name").GetString() == "Cache-Control" && h.GetProperty("Value").GetString() == "max-age=31536000, immutable");
+		}
+	}
+
+	[Fact]
+	public void WithoutTheManifestTheAddressesArePlain()
+	{
+		Assert.Empty(PortalAssets.Load(Path.Combine(AppContext.BaseDirectory, "no-such.staticwebassets.endpoints.json")));
+	}
+
+	// the poster is baked: grey, dark, and far smaller than the 174 KB JPEG it replaces
+	[Fact]
+	public void ThePosterIsASmallWebP()
+	{
+		byte[] poster = File.ReadAllBytes(FileOf(PortalLook.PosterPath));
+		Assert.Equal("RIFF", Encoding.ASCII.GetString(poster, 0, 4));
+		Assert.Equal("WEBP", Encoding.ASCII.GetString(poster, 8, 4));
+		Assert.InRange(poster.Length, 1, 64 * 1024);
+	}
+
 	[Fact]
 	public void ThePagesAreDarkWithTheGeneralsLook()
 	{
@@ -106,12 +140,20 @@ public class PortalLookTests
 		Assert.Contains("Description", page);
 		// the field, the button, three provider marks and the alert; GameReplays' logo and Generals Online's are images
 		Assert.Equal(6, Regex.Matches(page, "<svg ").Count);
-		Assert.Contains($"src=\"{PortalLook.GameReplaysLogoPath}\"", page);
-		Assert.Contains($"src=\"{PortalLook.LogoPath}\" alt=\"Generals Online\"", page);
+		Assert.Contains($"src=\"{PortalAssets.Url(PortalLook.GameReplaysLogoPath)}\"", page);
+		Assert.Contains($"src=\"{PortalAssets.Url(PortalLook.LogoPath)}\" alt=\"Generals Online\"", page);
 		Assert.Contains("Sign in with Google</a>", page);
 		Assert.Contains("fill=\"#4285F4\"", page); // Google's own colours
 
-		Assert.Contains($"url(\"{PortalLook.PosterPath}\")", File.ReadAllText(FileOf(PortalLook.GeneralsPath)));
+		// the cover: the baked poster by its fingerprinted address, preloaded on a screen wide enough to show it, and drawn
+		// without a filter in the browser
+		string poster = PortalAssets.Url(PortalLook.PosterPath);
+		Assert.Contains($"class=\"go-cover\" role=\"presentation\" style=\"--go-poster: url('{poster}')\"", page);
+		Assert.Contains($"<link rel=\"preload\" as=\"image\" type=\"image/webp\" href=\"{poster}\" media=\"(min-width: 64rem)\" fetchpriority=\"high\">", page);
+		string cover = Regex.Match(File.ReadAllText(FileOf(PortalLook.GeneralsPath)), @"\.go-cover\s*\{([^}]*)\}").Groups[1].Value;
+		Assert.Contains("background-image: var(--go-poster)", cover);
+		Assert.DoesNotContain("filter", cover);
+		Assert.DoesNotContain(".go-cover::", File.ReadAllText(FileOf(PortalLook.GeneralsPath)));
 		AssertGoClassesDefined(page);
 	}
 
@@ -176,9 +218,9 @@ public class PortalLookTests
 			+ PortalLook.Providers(s_providers) + PortalLook.Link("/", "k", "lead") + PortalLook.Alert("a") + PortalLook.Alert("b", success: true)
 			+ PortalLook.Separator() + PortalLook.Separator("or"), "Description");
 
-		Assert.Contains($"href=\"{PortalLook.ThemePath}\"", page);
-		Assert.Contains($"href=\"{PortalLook.StylesheetPath}\"", page);
-		Assert.Contains($"href=\"{PortalLook.GeneralsPath}\"", page);
+		Assert.Contains($"href=\"{PortalAssets.Url(PortalLook.ThemePath)}\"", page);
+		Assert.Contains($"href=\"{PortalAssets.Url(PortalLook.StylesheetPath)}\"", page);
+		Assert.Contains($"href=\"{PortalAssets.Url(PortalLook.GeneralsPath)}\"", page);
 		AssertStyled(page);
 	}
 
