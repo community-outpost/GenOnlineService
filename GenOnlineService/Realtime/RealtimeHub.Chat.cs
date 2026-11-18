@@ -85,6 +85,9 @@ namespace GenOnlineService.Realtime
 			string storedType = StoredType(request.Type);
 			Func<AppDbContext, Task<ChatMessage>> store;
 			Func<Message, Task> deliver;
+			// the conversation's current members, whom @name and @name#tag resolve against (section 4)
+			Func<IEnumerable<Int64>> mentionable;
+			long[] mentions = [];
 			Int64? staffRecipient = null;
 			switch (kind)
 			{
@@ -96,7 +99,8 @@ namespace GenOnlineService.Realtime
 						return Result.NotFound("channel");
 					}
 
-					store = db => Database.Chat.InsertChannelMessage(db, channelID, author, storedType, content);
+					store = db => Database.Chat.InsertChannelMessage(db, channelID, author, storedType, content, mentions);
+					mentionable = () => RealtimeAudience.AllSessions().Where(s => s.networkRoomID == channelID && RealtimeAudience.ConnectionOf(s) != null).Select(s => s.m_UserID);
 					if (RealtimeFanout.IsShared)
 					{
 						long[] skipped = await BlockedEitherWayOfAsync(author);
@@ -140,7 +144,8 @@ namespace GenOnlineService.Realtime
 					}
 
 					Int64? matchID = lobby.MatchID == 0 ? null : (Int64)lobby.MatchID;
-					store = db => Database.Chat.InsertLobbyMessage(db, targetID, matchID, author, storedType, content);
+					store = db => Database.Chat.InsertLobbyMessage(db, targetID, matchID, author, storedType, content, mentions);
+					mentionable = () => memberIDs;
 					Func<Message, Task> send;
 					if (RealtimeFanout.IsShared)
 					{
@@ -182,7 +187,8 @@ namespace GenOnlineService.Realtime
 					}
 
 					Int64 recipient = targetID;
-					store = db => Database.Chat.InsertDirectMessage(db, author, recipient, storedType, content);
+					store = db => Database.Chat.InsertDirectMessage(db, author, recipient, storedType, content, mentions);
+					mentionable = () => [author, recipient];
 
 					// each side sees the conversation as dm:<the other user>
 					deliver = async message =>
@@ -197,6 +203,7 @@ namespace GenOnlineService.Realtime
 					// group:<id>, members who block each other stay in the group and never receive each other's messages
 					Int64 groupID = targetID;
 					Int64[] recipients;
+					Int64[] groupMembers;
 					await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 					{
 						Database.GroupInfo? group = await Database.Chat.GetGroup(db, groupID);
@@ -207,9 +214,11 @@ namespace GenOnlineService.Realtime
 
 						HashSet<long> blocked = await BlockedEitherWayAsync(db, author);
 						recipients = group.MemberIDs.Where(id => id == author || !blocked.Contains(id)).ToArray();
+						groupMembers = group.MemberIDs.ToArray();
 					}
 
-					store = db => Database.Chat.InsertGroupMessage(db, groupID, author, storedType, content);
+					store = db => Database.Chat.InsertGroupMessage(db, groupID, author, storedType, content, mentions);
+					mentionable = () => groupMembers;
 					deliver = message => RealtimeOut.Users(recipients).MessageCreate(message);
 					break;
 				}
@@ -243,6 +252,8 @@ namespace GenOnlineService.Realtime
 			ChatMessage stored;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
 			{
+				// mentions resolve on the text as stored and delivered, so a name the text rules masked stays plain text
+				mentions = await ChatMentions.ResolveAsync(db, content, mentionable(), outsidersByTag: kind == "channel");
 				stored = await store(db);
 
 				// ids only, the audit row never holds the chat text
@@ -260,6 +271,7 @@ namespace GenOnlineService.Realtime
 				Type = request.Type,
 				Author = RealtimeMembers.Of(author, authorData.m_strDisplayName, null, authorData.m_NameTag),
 				Content = content,
+				Mentions = ChatMentions.OrNull(mentions),
 				CreatedAt = stored.CreatedAt
 			};
 			await deliver(message);

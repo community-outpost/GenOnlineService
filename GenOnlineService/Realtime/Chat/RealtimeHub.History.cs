@@ -312,7 +312,7 @@ namespace GenOnlineService.Realtime
 		}
 
 		// A stored row as the viewer sees it, a deleted row becomes a tombstone without author and content
-		private static Message ToWire(ChatMessage row, Int64 viewer, IReadOnlyDictionary<long, (string Name, int Tag)> names)
+		internal static Message ToWire(ChatMessage row, Int64 viewer, IReadOnlyDictionary<long, (string Name, int Tag)> names)
 		{
 			string id = row.ID.ToString(CultureInfo.InvariantCulture);
 			string channelID = ConversationIDOf(row, viewer);
@@ -328,6 +328,7 @@ namespace GenOnlineService.Realtime
 				Type = WireType(row.Type),
 				Author = RealtimeMembers.Of(row.SenderID, names),
 				Content = row.Content,
+				Mentions = ChatMentions.OrNull(Database.Chat.DecodeMentions(row.Mentions)),
 				CreatedAt = row.CreatedAt
 			};
 		}

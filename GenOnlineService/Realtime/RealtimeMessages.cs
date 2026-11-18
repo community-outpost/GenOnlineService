@@ -68,6 +68,10 @@ namespace GenOnlineService.Realtime
 		public Member? Author { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public string? Content { get; init; }
+
+		// The mentioned user ids in order of appearance (ChatMentions), null and absent on the wire when there is none
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public IReadOnlyList<long>? Mentions { get; init; }
 		public DateTime CreatedAt { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
 		public bool Deleted { get; init; }
@@ -236,6 +240,7 @@ namespace GenOnlineService.Realtime
 		public int NameMinLength { get; init; }
 		public int NameMaxLength { get; init; }
 		public int GroupMaxMembers { get; init; }
+		public int MentionMax { get; init; }
 	}
 
 	// A group chat, members in join order with the owner included

@@ -210,14 +210,20 @@ namespace GenOnlineService.Realtime
 					ParentId = channel.ParentID,
 					ShowAllMatches = channel.ID == 0
 				}).ToArray(),
-				Limits = new Limits
-				{
-					ChatMaxLength = ChatMaxLength,
-					ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
-					NameMinLength = NameMinLength,
-					NameMaxLength = NameMaxLength,
-					GroupMaxMembers = GroupMaxMembers
-				}
+				Limits = BuildLimits()
+			};
+		}
+
+		internal static Limits BuildLimits()
+		{
+			return new Limits
+			{
+				ChatMaxLength = ChatMaxLength,
+				ChatRate = new ChatRate { Messages = ChatRateMessages, WindowS = (ChatRateWindowMs + 999) / 1000 },
+				NameMinLength = NameMinLength,
+				NameMaxLength = NameMaxLength,
+				GroupMaxMembers = GroupMaxMembers,
+				MentionMax = ChatMentions.Max
 			};
 		}
 

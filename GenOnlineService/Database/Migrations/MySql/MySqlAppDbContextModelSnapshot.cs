@@ -516,6 +516,11 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
+                    b.Property<string>("Mentions")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)")
+                        .HasColumnName("mentions");
+
                     b.Property<long?>("RecipientID")
                         .HasColumnType("bigint")
                         .HasColumnName("recipient_id");
