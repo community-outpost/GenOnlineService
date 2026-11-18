@@ -1,16 +1,16 @@
 # Identity: every environment is its own identity provider (OpenIddict)
 
-Status: **being replaced.** Keycloak is gone (the identity hub, decided 2026-11-15): prod's service is the identity provider, and the sections below on Keycloak, player ids, trusted claims, group sync and the plugin's change log no longer describe the service. A full rewrite follows. Earlier status: draft, topology decided by the user (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
+Status: **being replaced.** Keycloak is gone (the identity hub, decided 2026-11-15): the live environment's service is the identity provider, and the sections below on Keycloak, player ids, trusted claims, group sync and the plugin's change log no longer describe the service. A full rewrite follows. Earlier status: draft, topology decided by the user (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
 
 Each GenOnline environment owns its accounts and issues every token itself, like a GitLab instance. Upstream sign-in providers (Keycloak, Discord, Steam, Google, any OIDC) are linked to a local account, like GitLab's OmniAuth providers. The official deployment ties its environments together through one Keycloak; a self-hoster runs the same thing with or without one.
 
 ## 0. Decisions and assumptions
 
 - **Greenfield deploy.** No old clients, no legacy login flow, no shared keys.
-- **Separate environments.** Prod, test and dev are complete, self-contained instances: own database, own bans, friends and blocks. Nothing is shared between them except the upstream login and, in the official deployment, the player id it carries (section 3.2).
+- **Separate environments.** Live, test and dev are complete, self-contained instances: own database, own bans, friends and blocks. Nothing is shared between them except the upstream login and, in the official deployment, the player id it carries (section 3.2).
 - **The official deployment** uses Keycloak as the only upstream provider in every environment (Discord, Steam and Google are brokered inside Keycloak). Local passwords are off there.
 - **Self-hosters** run one environment with local passwords and/or Discord and Steam directly, no Keycloak needed.
-- **Later add-on, not now:** a one-way "follow prod" sync (section 9).
+- **Later add-on, not now:** a one-way "follow live" sync (section 9).
 - **Scale.** About 2,500 concurrent players at peak, about 4 sign-ins per second in a login burst.
 
 ## 1. Topology
@@ -20,7 +20,7 @@ Each GenOnline environment owns its accounts and issues every token itself, like
                  brokers Discord, Steam, Google; groups for staff
                    |                 |                 |
          +---------+------+  +-------+--------+  +-----+----------+
-         | prod           |  | test           |  | dev            |
+         | live           |  | test           |  | dev            |
          |  accounts      |  |  accounts      |  |  accounts      |
          |  application   |  |  application   |  |  application   |
          |  one database  |  |  one database  |  |  one database  |
@@ -31,7 +31,7 @@ Each GenOnline environment owns its accounts and issues every token itself, like
 
 - **`accounts`** (ASP.NET Core Identity + OpenIddict) and **`application`** (game API, realtime) are profiles of one binary. They run in one process by default; the split is configuration.
 - One database per environment holds account tables and game tables.
-- A compromise of dev or test cannot reach prod: nothing connects them except Keycloak, which only signs people in.
+- A compromise of dev or test cannot reach live: nothing connects them except Keycloak, which only signs people in.
 
 ## 2. Why this shape
 
@@ -41,9 +41,9 @@ Each GenOnline environment owns its accounts and issues every token itself, like
 | Same login everywhere (official) | Keycloak as upstream in every environment |
 | Staff everywhere (official) | Keycloak groups mapped to roles at sign-in (section 5) |
 | Isolation | Structural: environments share no data |
-| Third-party "Sign in with GenOnline" | OAuth applications per environment (normally only prod) |
+| Third-party "Sign in with GenOnline" | OAuth applications per environment (normally only live) |
 
-Trade-offs accepted: friends, blocks and bans are per environment; the player id is the same everywhere in the official deployment (section 3.2). Dev and test data is throwaway; a player who matters lives in prod.
+Trade-offs accepted: friends, blocks and bans are per environment; the player id is the same everywhere in the official deployment (section 3.2). Dev and test data is throwaway; a player who matters belongs to live.
 
 ## 3. Accounts data (per environment)
 
@@ -74,7 +74,7 @@ User: "i just want auto increment". One player id per person, the same in every 
 - **Keycloak hands it out.** Every Keycloak account gets a user profile attribute `player_id` from one increasing counter. Imported players keep their old id; the counter starts above the highest imported id. Keycloak has no counter of its own, so the GenOnline Keycloak plugin (the same jar as the name tags, section 5a) assigns it when the account is created, inside the same transaction, from a sequence in its own table. It never changes.
 - **Admin only.** The user profile marks `player_id` as viewable and editable by admins only; users can never set or change it. The import is the only other writer.
 - **The claim.** `player_id` travels as a claim of the same name in the ID token Keycloak issues to each environment (user attribute mapper).
-- **Environments use it as the user id.** On a Keycloak sign-in the environment finds the user with id `player_id`, or creates it with exactly that id. There is no separate link step and no matching by email: the id is the person. Player 42 is the same person in prod, test and dev.
+- **Environments use it as the user id.** On a Keycloak sign-in the environment finds the user with id `player_id`, or creates it with exactly that id. There is no separate link step and no matching by email: the id is the person. Player 42 is the same person in live, test and dev.
 - **No local ids next to Keycloak.** An environment whose only provider is Keycloak never lets the database pick a user id, so it cannot take a number Keycloak gives out later. It refuses every other sign-in method (`only_provider`) and rejects a Keycloak sign-in without a numeric `player_id`.
 - **Usernames and display names stay free.** The Keycloak username is only a login handle that environments ignore; players choose it. The display name and tag follow section 5a.
 - **Self-hosters without Keycloak:** the database assigns user ids as usual; `player_id` does not exist there.
@@ -120,11 +120,11 @@ Any provider except Steam may set `redirect_uri` when the return URL registered 
 
 ### 4.3 Website
 
-Confidential client of the prod environment, authorization code + PKCE, cookie session on the website. User actions use the user's access token; backend jobs use a `gopat-` token.
+Confidential client of the live environment, authorization code + PKCE, cookie session on the website. User actions use the user's access token; backend jobs use a `gopat-` token.
 
 ### 4.4 Third-party apps ("Sign in with GenOnline")
 
-OAuth applications per environment (normally only prod), consent screen, "authorized applications" page, delegated read scopes (`profile.read`, `matches.read`, `stats.read`), never staff or machine permissions.
+OAuth applications per environment (normally only live), consent screen, "authorized applications" page, delegated read scopes (`profile.read`, `matches.read`, `stats.read`), never staff or machine permissions.
 
 Built so far: third-party clients (`first_party = false`) get a consent page on every sign-in (no remembered consent yet), `prompt=none` answers `consent_required`, and the page carries an antiforgery token bound to the signed-in user and refuses framing. The "authorized applications" page and the delegated read scopes are still to come.
 
@@ -198,10 +198,10 @@ Model: Xbox modern gamertag. The display name is not unique; every account also 
 - **Official deployment:** Keycloak owns both, as user profile attributes `display_name` and `name_tag`. The GenOnline Keycloak plugin (repository `genonline-keycloak`: player ids, tags, GameReplays and Steam) checks the name (3 to 16 characters, no `#`, no control characters, no outer whitespace, no reserved words), assigns a static tag at sign-up that every rename keeps, and keeps `name_tag` read-only for users. There is no rename limit. Its token mapper sends `name` (the display name) and `name_tag` in the ID token, access token and userinfo.
 - **Copy at sign-in:** on every sign-in through a `trusted` provider the environment copies the `name` and `name_tag` claims (`UpstreamAccounts`). An untrusted provider never sets a name. A local user that still holds the copied `name#tag` has a stale copy (it renamed in Keycloak and has not been back); it moves to a free local tag until its own next sign-in. Every change writes a `user_username_history` row with the previous name and tag, so old matches show who someone was.
 - **Live renames (group sync):** with `group_sync` on, the reconcile tick also reads Keycloak user events of type `UPDATE_PROFILE` (a player's own rename) and admin events `UPDATE` on users (a staff rename in the admin console), each from its own cursor (`group_sync.<provider>.names_cursor`), then reads the user's `display_name` and `name_tag` and copies them. Players online get `MemberUpdate` and the `name.changed` notice at once. The realm must save `UPDATE_PROFILE` user events and admin events; the sync client needs `view-events` and `view-users`.
-- **Renaming:** players call `PATCH /api/v1/me {name}`; staff with `moderation.rename` call `PATCH /api/v1/players/:id {name, reason?}` (rank rule, `audit_log` with the full reason and the old and new `name#tag`), and the Discord `/rename` goes through the same code. Where Keycloak owns names (an enabled `trusted` provider with `player_ids`, `AccountsSettings.NameOwner`), prod has the provider's `rename` client (realm role `genonline-rename`) and calls the plugin's `POST /realms/<realm>/genonline/players/{player_id}/name` with `actor` `player:<player_id>` or `discord:<id>`; a 200 applies the returned name and tag at once (`MemberUpdate`) and leaves `last_seq` to the change-log consumer. With the change log on, that apply holds the same `last_seq` row lock as the consumer, so the push of the same seq finds the name current and writes no second history row. Plugin rule failures map to the `name.*` codes, its `name.taken` to `name.taken`; a timeout, refused connection, 5xx, 401, 403, 404 or `request.invalid` answers 503 `name.unavailable` with nothing applied. Test and dev, without that client, answer `name.managed`.
+- **Renaming:** players call `PATCH /api/v1/me {name}`; staff with `moderation.rename` call `PATCH /api/v1/players/:id {name, reason?}` (rank rule, `audit_log` with the full reason and the old and new `name#tag`), and the Discord `/rename` goes through the same code. Where Keycloak owns names (an enabled `trusted` provider with `player_ids`, `AccountsSettings.NameOwner`), live has the provider's `rename` client (realm role `genonline-rename`) and calls the plugin's `POST /realms/<realm>/genonline/players/{player_id}/name` with `actor` `player:<player_id>` or `discord:<id>`; a 200 applies the returned name and tag at once (`MemberUpdate`) and leaves `last_seq` to the change-log consumer. With the change log on, that apply holds the same `last_seq` row lock as the consumer, so the push of the same seq finds the name current and writes no second history row. Plugin rule failures map to the `name.*` codes, its `name.taken` to `name.taken`; a timeout, refused connection, 5xx, 401, 403, 404 or `request.invalid` answers 503 `name.unavailable` with nothing applied. Test and dev, without that client, answer `name.managed`.
 - **Chosen names (S17):** no real names are kept. A provider sign-up starts with a placeholder (`Player` and six digits) and owes a name (`users.name_required_at`); `/users/sign_up/welcome` asks for it before `/oauth/authorize` issues anything, the provider's own name only prefilling the box from a short-lived encrypted cookie. Staff reset an inappropriate name with `POST /api/v1/players/:id/reset_name` or `users name-reset`: a placeholder, the name owed again, every sign-in revoked, audited as `name_reset`.
-- **Self-hosters without Keycloak:** the environment owns name and tag with the same rules. Look-alikes are one name: the key is the plugin's (lower case, NFKC, UTS #39 confusable skeleton from the plugin's ICU table, lower case), stored in `users.name_key` and unique with the tag. Sign-up takes the provider's name. Tags follow the name: a player's tag for a name comes from a keyed hash (`Names:tag_key`, HMAC-SHA256) of the player id and the look-alike key of the name, so the same player always gets the same tag for a name and its look-alikes, and other players get their own. When another player holds or has reserved that tag, the next tag of the player's sequence is taken, so a rename never fails on a taken tag (only when all 9,999 tags of a name are held or reserved, `name.taken`). Every `name#tag` a player has held stays reserved for them (`name_reservations`, unique on `(name_key, name_tag)`), so switching back to an earlier name always brings back its tag and no other player is ever given it. A sign-up has no player id yet and takes the first free tag of the name's own sequence. Renames no longer keep the tag. Two look-alike sign-ups or renames that race onto one tag meet a unique index, and the second takes its next tag. Both endpoints work the same way as in prod. Reserved words follow the plugin's rule: its default list (`NameRules.DEFAULT_RESERVED_WORDS`, kept identical in `ProfileActions.ReservedNameWords`), matched case-insensitively anywhere in the name, with `name.reserved {word}` naming the word as the list spells it. A realm that replaces the list through the `reserved-words` option of its `genonline-display-name` validator changes only Keycloak's rule; the service list is fixed in code.
-- **Reservation backfill:** the `NameReservations` migration creates `name_reservations` empty, and `GenOnlineService migrate` reserves every current `name#tag` and every tagged `user_username_history` row right after, on every run, rekeying reservations with the key. Existing players keep their names and tags. It reads users in batches of 1,000 by id, with their history and reservations. A pair several players held stays with the player who holds it now, else the one who held it last (`held_at`, the time the player last held the pair: when they took it, or when they left it, which is the `changed_at` of that history row); the run prints how many claims lost. A pair the running service reserves while the step runs is skipped and counted instead of failing the run, and the next run settles it. During a rolling deploy the old version keeps renaming without reservations until the rollout ends, so run `migrate` once more after the rollout; a pair taken in that gap meanwhile only lacks its reservation, nobody else can hold it while its player does. The follow-prod mirror (`ApplyUpstream`) copies the upstream name and tag even when another player has the pair reserved, and reserves nothing; that player then gets their next tag while the copy holds it.
+- **Self-hosters without Keycloak:** the environment owns name and tag with the same rules. Look-alikes are one name: the key is the plugin's (lower case, NFKC, UTS #39 confusable skeleton from the plugin's ICU table, lower case), stored in `users.name_key` and unique with the tag. Sign-up takes the provider's name. Tags follow the name: a player's tag for a name comes from a keyed hash (`Names:tag_key`, HMAC-SHA256) of the player id and the look-alike key of the name, so the same player always gets the same tag for a name and its look-alikes, and other players get their own. When another player holds or has reserved that tag, the next tag of the player's sequence is taken, so a rename never fails on a taken tag (only when all 9,999 tags of a name are held or reserved, `name.taken`). Every `name#tag` a player has held stays reserved for them (`name_reservations`, unique on `(name_key, name_tag)`), so switching back to an earlier name always brings back its tag and no other player is ever given it. A sign-up has no player id yet and takes the first free tag of the name's own sequence. Renames no longer keep the tag. Two look-alike sign-ups or renames that race onto one tag meet a unique index, and the second takes its next tag. Both endpoints work the same way as in live. Reserved words follow the plugin's rule: its default list (`NameRules.DEFAULT_RESERVED_WORDS`, kept identical in `ProfileActions.ReservedNameWords`), matched case-insensitively anywhere in the name, with `name.reserved {word}` naming the word as the list spells it. A realm that replaces the list through the `reserved-words` option of its `genonline-display-name` validator changes only Keycloak's rule; the service list is fixed in code.
+- **Reservation backfill:** the `NameReservations` migration creates `name_reservations` empty, and `GenOnlineService migrate` reserves every current `name#tag` and every tagged `user_username_history` row right after, on every run, rekeying reservations with the key. Existing players keep their names and tags. It reads users in batches of 1,000 by id, with their history and reservations. A pair several players held stays with the player who holds it now, else the one who held it last (`held_at`, the time the player last held the pair: when they took it, or when they left it, which is the `changed_at` of that history row); the run prints how many claims lost. A pair the running service reserves while the step runs is skipped and counted instead of failing the run, and the next run settles it. During a rolling deploy the old version keeps renaming without reservations until the rollout ends, so run `migrate` once more after the rollout; a pair taken in that gap meanwhile only lacks its reservation, nobody else can hold it while its player does. The follow-live mirror (`ApplyUpstream`) copies the upstream name and tag even when another player has the pair reserved, and reserves nothing; that player then gets their next tag while the copy holds it.
 - **Tag key:** `Names:tag_key` is a base64 secret of at least 32 bytes. Outside Development the service and the command line tools stop when it is missing or short; Development uses a fixed key. Changing the key changes the tags of names a player has never held, never a reserved or current pair.
 - **Sign-up races:** a sign-up's first try is the first free tag of the name's sequence; each try after a lost race picks a random one of the next free candidates, and after four tries any free tag, up to eight tries, so many sign-ups of one name at once all succeed.
 - **Reservations use the look-alike key only:** current holders are checked under both `name_key` and `username_normalized`, reservations under `name_key` alone. Two names with one normalized form but different keys (upper case NFKC and the lower case skeleton can disagree on a few characters) do not block each other's reserved pairs; when such a name holds a player's old pair, the player gets their next tag for the name instead.
@@ -242,7 +242,7 @@ Upgrading the plugin from `d08727a` changes its name key. Right after that upgra
 
 Every applied push or pull entry logs one Information line with its seq and player id. A pull answered with anything other than 200 or 410 (for example 400 `request.invalid`) is logged with the plugin's error code. A pull while Keycloak is down (refused or dropped connection, timeout, 5xx) logs one Warning line without a stack trace. Nothing is applied, and the next check retries.
 
-Only prod's client also holds `genonline-rename`, the role for the plugin's rename endpoint: a compromised test or dev environment then cannot rename prod players. Calling that endpoint from `PATCH /api/v1/me` and the staff rename is the hub session's part.
+Only live's client also holds `genonline-rename`, the role for the plugin's rename endpoint: a compromised test or dev environment then cannot rename live players. Calling that endpoint from `PATCH /api/v1/me` and the staff rename is the hub session's part.
 
 ## 5d. The look of the pages (T19)
 
@@ -298,7 +298,7 @@ Configuration:
   The first entry signs or encrypts. Every entry is published (signing keys in the JWKS) and accepted.
 - `Accounts:issuer`: set it to the public URL. Every copy then issues and accepts the same `iss`; without it each copy uses the host of the request.
 - `Accounts:ephemeral_keys`: in-memory keys, Development only.
-- `DataProtection:application_name`: the same value on every copy of one environment and a different one per environment, for example `genonline-prod`. It is required outside Development.
+- `DataProtection:application_name`: the same value on every copy of one environment and a different one per environment, for example `genonline-live`. It is required outside Development.
 - `DataProtection:certificates` (optional) and `DataProtection:certificate_password`: the first certificate encrypts new ring keys at rest, and every listed certificate decrypts. The official deployment sets it: without it the ring rows are plain XML, and anyone who can read the database can forge sign-in cookies.
 - Data protection keys rotate on their own: ASP.NET Core adds a ring key every 90 days to the same table, and every copy picks it up.
 
@@ -348,19 +348,19 @@ To rotate the data protection certificate, list the new certificate first and ke
 /api/v1/admin/users, /api/v1/admin/users/:id/identities, /api/v1/admin/applications        (admin API)
 ```
 
-## 9. Later add-on: follow prod
+## 9. Later add-on: follow live
 
-Not built now. If a long-lived public test environment ever needs a player's prod friends or roles:
+Not built now. If a long-lived public test environment ever needs a player's live friends or roles:
 
-- Prod exposes `GET /api/v1/internal/changes?cursor=` (ordered changes: friend added or removed, role granted, ban created), read with a `gopat-` token scoped `sync.read`.
-- The other environment pulls a whitelisted subset, matches people by their Keycloak identity, keeps its last state if prod is down and catches up from the cursor.
+- Live exposes `GET /api/v1/internal/changes?cursor=` (ordered changes: friend added or removed, role granted, ban created), read with a `gopat-` token scoped `sync.read`.
+- The other environment pulls a whitelisted subset, matches people by their Keycloak identity, keeps its last state if live is down and catches up from the cursor.
 - Data flows one way. Only blocks may flow back, and only to make things stricter.
 
 ## 10. Import
 
-- The old production database is imported into the **prod** environment, keeping user ids. Test and dev start empty and provision just in time.
+- The legacy database is imported into the **live** environment, keeping user ids. Test and dev start empty and provision just in time.
 - `identities` come from the old columns: `steam_id` → steam, `discord_id` → discord, `google_id` → google, `gamereplays_*` → gamereplays.
-- **Official deployment, matching people to Keycloak:** the import also produces a Keycloak user import file: one Keycloak user per GenOnline user, with federated identity links for Steam, Discord and Google, the attribute `player_id` set to the old user id, and the plugin's counter set above the highest id. A person's first Keycloak sign-in to prod then lands on their existing user, because the id is the same (section 3.2). Without Keycloak, users claim their account by signing in with any linked provider.
+- **Official deployment, matching people to Keycloak:** the import also produces a Keycloak user import file: one Keycloak user per GenOnline user, with federated identity links for Steam, Discord and Google, the attribute `player_id` set to the old user id, and the plugin's counter set above the highest id. A person's first Keycloak sign-in to live then lands on their existing user, because the id is the same (section 3.2). Without Keycloak, users claim their account by signing in with any linked provider.
 - Duplicate identity links are reported before import, never merged.
 - `Ghost` and `DevAccount` users are not imported; their match slots stay with no user (details in `schema-v1-design.md` section 4).
 - Old `admin` and `permissionslevel` values are not mapped: the import prints every affected user, and staff are granted again by hand (`roles grant`) or through Keycloak groups.
@@ -379,7 +379,7 @@ Not built now. If a long-lived public test environment ever needs a player's pro
 2. **More providers:** Discord, Steam, Google, GameReplays (OAuth 2.0); linking rules; trusted claims for roles.
 3. **Account security:** local passwords, email, reset, TOTP, lockout, notifications.
 4. **Third-party apps:** OAuth applications, consent, delegated scopes.
-5. **Later:** WebAuthn, SAML upstream, follow-prod sync.
+5. **Later:** WebAuthn, SAML upstream, follow-live sync.
 
 ## 13. Open questions
 

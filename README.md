@@ -30,7 +30,7 @@ GeneralsOnline Game Services Code provides RESTful web services which act as a r
 - A database management tool or command line (e.g. pgAdmin, DBeaver, HeidiSQL, psql or mariadb)
 - .NET SDK 10
 
-# Optional Dependencies (not required for development, required for live)
+# Optional Dependencies (not required for dev, required for live)
 - Discord App ID
 - S3 compatible storage
 - STUN + TURN servers
@@ -42,6 +42,7 @@ GeneralsOnline Game Services Code provides RESTful web services which act as a r
 - Open GenServices.sln
 - Build the solution for x64, Windows (or your architecture & OS if different)
 - Edit appsettings.json and fill out any TODO sections (e.g. token settings, database settings)
+- Set `Service:environment` to the deploy environment: `live`, `test` or `dev` (`Service__environment` as an environment variable). Flag targeting on `environment` and the Sentry environment use it. On an ASP.NET Development host it defaults to `dev`; on any other host a missing or unknown value stops the service at startup, so a live copy never reports itself as test or dev. It is separate from the ASP.NET environment (`ASPNETCORE_ENVIRONMENT`), whose framework names `Development` and `Production` only switch framework behaviour such as ephemeral keys
 - Choose the database in the `Database` section of appsettings.json:
   - `db_provider` is `"postgres"` (PostgreSQL, the default when the key is missing or empty) or `"mysql"` (MySQL/MariaDB, `"mariadb"` is accepted too). Any other value stops the service at startup
   - Create an empty database and a user with full access to it, then fill in `db_host`, `db_port` (5432 for PostgreSQL and 3306 for MySQL/MariaDB when missing), `db_name`, `db_username` and `db_password`
@@ -71,8 +72,8 @@ GeneralsOnline Game Services Code provides RESTful web services which act as a r
 - Either leave the `Kestrel` section out of that file, so the image listens on `http://0.0.0.0:8080` (`ASPNETCORE_HTTP_PORTS`), or define a single HTTP endpoint on `0.0.0.0:8080`. Terminate TLS in front of the container
 - Apply the schema with the same mounts: `docker run --rm -v ./appsettings.json:/app/appsettings.json:ro ghcr.io/<owner>/genonlineservice:<version> migrate --yes`
 
-# Importing The Old Production Database
-The schema is v1 (`docs/schema.md`): every environment has its own database, and the old production MariaDB is converted once into the prod environment. `GenOnlineService import [--dry-run] [--yes]` reads the database in the `Import` section (`db_provider` `mariadb` or `mysql`, `db_host`, `db_port`, `db_ssl_mode`, `db_name`, `db_username`, `db_password`) and writes into the database in the `Database` section (PostgreSQL or MySQL/MariaDB). The source is only read, inside one consistent snapshot.
+# Importing The Legacy Database
+The schema is v1 (`docs/schema.md`): every environment has its own database, and the legacy MariaDB is converted once into the live environment. `GenOnlineService import [--dry-run] [--yes]` reads the database in the `Import` section (`db_provider` `mariadb` or `mysql`, `db_host`, `db_port`, `db_ssl_mode`, `db_name`, `db_username`, `db_password`) and writes into the database in the `Database` section (PostgreSQL or MySQL/MariaDB). The source is only read, inside one consistent snapshot.
 - Create an empty target database and run `GenOnlineService migrate --yes` against it. The import refuses a target with pending migrations or with any rows
 - Validate: the import first reads everything and writes nothing. It prints the users that are dropped (`Ghost` and `DevAccount` accounts: their match slots stay with no user), the staff remap report (every user with `admin` or `permissionslevel`, which are not imported: grant roles again with `roles grant`) and the findings that block the import: `duplicate_identities`, `duplicate_emails`, `username_collisions`, `invalid_usernames`, `orphaned_rows`, `invalid_values`, `invalid_json`. Resolve them in the source, or waive them in `Import:waive` (a list of those names). A waived duplicate stays with the user who signed in last; a waived username collision (an equal name after NFKC and upper case, or a look-alike under the name key) gets `<name>_<id>`, a waived invalid name (empty, too long, a NUL, or leading or trailing whitespace) gets `player_<id>`; waived orphans and invalid rows are left out or lose their user
 - Convert: one transaction on the target, table by table. Legacy bans become local `ban` sanctions with an `audit_log` entry (`Import:legacy_bans` `local`, the default, or `skip`). Device values are stored as HMAC-SHA-256 with the key at `Devices:hmac_key_path` (`data/device_hmac.key` by default), created when missing: back it up with the database and give the service the same key. Every user is imported as `active`; the old `users.active` column is ignored. Old statistics (`daily_stats`, `service_stats`, `connection_outcomes`) are not imported

@@ -20,28 +20,29 @@ Remote export is off by default:
   "Sentry": {
     "enabled": false,
     "dsn": "",
-    "environment": "production",
+    "environment": null,
     "enable_logs": false,
     "traces_sample_rate": 0.1
   }
 }
 ```
 
-Production values can use environment variables:
+Live values can use environment variables:
 
 ```text
+Service__environment=live
 OpenTelemetry__Enabled=true
 OpenTelemetry__OtlpEndpoint=http://alloy:4317
 OpenTelemetry__TraceSampleRatio=0.25
 Sentry__enabled=true
 Sentry__dsn=https://...
-Sentry__environment=production
 ```
 
 `TraceSampleRatio` controls how many traces OpenTelemetry keeps. Sentry can sample those traces again with `traces_sample_rate`. Sentry keeps 10% of those traces by default (`0.1`). Raise it while validating the setup, then lower it if volume or cost is a concern.
 
 ## Sentry
 
+- Environment: `Sentry:environment` names the Sentry environment when it is set. When it is unset, Sentry reports the service environment `Service:environment`: `live`, `test` or `dev`.
 - Errors: `ILogger` entries at Error or above become Sentry events, Warning and above become breadcrumbs. This works without OpenTelemetry.
 - Logs: `enable_logs` sends `ILogger` entries to Sentry Logs. Off by default.
 - Traces: only when `OpenTelemetry:Enabled` is also true, because Sentry receives the OpenTelemetry spans. `traces_sample_rate` applies to those.
