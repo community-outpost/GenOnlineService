@@ -38,8 +38,8 @@ address is not sent anywhere for this.</li>
 <li>Each time the game connects, we record the IP address, the country, the game client and the time. We keep these records
 for 90 days.</li>
 <li>The game also sends identifiers of your computer: the Windows machine id, the network adapter's MAC address and the disk's
-volume serial number. We store them with the last IP address they were seen from, and keep each one for 180 days after it was
-last seen.</li>
+volume serial number. We store them with the last IP address they were seen from, and keep each one for 90 days after it was
+last seen, or for as long as a ban it belongs to.</li>
 <li>Your continent and approximate coordinates, also worked out from your IP address, are used by lobbies and matchmaking. They
 are kept in memory while you are online and are not stored in the database.</li>
 </ul>
@@ -60,27 +60,25 @@ kept until staff close it, and deleted 30 days after that.</li>
 <li>Every staff action, such as a sanction, a name reset, viewing a report or looking up a message, is recorded in a staff log
 with its reason.</li>
 </ul>
-<p>We keep sanctions and the staff log without a fixed end, so that repeated abuse can be recognised and staff are
-accountable for what they do.</p>
+<p>We keep a sanction until two years after it ends, so that repeated abuse can be recognised, and the staff log for two
+years, so that staff are accountable for what they do.</p>
 
 <h3>Agreements</h3>
 <p>We record which version of the Rules of Engagement and the Terms of Service you agreed to, and when.</p>
 
 <h3>Matches and statistics</h3>
 <p>We store your matches: the lobby settings, the map, the players with their teams, sides, colours and results, your rating
-and your statistics, and the leaderboards. Match data is part of the public record of the game and is kept without a fixed
-end.</p>
-<p>The game can upload replays and screenshots of matches; this is switched off at the moment. When it is on, they are stored
-in the European Union and deleted after 90 days. Screenshots taken by the anti-cheat are kept apart and for as long as a
-review or a sanction needs them, since they can be the evidence for a ban.</p>
-<!-- Uploads are off (MatchData:upload_match_data false) and no bucket exists (2026-11-18). When they return, the bucket gets the
-     90-day expiry in IaC and anti-cheat screenshots a separate place without it; keep this paragraph true. -->
+and your statistics, and the leaderboards. The game uploads a replay of each match and screenshots of the loading screen,
+the score screen and, for the anti-cheat, of play. They are stored on our own servers in the European Union.</p>
+<p>Matches, statistics and replays are the record behind everyone's rating, so we keep them without a fixed end. Screenshots
+are deleted after 90 days; a screenshot a sanction relies on is kept until 90 days after that sanction ends.</p>
 
 <h3>Logs and error reports</h3>
 <ul>
 <li>Our web server logs each request with the IP address, the address requested, the time, the browser's user agent and the
-referring page. These logs are kept for 14 days and are checked automatically for attacks.</li>
-<li>The service writes its own logs of what it does and of errors.</li>
+referring page. These logs are checked automatically for attacks.</li>
+<li>The service and our servers write their own logs of what they do and of errors.</li>
+<li>All of these logs are kept for 30 days.</li>
 <li>When the game crashes or hits an error, it sends an error report to our own error tracker (GlitchTip, at
 errors.generals.online), which runs on our servers, so that we can fix it. A report holds technical details of the error and
 of your computer, and can include the IP address it came from. Error reports are deleted after 90 days.</li>
@@ -92,7 +90,7 @@ of your computer, and can include the IP address it came from. Error reports are
 
 <h3>Backups</h3>
 <p>We back up the database, encrypted, every day, to Cloudflare R2 storage held in the European Union. Backups are kept for
-about four weeks and then replaced.</p>
+30 days and then replaced, so data deleted from the service is gone from the backups within 30 days.</p>
 
 <h3>Children</h3>
 <p>Generals Online is for players aged 16 and older. We do not knowingly keep personal data of anyone younger. If we learn
@@ -160,13 +158,18 @@ sign-in.</li>
 <ul>
 <li><strong>access</strong> the personal data we hold about you;</li>
 <li><strong>rectification</strong> of data that is wrong (you can change your display name yourself on your account page);</li>
-<li><strong>erasure</strong> of your data, unless we must keep it, for example to enforce a ban;</li>
+<li><strong>erasure</strong> of your data, unless we must keep it, for example to enforce a ban. When your account is deleted,
+your matches stay in the record behind the ratings without your name; replay files cannot be edited, so your name stays in the
+replays of matches you played. You can object to that for a particular replay;</li>
 <li><strong>restriction</strong> of how we use your data;</li>
 <li><strong>portability</strong>: a copy of the data you gave us, in a common format;</li>
 <li><strong>objection</strong> to the use of your data based on our legitimate interest.</li>
 </ul>
 <p>Email <a href="mailto:support@generals.online">support@generals.online</a> from the email address of your account, or tell
 us which sign-in provider you use, so that we can check it is you. We answer within one month.</p>
+<!-- Retention policy adopted 2026-11-18. Not yet enforced by code: device ids at 90 days (code: 180), sanctions and the staff
+     log at 2 years, the sanction hold on screenshots, and removing the name from matches on account deletion (no deletion
+     exists). Do not ship this page before those jobs, or say so here. -->
 <!-- TODO(operator): there is no self-service export or deletion: requests for access, portability and erasure are handled by
      hand until tooling exists (see the TODO in terms.html). -->
 <p>You also have the right to complain to the Dutch Data Protection Authority, the
