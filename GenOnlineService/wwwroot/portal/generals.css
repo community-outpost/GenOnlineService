@@ -1524,7 +1524,7 @@ select.gp-input { width: auto; min-width: 240px; }
 .gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: var(--go-space-3); padding: var(--go-space-3) var(--go-space-4); border-bottom: 1px solid var(--go-color-border-subtle); }
 .gp-person:last-child { border-bottom: 0; }
 .gp-who { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.gp-who .gp-name { overflow-wrap: anywhere; }
+.gp-who .gp-name { align-self: flex-start; overflow-wrap: anywhere; }
 .gp-meta { font-size: var(--go-font-size-xs); color: var(--go-color-text-muted); }
 .gp-presence { display: inline-flex; align-items: center; }
 .gp-presence-online { color: var(--go-color-status-live); }
