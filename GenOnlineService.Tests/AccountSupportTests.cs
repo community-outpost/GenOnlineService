@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -117,6 +118,168 @@ public class AccountSupportTests
 		await db.SaveChangesAsync();
 		await ApiTokenCache.Reload(db);
 		return new Dictionary<string, string> { ["Authorization"] = "Bearer " + token };
+	}
+
+	// A registered game client, so a signed-in browser of the player gets a game sign-in through the OAuth endpoints
+	private static readonly (string Key, string Value)[] s_gameClient =
+	{
+		("Accounts:clients:0:client_id", "genonline_zerohour"),
+		("Accounts:clients:0:display_name", "Generals Online (Zero Hour)"),
+		("Accounts:clients:0:kind", "game"),
+		("Accounts:clients:0:game", "zerohour"),
+		("Accounts:clients:0:redirect_uris:0", "http://127.0.0.1/callback")
+	};
+
+	private const string Verifier = "a-code-verifier-long-enough-for-pkce-0123456789-abcdefghij";
+
+	// A player signed up through a browser that also serves the game client's OAuth endpoints
+	private static async Task<(AdminBrowser Game, User User)> GamePlayerAsync(ProbeDatabase probe, string name)
+	{
+		var game = new AdminBrowser(probe, s_gameClient);
+		await game.SeedClients();
+		string email = name.ToLowerInvariant() + "@example.org";
+		await game.SignUp(name, email);
+		await using (AppDbContext db = probe.Open())
+		{
+			await ClientRegistry.Reload(db);
+		}
+		return (game, (await PasswordPagesTests.UserByEmail(probe, email))!);
+	}
+
+	// The game's sign-in: an authorization code with PKCE, swapped for an access and a refresh token
+	private static async Task<(string Access, string Refresh)> GameSignIn(AdminBrowser game)
+	{
+		string challenge = Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(Verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		PageResponse authorized = await game.Get($"/oauth/authorize?client_id=genonline_zerohour&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback&scope=openid%20offline_access%20game&state=s&code_challenge={challenge}&code_challenge_method=S256");
+		Assert.Equal(302, authorized.Status);
+		string code = System.Web.HttpUtility.ParseQueryString(new Uri(authorized.Location!).Query)["code"]!;
+		PageResponse issued = await game.Post("/oauth/token", new()
+		{
+			["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = "http://127.0.0.1/callback",
+			["client_id"] = "genonline_zerohour", ["code_verifier"] = Verifier
+		});
+		Assert.Equal(200, issued.Status);
+		JsonElement tokens = JsonDocument.Parse(issued.Body).RootElement;
+		return (tokens.GetProperty("access_token").GetString()!, tokens.GetProperty("refresh_token").GetString()!);
+	}
+
+	private static async Task<PageResponse> Refresh(AdminBrowser game, string refresh)
+		=> await game.Post("/oauth/token", new() { ["grant_type"] = "refresh_token", ["refresh_token"] = refresh, ["client_id"] = "genonline_zerohour" });
+
+	// Registers the game session of an access token, as the game does after signing in; a revoked sign-in answers 401
+	// before anything else is read
+	private static async Task<int> RegisterSession(AdminBrowser game, string access)
+		=> (await game.SendJson("POST", "/api/v1/auth/session", new { exe_crc = 1u, ini_crc = 2u, anticheat_id = 3 }, new Dictionary<string, string> { ["Authorization"] = "Bearer " + access })).Status;
+
+	// A fresh browser signs in with the password and starts a new game sign-in
+	private static async Task FreshGameSignIn(ProbeDatabase probe, string email, string password)
+	{
+		var game = new AdminBrowser(probe, s_gameClient);
+		PageResponse page = await game.Get("/users/sign_in");
+		Assert.Equal(200, page.Status);
+		PageResponse signedIn = await game.Post("/users/sign_in", new() { ["__go_consent_token"] = AccountsBrowser.Token(page), ["email"] = email, ["password"] = password });
+		Assert.Equal(302, signedIn.Status);
+		(_, string refresh) = await GameSignIn(game);
+		Assert.Equal(200, (await Refresh(game, refresh)).Status);
+	}
+
+	// After a reset the old refresh token and the old access token's game session are refused
+	private static async Task AssertGameSignInEnded(AdminBrowser game, string access, string refresh)
+	{
+		PageResponse refused = await Refresh(game, refresh);
+		Assert.Equal(400, refused.Status);
+		Assert.Equal("invalid_grant", JsonDocument.Parse(refused.Body).RootElement.GetProperty("error").GetString());
+		Assert.Equal(401, await RegisterSession(game, access));
+	}
+
+	// A game sign-in whose refresh and access tokens work, as the game holds them before a reset
+	private static async Task<(string Access, string Refresh)> SignedInGame(AdminBrowser game)
+	{
+		(string access, string refresh) = await GameSignIn(game);
+		PageResponse refreshed = await Refresh(game, refresh);
+		Assert.Equal(200, refreshed.Status);
+		refresh = JsonDocument.Parse(refreshed.Body).RootElement.GetProperty("refresh_token").GetString()!;
+		// the access token authenticates here, so a later 401 at the session registration is the revoked sign-in
+		Assert.Equal(200, (await game.Get("/api/v1/me", new Dictionary<string, string> { ["Authorization"] = "Bearer " + access })).Status);
+		return (access, refresh);
+	}
+
+	private static int RevokedIn(AuditLogEntry entry) => JsonDocument.Parse(entry.Details!).RootElement.GetProperty("sign_ins_revoked").GetInt32();
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AStaffResetEndsEveryGameSignIn(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		(AdminBrowser lostGame, User lost) = await GamePlayerAsync(probe, "Lost");
+		(AdminBrowser phoneGame, User phone) = await GamePlayerAsync(probe, "Phone");
+		await TurnOnTwoFactor(probe, phone.ID);
+		await ReloadRoles(probe);
+		(string lostAccess, string lostRefresh) = await SignedInGame(lostGame);
+		(string phoneAccess, string phoneRefresh) = await SignedInGame(phoneGame);
+
+		PageResponse reset = await admin.SendJson("POST", $"/api/v1/players/{lost.ID}/password_reset", new { reason = "lost it" }, await admin.Csrf());
+		Assert.Equal(200, reset.Status);
+		string password = JsonDocument.Parse(reset.Body).RootElement.GetProperty("password").GetString()!;
+		await AssertGameSignInEnded(lostGame, lostAccess, lostRefresh);
+		await FreshGameSignIn(probe, "lost@example.org", password);
+		Assert.True(RevokedIn(Assert.Single(await AuditOf(probe, "password_reset"))) >= 1);
+
+		Assert.Equal(204, (await admin.SendJson("POST", $"/api/v1/players/{phone.ID}/two_factor_reset", new { reason = "lost phone" }, await admin.Csrf())).Status);
+		await AssertGameSignInEnded(phoneGame, phoneAccess, phoneRefresh);
+		await FreshGameSignIn(probe, "phone@example.org", OldPassword);
+		Assert.True(RevokedIn(Assert.Single(await AuditOf(probe, "two_factor_reset"))) >= 1);
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ACliResetEndsEveryGameSignIn(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser lostGame, User lost) = await GamePlayerAsync(probe, "Lost");
+		(AdminBrowser phoneGame, User phone) = await GamePlayerAsync(probe, "Phone");
+		await TurnOnTwoFactor(probe, phone.ID);
+		(string lostAccess, string lostRefresh) = await SignedInGame(lostGame);
+		(string phoneAccess, string phoneRefresh) = await SignedInGame(phoneGame);
+
+		string password;
+		await using (AppDbContext db = probe.Open())
+		{
+			password = await Identity.UserResets.ResetPassword(db, lost.ID, null, 8, "cli:operator", "lost it");
+			await Identity.UserResets.ResetTwoFactor(db, phone.ID, "cli:operator", "lost phone");
+		}
+
+		await AssertGameSignInEnded(lostGame, lostAccess, lostRefresh);
+		await FreshGameSignIn(probe, "lost@example.org", password);
+		await AssertGameSignInEnded(phoneGame, phoneAccess, phoneRefresh);
+		await FreshGameSignIn(probe, "phone@example.org", OldPassword);
+		Assert.True(RevokedIn(Assert.Single(await AuditOf(probe, "password_reset"))) >= 1);
+		Assert.True(RevokedIn(Assert.Single(await AuditOf(probe, "two_factor_reset"))) >= 1);
+	}
+
+	// accounts.support is for staff on the staff pages: a partner service account never holds it, whoever grants it
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task APartnerIsNeverGrantedAccountSupport(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		Dictionary<string, string> csrf = await admin.Csrf();
+		long id = JsonDocument.Parse((await admin.SendJson("POST", "/api/v1/service_accounts", new { name = "partner" }, csrf)).Body).RootElement.GetProperty("id").GetInt64();
+
+		PageResponse grant = await admin.Patch($"/api/v1/service_accounts/{id}", new { grants = new { add = new[] { "accounts.support" } } }, csrf);
+		Assert.Equal(403, grant.Status);
+		Assert.Equal("accounts.support", JsonDocument.Parse(grant.Body).RootElement.GetProperty("params").GetProperty("permission").GetString());
+
+		// the host's grant path refuses it too
+		await using AppDbContext db = probe.Open();
+		ServiceAccount account = await db.ServiceAccounts.AsTracking().SingleAsync(a => a.ID == id);
+		await Assert.ThrowsAsync<Rest.ApiTokenAdminException>(() => Rest.ApiTokenAdmin.StageGrant(db, Rest.ApiTokenActor.Cli(), account, "accounts.support"));
+		Assert.Equal(0, await db.ServiceAccountPermissions.CountAsync(p => p.ServiceAccountID == id));
 	}
 
 	[ProbeTheory]
