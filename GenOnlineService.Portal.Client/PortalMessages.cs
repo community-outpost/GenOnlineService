@@ -206,6 +206,9 @@ namespace GenOnlineService.Portal.Client
 			"rule_restore" => "Automated rule restored",
 			"rule_breaker" => "Automated rule fell back to Flag",
 			"rule_match_review" => "Rule match reviewed",
+			"rule_preview" => "Automated rule previewed",
+			"rule_sweep_start" => "Automated rule sweep started",
+			"rule_sweep_cancel" => "Automated rule sweep cancelled",
 			_ => action
 		};
 
@@ -217,7 +220,7 @@ namespace GenOnlineService.Portal.Client
 			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
 			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "text_term_add", "text_term_update",
 			"text_term_remove", "text_exception_add", "text_exception_remove", "text_workflow_update", "text_rules_seed", "investigate_search", "flag_create", "flag_update", "flag_archive", "flag_restore", "flags_publish", "flags_rollback", "flags_import", "flags_reset",
-			"rule_create", "rule_version", "rule_update", "rule_archive", "rule_restore", "rule_breaker", "rule_match_review"
+			"rule_create", "rule_version", "rule_update", "rule_archive", "rule_restore", "rule_breaker", "rule_match_review", "rule_preview", "rule_sweep_start", "rule_sweep_cancel"
 		];
 	}
 

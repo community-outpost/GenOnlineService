@@ -148,6 +148,50 @@ namespace GenOnlineService.Rules
 		public IReadOnlyList<string> Modes { get; init; } = [];
 	}
 
+	// A saved rule by id or an unsaved document
+	public sealed record RulePreviewRequest
+	{
+		public long? RuleId { get; init; }
+		public RuleDocument? Document { get; init; }
+	}
+
+	public sealed record RulePreviewPlayer
+	{
+		public Member Player { get; init; } = new Member();
+		public IReadOnlyList<string> Actions { get; init; } = [];
+		public JsonElement Facts { get; init; }
+	}
+
+	// scanned counts the players read, complete is true when every player was read within the limits
+	public sealed record RulePreviewResponse
+	{
+		public int Scanned { get; init; }
+		public int Matched { get; init; }
+		public bool Complete { get; init; }
+		public bool TimedOut { get; init; }
+		public IReadOnlyList<RulePreviewPlayer> Players { get; init; } = [];
+	}
+
+	public sealed record RuleSweepView
+	{
+		public long RuleId { get; init; }
+		public int RuleVersion { get; init; }
+
+		// running, completed, cancelled, interrupted or failed
+		public string State { get; init; } = "";
+		public int Total { get; init; }
+		public int Scanned { get; init; }
+		public int Matched { get; init; }
+		public string StartedBy { get; init; } = "";
+		public DateTime StartedAt { get; init; }
+		public DateTime? FinishedAt { get; init; }
+
+		public static RuleSweepView Of(RuleSweepProgress p) => new RuleSweepView
+		{
+			RuleId = p.RuleID, RuleVersion = p.RuleVersion, State = p.State, Total = p.Total, Scanned = p.Scanned, Matched = p.Matched, StartedBy = p.StartedBy, StartedAt = p.StartedAt, FinishedAt = p.FinishedAt
+		};
+	}
+
 	// The automated rules for the staff pages, rules.manage only. Every change is audited, saves a new immutable
 	// version when the logic changes, and applies to every copy at once through CatalogSignals.
 	[ApiController]
@@ -274,6 +318,79 @@ namespace GenOnlineService.Rules
 				Actions = RuleActionKinds.All,
 				Modes = RuleModes.All
 			});
+		}
+
+		[EndpointSummary("Lists who a saved rule or an unsaved document would match now, within a row and a time limit, without acting.")]
+		[ProducesResponseType<RulePreviewResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(RulePreviewRequest))]
+		[HttpPost("~/api/v1/staff/rules/preview")]
+		public async Task<IActionResult> Preview([FromBody] JsonElement body, CancellationToken cancellationToken)
+		{
+			if (RuleRunner.Environment is not RuleEnvironment environment)
+			{
+				return RestResults.Fail(RestCodes.ServiceUnavailable);
+			}
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			long? ruleID = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("rule_id", out JsonElement idValue) && idValue.ValueKind == JsonValueKind.Number && idValue.TryGetInt64(out long parsed) ? parsed : null;
+			string? json = DocumentOf(body);
+			if (json == null && ruleID != null)
+			{
+				AutomatedRule? rule = await RuleStore.GetAsync(db, ruleID.Value);
+				if (rule == null)
+				{
+					return RestResults.NotFound("rule");
+				}
+				json = (await RuleStore.GetVersionAsync(db, rule.ID, rule.CurrentVersion))!.Document;
+			}
+			(RuleDocument? document, List<RuleProblem> problems) = RuleDocuments.Parse(json);
+			if (document == null)
+			{
+				return RestResults.Fail(RuleStore.Refused(problems));
+			}
+
+			RulePreviewResult result = await RulePreview.RunAsync(environment, document, cancellationToken);
+			await Database.Moderation.AddAuditEntry(db, CallerActors.Of(User), RuleAudit.Preview, RuleAudit.TargetKind, ruleID, null, new { trigger = RuleDocuments.TriggerOf(document), scanned = result.Scanned, matched = result.Matched });
+			Dictionary<long, (string Name, int Tag)> names = await RealtimeHub.NamesAsync(db, result.Players.Select(p => p.UserID));
+			return RestResults.Ok(new RulePreviewResponse
+			{
+				Scanned = result.Scanned,
+				Matched = result.Matched,
+				Complete = result.Complete,
+				TimedOut = result.TimedOut,
+				Players = result.Players.Select(p => new RulePreviewPlayer { Player = RealtimeMembers.Of(p.UserID, names), Actions = p.Actions, Facts = JsonDocument.Parse(p.Facts).RootElement.Clone() }).ToList()
+			});
+		}
+
+		[EndpointSummary("Starts a sweep of a rule's current version over every player, on the copy that holds the realtime lease.")]
+		[ProducesResponseType<RuleSweepView>(StatusCodes.Status201Created)]
+		[HttpPost("~/api/v1/staff/rules/{id:long}/sweep")]
+		public async Task<IActionResult> StartSweep(long id)
+		{
+			if (RuleRunner.Environment is not RuleEnvironment environment)
+			{
+				return RestResults.Fail(RestCodes.ServiceUnavailable);
+			}
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			Result<RuleSweepProgress> started = await RuleSweeps.StartAsync(environment, db, CallerActors.Of(User), id);
+			return started.Ok ? RestResults.Created(RuleSweepView.Of(started.Data!)) : RestResults.Fail(new Failure(started.Code!, started.Params!));
+		}
+
+		[EndpointSummary("Reads the progress of the last sweep of a rule on this copy.")]
+		[ProducesResponseType<RuleSweepView>(StatusCodes.Status200OK)]
+		[HttpGet("~/api/v1/staff/rules/{id:long}/sweep")]
+		public IActionResult GetSweep(long id)
+		{
+			return RuleSweeps.Get(id) is RuleSweepProgress progress ? RestResults.Ok(RuleSweepView.Of(progress)) : RestResults.NotFound("sweep");
+		}
+
+		[EndpointSummary("Cancels the running sweep of a rule.")]
+		[ProducesResponseType<RuleSweepView>(StatusCodes.Status200OK)]
+		[HttpDelete("~/api/v1/staff/rules/{id:long}/sweep")]
+		public async Task<IActionResult> CancelSweep(long id)
+		{
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			Result<RuleSweepProgress> cancelled = await RuleSweeps.CancelAsync(db, CallerActors.Of(User), id);
+			return cancelled.Ok ? RestResults.Ok(RuleSweepView.Of(cancelled.Data!)) : RestResults.Fail(new Failure(cancelled.Code!, cancelled.Params!));
 		}
 
 		private IActionResult ViewResult(AppDbContext db, Result<AutomatedRule> result)

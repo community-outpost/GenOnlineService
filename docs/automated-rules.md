@@ -148,6 +148,23 @@ match, and an Enforce match with a flag action, waits in the review queue (`revi
 `anticheat.review` mark it `reviewed` or `dismissed` (audited as `rule_match_review`). A player with a pending match is
 in the staff player list's Flagged filter for reviewers, as one with an unreviewed anti-cheat row is.
 
+## Preview and sweep
+
+A preview shows who a rule would match now, before staff switch it on: `POST /api/v1/staff/rules/preview` with a saved
+`rule_id` or an unsaved `document` reads players in id order as the rule's trigger, with no event fields, and answers
+the count and the first 25 matching players with the actions the rule would reach and the facts that decided it. It
+stops after 5000 players or 10 seconds (`complete` false, `timed_out` true for the time limit), takes no action and
+writes no match; only a `rule_preview` audit row with the trigger and the counts.
+
+A sweep runs one rule's current version over every player as trigger `sweep`, in its mode, with every safety rule of a
+normal match: `POST /api/v1/staff/rules/:id/sweep` starts it, `GET` reads its progress `{rule_id, rule_version, state,
+total, scanned, matched, started_by, started_at, finished_at}` and `DELETE` cancels it. It runs only on the copy that
+holds the realtime lease (a standby answers 503 `service.unavailable`), in batches of 100 players, stops as
+`interrupted` when the copy loses the lease, and one rule runs one sweep at a time (409 `conflict {what: sweep}`). The
+progress lives on that copy; `state` is `running`, `completed`, `cancelled`, `interrupted` or `failed`. Starting and
+cancelling are audited as `rule_sweep_start` and `rule_sweep_cancel`. A rule whose trigger is `sweep` runs only this
+way.
+
 ## Storage and versions
 
 `automated_rules` holds the rule with its mode and enabled flag, `automated_rule_versions` every saved document.
@@ -176,6 +193,8 @@ Every route takes the staff sign-in cookie and needs `rules.manage` (admins and 
 | `POST /api/v1/staff/rules/:id/archive`, `POST /api/v1/staff/rules/:id/restore` | the rule |
 | `POST /api/v1/staff/rules/validate` | body `{document}`; `{valid, problems: [{path, reason}]}` |
 | `GET /api/v1/staff/rules/fields` | `{fields: [{key, type, label, description, triggers, operators}], triggers, actions, modes}` |
+| `POST /api/v1/staff/rules/preview` | body `{rule_id}` or `{document}`; `{scanned, matched, complete, timed_out, players: [{player, actions, facts}]}` |
+| `POST /api/v1/staff/rules/:id/sweep`, `GET`, `DELETE` | 201, 200 and 200 `{rule_id, rule_version, state, total, scanned, matched, started_by, started_at, finished_at}` |
 
 The matches need `anticheat.review`, as the other review lists:
 
