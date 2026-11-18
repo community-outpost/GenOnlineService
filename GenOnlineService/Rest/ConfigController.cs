@@ -30,12 +30,9 @@ namespace GenOnlineService.Rest
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 
-		private readonly IHostEnvironment m_environment;
-
-		public ConfigController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization, IHostEnvironment environment) : base(authorization)
+		public ConfigController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization) : base(authorization)
 		{
 			m_dbFactory = dbFactory;
-			m_environment = environment;
 		}
 
 		// service_config is the client.* flags of the live revision, evaluated for the caller and grouped by key
@@ -50,7 +47,7 @@ namespace GenOnlineService.Rest
 				return RestResults.Fail(RestCodes.ServiceUnavailable, new { What = "config" });
 			}
 
-			JsonObject grouped = flags.ServiceConfigFor(GenOnlineService.Flags.OfrepController.ContextOf(HttpContext, m_environment));
+			JsonObject grouped = flags.ServiceConfigFor(GenOnlineService.Flags.OfrepController.ContextOf(HttpContext));
 			return RestResults.Ok(new ConfigResponse
 			{
 				ServiceConfig = GenOnlineService.Flags.Flagd.Element(grouped),

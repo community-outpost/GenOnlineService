@@ -107,7 +107,6 @@ public class ServiceEnvironmentTests
 		HttpContext http = Request(ServiceEnvironment.Read(Config(name), isDevelopment: false));
 
 		Assert.Equal(name, OfrepController.ContextOf(http)[FlagContext.Environment]!.GetValue<string>());
-		Assert.Equal(name, OfrepController.ContextOf(http, Host(Environments.Production))[FlagContext.Environment]!.GetValue<string>());
 	}
 
 	// a flag that targets live is on for a live pod and off for a test pod running the same ASP.NET environment

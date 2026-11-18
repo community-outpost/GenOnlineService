@@ -80,9 +80,6 @@ namespace GenOnlineService.Flags
 			return FlagContext.Create(userID, StaffRoles.RolesOf(userID), RealtimeClaims.ClientID(http.User), null, GeoLocation.Lookup(ipAddress).Country, environment.Name);
 		}
 
-		// ConfigController still passes its host environment, which the context no longer reads
-		internal static JsonObject ContextOf(HttpContext http, IHostEnvironment _) => ContextOf(http);
-
 		private static JsonObject Evaluation(string key, FlagResult result)
 		{
 			return new JsonObject
