@@ -658,7 +658,8 @@ namespace GenOnlineService
 		}
 
 		// "GenOnlineService migrate [--yes]": applies pending migrations without starting the web host, then brings every
-		// users.name_key up to date and stops with a report when look-alike names collide (NameKeyBackfill).
+		// users.name_key up to date and stops with a report when look-alike names collide (NameKeyBackfill), and reserves every
+		// name#tag users hold or held (NameReservationBackfill).
 		private static async Task<int> RunMigrateCommand(string[] args)
 		{
 			bool assumeYes = args.Skip(1).Any(a => a.Equals("--yes", StringComparison.OrdinalIgnoreCase));
@@ -680,7 +681,7 @@ namespace GenOnlineService
 				if (pending.Count == 0)
 				{
 					Console.WriteLine("Database is up to date.");
-					return await Names.NameKeyBackfill.RunCommand(db, Console.Out, Console.Error);
+					return await RunNameBackfills(db);
 				}
 
 				Console.WriteLine($"Pending migrations: {pending.Count}");
@@ -717,13 +718,21 @@ namespace GenOnlineService
 
 				await db.Database.MigrateAsync();
 				Console.WriteLine($"Applied {pending.Count} migration(s) successfully.");
-				return await Names.NameKeyBackfill.RunCommand(db, Console.Out, Console.Error);
+				return await RunNameBackfills(db);
 			}
 			catch (Exception ex)
 			{
 				Console.Error.WriteLine($"Migration failed: {ex}");
 				return 1;
 			}
+		}
+
+		// The name keys first, then the reservations keyed by them; only colliding name keys fail the run
+		private static async Task<int> RunNameBackfills(AppDbContext db)
+		{
+			int keys = await Names.NameKeyBackfill.RunCommand(db, Console.Out, Console.Error);
+			await Names.NameReservationBackfill.RunCommand(db, Console.Out);
+			return keys;
 		}
 
 		// "GenOnlineService import [--dry-run] [--yes]" converts the Import database into the empty Database database (docs/schema.md section 4)
@@ -1077,6 +1086,9 @@ namespace GenOnlineService
 			// Add services to the container.
 
 			g_Config = builder.Configuration;
+
+			// display name tags derive from this secret; outside Development a missing one stops the service here
+			Names.NameTags.Configure(builder.Configuration, builder.Environment);
 
 			// Process the original client IP, request scheme, and host only when
 			// one or more trusted reverse proxies are configured.

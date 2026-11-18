@@ -40,7 +40,7 @@ namespace GenOnlineService.Api
 			m_names = names;
 		}
 
-		// Replaces an offensive name, the tag stays
+		// Replaces an offensive name, the tag follows the name
 		[AllowSignInCookie]
 		[EndpointSummary("Renames a player as staff.")]
 		[ProducesResponseType(StatusCodes.Status204NoContent)]

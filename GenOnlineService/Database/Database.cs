@@ -72,6 +72,7 @@ public abstract class AppDbContext : DbContext
 	// Accounts
 	public DbSet<User> Users => Set<User>();
 	public DbSet<UserUsernameHistory> UserUsernameHistory => Set<UserUsernameHistory>();
+	public DbSet<NameReservation> NameReservations => Set<NameReservation>();
 	public DbSet<UserIdentity> Identities => Set<UserIdentity>();
 	public DbSet<UserRecoveryCode> UserRecoveryCodes => Set<UserRecoveryCode>();
 	public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
@@ -163,6 +164,13 @@ public abstract class AppDbContext : DbContext
 				entry.Entity.NameKey = NameKey.Of(entry.Entity.Username);
 			}
 		}
+		foreach (EntityEntry<NameReservation> entry in ChangeTracker.Entries<NameReservation>())
+		{
+			if (entry.State == EntityState.Added || entry.State == EntityState.Modified && entry.Property(r => r.Name).IsModified)
+			{
+				entry.Entity.NameKey = NameKey.Of(entry.Entity.Name);
+			}
+		}
 	}
 
 	protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -198,6 +206,11 @@ public abstract class AppDbContext : DbContext
 			modelBuilder.Entity<User>().Property(u => u.NameKey).UseCollation("utf8mb4_bin");
 		}
 		modelBuilder.ApplyConfiguration(new UserUsernameHistoryConfiguration());
+		modelBuilder.ApplyConfiguration(new NameReservationConfiguration());
+		if (this is MySqlAppDbContext)
+		{
+			modelBuilder.Entity<NameReservation>().Property(r => r.NameKey).UseCollation("utf8mb4_bin");
+		}
 		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRecoveryCodeConfiguration());
 		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());

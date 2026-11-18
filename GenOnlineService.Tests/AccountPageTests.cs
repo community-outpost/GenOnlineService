@@ -96,10 +96,10 @@ public class AccountPageTests
 		Assert.Contains("No other sign-in is linked.", page.Body);
 	}
 
-	// a rename keeps the tag, answers with the new name and reissues the cookie; the page says so once
+	// a rename gives the player's tag for the new name, answers with the new name and reissues the cookie; the page says so once
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task ARenameKeepsTheTag(string provider)
+	public async Task ARenameTakesThePlayersTagForTheName(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
@@ -111,8 +111,8 @@ public class AccountPageTests
 
 		User after = (await PasswordPagesTests.UserByEmail(probe, "renamer@example.org"))!;
 		Assert.Equal("After", after.Username);
-		Assert.Equal(user.NameTag, after.NameTag);
-		Assert.Contains("Your name is now After#", (await browser.Get("/profile?renamed=1")).Body);
+		Assert.Equal(GenOnlineService.Names.NameTags.Candidates(user.ID, GenOnlineService.Names.NameKey.Of("After")).First(), after.NameTag);
+		Assert.Contains($"Your name is now After#{Database.DisplayNames.FormatTag(after.NameTag)}", (await browser.Get("/profile?renamed=1")).Body);
 	}
 
 	// the rules of a rename refuse with the message under the field and change nothing
