@@ -2087,7 +2087,7 @@ a.go-list-item:hover {
 
 @media (min-width: 64rem) {
   .go-rule-workspace.go-rule-with-panel {
-    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-columns: minmax(0, 1fr) 28rem;
   }
 
   .go-rule-workspace.go-rule-with-outline {
@@ -2097,7 +2097,7 @@ a.go-list-item:hover {
   /* with both open the outline goes under the canvas, so the canvas keeps its width */
   .go-rule-workspace.go-rule-with-outline.go-rule-with-panel {
     grid-template-areas: "canvas panel" "outline panel";
-    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-columns: minmax(0, 1fr) 28rem;
     grid-template-rows: auto 1fr;
   }
 
@@ -2224,15 +2224,34 @@ a.go-list-item:hover {
 }
 
 .go-rule-group .go-rule-group {
+  margin-inline-start: var(--go-space-4);
+  border-inline-start: 3px solid var(--go-color-border-control);
   background: var(--go-color-bg-panel);
 }
 
+/* Match all or any of the following, as one sentence */
 .go-rule-group-head {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--go-space-2);
   width: 100%;
   padding: 0;
+}
+
+.go-rule-group-word {
+  font-size: var(--go-font-size-sm);
+  white-space: nowrap;
+}
+
+.go-rule-group-head .go-rule-match {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 4.5rem;
+}
+
+.go-rule-group-head .go-rule-remove {
+  margin-inline-start: auto;
 }
 
 .go-rule-rules {
@@ -2256,28 +2275,108 @@ a.go-list-item:hover {
   gap: var(--go-space-2);
   padding-block-end: var(--go-space-3);
   border-bottom: 1px solid var(--go-color-border-subtle);
+  container-type: inline-size;
 }
 
+/* one row: field, operator and value side by side, then the remove button */
 .go-rule-condition-row {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(3.5rem, 1fr) minmax(0, 2fr) auto;
+  grid-template-areas: "field operator value remove";
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-rule-condition-row > .go-rule-field {
+  grid-area: field;
+  min-width: 0;
+}
+
+.go-rule-condition-row > .go-rule-operator {
+  grid-area: operator;
+  min-width: 0;
+}
+
+.go-rule-condition-row > .go-rule-value,
+.go-rule-condition-row > .go-rule-range,
+.go-rule-condition-row > .go-rule-list {
+  grid-area: value;
+  min-width: 0;
+}
+
+.go-rule-condition-row > .go-rule-remove {
+  grid-area: remove;
+}
+
+/* a yes or no field is one choice across the row, is empty takes no value */
+.go-rule-condition-row-choice {
+  grid-template-areas: "field field field remove";
+}
+
+.go-rule-condition-row-bare {
+  grid-template-areas: "field operator operator remove";
+}
+
+/* a list of values takes its own line under the field and the operator */
+.go-rule-condition-row-list {
+  grid-template-areas:
+    "field operator operator remove"
+    "value value value value";
+}
+
+/* the two versions a difference compares */
+.go-rule-version-compare {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--go-space-2);
 }
 
+.go-rule-version-compare .go-rule-operator {
+  flex: 0 1 7rem;
+}
+
+.go-rule-range {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-rule-range .go-rule-value {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* a narrow panel puts the field on its own line and the operator and value under it */
+@container (max-width: 19rem) {
+  .go-rule-condition-row {
+    grid-template-columns: minmax(4.5rem, 1fr) minmax(0, 2fr) auto;
+    grid-template-areas:
+      "field field remove"
+      "operator value value";
+  }
+
+  .go-rule-condition-row-choice {
+    grid-template-areas: "field field remove";
+  }
+
+  .go-rule-condition-row-bare {
+    grid-template-areas:
+      "field field remove"
+      "operator operator operator";
+  }
+
+  .go-rule-condition-row-list {
+    grid-template-areas:
+      "field field remove"
+      "operator operator operator"
+      "value value value";
+  }
+}
+
 .go-rule-field,
 .go-rule-match {
   flex: 1 1 10rem;
-  min-width: 0;
-}
-
-.go-rule-operator {
-  flex: 0 1 9rem;
-  min-width: 0;
-}
-
-.go-rule-condition-row .go-rule-value {
-  flex: 1 1 8rem;
   min-width: 0;
 }
 
@@ -2335,8 +2434,10 @@ a.go-list-item:hover {
   margin: 0;
   padding: 0;
   list-style: none;
+  font-family: var(--go-font-mono);
   font-size: var(--go-font-size-sm);
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .go-rule-outline-list .go-rule-outline-list {

@@ -161,7 +161,7 @@ namespace GenOnlineService.Rules
 				Mode = m.Mode,
 				Actions = m.Actions == null ? [] : m.Actions.Split(','),
 				Outcome = m.Outcome,
-				Facts = JsonDocument.Parse(m.Facts).RootElement.Clone(),
+				Facts = JsonDocument.Parse(RuleFields.CurrentFactsJson(m.Facts)).RootElement.Clone(),
 				ReviewState = m.ReviewState,
 				ReviewedBy = m.ReviewedBy,
 				ReviewedAt = m.ReviewedAt

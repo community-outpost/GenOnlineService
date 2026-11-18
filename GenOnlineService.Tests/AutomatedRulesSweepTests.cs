@@ -67,7 +67,7 @@ public class AutomatedRulesSweepTests
 			Assert.Equal((6, 3, true, false), (all.GetProperty("scanned").GetInt32(), all.GetProperty("matched").GetInt32(), all.GetProperty("complete").GetBoolean(), all.GetProperty("timed_out").GetBoolean()));
 			Assert.Equal(targets.Take(3), all.GetProperty("players").EnumerateArray().Select(p => p.GetProperty("player").GetProperty("id").GetInt64()));
 			JsonElement first = all.GetProperty("players")[0];
-			Assert.Equal(("ban", "TargetA"), (first.GetProperty("actions")[0].GetString(), first.GetProperty("facts").GetProperty("account.name")[0].GetString()));
+			Assert.Equal(("ban", "TargetA"), (first.GetProperty("actions")[0].GetString(), first.GetProperty("facts").GetProperty("user.name")[0].GetString()));
 
 			// the row limit, the page and the time limit
 			RulePreview.MaximumPlayers = 4;

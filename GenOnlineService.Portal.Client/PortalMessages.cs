@@ -444,6 +444,11 @@ namespace GenOnlineService.Portal.Client
 		public DateTime? ExpiresAt { get; init; }
 		public DateTime? LiftedAt { get; init; }
 		public PortalMember? CreatedBy { get; init; }
+
+		// who made it: user, cli, service_account or automation, and for an automated rule its actor name
+		// rule:<id>@v<version>, null otherwise
+		public string? CreatedByKind { get; init; }
+		public string? CreatedByName { get; init; }
 		public bool Active { get; init; }
 
 		// who lifted it (user, service_account or cli, and the player when staff did) and why, null until lifted
