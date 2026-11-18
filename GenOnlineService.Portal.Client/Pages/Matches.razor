@@ -86,14 +86,14 @@
 
         <BbDataGrid @key="m_viewKey" TData="PortalMatchRow" ItemsProvider="@LoadAsync" ItemKey="@(m => m.Id)" InitialPageSize="25" AriaLabel="Matches">
             <Columns>
-                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="long" Property="@(m => m.Id)" Title="Match" Width="100px" Hideable="false">
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="long" Property="@(m => m.Id)" Title="Match" Width="150px" Hideable="false">
                     <CellTemplate>
-                        <BbLink Href="@PortalRoutes.MatchPage(context.Id)" Class="bb:font-mono" data-testid="match-link">@context.Id</BbLink>
+                        <BbLink Href="@PortalRoutes.MatchPage(context.Id)" Class="go-id" data-testid="match-link">@context.Id</BbLink>
                     </CellTemplate>
                 </BbDataGridPropertyColumn>
                 <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="DateTime" Property="@(m => m.StartedAt)" Title="Started" Width="140px">
                     <CellTemplate>
-                        <span title="@(PortalText.Date(context.StartedAt) + " UTC")">@PortalText.Recent(context.StartedAt, m_now)</span>
+                        <When Value="@context.StartedAt" />
                     </CellTemplate>
                 </BbDataGridPropertyColumn>
                 <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => PortalText.Duration(m.DurationS))" Title="Length" Width="100px">
@@ -108,9 +108,9 @@
                         }
                     </CellTemplate>
                 </BbDataGridPropertyColumn>
-                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => TypeOf(m.Type))" Title="Type" Width="120px">
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => PortalText.MatchType(m.Type))" Title="Type" Width="120px">
                     <CellTemplate>
-                        <span class="@(context.Type == null ? "go-muted" : "")">@TypeOf(context.Type)</span>
+                        <span class="@(context.Type == null ? "go-muted" : "")">@PortalText.MatchType(context.Type)</span>
                     </CellTemplate>
                 </BbDataGridPropertyColumn>
                 <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => m.Map.Name)" Title="Map">
@@ -146,7 +146,7 @@
                         {
                             <span>
                                 <LucideIcon Name="trophy" Class="bb:h-4 bb:w-4 go-icon-inline" />
-                                @String.Join(", ", match.Players.Where(p => p.Won).Select(p => p.Name))
+                                @String.Join(", ", match.Players.Where(p => p.Won).Select(p => p.FullName))
                             </span>
                         }
                         else
@@ -160,7 +160,7 @@
                         <div class="go-cell-badges">
                             @foreach (string flag in match.Flags)
                             {
-                                <BbBadge Variant="@(flag == "no_result" ? BadgeVariant.Outline : BadgeVariant.SoftDestructive)">@FlagOf(flag)</BbBadge>
+                                <BbBadge Variant="@(flag == "no_result" ? BadgeVariant.Outline : BadgeVariant.SoftDestructive)">@PortalText.MatchFlag(flag)</BbBadge>
                             }
                         </div>
                     </ChildContent>
@@ -217,7 +217,6 @@
     private string? m_typedID;
     private bool m_invalidID;
     private string? m_error;
-    private DateTime m_now = DateTime.UtcNow;
 
     protected override void OnParametersSet()
     {
@@ -227,21 +226,6 @@
         // a new view starts a new grid on its first page
         m_viewKey = m_query.ToApiQuery();
     }
-
-    private static string TypeOf(string? type) => type switch
-    {
-        "quick_match" => "Quick match",
-        "custom" => "Custom lobby",
-        _ => "unknown"
-    };
-
-    private static string FlagOf(string flag) => flag switch
-    {
-        "desync" => "desync",
-        "no_result" => "no result",
-        "anticheat" => "anti-cheat",
-        _ => flag
-    };
 
     // The view with the typed player and map, which apply on Enter or with the other filters
     private PortalMatchQuery Typed() => m_query with
@@ -276,7 +260,6 @@
     {
         int count = request.Count ?? 25;
         PortalAnswer<PortalMatchPage> answer = await Api.ListMatchesAsync(m_query, request.StartIndex, count, request.CancellationToken);
-        m_now = DateTime.UtcNow;
         string? error = answer.Ok ? null : answer.Error;
         if (error != m_error)
         {

@@ -225,6 +225,7 @@ faction_stats_daily       day date, side smallint, matches int, wins int     pk 
 ```
 anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
   report_id pk (kept), user_id, match_id, ... (columns as today, snake_case)
+  created_at null                     -- when the row was raised; null for rows stored before the column (no backfill)
   reviewed_at null, reviewed_by null (users.id)   -- set once by a staff review, the row is kept
   index (reviewed_at)
 ```

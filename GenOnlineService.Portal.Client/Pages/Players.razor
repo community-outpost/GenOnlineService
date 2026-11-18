@@ -151,17 +151,14 @@
                 </BbDataGridPropertyColumn>
                 <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Date(p.LastSignInAt))" Title="Last seen" Width="140px">
                     <CellTemplate>
-                        @if (context.LastSignInAt is DateTime seen)
-                        {
-                            <span title="@(PortalText.Date(seen) + " UTC")">@PortalText.Recent(seen, m_now)</span>
-                        }
-                        else
-                        {
-                            <span class="go-muted">never</span>
-                        }
+                        <When Value="@context.LastSignInAt" Empty="never" />
                     </CellTemplate>
                 </BbDataGridPropertyColumn>
-                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Day(p.CreatedAt))" Title="Created" Width="120px" />
+                <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => PortalText.Day(p.CreatedAt))" Title="Created" Width="120px">
+                    <CellTemplate>
+                        <When Value="@context.CreatedAt" />
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
             </Columns>
             <EmptyTemplate>
                 @if (m_query.Search != null || m_query.IsFiltered)
@@ -219,7 +216,6 @@
     private string? m_typed;
     private bool m_shortTerm;
     private string? m_error;
-    private DateTime m_now = DateTime.UtcNow;
 
     // A name part of one character is refused by the host, a whole id of any length is not
     private static bool IsSearchable(string search) => search.Length >= 2 || (long.TryParse(search, out long id) && id > 0);
@@ -279,7 +275,6 @@
     {
         int count = request.Count ?? 25;
         PortalAnswer<PortalPlayerPage> answer = await Api.ListPlayersAsync(m_query, request.StartIndex, count, request.CancellationToken);
-        m_now = DateTime.UtcNow;
         string? error = answer.Ok ? null : answer.Error;
         if (error != m_error)
         {

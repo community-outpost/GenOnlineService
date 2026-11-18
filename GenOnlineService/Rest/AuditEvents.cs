@@ -46,6 +46,9 @@ namespace GenOnlineService.Rest
 
 		public string TargetKind { get; init; } = "";
 		public long? TargetId { get; init; }
+
+		// The player a user target names, with the current display name; null for every other target kind
+		public AuditActor? Target { get; init; }
 		public string? Reason { get; init; }
 		public string Source { get; init; } = "";
 		public JsonElement? Details { get; init; }
@@ -58,11 +61,18 @@ namespace GenOnlineService.Rest
 		public IReadOnlyList<AuditEvent> AuditEvents { get; init; } = [];
 	}
 
-	// ?actor_id=&target_id=&target_kind=&action=&after_id=&per_page=; after_id continues below that id
+	// ?actor_id=&target_id=&target_kind=&action=&after_id=&per_page=; after_id continues below that id. actor= and target= name
+	// a player by id, Name#tag or a whole name (every tag), from= and to= a UTC day (yyyy-MM-dd, to includes it) or an ISO 8601 time
 	public sealed record AuditEventsQuery(long? ActorID, long? TargetID, string? Action, long? AfterID, int PerPage, string? TargetKind = null)
 	{
 		public const int MaximumActionLength = 64;
 		public const int MaximumTargetKindLength = 32;
+		public const int MaximumPlayerLength = 64;
+
+		public string? Actor { get; init; }
+		public string? Target { get; init; }
+		public DateTime? From { get; init; }
+		public DateTime? To { get; init; }
 
 		public static (AuditEventsQuery? Query, Failure? Failure) Read(HttpRequest request)
 		{
@@ -77,10 +87,23 @@ namespace GenOnlineService.Rest
 
 			(string? action, Failure? actionFailure) = ReadText(request, "action", MaximumActionLength);
 			(string? targetKind, Failure? kindFailure) = ReadText(request, "target_kind", MaximumTargetKindLength);
-			failure = actionFailure ?? kindFailure;
+			(string? actor, Failure? actorTextFailure) = ReadText(request, "actor", MaximumPlayerLength);
+			(string? target, Failure? targetTextFailure) = ReadText(request, "target", MaximumPlayerLength);
+			failure = actionFailure ?? kindFailure ?? actorTextFailure ?? targetTextFailure;
 			if (failure != null)
 			{
 				return (null, failure);
+			}
+
+			(DateTime? from, bool fromValid) = StaffMatchActions.ReadTime(request.Query.TryGetValue("from", out var fromText) ? fromText.ToString() : null, endOfDay: false);
+			if (!fromValid)
+			{
+				return (null, Result.Invalid("from"));
+			}
+			(DateTime? to, bool toValid) = StaffMatchActions.ReadTime(request.Query.TryGetValue("to", out var toText) ? toText.ToString() : null, endOfDay: true);
+			if (!toValid)
+			{
+				return (null, Result.Invalid("to"));
 			}
 
 			int perPage = OffsetPage.DefaultPerPage;
@@ -89,7 +112,7 @@ namespace GenOnlineService.Rest
 				return (null, Result.Invalid("per_page"));
 			}
 
-			return (new AuditEventsQuery(actorID, targetID, action, afterID, perPage, targetKind), null);
+			return (new AuditEventsQuery(actorID, targetID, action, afterID, perPage, targetKind) { Actor = actor?.Trim(), Target = target?.Trim(), From = from, To = to }, null);
 		}
 
 		// Absent is no filter; present must be 1 to maximumLength characters
@@ -138,9 +161,17 @@ namespace GenOnlineService.Rest
 			}
 
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-			List<AuditLogEntry> rows = await Database.Moderation.GetAuditEvents(db, query!.ActorID, query.TargetID, query.Action, query.AfterID, query.PerPage, query.TargetKind);
 
-			List<long> userIDs = rows.Where(IsUserActor).Select(r => r.ActorID!.Value).Distinct().ToList();
+			// a player named by text: every account of that name, or of that name and tag; a name of nobody lists nothing
+			List<long>? actors = query!.Actor == null ? null : await Database.StaffMatchLists.PlayersNamed(db, query.Actor);
+			List<long>? targets = query.Target == null ? null : await Database.StaffMatchLists.PlayersNamed(db, query.Target);
+			List<AuditLogEntry> rows = actors is { Count: 0 } || targets is { Count: 0 } ? []
+				: await Database.Moderation.GetAuditEvents(db, query.ActorID, query.TargetID, query.Action, query.AfterID, query.PerPage, query.TargetKind,
+					new Database.Moderation.AuditFilter(actors, targets, query.From, query.To));
+
+			List<long> userIDs = rows.Where(IsUserActor).Select(r => r.ActorID!.Value)
+				.Concat(rows.Where(IsUserTarget).Select(r => r.TargetID!.Value))
+				.Distinct().ToList();
 			Dictionary<long, string> names = await db.Users.AsNoTracking()
 				.Where(u => userIDs.Contains(u.ID))
 				.Select(u => new { u.ID, u.Username })
@@ -155,6 +186,7 @@ namespace GenOnlineService.Rest
 				Actor = IsUserActor(r) ? new AuditActor { Id = r.ActorID!.Value, DisplayName = names.GetValueOrDefault(r.ActorID!.Value) } : null,
 				TargetKind = r.TargetKind,
 				TargetId = r.TargetID,
+				Target = IsUserTarget(r) ? new AuditActor { Id = r.TargetID!.Value, DisplayName = names.GetValueOrDefault(r.TargetID!.Value) } : null,
 				Reason = r.Reason,
 				Source = r.Source,
 				Details = ParseDetails(r),
@@ -167,6 +199,8 @@ namespace GenOnlineService.Rest
 
 		// The CLI and Discord store the account they acted for, a service account stores its own id
 		private static bool IsUserActor(AuditLogEntry row) => row.ActorID != null && row.ActorKind != AuditActorKinds.ServiceAccount && row.ActorKind != AuditActorKinds.Upstream;
+
+		private static bool IsUserTarget(AuditLogEntry row) => row.TargetID != null && row.TargetKind == AuditTargetKinds.User;
 
 		// Rows hold ids, names and settings, never chat text or credentials, so details pass through as stored
 		private static JsonElement? ParseDetails(AuditLogEntry row)

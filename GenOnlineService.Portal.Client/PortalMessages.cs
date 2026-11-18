@@ -61,6 +61,12 @@ namespace GenOnlineService.Portal.Client
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
+		// one tab of the player page: activity, sanctions, reports, anticheat, roles, matches, signins, duplicates
+		public static string PlayerTab(long id, string tab) => PlayerPage(id) + "?tab=" + tab;
+
+		// the reports against and by a player, on the player page
+		public static string PlayerReports(long id) => PlayerTab(id, "reports");
+
 		// the player search with a name or id already typed in
 		public static string PlayersSearch(string term) => PlayersPage + "?q=" + Uri.EscapeDataString(term);
 
@@ -91,6 +97,44 @@ namespace GenOnlineService.Portal.Client
 	// The audit actions the log's filter offers, in the words of the host's audit_log.action
 	public static class PortalAuditActions
 	{
+		// An action in words for the filter and the log; an action without words shows as stored
+		public static string LabelOf(string action) => action switch
+		{
+			"role_grant" => "Role granted",
+			"role_revoke" => "Role revoked",
+			"kick" => "Kick",
+			"mute" => "Mute",
+			"unmute" => "Mute lifted",
+			"ban" => "Ban",
+			"unban" => "Ban lifted",
+			"rename" => "Rename",
+			"name_reset" => "Name reset",
+			"message_delete" => "Message deleted",
+			"message_lookup" => "Message looked up",
+			"staff_message" => "Staff message",
+			"report_view" => "Report viewed",
+			"report_close" => "Report closed",
+			"player_inspect" => "Personal data read",
+			"connection_lookup" => "Connections looked up",
+			"anticheat_review" => "Anti-cheat row reviewed",
+			"announcement" => "Announcement",
+			"setting_update" => "Setting changed",
+			"token_mint" => "Token created",
+			"token_rotate" => "Token rotated",
+			"token_revoke" => "Token revoked",
+			"sa_create" => "Service account created",
+			"sa_grant" => "Service account granted",
+			"sa_revoke" => "Service account revoked",
+			"sa_disable" => "Service account disabled",
+			"sa_enable" => "Service account enabled",
+			"password_reset" => "Password reset",
+			"two_factor_reset" => "Two-factor reset",
+			"revoke_sessions" => "Signed out everywhere",
+			"revoke_client_sessions" => "Client sessions revoked",
+			"client_add" => "Client added",
+			_ => action
+		};
+
 		public static readonly IReadOnlyList<string> All =
 		[
 			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
@@ -203,6 +247,9 @@ namespace GenOnlineService.Portal.Client
 		public string Status { get; init; } = "";
 		public DateTime CreatedAt { get; init; }
 		public DateTime? ResolvedAt { get; init; }
+		// user, service_account or cli; the player when a staff member closed it
+		public string? ResolvedByKind { get; init; }
+		public PortalMember? ResolvedBy { get; init; }
 		public string? ResolutionNote { get; init; }
 
 		// Flat values for the grid columns
@@ -210,6 +257,43 @@ namespace GenOnlineService.Portal.Client
 		public string ReporterName => Reporter.FullName;
 		[JsonIgnore]
 		public string ReportedName => Reported.FullName;
+
+		// Who closed the report, in words
+		[JsonIgnore]
+		public string? ResolverName => ResolvedBy?.FullName ?? (ResolvedByKind == null ? null : PortalText.ActorKind(ResolvedByKind));
+	}
+
+	// The report queue as the address holds it: statuses (all or a comma list), the search and the order
+	public sealed record PortalReportQuery
+	{
+		public const string DefaultStatus = "open";
+		public static readonly IReadOnlyList<string> Statuses = ["open", "actioned", "dismissed"];
+
+		public string Status { get; init; } = DefaultStatus;
+		public string? Search { get; init; }
+		public bool NewestFirst { get; init; }
+
+		// Unknown statuses fall back to the open queue, as the host would refuse them
+		public static PortalReportQuery FromAddress(string? status, string? q, string? sort)
+		{
+			string[] parts = (status ?? DefaultStatus).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			string kept = parts.Contains("all") ? "all"
+				: parts.Length > 0 && parts.All(Statuses.Contains) ? String.Join(',', Statuses.Where(parts.Contains))
+				: DefaultStatus;
+			return new PortalReportQuery
+			{
+				Status = kept,
+				Search = String.IsNullOrWhiteSpace(q) ? null : q.Trim(),
+				NewestFirst = sort == "desc"
+			};
+		}
+
+		public IReadOnlyDictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["status"] = Status == DefaultStatus ? null : Status,
+			["q"] = Search,
+			["sort"] = NewestFirst ? "desc" : null
+		};
 	}
 
 	// One page of the queue and the size of the whole filtered queue
@@ -270,6 +354,14 @@ namespace GenOnlineService.Portal.Client
 		public DateTime? LiftedAt { get; init; }
 		public PortalMember? CreatedBy { get; init; }
 		public bool Active { get; init; }
+
+		// who lifted it (user, service_account or cli, and the player when staff did) and why, null until lifted
+		public string? LiftedByKind { get; init; }
+		public PortalMember? LiftedBy { get; init; }
+		public string? LiftReason { get; init; }
+
+		[JsonIgnore]
+		public string? LifterName => LiftedBy?.FullName ?? (LiftedByKind == null ? null : PortalText.ActorKind(LiftedByKind));
 	}
 
 	// The player page every staff member sees: the account, its sessions, ratings and sanctions
@@ -455,10 +547,23 @@ namespace GenOnlineService.Portal.Client
 		public int? PlaylistId { get; init; }
 		public string? Method { get; init; }
 		public IReadOnlyList<int>? Sides { get; init; }
-		public DateTime? ReportedAt { get; init; }
-		public DateTime? ReviewedAt { get; init; }
 
-		public string SideList => Sides == null ? "" : String.Join(", ", Sides);
+		// when the row was raised; an older row without it carries the start of its match
+		public DateTime? ReportedAt { get; init; }
+		public DateTime? MatchStartedAt { get; init; }
+		public DateTime? ReviewedAt { get; init; }
+		public PortalMember? Reviewer { get; init; }
+
+		public string SideList => Sides == null ? "" : String.Join(", ", Sides.Select(PortalText.Side));
+	}
+
+	// One page of a review list as the address holds it: unreviewed (default), reviewed or all
+	public static class PortalReviewState
+	{
+		public const string Unreviewed = "false";
+		public static readonly IReadOnlyList<string> All = [Unreviewed, "true", "all"];
+
+		public static string FromAddress(string? reviewed) => reviewed != null && All.Contains(reviewed) ? reviewed : Unreviewed;
 	}
 
 	public sealed record PortalAntiCheatPage
@@ -488,10 +593,61 @@ namespace GenOnlineService.Portal.Client
 		public PortalAuditActor? Actor { get; init; }
 		public string TargetKind { get; init; } = "";
 		public long? TargetId { get; init; }
+		// the player of a user target, with the current name
+		public PortalAuditActor? Target { get; init; }
 		public string? Reason { get; init; }
 		public string Source { get; init; } = "";
 		public JsonElement? Details { get; init; }
 		public DateTime CreatedAt { get; init; }
+	}
+
+	// The audit log as the address holds it: players by id, Name#tag or name, the action and a UTC day range
+	public sealed record PortalAuditQuery
+	{
+		public string? Actor { get; init; }
+		public string? Target { get; init; }
+		public string? Action { get; init; }
+		public string? From { get; init; }
+		public string? To { get; init; }
+
+		public bool IsFiltered => this != new PortalAuditQuery();
+
+		private static string? Clean(string? text) => String.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+		// A day that is not yyyy-MM-dd is left out, an unknown action too
+		private static string? Day(string? text) => DateTime.TryParseExact(text?.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text!.Trim() : null;
+
+		public static PortalAuditQuery FromAddress(string? actor, string? target, string? action, string? from, string? to) => new PortalAuditQuery
+		{
+			Actor = Clean(actor),
+			Target = Clean(target),
+			Action = action != null && PortalAuditActions.All.Contains(action) ? action : null,
+			From = Day(from),
+			To = Day(to)
+		};
+
+		public IReadOnlyDictionary<string, object?> ToAddress() => new Dictionary<string, object?>
+		{
+			["actor"] = Actor,
+			["target"] = Target,
+			["action"] = Action,
+			["from"] = From,
+			["to"] = To
+		};
+
+		// The arguments of GET /api/v1/audit_events, without the page
+		public string ToApiQuery()
+		{
+			var parts = new List<string>();
+			foreach ((string name, string? value) in new[] { ("actor", Actor), ("target", Target), ("action", Action), ("from", From), ("to", To) })
+			{
+				if (value != null)
+				{
+					parts.Add(name + "=" + Uri.EscapeDataString(value));
+				}
+			}
+			return String.Join("&", parts);
+		}
 	}
 
 	public sealed record PortalAuditPage

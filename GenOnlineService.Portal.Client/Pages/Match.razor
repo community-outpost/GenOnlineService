@@ -14,7 +14,7 @@
             All matches
         </BbButton>
         <form class="bb:flex bb:items-center bb:gap-2" @onsubmit="Open">
-            <BbInput Id="match-id" @bind-Value="m_typed" Placeholder="Match id…" AriaLabel="Match id" AriaInvalid="@(m_invalid ? true : null)" Class="bb:h-8 bb:w-40" inputmode="numeric" autocomplete="off" />
+            <BbInput Id="match-id" @bind-Value="m_typed" Placeholder="Match id…" AriaLabel="Match id" AriaInvalid="@(m_invalid ? true : null)" Class="bb:h-8 bb:w-40 go-id" inputmode="numeric" autocomplete="off" />
             <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small">
                 <LucideIcon Name="search" Class="bb:h-4 bb:w-4" />
                 Open
@@ -53,7 +53,7 @@ else
 {
     PortalMatch match = m_match;
     <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2">
-        <BbBadge Variant="BadgeVariant.Soft">@match.Type</BbBadge>
+        <BbBadge Variant="BadgeVariant.Soft">@PortalText.MatchType(match.Type)</BbBadge>
         @if (match.RosterType.Length > 0)
         {
             <BbBadge Variant="BadgeVariant.Outline">@match.RosterType</BbBadge>
@@ -64,13 +64,14 @@ else
         </span>
         @if (match.OwnerId is long owner)
         {
-            <span class="bb:text-xs bb:text-muted-foreground">· host <BbLink Href="@PortalRoutes.PlayerPage(owner)">player @owner</BbLink></span>
+            PortalMatchSlot? host = match.Slots.FirstOrDefault(s => s.UserId == owner);
+            <span class="bb:text-xs bb:text-muted-foreground">· host <BbLink Href="@PortalRoutes.PlayerPage(owner)" data-testid="match-host">@(host != null && host.Name.Length > 0 ? host.FullName : "Player " + owner)</BbLink></span>
         }
     </div>
 
     <div class="go-stats">
-        <StatCard Label="Started" Value="@PortalText.Date(match.StartedAt)" Icon="clock" Hint="UTC" />
-        <StatCard Label="Length" Value="@(match.FinishedAt is DateTime finished ? PortalText.Duration((long)(finished - match.StartedAt).TotalSeconds) : "running")" Icon="timer" Hint="@(match.FinishedAt is DateTime end ? "finished " + PortalText.Date(end) : "not finished yet")" />
+        <StatCard Label="Started (UTC)" Value="@PortalText.Date(match.StartedAt)" Icon="clock" Hint="@PortalText.Ago(match.StartedAt, DateTime.UtcNow)" />
+        <StatCard Label="Length" Value="@(match.FinishedAt is DateTime finished ? PortalText.Duration((long)(finished - match.StartedAt).TotalSeconds) : "running")" Icon="timer" Hint="@(match.FinishedAt is DateTime end ? "finished " + PortalText.Date(end) + " UTC" : "not finished yet")" />
         <StatCard Label="Map" Value="@match.Map.Name" Icon="map" Hint="@(match.Map.Official ? "Official map" : "Unofficial map")" />
         <StatCard Label="Players" Value="@Played(match).Count().ToString()" Icon="users" Hint="@(match.Slots.Any(s => s.Desynced) ? "A player desynced" : "Occupied slots")" />
     </div>
@@ -96,7 +97,7 @@ else
                         </CellTemplate>
                     </BbDataTableColumn>
                     <BbDataTableColumn TData="PortalMatchSlot" TValue="string" Property="@(s => s.State)" Header="Slot" />
-                    <BbDataTableColumn TData="PortalMatchSlot" TValue="int" Property="@(s => s.Side)" Header="Side" />
+                    <BbDataTableColumn TData="PortalMatchSlot" TValue="string" Property="@(s => PortalText.Side(s.Side))" Header="Side" />
                     <BbDataTableColumn TData="PortalMatchSlot" TValue="string" Property="@(s => s.Team is int team ? team.ToString() : "none")" Header="Team" />
                     <BbDataTableColumn TData="PortalMatchSlot" TValue="string" Property="@(s => s.Desynced ? "desynced" : s.Won ? "won" : "lost")" Header="Result">
                         <CellTemplate Context="slot">

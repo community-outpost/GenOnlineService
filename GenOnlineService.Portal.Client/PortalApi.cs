@@ -88,15 +88,24 @@ namespace GenOnlineService.Portal.Client
 
 		public Task<PortalAnswer<PortalOverview>> GetOverviewAsync(CancellationToken cancellationToken = default) => GetAsync<PortalOverview>(PortalRoutes.Overview, cancellationToken);
 
-		public async Task<PortalReportPage> GetReportsAsync(string status, string? search, bool newestFirst, int start, int count, CancellationToken cancellationToken)
+		// The queue, or with reportedID / reporterID the reports against or by one player; a refusal comes back as its error code
+		public async Task<PortalAnswer<PortalReportPage>> GetReportsAsync(string status, string? search, bool newestFirst, int start, int count, CancellationToken cancellationToken, long? reportedID = null, long? reporterID = null)
 		{
 			string query = $"{PortalRoutes.ReportSearch}?status={Uri.EscapeDataString(status)}&{PageOf(start, count)}&sort={(newestFirst ? "desc" : "asc")}";
 			if (!String.IsNullOrWhiteSpace(search))
 			{
 				query += "&search=" + Uri.EscapeDataString(search);
 			}
+			if (reportedID is long reported)
+			{
+				query += "&reported_id=" + reported;
+			}
+			if (reporterID is long reporter)
+			{
+				query += "&reporter_id=" + reporter;
+			}
 			(PortalAnswer<PortalReportPage> answer, int total) = await GetPageAsync<PortalReportPage>(query, cancellationToken);
-			return answer.Value == null ? new PortalReportPage() : answer.Value with { Total = total };
+			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
 		}
 
 		public Task<PortalOutcome> ResolveReportAsync(long reportID, string status, string? note)
@@ -146,10 +155,11 @@ namespace GenOnlineService.Portal.Client
 			return new PortalAnswer<PortalMatchPage>(page == null ? null : page with { Total = total, HasNext = hasNext }, null);
 		}
 
-		// reviewed is false, true or all
-		public async Task<PortalAnswer<PortalAntiCheatPage>> GetAntiCheatAsync(string kind, string reviewed, int start, int count, CancellationToken cancellationToken)
+		// reviewed is false, true or all; userID keeps the rows of one player
+		public async Task<PortalAnswer<PortalAntiCheatPage>> GetAntiCheatAsync(string kind, string reviewed, int start, int count, CancellationToken cancellationToken, long? userID = null)
 		{
-			(PortalAnswer<PortalAntiCheatPage> answer, int total) = await GetPageAsync<PortalAntiCheatPage>($"{PortalRoutes.AntiCheat}/{Uri.EscapeDataString(kind)}?reviewed={reviewed}&{PageOf(start, count)}", cancellationToken);
+			string player = userID is long id ? "&user_id=" + id : "";
+			(PortalAnswer<PortalAntiCheatPage> answer, int total) = await GetPageAsync<PortalAntiCheatPage>($"{PortalRoutes.AntiCheat}/{Uri.EscapeDataString(kind)}?reviewed={reviewed}{player}&{PageOf(start, count)}", cancellationToken);
 			return answer.Value == null ? answer : answer with { Value = answer.Value with { Total = total } };
 		}
 
@@ -178,22 +188,14 @@ namespace GenOnlineService.Portal.Client
 
 		public Task<PortalOutcome> RevokeRoleAsync(long userID, string role) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
 
-		// Newest first; afterID continues below that row. A player id filters the actor or the target, which is then a player
-		public Task<PortalAnswer<PortalAuditPage>> GetAuditAsync(long? actorID, long? targetID, string? action, long? afterID, int perPage, CancellationToken cancellationToken)
+		// Newest first; afterID continues below that row. The actor and the target are players by id, Name#tag or name
+		public Task<PortalAnswer<PortalAuditPage>> GetAuditAsync(PortalAuditQuery filter, long? afterID, int perPage, CancellationToken cancellationToken)
 		{
 			var query = new List<string> { "per_page=" + Math.Clamp(perPage, 1, MaximumPerPage) };
-			if (actorID is long actor)
+			string arguments = filter.ToApiQuery();
+			if (arguments.Length > 0)
 			{
-				query.Add("actor_id=" + actor);
-			}
-			if (targetID is long target)
-			{
-				query.Add("target_id=" + target);
-				query.Add("target_kind=user");
-			}
-			if (!String.IsNullOrEmpty(action))
-			{
-				query.Add("action=" + Uri.EscapeDataString(action));
+				query.Add(arguments);
 			}
 			if (afterID is long after)
 			{

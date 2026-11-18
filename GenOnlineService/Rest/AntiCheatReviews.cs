@@ -43,7 +43,7 @@ namespace GenOnlineService.Rest
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public string? Reason { get; init; }
 
-		// quickmatch_rules: the lobby, its playlist, the hub method and the sides it asked for, and when
+		// quickmatch_rules: the lobby, its playlist, the hub method and the sides it asked for
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public long? LobbyId { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -52,11 +52,19 @@ namespace GenOnlineService.Rest
 		public string? Method { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public IReadOnlyList<int>? Sides { get; init; }
+
+		// When the row was raised, left out for a row stored before every kind kept the time; such a row with a match
+		// carries the match start instead
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public DateTime? ReportedAt { get; init; }
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public DateTime? MatchStartedAt { get; init; }
 
 		public DateTime? ReviewedAt { get; init; }
 		public long? ReviewedBy { get; init; }
+
+		// The staff member who reviewed it, by name
+		public Member? Reviewer { get; init; }
 	}
 
 	// GET /api/v1/anticheat_reports/:kind
@@ -119,7 +127,15 @@ namespace GenOnlineService.Rest
 
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken);
 			(int total, List<Database.AntiCheatReviewRow> rows) = await Database.AntiCheatReviews.List(db, kind, args.Reviewed, args.UserID, skip, take, cancellationToken);
-			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, rows.Select(row => row.UserID).ToHashSet());
+			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, rows.Select(row => row.UserID)
+				.Concat(rows.Where(row => row.ReviewedBy != null).Select(row => row.ReviewedBy!.Value)).ToHashSet());
+
+			// an older row without its own time shows the start of its match
+			List<long> undated = rows.Where(row => row.ReportedAt == null && row.MatchID > 0).Select(row => row.MatchID).Distinct().ToList();
+			Dictionary<long, DateTime> starts = undated.Count == 0 ? [] : await db.Matches.AsNoTracking()
+				.Where(m => undated.Contains(m.Id))
+				.Select(m => new { m.Id, m.StartedAt })
+				.ToDictionaryAsync(m => m.Id, m => m.StartedAt, cancellationToken);
 
 			return (total, new AntiCheatReportsResponse
 			{
@@ -138,8 +154,10 @@ namespace GenOnlineService.Rest
 					Method = row.Method,
 					Sides = SidesOf(row.Sides),
 					ReportedAt = row.ReportedAt,
+					MatchStartedAt = row.ReportedAt == null && starts.TryGetValue(row.MatchID, out DateTime started) ? started : null,
 					ReviewedAt = row.ReviewedAt,
-					ReviewedBy = row.ReviewedBy
+					ReviewedBy = row.ReviewedBy,
+					Reviewer = row.ReviewedBy is long reviewer ? RealtimeMembers.Of(reviewer, names) : null
 				}).ToArray()
 			}, null);
 		}

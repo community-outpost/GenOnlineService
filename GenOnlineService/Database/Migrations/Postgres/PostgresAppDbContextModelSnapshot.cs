@@ -30,6 +30,10 @@ namespace GenOnlineService.Migrations.Postgres
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ReportId"));
 
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
@@ -83,6 +87,10 @@ namespace GenOnlineService.Migrations.Postgres
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ReportId"));
 
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
@@ -115,6 +123,10 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnName("report_id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ReportId"));
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")

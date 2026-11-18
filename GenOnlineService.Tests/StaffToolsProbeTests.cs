@@ -290,4 +290,43 @@ public class StaffToolsProbeTests
 		(total, _) = await Chat.GetReportsPage(db, [PlayerReportStatuses.Dismissed], "nobody", false, 0, 1);
 		Assert.Equal(0, total);
 	}
+
+	// The player page lists the reports against a player and the ones it filed; a closed report keeps who closed it
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ReportQueueFiltersByPlayerAndCarriesTheResolver(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User alpha = await AddUser(probe, "Alpha", 1);
+		User bravo = await AddUser(probe, "Bravo", 2);
+		User charlie = await AddUser(probe, "Charlie", 3);
+		long resolved;
+		await using (AppDbContext seed = probe.Open())
+		{
+			// alpha reports bravo twice, bravo reports charlie once
+			foreach ((User from, User about, string reason) in new[] { (alpha, bravo, "one"), (alpha, bravo, "two"), (bravo, charlie, "three") })
+			{
+				seed.PlayerReports.Add(new PlayerReport { ReporterID = from.ID, ReportedUserID = about.ID, Reason = reason, Evidence = "{\"messages\":[]}", CreatedAt = s_now });
+			}
+			await seed.SaveChangesAsync();
+			resolved = seed.PlayerReports.Single(r => r.Reason == "two").ID;
+		}
+		await using AppDbContext db = probe.Open();
+		Assert.True(await Chat.ResolveReport(db, resolved, PlayerReportStatuses.Actioned, "warned", AuditActorKinds.User, charlie.ID));
+
+		(int total, List<PlayerReport> page) = await Chat.GetReportsPage(db, null, null, false, 0, 50, reportedID: bravo.ID);
+		Assert.Equal(2, total);
+		Assert.All(page, r => Assert.Equal(bravo.ID, r.ReportedUserID));
+
+		(total, page) = await Chat.GetReportsPage(db, null, null, false, 0, 50, reporterID: bravo.ID);
+		Assert.Equal("three", Assert.Single(page).Reason);
+
+		(total, _) = await Chat.GetReportsPage(db, null, null, false, 0, 50, reportedID: charlie.ID, reporterID: alpha.ID);
+		Assert.Equal(0, total);
+
+		(_, page) = await Chat.GetReportsPage(db, [PlayerReportStatuses.Actioned], null, false, 0, 50);
+		PlayerReport closed = Assert.Single(page);
+		Assert.Equal((AuditActorKinds.User, (long?)charlie.ID, "warned"), (closed.ResolvedByKind, closed.ResolvedByID, closed.ResolutionNote));
+	}
 }

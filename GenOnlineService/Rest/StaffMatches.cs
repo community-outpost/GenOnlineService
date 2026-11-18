@@ -130,8 +130,8 @@ namespace GenOnlineService.Rest
 			StaffPlayerActions.First(query, name)?.Trim() is { Length: > 0 } text ? text : null;
 
 		// A day (yyyy-MM-dd, the whole UTC day: from its start, or to its end) or an ISO 8601 time; a time without Z or an offset is UTC.
-		// "to" the last day of the calendar has no next day to stop before, so it leaves the list open-ended.
-		private static (DateTime? Time, bool Valid) ReadTime(string? text, bool endOfDay)
+		// "to" the last day of the calendar has no next day to stop before, so it leaves the list open-ended. The audit log reads its range the same way.
+		internal static (DateTime? Time, bool Valid) ReadTime(string? text, bool endOfDay)
 		{
 			if (text == null)
 			{

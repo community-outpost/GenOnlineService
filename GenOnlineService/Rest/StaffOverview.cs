@@ -91,7 +91,7 @@ namespace GenOnlineService.Rest
 				}
 			}
 
-			HashSet<long> userIDs = reports.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID })
+			HashSet<long> userIDs = reports.SelectMany(ReportUserIDs)
 				.Concat(sanctions.Select(s => s.UserID))
 				.Concat(sanctions.Where(s => s.CreatedByID != null).Select(s => s.CreatedByID!.Value))
 				.ToHashSet();
@@ -133,8 +133,21 @@ namespace GenOnlineService.Rest
 			Status = report.Status,
 			CreatedAt = report.CreatedAt,
 			ResolvedAt = report.ResolvedAt,
+			ResolvedByKind = report.ResolvedByKind,
+			ResolvedBy = report.ResolvedByKind == AuditActorKinds.User && report.ResolvedByID is long resolver ? RealtimeMembers.Of(resolver, names) : null,
 			ResolutionNote = report.ResolutionNote
 		};
+
+		// The players a report row names: both sides and the staff member who closed it
+		public static IEnumerable<long> ReportUserIDs(PlayerReport report)
+		{
+			yield return report.ReporterID;
+			yield return report.ReportedUserID;
+			if (report.ResolvedByKind == AuditActorKinds.User && report.ResolvedByID is long resolver)
+			{
+				yield return resolver;
+			}
+		}
 	}
 
 	// The staff dashboard of the /admin pages: any staff permission, with the sign-in cookie (T16) or a token; the

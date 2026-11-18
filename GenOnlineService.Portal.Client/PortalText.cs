@@ -50,6 +50,44 @@ namespace GenOnlineService.Portal.Client
 		// 3725 seconds reads 1:02:05
 		public static string Duration(long? seconds) => seconds is long s ? $"{s / 3600}:{s / 60 % 60:00}:{s % 60:00}" : "";
 
+		// A file size: 812 B, 48.0 KB, 3.2 MB
+		public static string Bytes(long? bytes) => bytes switch
+		{
+			null => "",
+			< 1024 => $"{bytes} B",
+			< 1024 * 1024 => (bytes.Value / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " KB",
+			_ => (bytes.Value / (1024.0 * 1024.0)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB"
+		};
+
+		// The kind of a match as the lists and the match page name it
+		public static string MatchType(string? type) => type switch
+		{
+			"quick_match" => "Quick match",
+			"custom" => "Custom lobby",
+			_ => "unknown"
+		};
+
+		// A match flag of the lists
+		public static string MatchFlag(string flag) => flag switch
+		{
+			"no_result" => "no result",
+			"anticheat" => "anti-cheat",
+			_ => flag
+		};
+
+		// A slot's side: -1 is the random army; the service keeps the game's side index only, not the army's name
+		public static string Side(int side) => side < 0 ? "random" : "side " + side.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+		// Who acted, for an actor kind without a player: the CLI, a service account or a sign-in provider
+		public static string ActorKind(string? kind) => kind switch
+		{
+			"cli" => "the CLI",
+			"service_account" => "a service account",
+			"upstream" => "a sign-in provider",
+			null => "the service",
+			_ => kind
+		};
+
 		public static string Error(string? code) => code switch
 		{
 			null or "" => "The request failed.",
