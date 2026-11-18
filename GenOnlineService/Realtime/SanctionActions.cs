@@ -74,6 +74,49 @@ namespace GenOnlineService.Realtime
 			};
 		}
 
+		// A kick, mute or ban by any actor, such as an automated rule. Staff are never sanctioned this way, the reason and
+		// the length follow the staff rules, and a ban disconnects the player on every copy through the access reload.
+		public static async Task<Result<CreateSanctionResponse>> ApplyAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, Int64 target, SanctionType type, long? durationS, string? reason)
+		{
+			if (target <= 0)
+			{
+				return Result.Invalid("id");
+			}
+			if (type == SanctionType.Ban && String.IsNullOrWhiteSpace(reason))
+			{
+				return Result.Invalid("reason");
+			}
+			if (reason != null && reason.Length > ModerationManager.MaximumReasonLength)
+			{
+				return ReasonTooLong();
+			}
+			Failure? duration = type switch
+			{
+				SanctionType.Mute => CheckDuration(durationS, required: true),
+				SanctionType.Ban => CheckDuration(durationS, required: false),
+				_ => null
+			};
+			if (duration != null)
+			{
+				return duration.Value;
+			}
+			await using (AppDbContext db = await dbFactory.CreateDbContextAsync())
+			{
+				// the roles in the database decide, so a role granted on another copy counts at once
+				if (StaffRoles.RankOf(await Database.Moderation.GetRoleNames(db, target)) > 0)
+				{
+					return Result.Fail(ErrorCodes.ModerationTargetOutranks);
+				}
+			}
+
+			return type switch
+			{
+				SanctionType.Kick => await KickAsActorAsync(dbFactory, actor, target, reason),
+				SanctionType.Mute => await MuteAsActorAsync(dbFactory, actor, target, DateTime.UtcNow.AddSeconds(durationS!.Value), reason),
+				_ => await BanAsActorAsync(dbFactory, actor, target, durationS == null ? null : DateTime.UtcNow.AddSeconds(durationS.Value), reason)
+			};
+		}
+
 		private static async Task<Result<CreateSanctionResponse>> KickAsync(IDbContextFactory<AppDbContext> dbFactory, Int64 me, Int64 target, string? reason)
 		{
 			Failure? failure = CheckModeration(me, target, reason);
@@ -82,13 +125,18 @@ namespace GenOnlineService.Realtime
 				return failure.Value;
 			}
 
+			return await KickAsActorAsync(dbFactory, ApiActorOf(me), target, reason);
+		}
+
+		private static async Task<Result<CreateSanctionResponse>> KickAsActorAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, Int64 target, string? reason)
+		{
 			// without a backplane only this copy can hold the target, with one another copy may
 			if (WebSocketManager.GetSharedDataForUser(target) == null && !RealtimeControl.IsShared)
 			{
 				return await TargetOfflineAsync(dbFactory, target);
 			}
 
-			ModerationResult result = await ModerationManager.KickUser(target, reason ?? String.Empty, ApiActorOf(me));
+			ModerationResult result = await ModerationManager.KickUser(target, reason ?? String.Empty, actor);
 			return result.Result switch
 			{
 				EModerationResult.Success => Result.Success(new CreateSanctionResponse { SanctionId = result.SanctionID }),
@@ -111,7 +159,11 @@ namespace GenOnlineService.Realtime
 				return failure.Value;
 			}
 
-			DateTime expiresAt = DateTime.UtcNow.AddSeconds(durationS!.Value);
+			return await MuteAsActorAsync(dbFactory, ApiActorOf(me), target, DateTime.UtcNow.AddSeconds(durationS!.Value), reason);
+		}
+
+		private static async Task<Result<CreateSanctionResponse>> MuteAsActorAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, Int64 target, DateTime expiresAt, string? reason)
+		{
 			Sanction mute;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync())
 			{
@@ -119,7 +171,7 @@ namespace GenOnlineService.Realtime
 				{
 					return Result.NotFound("user");
 				}
-				mute = await Database.Moderation.AddSanction(db, target, SanctionTypes.Mute, reason, expiresAt, ApiActorOf(me));
+				mute = await Database.Moderation.AddSanction(db, target, SanctionTypes.Mute, reason, expiresAt, actor);
 			}
 
 			ModerationNoticeEvent notice = new ModerationNoticeEvent { Action = ModerationAction.Mute, Reason = String.IsNullOrEmpty(reason) ? null : reason, ExpiresAt = expiresAt };
@@ -135,7 +187,11 @@ namespace GenOnlineService.Realtime
 				return failure.Value;
 			}
 
-			DateTime? expiresAt = durationS == null ? null : DateTime.UtcNow.AddSeconds(durationS.Value);
+			return await BanAsActorAsync(dbFactory, ApiActorOf(me), target, durationS == null ? null : DateTime.UtcNow.AddSeconds(durationS.Value), reason);
+		}
+
+		private static async Task<Result<CreateSanctionResponse>> BanAsActorAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, Int64 target, DateTime? expiresAt, string? reason)
+		{
 			Sanction ban;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync())
 			{
@@ -143,7 +199,7 @@ namespace GenOnlineService.Realtime
 				{
 					return Result.NotFound("user");
 				}
-				ban = await Database.Moderation.AddSanction(db, target, SanctionTypes.Ban, reason, expiresAt, ApiActorOf(me));
+				ban = await Database.Moderation.AddSanction(db, target, SanctionTypes.Ban, reason, expiresAt, actor);
 
 				// the reload refuses new connections and revokes and closes the game sessions at once
 				await AccessControl.Reload(db);

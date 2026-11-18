@@ -218,6 +218,7 @@ namespace GenOnlineService.Realtime
 			}
 
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.Lobby(request.LobbyId));
+			GenOnlineService.Rules.RuleRunner.Raise(GenOnlineService.Rules.RuleEvent.Of(GenOnlineService.Rules.RuleTriggers.LobbyJoin, UserID, null, (GenOnlineService.Rules.RuleEventFields.LobbyId, request.LobbyId)));
 			Lobby? joinedLobby = m_lobbyManager.GetLobby(request.LobbyId);
 			if (joinedLobby != null && joinedLobby.GetMemberFromUserID(UserID) != null)
 			{

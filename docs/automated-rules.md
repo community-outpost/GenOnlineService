@@ -100,6 +100,54 @@ service compares their hashes.
 Facts load lazily: a field loads on its first read in an evaluation and is kept for the rest of it, so every rule of
 the event shares one read and a field no rule reads is never loaded.
 
+## Triggers
+
+The rules run after the event, on a queue of the copy that saw it, so the event never waits for them and never fails
+because of them; a failed evaluation is logged and dropped, and one rule that fails leaves the others running. A
+trigger without an enabled rule queues nothing.
+
+| Trigger | When |
+|---|---|
+| `sign_in` | a password sign-in, a sign-in after the two-factor code, a sign-up, and a sign-in through a provider |
+| `game_session` | `POST /api/v1/auth/session` registered a game session, after the device ids are stored |
+| `lobby_join` | the player joined a lobby |
+| `match_result` | the player reported a match result |
+| `anticheat_report` | a new row of an anti-cheat review list for the player |
+| `sweep` | a manual sweep over every player (see Preview and sweep) |
+
+## Modes and actions
+
+Mode and enabled live on the rule, not in its versions:
+
+- **Watch** records the match only.
+- **Flag** records it in the review queue.
+- **Enforce** takes the actions and records what it did.
+
+Safety rules hold in every mode:
+
+- Rules never act on staff: a player whose roles in the database carry a staff rank gets a match with outcome
+  `staff_exempt` and nothing else.
+- A second match of the same rule, player and trigger inside the duplicate window (`AutomatedRules:duplicate_window_s`,
+  600 by default) records nothing and acts on nothing.
+- A player already banned is not banned again, one already muted is not muted again. A ban goes first, so a kick after
+  it is not needed; a kick of a player who is offline does nothing.
+- The circuit breaker: an Enforce rule that already acted `AutomatedRules:breaker_actions_per_hour` times in the last
+  hour (20 by default) switches itself to Flag, with a `rule_breaker` audit row, and the match that tripped it goes to
+  the review queue.
+
+Sanctions go through the staff sanction code (`SanctionActions.ApplyAsync`): the same reason and length rules, the same
+`sanctions` and `audit_log` rows, a ban that disconnects the player on every copy, and a mute the player is told about.
+The actor is the rule: actor kind `automation`, actor `rule:<id>@v<version>`, source `automated_rules`, no actor id.
+
+## Matches and the review queue
+
+Every match is a row of `automated_rule_matches` with the rule id and the version that fired, the trigger, the mode it
+ran in, the actions taken, the outcome (`watched`, `flagged`, `enforced`, `staff_exempt` or `nothing_to_do`) and the
+facts that decided it: every field the rule read with its values, device ids as the fingerprint of their hash. A Flag
+match, and an Enforce match with a flag action, waits in the review queue (`review_state` `pending`) until staff with
+`anticheat.review` mark it `reviewed` or `dismissed` (audited as `rule_match_review`). A player with a pending match is
+in the staff player list's Flagged filter for reviewers, as one with an unreviewed anti-cheat row is.
+
 ## Storage and versions
 
 `automated_rules` holds the rule with its mode and enabled flag, `automated_rule_versions` every saved document.
@@ -128,3 +176,10 @@ Every route takes the staff sign-in cookie and needs `rules.manage` (admins and 
 | `POST /api/v1/staff/rules/:id/archive`, `POST /api/v1/staff/rules/:id/restore` | the rule |
 | `POST /api/v1/staff/rules/validate` | body `{document}`; `{valid, problems: [{path, reason}]}` |
 | `GET /api/v1/staff/rules/fields` | `{fields: [{key, type, label, description, triggers, operators}], triggers, actions, modes}` |
+
+The matches need `anticheat.review`, as the other review lists:
+
+| Route | Answer |
+|---|---|
+| `GET /api/v1/staff/rules/matches?review=&rule_id=&user_id=&trigger=&outcome=` | `{matches: [{id, rule_id, rule_name, rule_version, player, trigger, matched_at, mode, actions, outcome, facts, review_state, reviewed_by, reviewed_at}]}`, newest first, offset paged; `review` is `pending` (the default), `none`, `reviewed`, `dismissed` or `all` |
+| `PATCH /api/v1/staff/rules/matches/:id` | body `{review: reviewed or dismissed}`; the match. Only a pending match changes, one reviewed before answers as it is |

@@ -456,6 +456,13 @@ namespace Database
 		public const int ModuleNameMaxLength = 128;
 		public const int ModulePathMaxLength = 512;
 
+		// The automated rules check a new review row after it is stored
+		private static void RaiseReport(Int64 userId, Int64 matchId, string kind)
+		{
+			GenOnlineService.Rules.RuleRunner.Raise(GenOnlineService.Rules.RuleEvent.Of(GenOnlineService.Rules.RuleTriggers.AnticheatReport, userId, null,
+				(GenOnlineService.Rules.RuleEventFields.MatchId, matchId), (GenOnlineService.Rules.RuleEventFields.AnticheatKind, kind)));
+		}
+
 		// Client-supplied module text must fit the column: see TextSanitizer.Clean
 		public static string CleanModuleText(string? value, int maxLength)
 		{
@@ -527,6 +534,7 @@ namespace Database
 				}
 
 				AppMetrics.RecordSecurityAction("anticheat_module_review", "success");
+				RaiseReport(userId, (long)matchId, AntiCheatReviewKinds.Modules);
 				return true;
 			}
 			catch (Exception ex)
@@ -562,6 +570,7 @@ namespace Database
 
 				await db.SaveChangesAsync();
 				AppMetrics.RecordSecurityAction("anticheat_probe_review", "success");
+				RaiseReport(userId, (long)matchId, matchId == 0 ? AntiCheatReviewKinds.Devices : AntiCheatReviewKinds.Probes);
 			}
 			catch (Exception ex)
 			{
@@ -580,6 +589,7 @@ namespace Database
 				db.AnticheatQuickMatchReports.Add(report);
 				await db.SaveChangesAsync();
 				AppMetrics.RecordSecurityAction("anticheat_quickmatch_review", "success");
+				RaiseReport(report.UserId, report.MatchId, AntiCheatReviewKinds.QuickMatchRules);
 				return true;
 			}
 			catch (Exception ex)
@@ -611,6 +621,7 @@ namespace Database
 
 				await db.SaveChangesAsync();
 				AppMetrics.RecordSecurityAction("anticheat_new_account_review", "success");
+				RaiseReport(userId, (long)matchId, AntiCheatReviewKinds.NewAccounts);
 			}
 			catch (Exception ex)
 			{

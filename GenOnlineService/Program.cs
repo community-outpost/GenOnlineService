@@ -1509,6 +1509,12 @@ namespace GenOnlineService
 			GenOnlineService.Investigation.MaxMindAddressDirectory addressDirectory = GenOnlineService.Investigation.MaxMindAddressDirectory.Default;
 			app.Logger.LogInformation("Staff enrichment: GeoIP city {HasCity}, GeoIP ASN {HasAsn}, {OuiBlocks} OUI blocks", addressDirectory.HasCity, addressDirectory.HasAsn, GenOnlineService.Investigation.OuiRegistry.Default.Count);
 
+			// The automated rules run after the events on this copy's queue, with the same lookups as the staff pages
+			IConfigurationSection automatedRules = builder.Configuration.GetSection("AutomatedRules");
+			GenOnlineService.Rules.RuleRunner.DuplicateWindow = TimeSpan.FromSeconds(automatedRules.GetValue("duplicate_window_s", 600));
+			GenOnlineService.Rules.RuleRunner.BreakerLimitPerHour = automatedRules.GetValue("breaker_actions_per_hour", 20);
+			GenOnlineService.Rules.RuleRunner.Configure(new GenOnlineService.Rules.RuleEnvironment(app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>(), addressDirectory, GenOnlineService.Investigation.OuiRegistry.Default));
+
 			if (useForwardedHeaders)
 			{
 				// Must run before anything that consumes client IP or request scheme.
