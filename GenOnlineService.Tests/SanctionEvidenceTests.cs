@@ -211,4 +211,52 @@ public class SanctionEvidenceTests
 			Assert.Equal(3, await db.Sanctions.CountAsync());
 		}
 	}
+
+	// a second sanction for the same match shares the copy the first one made, also after the screenshot itself expired
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ASecondSanctionSharesTheCopyAfterTheScreenshotExpired(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		DateTime now = DateTime.UtcNow;
+		DateTime matchStart = now.AddDays(-100);
+		var store = new MemoryMatchDataStore();
+		string screenshot = Folder(Player, matchStart) + "screenshot_scorescreen_1_2.jpg";
+		store.Objects[screenshot] = Jpeg("score");
+		long first, second;
+
+		await using (AppDbContext db = probe.Open())
+		{
+			first = await Seed(db, matchStart, new Sanction { UserID = Player, Type = SanctionTypes.Mute, CreatedAt = now, ExpiresAt = now.AddDays(1) });
+			var ban = new Sanction { UserID = Player, Type = SanctionTypes.Ban, CreatedAt = now };
+			db.Sanctions.Add(ban);
+			await db.SaveChangesAsync();
+			second = ban.ID;
+			Assert.Single((await SanctionEvidenceStore.HoldMatchScreenshots(db, store, first, MatchID, Staff, now)).Held);
+		}
+
+		// the 90 day TTL removes the screenshot; only the copy is left
+		store.Objects.TryRemove(screenshot, out _);
+		await using (AppDbContext db = probe.Open())
+		{
+			EvidenceResult result = await SanctionEvidenceStore.HoldMatchScreenshots(db, store, second, MatchID, Staff, now);
+			Assert.Equal(0, result.Missing);
+			string key = Assert.Single(result.Held);
+			Assert.Equal(1, store.Puts);
+			Assert.Equal(2, await db.SanctionEvidence.CountAsync(e => e.ObjectKey == key));
+		}
+	}
+
+	// --match belongs to bans evidence only, and evidence takes no --days or --reason: each is refused, not ignored
+	[Theory]
+	[InlineData("list", "5", "--match", "3")]
+	[InlineData("revoke", "5", "--match", "3")]
+	[InlineData("add", "5", "--reason", "x", "--match", "3")]
+	[InlineData("evidence", "1", "--match", "2", "--days", "7")]
+	[InlineData("evidence", "1", "--match", "2", "--reason", "x")]
+	public async Task BansRefusesAnOptionTheVerbDoesNotTake(params string[] rest)
+	{
+		Assert.Equal(1, await ModerationCli.RunBans(new[] { "bans" }.Concat(rest).ToArray()));
+	}
 }

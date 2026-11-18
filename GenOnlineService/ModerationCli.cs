@@ -242,6 +242,16 @@ namespace GenOnlineService
 
 			// any sanction, kicks and mutes included: copies the player's screenshots of the match to evidence/, kept until 90
 			// days after the sanction ends
+			// the options are shared by the verbs: one a verb does not use is refused, never ignored
+			if (verb != "evidence" && parsed.Options.ContainsKey("--match"))
+			{
+				throw new CliException($"--match is for bans evidence only.{Environment.NewLine}{BansUsage}");
+			}
+			if (verb == "evidence" && (parsed.Options.ContainsKey("--days") || parsed.Options.ContainsKey("--reason")))
+			{
+				throw new CliException($"bans evidence takes --match and --by only.{Environment.NewLine}{BansUsage}");
+			}
+
 			if (verb == "evidence")
 			{
 				if (!Int64.TryParse(parsed.Positional[1], NumberStyles.None, CultureInfo.InvariantCulture, out Int64 sanctionID) || sanctionID <= 0)

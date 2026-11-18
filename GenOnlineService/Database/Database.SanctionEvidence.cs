@@ -144,9 +144,12 @@ namespace Database
 			int missing = 0;
 			foreach (string folder in ScreenshotFolders(matchID, sanction.UserID, match.StartedAt))
 			{
-				foreach (string source in await store.ListAsync(folder, cancellationToken))
+				// a copy another sanction already made is shared, even after the screenshot itself expired
+				HashSet<string> copied = (await store.ListAsync(EvidenceKeyOf(folder), cancellationToken)).ToHashSet(StringComparer.Ordinal);
+				IEnumerable<string> targets = (await store.ListAsync(folder, cancellationToken)).Select(EvidenceKeyOf).Union(copied, StringComparer.Ordinal);
+
+				foreach (string target in targets)
 				{
-					string target = EvidenceKeyOf(source);
 					if (target.Length > SanctionEvidence.ObjectKeyMaxLength)
 					{
 						missing++;
@@ -159,11 +162,15 @@ namespace Database
 						continue;
 					}
 
-					StoredObject? screenshot = await store.GetAsync(source, cancellationToken);
-					if (screenshot == null)
+					StoredObject? screenshot = null;
+					if (!copied.Contains(target))
 					{
-						missing++;
-						continue;
+						screenshot = await store.GetAsync(ScreenshotPrefix + target.Substring(EvidencePrefix.Length), cancellationToken);
+						if (screenshot == null)
+						{
+							missing++;
+							continue;
+						}
 					}
 
 					// the row comes first, so a copy that fails half way is still found and deleted by the purge
@@ -172,7 +179,10 @@ namespace Database
 					await db.SaveChangesAsync(cancellationToken);
 					db.ChangeTracker.Clear();
 
-					await store.PutAsync(target, screenshot, cancellationToken);
+					if (screenshot != null)
+					{
+						await store.PutAsync(target, screenshot, cancellationToken);
+					}
 					alreadyHeld.Add(target);
 					held.Add(target);
 				}
