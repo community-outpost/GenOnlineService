@@ -31,7 +31,6 @@ namespace GenOnlineService.Identity
 	public sealed partial class AccountsController
 	{
 		public const string AccountPath = "/profile";
-		private const string AdminPath = "/admin/reports";
 		private const string RenameField = "display_name";
 
 		[HttpGet("~/profile")]
@@ -105,22 +104,19 @@ namespace GenOnlineService.Identity
 				body.Append(PortalLook.Alert(T("Account.Renamed", fullName), success: true));
 			}
 
-			// Profile: who you are, and the rename
+			// Profile: the rename, the design's player-name field with the #tag as a fixed suffix, and the id and roles
 			IReadOnlyCollection<string> roles = StaffRoles.RolesOf(user.ID);
 			string badges = roles.Count == 0 ? PortalLook.Badge(T("Account.RolePlayer"), muted: true) : String.Concat(roles.Select(r => PortalLook.Badge(r)));
 			var profile = new StringBuilder();
-			profile.Append($"<div class=\"go-profile\">{PortalLook.Avatar(user.Username)}<div>");
-			profile.Append($"<p class=\"go-profile-name\"><bdi>{WebUtility.HtmlEncode(user.Username)}<span class=\"go-tag\">#{tag}</span></bdi></p>");
-			profile.Append($"<div class=\"go-badges\"><span class=\"bb:text-xs bb:text-muted-foreground\">{WebUtility.HtmlEncode(T("Account.PlayerId", user.ID.ToString(CultureInfo.InvariantCulture)))}</span>{badges}</div>");
-			profile.Append("</div></div>");
-			profile.Append(PortalLook.Separator());
-			profile.Append(PortalLook.Field("display_name", T("Field.DisplayName"), $"type=\"text\" name=\"{RenameField}\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required" + (error == null ? String.Empty : " aria-invalid=\"true\""), typed ?? user.Username, icon: "user"));
-			profile.Append(error == null
-				? $"<p class=\"go-field-hint\">{WebUtility.HtmlEncode(T("Account.TagHint"))}</p>"
-				: $"<p class=\"go-field-error\" role=\"alert\">{WebUtility.HtmlEncode(error)}</p>");
+			string range = T("Name.Range", Realtime.RealtimeHub.NameMinLength, Realtime.RealtimeHub.NameMaxLength);
+			profile.Append(PortalLook.Field("display_name", T("Field.PlayerName"),
+				$"type=\"text\" name=\"{RenameField}\" autocomplete=\"nickname\" minlength=\"{Realtime.RealtimeHub.NameMinLength}\" maxlength=\"{Realtime.RealtimeHub.NameMaxLength}\" required" + (error == null ? String.Empty : " aria-invalid=\"true\""),
+				typed ?? user.Username, suffix: "#" + tag, suffixLabel: T("Name.TagLabel", "#" + tag),
+				hint: WebUtility.HtmlEncode($"{T("Name.Seen", fullName)} {range}"), error: error));
+			profile.Append(PortalLook.Row(T("Account.PlayerId", user.ID.ToString(CultureInfo.InvariantCulture)), badges));
 			body.Append(FormStart(AccountPath, AccountPath));
-			body.Append(PortalLook.Card(T("Account.Profile.Title"), T("Account.Profile.Description"), profile.ToString(),
-				PortalLook.Submit(T("Account.Save"), icon: "check", narrow: true)));
+			body.Append(PortalLook.Card(T("Account.Profile.Title"), T("Account.Profile.Description") + " " + T("Account.TagHint"), profile.ToString(),
+				PortalLook.Submit(T("Account.Save"), narrow: true)));
 			body.Append("</form>");
 
 			// Sign-in and security: the address and the second factor of a password account
@@ -135,7 +131,7 @@ namespace GenOnlineService.Identity
 			{
 				string twoFactorLink = $"/profile/two_factor_auth?{ReturnUrlField}={Uri.EscapeDataString(AccountPath)}";
 				security.Append(PortalLook.Row(T("TwoFactor.Title"), WebUtility.HtmlEncode(T(user.TwoFactorEnabled ? "TwoFactor.IsOn" : "TwoFactor.IsOff"))));
-				security.Append(PortalLook.LinkButton(twoFactorLink, T(user.TwoFactorEnabled ? "TwoFactor.Manage" : "TwoFactor.Setup.Title"), icon: "shield-check", narrow: true));
+				security.Append(PortalLook.LinkButton(twoFactorLink, T(user.TwoFactorEnabled ? "TwoFactor.Manage" : "TwoFactor.Setup.Title"), narrow: true));
 			}
 			if (security.Length == 0)
 			{
@@ -160,21 +156,69 @@ namespace GenOnlineService.Identity
 				string when = identity.LastUsedAt is DateTime used
 					? T("Account.Linked.WhenUsed", Day(identity.CreatedAt), Day(used))
 					: T("Account.Linked.When", Day(identity.CreatedAt));
-				linked.Append($"<div class=\"go-row\">{PortalLook.ProviderName(identity.Provider, name)}<span class=\"bb:text-xs bb:text-muted-foreground\">{WebUtility.HtmlEncode(when)}</span></div>");
+				linked.Append(PortalLook.Row(name, $"{PortalLook.ProviderName(identity.Provider, name)}<span class=\"gp-hint\">{WebUtility.HtmlEncode(when)}</span>"));
 			}
 			body.Append(PortalLook.Card(T("Account.Linked.Title"), T("Account.Linked.Description"), linked.ToString()));
 
-			// the staff pages (/admin) for a holder of a staff role; the page gate there checks the permission again
-			string admin = await m_passwords.IsStaff(user.ID) ? PortalLook.LinkButton(AdminPath, T("Account.Admin"), icon: "shield", narrow: true) : String.Empty;
-			string signOut = FormStart("/users/sign_out", AccountPath) + PortalLook.Submit(T("SignOut"), outline: true, icon: "log-out", narrow: true) + "</form>";
+			// Agreements (S19): what this account agreed to, each document's link, and the way to agree to what is owed
+			if (m_settings.Agreements.Any)
+			{
+				body.Append(await AgreementsCard(user.ID));
+			}
+
+			// the top bar's account menu: the staff pages (/admin) for a holder of a staff role (the gate there checks the
+			// permission again), and sign out
+			bool staff = await m_passwords.IsStaff(user.ID);
+			string signOut = FormStart("/users/sign_out", AccountPath) + $"<button type=\"submit\">{PortalLook.Icon("log-out")}{WebUtility.HtmlEncode(T("SignOut"))}</button></form>";
+			var shell = new AccountShell(user.Username, "#" + tag, user.ID.ToString(CultureInfo.InvariantCulture), roles.Count == 0 ? T("Account.RolePlayer") : String.Join(", ", roles), staff, signOut);
+			// only the sections that exist: Profile (the rest of the account pages come with later phases)
+			(string, string, string)[] sections = [(AccountPath, T("Account.Profile.Title"), "user")];
 			return new ContentResult
 			{
 				StatusCode = status,
 				ContentType = "text/html; charset=utf-8",
-				Content = PortalLook.AppDocument(T("Account.Title"), fullName, admin + signOut, body.ToString(), Language)
+				Content = PortalLook.AppDocument(T("Account.Profile.Title"), shell, sections, AccountPath, body.ToString(), Language, Site)
 			};
 		}
 
 		private string Day(DateTime value) => AccountsText.Day(value, Culture);
+
+		private async Task<string> AgreementsCard(Int64 userID)
+		{
+			Dictionary<string, UserAgreement> latest;
+			IReadOnlyList<AgreementDocument> owed;
+			await using (AppDbContext db = await HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContextAsync())
+			{
+				latest = await Agreements.LatestAsync(db, userID);
+				owed = await Agreements.OwedAsync(db, m_settings.Agreements, userID);
+			}
+
+			var rows = new StringBuilder();
+			foreach (AgreementDocument document in m_settings.Agreements.Required)
+			{
+				string label = T(document.Name == AgreementsSettings.Rules ? "Account.Agreements.Rules" : "Account.Agreements.Terms");
+				var content = new StringBuilder();
+				if (latest.TryGetValue(document.Name, out UserAgreement? agreed))
+				{
+					content.Append($"<bdi>{WebUtility.HtmlEncode(T("Account.Agreements.Agreed", agreed.Version, Day(agreed.AgreedAt)))}</bdi>");
+					if (owed.Contains(document))
+					{
+						content.Append(PortalLook.Badge(T("Account.Agreements.NewVersion", document.Version!), muted: true));
+					}
+				}
+				else
+				{
+					content.Append(PortalLook.Badge(T("Account.Agreements.NotAgreed"), muted: true));
+				}
+				content.Append(' ').Append(ExternalLink(document.Url!, T("Account.Agreements.Read")));
+				rows.Append(PortalLook.Row(label, content.ToString()));
+			}
+			if (m_settings.Agreements.PrivacyUrl != null)
+			{
+				rows.Append(PortalLook.Muted(ExternalLink(m_settings.Agreements.PrivacyUrl, T("Agreements.PrivacyLink"))));
+			}
+			string? agree = owed.Count == 0 ? null : PortalLook.LinkButton(AgreementsUrl(AccountPath), T("Account.Agreements.Agree"), outline: false, narrow: true);
+			return PortalLook.Card(T("Account.Agreements.Title"), T("Account.Agreements.Description"), rows.ToString(), agree);
+		}
 	}
 }

@@ -55,9 +55,10 @@ internal sealed class AdminBrowser
 	private readonly IServiceProvider m_services;
 	private readonly Dictionary<string, string> m_cookies = new();
 
-	public AdminBrowser(ProbeDatabase probe)
+	// settings: more configuration over password sign-in, such as Agreements:*
+	public AdminBrowser(ProbeDatabase probe, params (string Key, string Value)[] settings)
 	{
-		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled()) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
+		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled(settings)) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
 		IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 		AccountsSettings accounts = AccountsSettings.Read(configuration);
 

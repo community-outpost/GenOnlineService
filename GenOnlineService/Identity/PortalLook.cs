@@ -19,45 +19,37 @@
 using BlazorBlueprint.Icons.Lucide.Data;
 using System.Globalization;
 using System.Net;
+using System.Text;
 
 namespace GenOnlineService.Identity
 {
 	// The language of a page and where its language switch comes back to: the same page, now in the chosen language
 	public sealed record PortalLanguage(CultureInfo Culture, string ReturnUrl);
 
-	// The look of the sign-in pages: Blazor Blueprint's "Login with Cover" blueprint (login-02), dark only, in the Swiss
-	// stone palette with the logo's gold as the one accent and the box art, without its colours, as the cover
-	// (wwwroot/portal/generals.css, poster.webp). The markup is
-	// what BbInput, BbButton, BbLabel, BbSeparator and BbAlert render, with Lucide icons from BlazorBlueprint.Icons.Lucide's
-	// data; the package only serves its prebuilt stylesheet, so no component code runs on the server. Every bb: class used
-	// here is in that stylesheet (blazorblueprint.css 4.2.0): a library update can drop one, PortalLookTests catches it, and
-	// a Tailwind build is the durable fix. The split layout itself is in generals.css (go-*), as the prebuilt stylesheet has
-	// no lg: grid classes.
+	// What the pages need to know about this service beyond the language: the cover images (Accounts:cover_images) and the
+	// addresses of the documents the footer links (Agreements:*:url). A document without an address is left out.
+	public sealed record PortalSite(IReadOnlyList<string> CoverImages, string? TermsUrl, string? PrivacyUrl, string? RulesUrl);
+
+	// Who is signed in, for the account shell's top bar and menu: the name and tag are shown apart, the sign-out form is the
+	// controller's (it carries the antiforgery token)
+	public sealed record AccountShell(string Name, string Tag, string? PlayerId, string? Role, bool Staff, string SignOutForm);
+
+	// The look of the sign-in and account pages: the Generals Online design system (tokens.css, generals.css gp-* classes),
+	// dark only, Play and IBM Plex Sans served from this service. The boards are the design's Main (sign in), ChooseName
+	// (name, rules, ready), TwoFactor, CheckEmail, Refused, PhoneArabic and Account. The pages need no script: the language
+	// menu and the account menu are <details>. Every file is linked by its fingerprinted address (PortalAssets). The
+	// staff area (PortalDocument) keeps its own stylesheets and only shares generals.css, so it never uses these classes.
 	public static class PortalLook
 	{
+		// The staff pages' stylesheets; the sign-in and account pages no longer load the first two
 		public const string ThemePath = "/portal/theme.css";
 		public const string StylesheetPath = "/_content/BlazorBlueprint.Components/blazorblueprint.css";
-		// The stone palette and gold accent over the stock dark theme, IBM Plex Sans, the split layout, the provider colours,
-		// and the go-* classes
 		public const string GeneralsPath = "/portal/generals.css";
-		// the Zero Hour box art widened to landscape, the cover beside the form (generals.css .go-cover). Its look is baked in
-		// (grey, darkened, under the veil) rather than filtered in the browser, and it is WebP: 40 KB instead of a 174 KB JPEG
-		// that the browser then had to filter on every paint. Made from the 1920x1080 box art with the stylesheet's old
-		// grayscale(1) brightness(0.55) contrast(1.1) and the rgb(12 10 9 / 0.35) veil:
-		//   ffmpeg -i poster.jpg -vf "colorchannelmixer=.2126:.7152:.0722:0:.2126:.7152:.0722:0:.2126:.7152:.0722,
-		//     lutrgb=r='E*0.65*255+12*0.35':g='E*0.65*255+10*0.35':b='E*0.65*255+9*0.35'" -c:v libwebp -quality 80
-		//     -compression_level 6 poster.webp, with E = clip((((val/255*0.55)-0.5)*1.1+0.5),0,1)
-		public const string PosterPath = "/portal/poster.webp";
-		// Generals Online's logo, top left of every page, and GameReplays' on its button: both from the
-		// playgenerals.online sign-in page
-		public const string LogoPath = "/portal/logo.png";
+		// The design system's tokens (--go-*), linked first on every sign-in and account page
+		public const string TokensPath = "/portal/tokens.css";
+		// Generals Online's radar-van logo (the project's own), top left of every page, and GameReplays' mark on its button
+		public const string LogoPath = "/portal/logo.svg";
 		public const string GameReplaysLogoPath = "/portal/gamereplays.png";
-
-		private const string InputClass = "bb:flex bb:h-10 bb:w-full bb:rounded-md bb:border bb:border-input bb:bg-transparent bb:dark:bg-input/30 bb:px-3 bb:py-2 bb:text-base bb:shadow-xs bb:placeholder:text-muted-foreground bb:focus-visible:outline-none bb:focus-visible:ring-2 bb:focus-visible:ring-ring bb:disabled:cursor-not-allowed bb:disabled:opacity-50 bb:aria-[invalid=true]:border-destructive bb:transition-colors bb:md:text-sm";
-		private const string LabelClass = "bb:text-sm bb:font-medium bb:leading-none";
-		private const string ButtonBase = "bb:inline-flex bb:items-center bb:justify-center bb:gap-2 bb:rounded-md bb:text-sm bb:font-medium bb:transition-colors bb:focus-visible:outline-none bb:focus-visible:ring-2 bb:focus-visible:ring-ring bb:focus-visible:ring-offset-2 bb:cursor-pointer bb:disabled:opacity-50 bb:disabled:cursor-not-allowed bb:h-10 bb:px-4 bb:py-2 bb:w-full";
-		private const string PrimaryClass = ButtonBase + " bb:bg-primary bb:text-primary-foreground bb:hover:bg-primary/90";
-		private const string OutlineClass = ButtonBase + " bb:border bb:border-input bb:bg-background/100 bb:shadow-xs bb:hover:bg-accent bb:hover:text-accent-foreground bb:dark:bg-input/30 bb:dark:border-input bb:dark:hover:bg-input/50";
 
 		// The marks of the sign-in providers, which Lucide does not draw. Discord and Steam: Simple Icons (CC0), simple-icons
 		// 13.21.0, in white on their brand colour. Google: its own four-colour G, as its sign-in button guidelines ask.
@@ -68,18 +60,18 @@ namespace GenOnlineService.Identity
 			["google"] = "<g transform=\"scale(0.2)\"><path fill=\"#4285F4\" d=\"M117.6,61.3636364 C117.6,57.1090909 117.218182,53.0181818 116.509091,49.0909091 L60,49.0909091 L60,72.3 L92.2909091,72.3 C90.9,79.8 86.6727273,86.1545455 80.3181818,90.4090909 L80.3181818,105.463636 L99.7090909,105.463636 C111.054545,95.0181818 117.6,79.6363636 117.6,61.3636364 L117.6,61.3636364 Z\"/><path fill=\"#34A853\" d=\"M60,120 C76.2,120 89.7818182,114.627273 99.7090909,105.463636 L80.3181818,90.4090909 C74.9454545,94.0090909 68.0727273,96.1363636 60,96.1363636 C44.3727273,96.1363636 31.1454545,85.5818182 26.4272727,71.4 L6.38181818,71.4 L6.38181818,86.9454545 C16.2545455,106.554545 36.5454545,120 60,120 L60,120 Z\"/><path fill=\"#FBBC05\" d=\"M26.4272727,71.4 C25.2272727,67.8 24.5454545,63.9545455 24.5454545,60 C24.5454545,56.0454545 25.2272727,52.2 26.4272727,48.6 L26.4272727,33.0545455 L6.38181818,33.0545455 C2.31818182,41.1545455 0,50.3181818 0,60 C0,69.6818182 2.31818182,78.8454545 6.38181818,86.9454545 L26.4272727,71.4 L26.4272727,71.4 Z\"/><path fill=\"#EA4335\" d=\"M60,23.8636364 C68.8090909,23.8636364 76.7181818,26.8909091 82.9363636,32.8363636 L100.145455,15.6272727 C89.7545455,5.94545455 76.1727273,0 60,0 C36.5454545,0 16.2545455,13.4454545 6.38181818,33.0545455 L26.4272727,48.6 C31.1454545,34.4181818 44.3727273,23.8636364 60,23.8636364 L60,23.8636364 Z\"/></g>",
 		};
 
-		private static readonly HashSet<string> s_directional = new(StringComparer.Ordinal) { "arrow-right", "log-in", "log-out" };
+		private static readonly HashSet<string> s_directional = new(StringComparer.Ordinal) { "arrow-right", "arrow-left", "log-in", "log-out" };
 
 		private static string E(string? value) => WebUtility.HtmlEncode(value ?? String.Empty);
 
-		// An inline Lucide icon by name; nothing for an unknown name
-		public static string Icon(string name, string size = "bb:h-4 bb:w-4")
+		// An inline Lucide icon by name (Lucide 1.64, as the design's icons); nothing for an unknown name
+		public static string Icon(string name, string size = "gp-icon")
 		{
 			string? content = LucideIconData.GetIcon(name);
-			// an arrow points the way the text reads, so it mirrors on a right-to-left page (generals.css .go-directional)
-			string directional = s_directional.Contains(name) ? " go-directional" : String.Empty;
+			// an arrow points the way the text reads, so it mirrors on a right-to-left page
+			string directional = s_directional.Contains(name) ? " gp-directional" : String.Empty;
 			return content == null ? String.Empty
-				: $"<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"{size} bb:shrink-0{directional}\" aria-hidden=\"true\">{content}</svg>";
+				: $"<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"{size}{directional}\" aria-hidden=\"true\">{content}</svg>";
 		}
 
 		// A provider's mark: its own for Discord, Steam, Google and GameReplays, and a sign-in arrow for any other
@@ -87,155 +79,267 @@ namespace GenOnlineService.Identity
 		{
 			if (provider == "gamereplays")
 			{
-				return $"<img src=\"{PortalAssets.Url(GameReplaysLogoPath)}\" alt=\"\" width=\"16\" height=\"16\" class=\"bb:h-4 bb:w-4 bb:shrink-0\">";
+				return $"<img src=\"{PortalAssets.Url(GameReplaysLogoPath)}\" alt=\"\" width=\"20\" height=\"20\">";
 			}
 			return s_brands.TryGetValue(provider, out string? mark)
-				? $"<svg viewBox=\"0 0 24 24\" class=\"bb:h-4 bb:w-4 bb:shrink-0\" aria-hidden=\"true\">{mark}</svg>"
+				? $"<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">{mark}</svg>"
 				: Icon("log-in");
 		}
 
-		// A whole page, as login-02: the logo top left, the title, an optional description and the already encoded body
-		// centred in the left column, and the box art as the cover on the right of a wide screen
-		// (in English, without the language switch, when no language is given: the staff pages' refusals)
-		public static string Document(string title, string body, string? description = null, PortalLanguage? language = null)
+		private static string Logo(CultureInfo culture, string href = "/profile")
+			=> $"<a href=\"{E(href)}\" class=\"gp-logo\"><img src=\"{PortalAssets.Url(LogoPath)}\" alt=\"{E(AccountsText.Get("Brand", culture))}\"></a>";
+
+		// A whole page of the sign-in: the radar-van logo, the cover under its vignette, and one centred column.
+		//   icon: the card that opens with an icon tile, the title and the description (two-factor, check your email, refusals)
+		//   step: the account wizard's card (1 Name, 2 Rules, 3 Ready), with the title and description inside
+		//   neither: the title over a card that holds the body (sign in, sign up, password reset)
+		// body is already encoded. Without a language (the staff pages' refusals) there is no language menu, and without a
+		// site there is no cover and no document links.
+		public static string Document(string title, string body, string? description = null, PortalLanguage? language = null, PortalSite? site = null, string? icon = null, int? step = null, string? below = null, string? heading = null)
 		{
 			CultureInfo culture = AccountsText.Resolve(language?.Culture);
-			return Head(title, culture, cover: true)
-				+ "<div class=\"go-split\">"
-				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{PortalAssets.Url(LogoPath)}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
-				+ "<div class=\"bb:w-full bb:max-w-sm bb:space-y-6\">"
-				+ $"<div class=\"bb:space-y-2 bb:text-center\"><h1 class=\"go-heading\">{E(title)}</h1>"
-				+ (description == null ? String.Empty : $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p>")
-				+ "</div>"
-				+ $"<div class=\"bb:space-y-4 bb:text-sm\">{body}</div>"
-				+ (language == null ? String.Empty : LanguageSwitch(language))
-				// the poster's address is set here, as the stylesheet cannot name a fingerprinted file
-				+ $"</div></main><div class=\"go-cover\" role=\"presentation\" style=\"--go-poster: url('{PortalAssets.Url(PosterPath)}')\"></div></div></body></html>";
+			var page = new StringBuilder(Head(title, culture));
+			page.Append($"<a href=\"#content\" class=\"gp-skip\">{E(AccountsText.Get("Skip", culture))}</a><div class=\"gp-page\">");
+			if (site != null && site.CoverImages.Count > 0)
+			{
+				string cover = site.CoverImages[site.CoverImages.Count == 1 ? 0 : Random.Shared.Next(site.CoverImages.Count)];
+				page.Append($"<img class=\"gp-cover\" src=\"{E(PortalAssets.Url(cover))}\" alt=\"\" aria-hidden=\"true\" decoding=\"async\">");
+			}
+			page.Append("<div class=\"gp-vignette\" aria-hidden=\"true\"></div>");
+			page.Append($"<main id=\"content\" class=\"gp-main\" tabindex=\"-1\">{Logo(culture)}");
+
+			string h1 = $"<h1 class=\"gp-title{(icon == null && step == null ? " gp-title-centre" : String.Empty)}\">{E(heading ?? title)}</h1>";
+			string lead = description == null ? String.Empty : $"<p class=\"gp-lead\">{E(description)}</p>";
+			if (step is int current)
+			{
+				string head = icon == null ? $"<div class=\"gp-head\">{h1}{lead}</div>"
+					: $"<div class=\"gp-banner\"><span class=\"gp-tile\">{Icon(icon, "gp-icon gp-icon-lg")}</span><div class=\"gp-head\">{h1}{lead}</div></div>";
+				page.Append($"<div class=\"gp-card gp-card-wizard\">{Steps(current, culture)}{head}{body}</div>");
+			}
+			else if (icon != null)
+			{
+				page.Append($"<div class=\"gp-card gp-card-icon\"><div class=\"gp-tile\">{Icon(icon, "gp-icon gp-icon-lg")}</div><div class=\"gp-head\">{h1}{lead}</div>{body}</div>");
+			}
+			else
+			{
+				page.Append($"<div class=\"gp-stack\">{h1}{(description == null ? String.Empty : $"<p class=\"gp-lead gp-title-centre\">{E(description)}</p>")}<div class=\"gp-card\">{body}</div>{below}</div>");
+			}
+			page.Append(Footer(language, site, culture)).Append("</main></div></body></html>");
+			return page.ToString();
 		}
 
-		// The head and the opening body of every page: dark only, the theme's .dark variables with the stone palette over them
-		// lang and dir follow the page's language, so Arabic reads right to left. Every file is linked by its fingerprinted
-		// address (PortalAssets), cached for a year. A page with the cover preloads the poster on a screen wide enough to show
-		// it, so it loads beside the stylesheets instead of after them.
-		private static string Head(string title, CultureInfo culture, bool cover = false)
-			=> $"<!doctype html><html lang=\"{E(culture.Name)}\" dir=\"{(AccountsText.IsRightToLeft(culture) ? "rtl" : "ltr")}\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-				+ "<meta name=\"color-scheme\" content=\"dark\"><meta name=\"theme-color\" content=\"#0c0a09\">"
+		// The account wizard's steps, as the design's ChooseName board: Name, Rules, Ready
+		private static string Steps(int current, CultureInfo culture)
+		{
+			string[] names = ["Steps.Name", "Steps.Rules", "Steps.Ready"];
+			var list = new StringBuilder($"<ol class=\"gp-steps\" aria-label=\"{E(AccountsText.Get("Steps.Label", culture))}\">");
+			for (int index = 0; index < names.Length; index++)
+			{
+				string mark = index + 1 == current ? " aria-current=\"step\"" : String.Empty;
+				list.Append($"<li class=\"gp-step\"{mark}><span class=\"gp-dot\">{index + 1}</span>{E(AccountsText.Get(names[index], culture))}</li>");
+				if (index < names.Length - 1)
+				{
+					list.Append("<li class=\"gp-step-line\" aria-hidden=\"true\"></li>");
+				}
+			}
+			return list.Append("</ol>").ToString();
+		}
+
+		// The head and the opening body of every page: dark only, the tokens first. lang and dir follow the page's language,
+		// so Arabic reads right to left.
+		private static string Head(string title, CultureInfo culture)
+			=> $"<!doctype html><html lang=\"{E(culture.Name)}\" dir=\"{(AccountsText.IsRightToLeft(culture) ? "rtl" : "ltr")}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+				+ "<meta name=\"color-scheme\" content=\"dark\"><meta name=\"theme-color\" content=\"#0B1114\">"
 				+ $"<title>{AccountsText.Format("Page.Title", culture, E(title))}</title>"
-				+ $"<link rel=\"stylesheet\" href=\"{PortalAssets.Url(ThemePath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(StylesheetPath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(GeneralsPath)}\">"
-				+ (cover ? $"<link rel=\"preload\" as=\"image\" type=\"image/webp\" href=\"{PortalAssets.Url(PosterPath)}\" media=\"(min-width: 64rem)\" fetchpriority=\"high\">" : String.Empty)
-				+ "</head><body class=\"bb:bg-background bb:text-foreground\">";
+				+ $"<link rel=\"stylesheet\" href=\"{PortalAssets.Url(TokensPath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(GeneralsPath)}\">"
+				+ "</head><body class=\"gp\">";
 
-		// A signed-in page of the portal (S12), after the Top Navigation Bar blueprint (nav-01) and GitLab's user settings: a
-		// top bar with the logo, who is signed in and the already encoded actions on the right, then the title over the
-		// settings sections
-		public static string AppDocument(string title, string signedInAs, string actions, string body, PortalLanguage? language = null)
+		// The footer: the language menu and, for each document with an address, its link (Help has no page yet)
+		private static string Footer(PortalLanguage? language, PortalSite? site, CultureInfo culture)
 		{
-			CultureInfo culture = AccountsText.Resolve(language?.Culture);
-			return Head(title, culture)
-				+ $"<a href=\"#content\" class=\"go-skip\">{E(AccountsText.Get("Skip", culture))}</a><header class=\"go-topbar\">"
-				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{PortalAssets.Url(LogoPath)}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
-				+ $"<div class=\"go-topbar-actions\">{(language == null ? String.Empty : LanguageSwitch(language))}<span class=\"bb:text-sm bb:font-medium\">{E(signedInAs)}</span>{actions}</div>"
-				+ "</header>"
-				+ $"<main id=\"content\" class=\"go-column\" tabindex=\"-1\"><h1 class=\"go-heading\">{E(title)}</h1>{body}</main>"
-				+ "</body></html>";
+			var links = new StringBuilder();
+			void Add(string? url, string key)
+			{
+				if (!String.IsNullOrWhiteSpace(url))
+				{
+					links.Append($"<a href=\"{E(url)}\" target=\"_blank\" rel=\"noopener noreferrer\">{E(AccountsText.Get(key, culture))}</a>");
+				}
+			}
+			Add(site?.TermsUrl, "Agreements.TermsLink");
+			Add(site?.PrivacyUrl, "Agreements.PrivacyLink");
+			Add(site?.RulesUrl, "Footer.Rules");
+			string nav = links.Length == 0 ? String.Empty : $"<nav aria-label=\"{E(AccountsText.Get("Footer.Label", culture))}\">{links}</nav>";
+			string menu = language == null ? String.Empty : LanguageMenu(language);
+			return menu.Length + nav.Length == 0 ? String.Empty : $"<footer class=\"gp-footer\">{menu}{nav}</footer>";
 		}
 
-		// The language switch: every language in its own name, the page's own marked current, each a link that sets the
-		// language cookie and comes back to the same page (AccountsController.SetLanguage)
-		public static string LanguageSwitch(PortalLanguage language)
+		private static string LanguageHref(PortalLanguage language, CultureInfo target)
+			=> $"{LanguagePath}?culture={Uri.EscapeDataString(target.Name)}&ReturnUrl={Uri.EscapeDataString(language.ReturnUrl)}";
+
+		// The language menu: the current language on a button, every language in its own name below it, each a link that
+		// sets the language cookie and comes back to the same page (AccountsController.SetLanguage)
+		public static string LanguageMenu(PortalLanguage language)
 		{
 			CultureInfo current = AccountsText.Resolve(language.Culture);
-			string links = String.Concat(AccountsText.Supported.Select(c =>
-			{
-				string href = $"{LanguagePath}?culture={Uri.EscapeDataString(c.Name)}&ReturnUrl={Uri.EscapeDataString(language.ReturnUrl)}";
-				string currentMark = c.Name == current.Name ? " aria-current=\"true\"" : String.Empty;
-				return $"<a href=\"{E(href)}\" lang=\"{E(c.Name)}\" hreflang=\"{E(c.Name)}\" class=\"go-language\"{currentMark}>{E(AccountsText.NativeName(c))}</a>";
-			}));
-			return $"<nav class=\"go-languages\" aria-label=\"{E(AccountsText.Get("Language", current))}\">{links}</nav>";
+			string label = $"{AccountsText.Get("Language", current)}: {AccountsText.NativeName(current)}";
+			return $"<details class=\"gp-lang\"><summary aria-label=\"{E(label)}\">{Icon("globe")}{E(AccountsText.NativeName(current))}{Icon("chevron-down")}</summary>"
+				+ $"<ul>{LanguageLinks(language, current, "li")}</ul></details>";
 		}
+
+		private static string LanguageLinks(PortalLanguage language, CultureInfo current, string wrap)
+			=> String.Concat(AccountsText.Supported.Select(c =>
+			{
+				string mark = c.Name == current.Name ? " aria-current=\"true\"" : String.Empty;
+				string link = $"<a href=\"{E(LanguageHref(language, c))}\" lang=\"{E(c.Name)}\" hreflang=\"{E(c.Name)}\"{mark}>{E(AccountsText.NativeName(c))}</a>";
+				return wrap.Length == 0 ? link : $"<{wrap}>{link}</{wrap}>";
+			}));
 
 		public const string LanguagePath = "/users/language";
 
-		// A settings section, as GitLab's user settings: the title and a short description in the left column, the already
-		// encoded content and an optional row of buttons on the right; sections stack with a rule between them
+		// A signed-in page of the account (the design's Account board): the top bar with the logo and the account menu, the
+		// sidebar of the area ("Your account") with the sections that exist, and the content in one centred column.
+		// sections are (href, label, icon); the one whose href is current is marked.
+		public static string AppDocument(string title, AccountShell shell, IReadOnlyList<(string Href, string Label, string Icon)> sections, string currentHref, string body, PortalLanguage? language = null, PortalSite? site = null)
+		{
+			CultureInfo culture = AccountsText.Resolve(language?.Culture);
+			string full = $"{E(shell.Name)}<span class=\"gp-tag\">{E(shell.Tag)}</span>";
+			string initials = new string(shell.Name.Where(Char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
+			string avatar = $"<span class=\"gp-avatar\" aria-hidden=\"true\">{E(initials.Length == 0 ? "?" : initials)}</span>";
+			string who = shell.PlayerId == null && shell.Role == null ? String.Empty
+				: $"<span class=\"gp-hint\">{(shell.PlayerId == null ? String.Empty : E(AccountsText.Format("Account.PlayerId", culture, shell.PlayerId)))}{(shell.PlayerId != null && shell.Role != null ? " · " : String.Empty)}{E(shell.Role)}</span>";
+
+			var menu = new StringBuilder($"<div class=\"gp-menu-head\">{avatar}<div class=\"gp-head\" style=\"gap:2px;min-width:0\"><bdi class=\"gp-name\">{full}</bdi>{who}</div></div><hr>");
+			menu.Append($"<a href=\"/profile\">{Icon("user")}{E(AccountsText.Get("Account.EditProfile", culture))}</a>");
+			if (language != null)
+			{
+				CultureInfo current = AccountsText.Resolve(language.Culture);
+				menu.Append($"<span class=\"gp-hint\" style=\"display:flex;align-items:center;gap:10px;padding:4px 10px 0\">{Icon("globe")}{E(AccountsText.Get("Language", culture))}</span><div class=\"gp-menu-langs\">{LanguageLinks(language, current, String.Empty)}</div>");
+			}
+			if (shell.Staff)
+			{
+				menu.Append($"<hr><a href=\"/admin\">{Icon("layout-dashboard")}{E(AccountsText.Get("Account.StaffTools", culture))}</a>");
+			}
+			menu.Append($"<hr>{shell.SignOutForm}");
+
+			var side = new StringBuilder($"<nav class=\"gp-side\" aria-label=\"{E(AccountsText.Get("Account.Area", culture))}\"><span class=\"gp-area\">{E(AccountsText.Get("Account.Area", culture))}</span>");
+			foreach ((string href, string label, string icon) in sections)
+			{
+				side.Append($"<a href=\"{E(href)}\"{(href == currentHref ? " aria-current=\"page\"" : String.Empty)}>{Icon(icon)}{E(label)}</a>");
+			}
+			side.Append("</nav>");
+
+			string crumb = sections.FirstOrDefault(s => s.Href == currentHref).Label ?? title;
+			return Head(title, culture)
+				+ $"<a href=\"#content\" class=\"gp-skip\">{E(AccountsText.Get("Skip", culture))}</a><div class=\"gp-shell\"><header class=\"gp-top\">{Logo(culture)}<span class=\"gp-top-space\"></span>"
+				+ $"<details class=\"gp-me\"><summary aria-label=\"{E(AccountsText.Format("Account.MenuLabel", culture, shell.Name + shell.Tag))}\">{avatar}<bdi class=\"gp-name\">{full}</bdi>{Icon("chevron-down")}</summary><div class=\"gp-menu\">{menu}</div></details></header>"
+				+ $"<div class=\"gp-body\">{side}<main id=\"content\" class=\"gp-content\" tabindex=\"-1\"><div class=\"gp-column\">"
+				+ $"<p class=\"gp-crumbs\">{E(AccountsText.Get("Account.Area", culture))} / {E(crumb)}</p><h1 class=\"gp-title\">{E(title)}</h1>{body}</div></main></div>"
+				+ Footer(null, site, culture)
+				+ "</div></body></html>";
+		}
+
+		// A settings section of the account page: the title, a short description and the already encoded content, with an
+		// optional row of buttons; sections stack with a rule between them
 		public static string Card(string title, string description, string content, string? footer = null)
-			=> "<section class=\"go-settings\">"
-				+ $"<div class=\"go-settings-intro\"><h2 class=\"go-settings-title\">{E(title)}</h2><p>{E(description)}</p></div>"
-				+ $"<div class=\"go-settings-body\">{content}"
-				+ (footer == null ? String.Empty : $"<div class=\"go-card-footer\">{footer}</div>")
-				+ "</div></section>";
+			=> $"<section class=\"gp-section\"><h2>{E(title)}</h2><p class=\"gp-section-desc\">{E(description)}</p>{content}"
+				+ (footer == null ? String.Empty : $"<div class=\"gp-actions\">{footer}</div>")
+				+ "</section>";
 
 		// A small label: a role, a state
-		public static string Badge(string text, bool muted = false) => $"<span class=\"go-badge{(muted ? " go-badge-muted" : String.Empty)}\">{E(text)}</span>";
+		public static string Badge(string text, bool muted = false) => $"<span class=\"gp-badge{(muted ? " gp-badge-muted" : String.Empty)}\">{E(text)}</span>";
 
-		// The initials of a name in a circle, as BbAvatar's fallback
-		public static string Avatar(string name)
-		{
-			string initials = new string(name.Where(Char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
-			return $"<span class=\"go-avatar\" aria-hidden=\"true\">{E(initials.Length == 0 ? "?" : initials)}</span>";
-		}
-
-		// A row of a card: a label on the left, already encoded content on the right
+		// A row of a section: a label at the start, already encoded content at the end
 		public static string Row(string label, string content)
-			=> $"<div class=\"go-row\"><span class=\"bb:text-muted-foreground\">{E(label)}</span><span class=\"go-row-value\">{content}</span></div>";
+			=> $"<div class=\"gp-row\"><span class=\"gp-row-label\">{E(label)}</span><span class=\"gp-row-value\">{content}</span></div>";
 
 		// A provider's mark and name, as on its sign-in button
-		public static string ProviderName(string provider, string displayName) => $"<span class=\"go-provider-name\">{ProviderMark(provider)}<span>{E(displayName)}</span></span>";
+		public static string ProviderName(string provider, string displayName) => $"<span class=\"gp-provider\">{ProviderMark(provider)}<span>{E(displayName)}</span></span>";
 
-		// Explanatory text in the muted colour
-		public static string Text(string encoded) => $"<p class=\"bb:text-muted-foreground bb:leading-relaxed\">{encoded}</p>";
+		// Explanatory text
+		public static string Text(string encoded) => $"<p class=\"gp-copy\">{encoded}</p>";
 
-		// A labelled input, the label above it, with an icon inside its left edge when one is named; attributes is raw HTML
-		// the caller built (type, name, autocomplete, limits)
-		public static string Field(string id, string label, string attributes, string? value = null, string? icon = null)
+		// A muted line, such as a hint under a form
+		public static string Muted(string encoded) => $"<p class=\"gp-muted\">{encoded}</p>";
+
+		// A labelled input, the label above it. attributes is raw HTML the caller built (type, name, autocomplete, limits).
+		//   suffix: a fixed end of the value shown inside the control (the player's #tag), isolated left to right and named
+		//   in aria-describedby with the hint
+		//   hint: a short line below
+		//   aside: already encoded content opposite the label ("Forgot your password?")
+		public static string Field(string id, string label, string attributes, string? value = null, string? suffix = null, string? hint = null, string? aside = null, bool large = false, bool code = false, string? suffixLabel = null, string? error = null)
 		{
 			string valueAttribute = value == null ? String.Empty : $" value=\"{E(value)}\"";
-			string input = $"<input id=\"{E(id)}\" class=\"{InputClass}{(icon == null ? String.Empty : " go-iconed")}\" {attributes}{valueAttribute}>";
-			if (icon != null)
+			var described = new List<string>();
+			if (suffix != null)
 			{
-				input = $"<div class=\"bb:relative\"><span class=\"go-field-icon bb:text-muted-foreground\">{Icon(icon)}</span>{input}</div>";
+				described.Add(id + "-suffix");
 			}
-			return $"<div class=\"go-field\"><label for=\"{E(id)}\" class=\"{LabelClass}\">{E(label)}</label>{input}</div>";
+			if (hint != null || error != null)
+			{
+				described.Add(id + "-hint");
+			}
+			string describedBy = described.Count == 0 ? String.Empty : $" aria-describedby=\"{String.Join(' ', described)}\"";
+			string input = $"<input id=\"{E(id)}\" class=\"gp-input{(large ? " gp-input-lg" : String.Empty)}{(code ? " gp-code" : String.Empty)}\"{describedBy} {attributes}{valueAttribute}>";
+			if (suffix != null)
+			{
+				input = $"<div class=\"gp-input-wrap\">{input}<span id=\"{E(id)}-suffix\" class=\"gp-suffix\" dir=\"ltr\"{(suffixLabel == null ? String.Empty : $" aria-label=\"{E(suffixLabel)}\"")}>{E(suffix)}</span></div>";
+			}
+			string labelHtml = aside == null ? $"<label for=\"{E(id)}\" class=\"gp-label\">{E(label)}</label>"
+				: $"<div class=\"gp-label-row\"><label for=\"{E(id)}\" class=\"gp-label\">{E(label)}</label>{aside}</div>";
+			return $"<div class=\"gp-field\">{labelHtml}{input}{(error != null ? $"<p id=\"{E(id)}-hint\" class=\"gp-hint gp-error\" role=\"alert\">{Icon("circle-alert")}{E(error)}</p>" : hint == null ? String.Empty : $"<p id=\"{E(id)}-hint\" class=\"gp-hint\">{hint}</p>")}</div>";
 		}
 
-		// A submit button, full width in a form, its own width (narrow) in a card footer or the top bar
-		public static string Submit(string text, string? name = null, string? value = null, bool outline = false, string? icon = null, bool narrow = false)
+		// A submit button, full width in a form, its own width (narrow) in a section's buttons
+		public static string Submit(string text, string? name = null, string? value = null, bool outline = false, string? icon = null, bool narrow = false, bool large = false, bool fill = false)
 		{
 			string named = name == null ? String.Empty : $" name=\"{E(name)}\" value=\"{E(value)}\"";
-			return $"<button type=\"submit\"{named} class=\"{ButtonClass(outline, narrow)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</button>";
+			return $"<button type=\"submit\"{named} class=\"{ButtonClass(outline, narrow, large, fill)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</button>";
 		}
 
 		// A link drawn as a button, full width unless narrow
-		public static string LinkButton(string href, string text, bool outline = true, string? icon = null, bool narrow = false)
-			=> $"<a href=\"{E(href)}\" class=\"{ButtonClass(outline, narrow)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</a>";
+		public static string LinkButton(string href, string text, bool outline = true, string? icon = null, bool narrow = false, bool large = false, bool fill = false)
+			=> $"<a href=\"{E(href)}\" class=\"{ButtonClass(outline, narrow, large, fill)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</a>";
 
-		private static string ButtonClass(bool outline, bool narrow) => (outline ? OutlineClass : PrimaryClass) + (narrow ? " go-narrow" : String.Empty);
+		private static string ButtonClass(bool outline, bool narrow, bool large, bool fill)
+			=> "gp-btn " + (outline ? "gp-btn-outline" : "gp-btn-primary") + (narrow ? " gp-btn-sm" : fill ? " gp-btn-fill" : " gp-btn-block") + (large ? " gp-btn-lg" : String.Empty);
 
-		// The sign-in providers, as login-02's buttons under "Or continue with": full width, one under another, each in its
-		// brand's colours with its mark (an unknown provider stays an outline button)
+		// The pinned row of a card with steps: a quiet button for the way back and the one primary action beside it
+		public static string Actions(string? back, string primary) => $"<div class=\"gp-actions gp-actions-pinned\">{back}{primary}</div>";
+
+		// The row that ends a dead-end card: the way back to sign in (or to the account) as an outline button
+		public static string Way(string href, string text) => $"<div class=\"gp-actions\"><a href=\"{E(href)}\" class=\"gp-btn gp-btn-outline gp-btn-fill\">{E(text)}</a></div>";
+
+		// The way on under a card's form: an optional muted line, then the arrow back
+		public static string WayOn(string href, string text, string? extra = null) => $"<div class=\"gp-way-on\">{extra}{BackLink(href, text)}</div>";
+
+		public static string GhostLink(string href, string text, string? icon = null)
+			=> $"<a href=\"{E(href)}\" class=\"gp-btn gp-btn-ghost\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</a>";
+
+		public static string Disabled(string text) => $"<button type=\"button\" class=\"gp-btn gp-btn-primary\" disabled>{E(text)}</button>";
+
+		// The sign-in providers: an equal grid of buttons in the one frame, each in its brand's colours with its mark (an
+		// unknown provider stays an outline button)
 		public static string Providers(IEnumerable<(string Href, string Provider, string DisplayName)> providers, CultureInfo? culture = null)
 		{
-			string buttons = String.Concat(providers.Select(p =>
-				$"<a href=\"{E(p.Href)}\" class=\"{OutlineClass} go-provider go-provider-{E(p.Provider)}\">{ProviderMark(p.Provider)}{E(AccountsText.Format("SignIn.WithProvider", culture, p.DisplayName))}</a>"));
-			return buttons.Length == 0 ? String.Empty : $"<div class=\"go-providers\">{buttons}</div>";
+			// the design's order: Discord, Steam, Google, GameReplays, then any other as configured
+			string[] order = ["discord", "steam", "google", "gamereplays"];
+			string buttons = String.Concat(providers.OrderBy(p => Array.IndexOf(order, p.Provider) is int at and >= 0 ? at : order.Length).Select(p =>
+				$"<a href=\"{E(p.Href)}\" class=\"gp-prov gp-prov-{(s_brands.ContainsKey(p.Provider) || p.Provider == "gamereplays" ? E(p.Provider) : "other")}\">{ProviderMark(p.Provider)}<span>{E(AccountsText.Format("SignIn.WithProvider", culture, p.DisplayName))}</span></a>"));
+			return buttons.Length == 0 ? String.Empty : $"<div class=\"gp-providers\">{buttons}</div>";
 		}
 
-		// A centred line under a form: an optional lead in the muted colour and a link, as login-02's "Don't have an account?"
+		// A centred line under a form: an optional lead and a link, as "Don't have an account yet? Register now"
 		public static string Link(string href, string text, string? lead = null)
-			=> $"<p class=\"bb:text-center bb:text-muted-foreground\">{(lead == null ? String.Empty : E(lead) + " ")}<a href=\"{E(href)}\" class=\"bb:text-primary bb:underline-offset-4 bb:hover:underline\">{E(text)}</a></p>";
+			=> $"<p class=\"gp-centre\">{(lead == null ? String.Empty : E(lead) + " ")}<a href=\"{E(href)}\">{E(text)}</a></p>";
 
-		// A refusal or a confirmation, as BbAlert renders it, with its icon
+		// The way back on a card: an arrow and the words
+		public static string BackLink(string href, string text) => $"<a href=\"{E(href)}\" class=\"gp-back\">{Icon("arrow-left")}{E(text)}</a>";
+
+		// A refusal or a confirmation, with its icon
 		public static string Alert(string message, bool success = false)
-		{
-			string tone = success ? "bb:border-alert-success/30 bb:bg-alert-success-bg" : "bb:border-alert-danger/30 bb:bg-alert-danger-bg";
-			return $"<div role=\"alert\" class=\"bb:relative bb:flex bb:gap-3 bb:w-full bb:rounded-lg bb:border bb:p-4 bb:text-foreground {tone}\">{Icon(success ? "circle-check" : "circle-alert")}<span>{E(message)}</span></div>";
-		}
+			=> $"<div role=\"{(success ? "status" : "alert")}\" class=\"gp-alert{(success ? " gp-alert-success" : String.Empty)}\">{Icon(success ? "circle-check" : "circle-alert", "gp-icon")}<span>{E(message)}</span></div>";
 
-		// A rule between the password form and the providers, with login-02's caption on it when one is given
-		public static string Separator(string? caption = null)
-		{
-			const string Rule = "<div role=\"none\" class=\"bb:shrink-0 bb:bg-border bb:h-[1px] bb:w-full\"></div>";
-			return caption == null ? Rule : $"<div class=\"go-or\">{Rule}<span>{E(caption)}</span></div>";
-		}
+		// A rule between the password form and the providers, with a caption on it when one is given
+		public static string Separator(string? caption = null) => $"<div class=\"gp-or\"{(caption == null ? " role=\"separator\"" : String.Empty)}>{(caption == null ? String.Empty : $"<span>{E(caption)}</span>")}</div>";
 	}
 }

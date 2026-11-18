@@ -43,7 +43,7 @@
     <value>Player name</value>
   </data>
   <data name="Field.DisplayName" xml:space="preserve">
-    <value>Display name</value>
+    <value>Player name</value>
   </data>
   <data name="Field.Code" xml:space="preserve">
     <value>Code</value>
@@ -64,10 +64,10 @@
     <value>Sign in with {0}</value>
   </data>
   <data name="SignIn.NoAccount" xml:space="preserve">
-    <value>Don’t have an account?</value>
+    <value>Don’t have an account yet?</value>
   </data>
   <data name="SignIn.SignUpLink" xml:space="preserve">
-    <value>Sign up</value>
+    <value>Register now</value>
   </data>
   <data name="SignIn.WrongCredentials" xml:space="preserve">
     <value>Wrong email or password.</value>
@@ -389,5 +389,242 @@
   </data>
   <data name="Reset.Done.Body" xml:space="preserve">
     <value>Sign in with your new password. Every other sign-in of this account has ended.</value>
+  </data>
+  <data name="Agreements.Card.Description" xml:space="preserve">
+    <value>Rule {0} of {1}</value>
+  </data>
+  <data name="Agreements.Agree" xml:space="preserve">
+    <value>Agree</value>
+  </data>
+  <data name="Agreements.ReadRules" xml:space="preserve">
+    <value>Read the full rules</value>
+  </data>
+  <data name="Agreements.RulesChanged" xml:space="preserve">
+    <value>The rules changed on {0}.</value>
+  </data>
+  <data name="Agreements.RulesChangedNoDate" xml:space="preserve">
+    <value>The rules changed.</value>
+  </data>
+  <data name="Agreements.TermsChanged" xml:space="preserve">
+    <value>The Terms of Service changed on {0}.</value>
+  </data>
+  <data name="Agreements.TermsChangedNoDate" xml:space="preserve">
+    <value>The Terms of Service changed.</value>
+  </data>
+  <data name="Agreements.Terms.Title" xml:space="preserve">
+    <value>Terms of Service</value>
+  </data>
+  <data name="Agreements.Terms.Description" xml:space="preserve">
+    <value>One last step before you play.</value>
+  </data>
+  <data name="Agreements.Terms.Intro" xml:space="preserve">
+    <value>Read the Terms of Service and the Privacy Policy before you start playing.</value>
+  </data>
+  <data name="Agreements.Terms.Tick" xml:space="preserve">
+    <value>I agree to the Terms of Service</value>
+  </data>
+  <data name="Agreements.Terms.Required" xml:space="preserve">
+    <value>Tick the box to agree to the Terms of Service.</value>
+  </data>
+  <data name="Agreements.TermsLink" xml:space="preserve">
+    <value>Terms of Service</value>
+  </data>
+  <data name="Agreements.PrivacyLink" xml:space="preserve">
+    <value>Privacy Policy</value>
+  </data>
+  <data name="Agreements.Start" xml:space="preserve">
+    <value>Start playing</value>
+  </data>
+  <data name="Rules.respect.Title" xml:space="preserve">
+    <value>Respect</value>
+  </data>
+  <data name="Rules.respect.Intro" xml:space="preserve">
+    <value>Treat every player with respect, whether they are your teammate, your opponent or new to the game.</value>
+  </data>
+  <data name="Rules.respect.1" xml:space="preserve">
+    <value>No racism, hate or discrimination.</value>
+  </data>
+  <data name="Rules.respect.2" xml:space="preserve">
+    <value>No politics or religion.</value>
+  </data>
+  <data name="Rules.respect.3" xml:space="preserve">
+    <value>No harassment.</value>
+  </data>
+  <data name="Rules.respect.4" xml:space="preserve">
+    <value>No threats.</value>
+  </data>
+  <data name="Rules.respect.5" xml:space="preserve">
+    <value>No doxxing.</value>
+  </data>
+  <data name="Rules.chat.Title" xml:space="preserve">
+    <value>Chat, names and clan tags</value>
+  </data>
+  <data name="Rules.chat.Intro" xml:space="preserve">
+    <value>Keep chat readable and your name fit for everyone to see.</value>
+  </data>
+  <data name="Rules.chat.1" xml:space="preserve">
+    <value>No spamming.</value>
+  </data>
+  <data name="Rules.chat.2" xml:space="preserve">
+    <value>No disruptive behaviour.</value>
+  </data>
+  <data name="Rules.chat.3" xml:space="preserve">
+    <value>No offensive names or clan tags.</value>
+  </data>
+  <data name="Rules.fair_play.Title" xml:space="preserve">
+    <value>Fair play</value>
+  </data>
+  <data name="Rules.fair_play.Intro" xml:space="preserve">
+    <value>Win with your own skill.</value>
+  </data>
+  <data name="Rules.fair_play.1" xml:space="preserve">
+    <value>No cheating.</value>
+  </data>
+  <data name="Rules.fair_play.2" xml:space="preserve">
+    <value>No smurfing.</value>
+  </data>
+  <data name="Rules.fair_play.3" xml:space="preserve">
+    <value>No win trading or boosting.</value>
+  </data>
+  <data name="Rules.fair_play.4" xml:space="preserve">
+    <value>No throwing.</value>
+  </data>
+  <data name="Rules.match.Title" xml:space="preserve">
+    <value>Match behaviour</value>
+  </data>
+  <data name="Rules.match.Intro" xml:space="preserve">
+    <value>Play the match through.</value>
+  </data>
+  <data name="Rules.match.1" xml:space="preserve">
+    <value>No quitting on purpose.</value>
+  </data>
+  <data name="Rules.match.2" xml:space="preserve">
+    <value>No bug or disconnect abuse.</value>
+  </data>
+  <data name="Rules.match.3" xml:space="preserve">
+    <value>Respect the host and lobby rules.</value>
+  </data>
+  <data name="Rules.accounts.Title" xml:space="preserve">
+    <value>Accounts</value>
+  </data>
+  <data name="Rules.accounts.Intro" xml:space="preserve">
+    <value>Your account is yours, and you are responsible for what happens on it.</value>
+  </data>
+  <data name="Rules.accounts.1" xml:space="preserve">
+    <value>No sharing accounts.</value>
+  </data>
+  <data name="Rules.accounts.2" xml:space="preserve">
+    <value>No impersonation.</value>
+  </data>
+  <data name="Rules.accounts.3" xml:space="preserve">
+    <value>No ban evasion.</value>
+  </data>
+  <data name="Rules.service.Title" xml:space="preserve">
+    <value>The service</value>
+  </data>
+  <data name="Rules.service.Intro" xml:space="preserve">
+    <value>Generals Online is run by volunteers. Help us keep it running.</value>
+  </data>
+  <data name="Rules.service.1" xml:space="preserve">
+    <value>No attacks on the service.</value>
+  </data>
+  <data name="Rules.service.2" xml:space="preserve">
+    <value>Found a security problem? Tell us privately.</value>
+  </data>
+  <data name="Account.Agreements.Title" xml:space="preserve">
+    <value>Agreements</value>
+  </data>
+  <data name="Account.Agreements.Description" xml:space="preserve">
+    <value>The rules and terms you agreed to on this environment.</value>
+  </data>
+  <data name="Account.Agreements.Rules" xml:space="preserve">
+    <value>Rules of Engagement</value>
+  </data>
+  <data name="Account.Agreements.Terms" xml:space="preserve">
+    <value>Terms of Service</value>
+  </data>
+  <data name="Account.Agreements.Agreed" xml:space="preserve">
+    <value>Version {0}, agreed on {1}</value>
+  </data>
+  <data name="Account.Agreements.NotAgreed" xml:space="preserve">
+    <value>Not agreed</value>
+  </data>
+  <data name="Account.Agreements.NewVersion" xml:space="preserve">
+    <value>Version {0} waits for your agreement</value>
+  </data>
+  <data name="Account.Agreements.Read" xml:space="preserve">
+    <value>Read</value>
+  </data>
+  <data name="Account.Agreements.Agree" xml:space="preserve">
+    <value>Agree now</value>
+  </data>
+  <data name="Footer.Rules" xml:space="preserve">
+    <value>Rules of Engagement</value>
+  </data>
+  <data name="Footer.Label" xml:space="preserve">
+    <value>Documents</value>
+  </data>
+  <data name="Steps.Label" xml:space="preserve">
+    <value>Steps</value>
+  </data>
+  <data name="Steps.Name" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="Steps.Rules" xml:space="preserve">
+    <value>Rules</value>
+  </data>
+  <data name="Steps.Ready" xml:space="preserve">
+    <value>Ready</value>
+  </data>
+  <data name="BackToSignIn" xml:space="preserve">
+    <value>Back to sign in</value>
+  </data>
+  <data name="Account.Back" xml:space="preserve">
+    <value>Back to your account</value>
+  </data>
+  <data name="Account.Area" xml:space="preserve">
+    <value>Your account</value>
+  </data>
+  <data name="Account.EditProfile" xml:space="preserve">
+    <value>Edit profile</value>
+  </data>
+  <data name="Account.MenuLabel" xml:space="preserve">
+    <value>Account menu, {0}</value>
+  </data>
+  <data name="TwoFactor.UseRecovery" xml:space="preserve">
+    <value>Use a recovery code instead</value>
+  </data>
+  <data name="TwoFactor.NoApp" xml:space="preserve">
+    <value>No access to your app?</value>
+  </data>
+  <data name="TwoFactor.UseApp" xml:space="preserve">
+    <value>Use your authenticator app instead</value>
+  </data>
+  <data name="TwoFactor.CodeHint" xml:space="preserve">
+    <value>The code changes every 30 seconds.</value>
+  </data>
+  <data name="TwoFactor.RecoveryHint" xml:space="preserve">
+    <value>Each recovery code works once.</value>
+  </data>
+  <data name="SignIn.Heading" xml:space="preserve">
+    <value>Sign in to Generals Online</value>
+  </data>
+  <data name="SignIn.Or" xml:space="preserve">
+    <value>or</value>
+  </data>
+  <data name="Name.TagLabel" xml:space="preserve">
+    <value>Your tag is {0}</value>
+  </data>
+  <data name="Name.Seen" xml:space="preserve">
+    <value>Others see you as {0}.</value>
+  </data>
+  <data name="Name.Range" xml:space="preserve">
+    <value>{0} to {1} characters.</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>Back</value>
+  </data>
+  <data name="Account.StaffTools" xml:space="preserve">
+    <value>Staff tools</value>
   </data>
 </root>

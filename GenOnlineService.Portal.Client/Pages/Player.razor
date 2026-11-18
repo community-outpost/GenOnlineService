@@ -193,6 +193,28 @@ else
                         }
                     </BbCardContent>
                 </BbCard>
+
+                @if (player.Agreements.Count > 0)
+                {
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">Agreements</BbCardTitle>
+                            <BbCardDescription>The versions of the rules and terms this player agreed to.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <div class="go-list" data-testid="agreements">
+                                @foreach (PortalAgreement agreement in player.Agreements)
+                                {
+                                    <div class="go-list-item">
+                                        <LucideIcon Name="@(agreement.Current ? "circle-check" : "circle-alert")" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        <span class="bb:flex-1 bb:text-sm">@(agreement.Document == "rules" ? "Rules of Engagement" : "Terms of Service") <span class="bb:font-mono bb:text-xs bb:text-muted-foreground">current @agreement.Version</span></span>
+                                        <span class="bb:text-xs bb:text-muted-foreground">@(agreement.AgreedVersion == null ? "not agreed" : $"agreed {agreement.AgreedVersion} on {PortalText.Date(agreement.AgreedAt)} UTC")</span>
+                                    </div>
+                                }
+                            </div>
+                        </BbCardContent>
+                    </BbCard>
+                }
             </div>
         </BbTabsContent>
 
