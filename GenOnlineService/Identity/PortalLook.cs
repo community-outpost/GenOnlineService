@@ -200,13 +200,13 @@ namespace GenOnlineService.Identity
 
 		// A signed-in page of the account (the design's Account board): the top bar with the logo and the account menu, the
 		// sidebar of the area ("Your account") with the sections that exist, and the content in one centred column.
-		// sections are (href, label, icon); the one whose href is current is marked.
-		public static string AppDocument(string title, AccountShell shell, IReadOnlyList<(string Href, string Label, string Icon)> sections, string currentHref, string body, PortalLanguage? language = null, PortalSite? site = null)
+		// sections are (href, label, icon); the one whose href is current is marked. badges are a count to show at the end of a
+		// section's link, by its href, with the words a screen reader says for it ("2 friend requests").
+		public static string AppDocument(string title, AccountShell shell, IReadOnlyList<(string Href, string Label, string Icon)> sections, string currentHref, string body, PortalLanguage? language = null, PortalSite? site = null, IReadOnlyDictionary<string, (int Count, string Label)>? badges = null)
 		{
 			CultureInfo culture = AccountsText.Resolve(language?.Culture);
 			string full = $"{E(shell.Name)}<span class=\"gp-tag\">{E(shell.Tag)}</span>";
-			string initials = new string(shell.Name.Where(Char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
-			string avatar = $"<span class=\"gp-avatar\" aria-hidden=\"true\">{E(initials.Length == 0 ? "?" : initials)}</span>";
+			string avatar = Avatar(shell.Name);
 			string who = shell.PlayerId == null && shell.Role == null ? String.Empty
 				: $"<span class=\"gp-hint\">{(shell.PlayerId == null ? String.Empty : E(AccountsText.Format("Account.PlayerId", culture, shell.PlayerId)))}{(shell.PlayerId != null && shell.Role != null ? " · " : String.Empty)}{E(shell.Role)}</span>";
 
@@ -226,7 +226,9 @@ namespace GenOnlineService.Identity
 			var side = new StringBuilder($"<nav class=\"gp-side\" aria-label=\"{E(AccountsText.Get("Account.Area", culture))}\"><span class=\"gp-area\">{E(AccountsText.Get("Account.Area", culture))}</span>");
 			foreach ((string href, string label, string icon) in sections)
 			{
-				side.Append($"<a href=\"{E(href)}\"{(href == currentHref ? " aria-current=\"page\"" : String.Empty)}>{Icon(icon)}{E(label)}</a>");
+				string count = badges != null && badges.TryGetValue(href, out (int Count, string Label) badge) && badge.Count > 0
+					? $"<span class=\"gp-count\" aria-label=\"{E(badge.Label)}\">{badge.Count.ToString(CultureInfo.InvariantCulture)}</span>" : String.Empty;
+				side.Append($"<a href=\"{E(href)}\"{(href == currentHref ? " aria-current=\"page\"" : String.Empty)}>{Icon(icon)}{E(label)}{count}</a>");
 			}
 			side.Append("</nav>");
 
@@ -246,6 +248,54 @@ namespace GenOnlineService.Identity
 			=> $"<section class=\"gp-section\"><h2>{E(title)}</h2><p class=\"gp-section-desc\">{E(description)}</p>{content}"
 				+ (footer == null ? String.Empty : $"<div class=\"gp-actions\">{footer}</div>")
 				+ "</section>";
+
+		// The line under a page's title (the boards' short description of the page)
+		public static string Intro(string text) => $"<p class=\"gp-intro\">{E(text)}</p>";
+
+		// A player's initials in a tile: the first two letters or digits of the name
+		public static string Avatar(string name)
+		{
+			string initials = new string(name.Where(Char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
+			return $"<span class=\"gp-avatar\" aria-hidden=\"true\">{E(initials.Length == 0 ? "?" : initials)}</span>";
+		}
+
+		// A list of players (friends, requests, blocked players): each row is an item of Person
+		public static string People(IEnumerable<string> rows) => $"<ul class=\"gp-people\">{String.Concat(rows)}</ul>";
+
+		// One player of a list: the avatar, the name with its tag (the name is stored text, so it is encoded here), a line under
+		// it (already encoded) and the row's controls (already encoded)
+		public static string Person(string name, string tag, string meta, string actions)
+			=> $"<li class=\"gp-person\">{Avatar(name)}<div class=\"gp-who\"><bdi class=\"gp-name\">{E(name)}<span class=\"gp-tag\">{E(tag)}</span></bdi><span class=\"gp-meta\">{meta}</span></div>{actions}</li>";
+
+		// A friend's presence in the line under their name: a dot and the words, green while they are online
+		public static string Presence(string text, bool online)
+			=> $"<span class=\"gp-presence{(online ? " gp-presence-online" : String.Empty)}\"><span class=\"gp-pip\" aria-hidden=\"true\"></span>{E(text)}</span>";
+
+		// What a region shows when it has nothing to show (the design's EmptyState): an icon, a short title, and a line on what
+		// to do. The title is a heading one level under the section's.
+		public static string Empty(string icon, string title, string? description = null, bool small = false)
+			=> $"<div class=\"gp-empty{(small ? " gp-empty-sm" : String.Empty)}\">{(small ? Icon(icon) : $"<span class=\"gp-empty-well\">{Icon(icon, "gp-icon gp-icon-lg")}</span>")}"
+				+ $"<h3 class=\"gp-empty-title\">{E(title)}</h3>{(description == null ? String.Empty : $"<p class=\"gp-empty-text\">{E(description)}</p>")}</div>";
+
+		// A button for a form that sits in a list row or beside a field: its own width, the 44px of the default size. style is
+		// primary, secondary, outline or ghost (the design's Button variants).
+		public static string ActionButton(string text, string style = "primary", string? icon = null)
+			=> $"<button type=\"submit\" class=\"gp-btn gp-btn-{E(style)}\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</button>";
+
+		// A menu of buttons behind one (the "more" of a list row); items are forms made with MenuItem. A details element, so it
+		// needs no script.
+		public static string MoreMenu(string label, string items)
+			=> $"<details class=\"gp-more\"><summary aria-label=\"{E(label)}\">{Icon("ellipsis")}</summary><div class=\"gp-more-menu\">{items}</div></details>";
+
+		public static string MenuItem(string text, string? icon = null) => $"<button type=\"submit\">{(icon == null ? String.Empty : Icon(icon))}{E(text)}</button>";
+
+		// The add-a-friend and block-a-player form (the boards' Friends and Blocked): a labelled field for a name and tag or an
+		// id, the button beside it and the hint under both. form is the opening tag with its antiforgery token (the
+		// controller's), the placeholder and the hint are plain text.
+		public static string PlayerForm(string form, string id, string name, string label, string placeholder, string hint, string button)
+			=> $"{form}<div class=\"gp-field\"><label for=\"{E(id)}\" class=\"gp-label\">{E(label)}</label>"
+				+ $"<input id=\"{E(id)}\" class=\"gp-input\" type=\"text\" name=\"{E(name)}\" placeholder=\"{E(placeholder)}\" maxlength=\"64\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" aria-describedby=\"{E(id)}-hint\" required></div>"
+				+ $"{button}<p id=\"{E(id)}-hint\" class=\"gp-hint\">{E(hint)}</p></form>";
 
 		// A small label: a role, a state
 		public static string Badge(string text, bool muted = false) => $"<span class=\"gp-badge{(muted ? " gp-badge-muted" : String.Empty)}\">{E(text)}</span>";

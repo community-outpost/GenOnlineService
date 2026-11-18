@@ -627,4 +627,118 @@
   <data name="Account.StaffTools" xml:space="preserve">
     <value>Staff tools</value>
   </data>
+  <data name="Social.Friends.Title" xml:space="preserve">
+    <value>Friends</value>
+  </data>
+  <data name="Social.Friends.Intro" xml:space="preserve">
+    <value>Changes here show in the game right away.</value>
+  </data>
+  <data name="Social.Requests.Count" xml:space="preserve">
+    <value>{0} friend requests</value>
+  </data>
+  <data name="Social.Add.Title" xml:space="preserve">
+    <value>Add a friend</value>
+  </data>
+  <data name="Social.Add.Placeholder" xml:space="preserve">
+    <value>Name#0000 or player id</value>
+  </data>
+  <data name="Social.Add.Hint" xml:space="preserve">
+    <value>Their full name with the tag, as shown in the game, or their player id (a number like 1042291).</value>
+  </data>
+  <data name="Social.Add.Submit" xml:space="preserve">
+    <value>Send request</value>
+  </data>
+  <data name="Social.Requests.Title" xml:space="preserve">
+    <value>Requests</value>
+  </data>
+  <data name="Social.Requests.Description" xml:space="preserve">
+    <value>Incoming: {0}. Sent by you: {1}.</value>
+  </data>
+  <data name="Social.Requests.EmptyTitle" xml:space="preserve">
+    <value>No requests waiting</value>
+  </data>
+  <data name="Social.Requests.EmptyBody" xml:space="preserve">
+    <value>New friend requests show up here.</value>
+  </data>
+  <data name="Social.Request.Incoming" xml:space="preserve">
+    <value>Wants to be friends</value>
+  </data>
+  <data name="Social.Request.Outgoing" xml:space="preserve">
+    <value>You sent a request</value>
+  </data>
+  <data name="Social.Accept" xml:space="preserve">
+    <value>Accept</value>
+  </data>
+  <data name="Social.Decline" xml:space="preserve">
+    <value>Decline</value>
+  </data>
+  <data name="Social.Cancel" xml:space="preserve">
+    <value>Cancel request</value>
+  </data>
+  <data name="Social.Friends.List.Title" xml:space="preserve">
+    <value>Your friends</value>
+  </data>
+  <data name="Social.Friends.List.Description" xml:space="preserve">
+    <value>{0} of {1} friends.</value>
+  </data>
+  <data name="Social.Friends.EmptyTitle" xml:space="preserve">
+    <value>No friends yet</value>
+  </data>
+  <data name="Social.Friends.EmptyBody" xml:space="preserve">
+    <value>Add a friend with their name and tag above.</value>
+  </data>
+  <data name="Social.Presence.Offline" xml:space="preserve">
+    <value>Offline</value>
+  </data>
+  <data name="Social.Presence.Online" xml:space="preserve">
+    <value>Online</value>
+  </data>
+  <data name="Social.Presence.Lobby" xml:space="preserve">
+    <value>Online, in a lobby</value>
+  </data>
+  <data name="Social.Presence.Matchmaking" xml:space="preserve">
+    <value>Online, in matchmaking</value>
+  </data>
+  <data name="Social.Presence.InGame" xml:space="preserve">
+    <value>Online, in a game</value>
+  </data>
+  <data name="Social.Friend.More" xml:space="preserve">
+    <value>More for {0}</value>
+  </data>
+  <data name="Social.Friend.Remove" xml:space="preserve">
+    <value>Remove friend</value>
+  </data>
+  <data name="Social.Friends.MenuNote" xml:space="preserve">
+    <value>The menu on each friend holds Remove friend.</value>
+  </data>
+  <data name="Social.Done.Sent" xml:space="preserve">
+    <value>Friend request sent.</value>
+  </data>
+  <data name="Social.Done.Accepted" xml:space="preserve">
+    <value>You are now friends.</value>
+  </data>
+  <data name="Social.Done.Declined" xml:space="preserve">
+    <value>Request declined.</value>
+  </data>
+  <data name="Social.Done.Cancelled" xml:space="preserve">
+    <value>Request cancelled.</value>
+  </data>
+  <data name="Social.Done.Removed" xml:space="preserve">
+    <value>Friend removed.</value>
+  </data>
+  <data name="Social.Error.Neutral" xml:space="preserve">
+    <value>We couldn't send that request.</value>
+  </data>
+  <data name="Social.Error.Full" xml:space="preserve">
+    <value>A friends list is full (the limit is {0} friends), so this couldn't be done.</value>
+  </data>
+  <data name="Social.Error.Self" xml:space="preserve">
+    <value>That's you. Enter another player.</value>
+  </data>
+  <data name="Social.Error.Gone" xml:space="preserve">
+    <value>That has already changed. The page shows how things stand now.</value>
+  </data>
+  <data name="Social.Error.TooMany" xml:space="preserve">
+    <value>Too many tries. Please wait a few minutes and try again.</value>
+  </data>
 </root>

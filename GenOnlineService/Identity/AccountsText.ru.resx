@@ -680,4 +680,156 @@
   <data name="Account.StaffTools" xml:space="preserve">
     <value>Инструменты персонала</value>
   </data>
+  <data name="Social.Friends.Title" xml:space="preserve">
+    <value>Друзья</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.Intro" xml:space="preserve">
+    <value>Изменения здесь сразу видны в игре.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Count" xml:space="preserve">
+    <value>Запросов в друзья: {0}</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Title" xml:space="preserve">
+    <value>Добавить друга</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Placeholder" xml:space="preserve">
+    <value>Имя#0000 или ID игрока</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Hint" xml:space="preserve">
+    <value>Полное имя с тегом, как в игре, или ID игрока (число вроде 1042291).</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Submit" xml:space="preserve">
+    <value>Отправить запрос</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Title" xml:space="preserve">
+    <value>Запросы</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Description" xml:space="preserve">
+    <value>Входящих: {0}. Отправлено вами: {1}.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.EmptyTitle" xml:space="preserve">
+    <value>Нет ожидающих запросов</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.EmptyBody" xml:space="preserve">
+    <value>Новые запросы в друзья появятся здесь.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Request.Incoming" xml:space="preserve">
+    <value>Хочет дружить</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Request.Outgoing" xml:space="preserve">
+    <value>Вы отправили запрос</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Accept" xml:space="preserve">
+    <value>Принять</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Decline" xml:space="preserve">
+    <value>Отклонить</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Cancel" xml:space="preserve">
+    <value>Отозвать запрос</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.List.Title" xml:space="preserve">
+    <value>Ваши друзья</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.List.Description" xml:space="preserve">
+    <value>Друзей: {0} из {1}.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.EmptyTitle" xml:space="preserve">
+    <value>Друзей пока нет</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.EmptyBody" xml:space="preserve">
+    <value>Добавьте друга выше, указав имя и тег.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Offline" xml:space="preserve">
+    <value>Не в сети</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Online" xml:space="preserve">
+    <value>В сети</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Lobby" xml:space="preserve">
+    <value>В сети, в лобби</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Matchmaking" xml:space="preserve">
+    <value>В сети, в подборе матча</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.InGame" xml:space="preserve">
+    <value>В сети, в игре</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.More" xml:space="preserve">
+    <value>Ещё для {0}</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Remove" xml:space="preserve">
+    <value>Удалить из друзей</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.MenuNote" xml:space="preserve">
+    <value>В меню каждого друга есть пункт «Удалить из друзей».</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Sent" xml:space="preserve">
+    <value>Запрос в друзья отправлен.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Accepted" xml:space="preserve">
+    <value>Теперь вы друзья.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Declined" xml:space="preserve">
+    <value>Запрос отклонён.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Cancelled" xml:space="preserve">
+    <value>Запрос отозван.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Removed" xml:space="preserve">
+    <value>Друг удалён.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Neutral" xml:space="preserve">
+    <value>Не удалось отправить этот запрос.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Full" xml:space="preserve">
+    <value>Список друзей заполнен (не более {0} друзей), поэтому это не получилось.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Self" xml:space="preserve">
+    <value>Это вы. Введите другого игрока.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Gone" xml:space="preserve">
+    <value>Это уже изменилось. Страница показывает текущее состояние.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.TooMany" xml:space="preserve">
+    <value>Слишком много попыток. Подождите несколько минут и повторите.</value>
+    <comment>needs native review</comment>
+  </data>
 </root>

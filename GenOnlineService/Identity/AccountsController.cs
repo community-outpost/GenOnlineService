@@ -51,10 +51,11 @@ namespace GenOnlineService.Identity
 		private readonly IOpenIddictAuthorizationManager m_authorizations;
 		private readonly AccountMail m_mail;
 		private readonly AccountMailLimiter m_mailLimiter;
+		private readonly AccountSocialLimiter m_socialLimiter;
 
 		public AccountsController(AccountsSettings settings, SignInManager<User> signIn, UserManager<User> users, UpstreamAccounts upstream,
 			PasswordAccounts passwords, Names.PlayerNames names, IOpenIddictApplicationManager applications, IOpenIddictAuthorizationManager authorizations,
-			AccountMail mail, AccountMailLimiter mailLimiter)
+			AccountMail mail, AccountMailLimiter mailLimiter, AccountSocialLimiter socialLimiter)
 		{
 			m_settings = settings;
 			m_signIn = signIn;
@@ -66,6 +67,7 @@ namespace GenOnlineService.Identity
 			m_authorizations = authorizations;
 			m_mail = mail;
 			m_mailLimiter = mailLimiter;
+			m_socialLimiter = socialLimiter;
 		}
 
 		// a page reached without a return address (or with a foreign one) goes on to the account page, since nothing serves /
@@ -115,6 +117,11 @@ namespace GenOnlineService.Identity
 			if (path == "/oauth/authorize")
 			{
 				return AuthorizeAgain();
+			}
+			// the friends and blocked players pages answer a form with a redirect, or with the page again when it is refused
+			if (path.StartsWith(FriendsPath + "/", StringComparison.Ordinal))
+			{
+				return FriendsPath;
 			}
 			if (path.StartsWith("/users/auth/", StringComparison.Ordinal) || path == "/users/sign_out")
 			{
@@ -167,13 +174,16 @@ namespace GenOnlineService.Identity
 		private static string Hidden(string name, string? value) => $"<input type=\"hidden\" name=\"{WebUtility.HtmlEncode(name)}\" value=\"{WebUtility.HtmlEncode(value)}\">";
 
 		// A page with a form: an antiforgery token, never inside another site's frame, never cached
-		private string FormStart(string action, string returnUrl)
+		private string FormStart(string action, string returnUrl) => PostForm(action, "gp-form") + Hidden(ReturnUrlField, returnUrl);
+
+		// The opening tag of a form that posts, with the antiforgery token, for the pages that need no return address
+		private string PostForm(string action, string css)
 		{
 			AntiforgeryTokenSet tokens = HttpContext.RequestServices.GetRequiredService<IAntiforgery>().GetAndStoreTokens(HttpContext);
 			Response.Headers["X-Frame-Options"] = "DENY";
 			Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
 			Response.Headers.CacheControl = "no-store";
-			return $"<form method=\"post\" action=\"{WebUtility.HtmlEncode(action)}\" class=\"gp-form\">{Hidden(tokens.FormFieldName!, tokens.RequestToken)}{Hidden(ReturnUrlField, returnUrl)}";
+			return $"<form method=\"post\" action=\"{WebUtility.HtmlEncode(action)}\" class=\"{WebUtility.HtmlEncode(css)}\">{Hidden(tokens.FormFieldName!, tokens.RequestToken)}";
 		}
 
 		private Task<bool> ValidForm() => HttpContext.RequestServices.GetRequiredService<IAntiforgery>().IsRequestValidAsync(HttpContext);
