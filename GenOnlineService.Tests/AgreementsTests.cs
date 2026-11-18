@@ -200,4 +200,34 @@ public class AgreementsTests
 		Assert.Equal(Api.ApiAuthentication.CsrfError, AdminArea.ErrorOf(missing));
 	}
 
+	// the staff player page shows each document in force with the version the player agreed and when, or not agreed
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheStaffViewShowsTheAgreedVersions(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser moderator, _) = await StaffAsync(probe, "Warden", Configured(rules: "2026-12"));
+		(_, User player) = await PlayerAsync(probe, "Viewed", Configured(rules: "2026-12"));
+		DateTime agreedAt = new(2026, 11, 18, 9, 30, 0, DateTimeKind.Utc);
+		await using (AppDbContext db = probe.Open())
+		{
+			db.UserAgreements.Add(new UserAgreement { UserID = player.ID, Document = "rules", Version = "2026-11", AgreedAt = agreedAt });
+			await db.SaveChangesAsync();
+		}
+
+		PageResponse view = await moderator.Get($"/api/v1/players/{player.ID}/staff_view");
+		Assert.Equal(200, view.Status);
+		JsonElement agreements = JsonDocument.Parse(view.Body).RootElement.GetProperty("agreements");
+		Assert.Equal(2, agreements.GetArrayLength());
+		JsonElement rules = agreements[0];
+		Assert.Equal("rules", rules.GetProperty("document").GetString());
+		Assert.Equal("2026-12", rules.GetProperty("version").GetString());
+		Assert.Equal("2026-11", rules.GetProperty("agreed_version").GetString());
+		Assert.Equal(agreedAt, rules.GetProperty("agreed_at").GetDateTime().ToUniversalTime());
+		Assert.False(rules.GetProperty("current").GetBoolean());
+		JsonElement terms = agreements[1];
+		Assert.Equal("terms", terms.GetProperty("document").GetString());
+		Assert.Equal(JsonValueKind.Null, terms.GetProperty("agreed_version").ValueKind);
+	}
 }
