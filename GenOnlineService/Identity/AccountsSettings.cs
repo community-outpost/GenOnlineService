@@ -199,6 +199,8 @@ namespace GenOnlineService.Identity
 		public List<OAuthClientSettings> Clients { get; init; } = new();
 		public List<UpstreamProviderSettings> Providers { get; init; } = new();
 		public PasswordSignInSettings Password { get; init; } = new();
+		// Agreements (top-level section): the documents each account agrees to before playing (S19)
+		public AgreementsSettings Agreements { get; init; } = new();
 
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
@@ -276,7 +278,8 @@ namespace GenOnlineService.Identity
 				RequireHttps = EnforceHttps(config),
 				Clients = clients,
 				Providers = providers,
-				Password = PasswordSignInSettings.Read(section.GetSection("password"))
+				Password = PasswordSignInSettings.Read(section.GetSection("password")),
+				Agreements = AgreementsSettings.Read(config.GetSection("Agreements"))
 			};
 		}
 	}
