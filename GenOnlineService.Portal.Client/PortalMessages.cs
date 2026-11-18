@@ -63,6 +63,8 @@ namespace GenOnlineService.Portal.Client
 		public const string AntiCheatPage = "/admin/anticheat";
 		public const string AuditPage = "/admin/audit";
 		public const string PartnersPage = "/admin/partners";
+		// The interactive API docs the service serves outside the staff pages, for partners to read (OpenApi:enabled)
+		public const string ApiDocs = "/docs/api";
 		public const string SettingsPage = "/admin/settings";
 		public const string AnnouncementsPage = "/admin/announcements";
 

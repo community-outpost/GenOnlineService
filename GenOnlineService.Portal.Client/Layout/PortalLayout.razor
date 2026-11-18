@@ -131,6 +131,12 @@
                                         <span>Partners</span>
                                     </BbSidebarMenuButton>
                                 </BbSidebarMenuItem>
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.ApiDocs" Tooltip="API docs">
+                                        <LucideIcon Name="book-open" Class="bb:h-4 bb:w-4" />
+                                        <span>API docs</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
                             }
                             @if (staff.Can(PortalPermissions.AuditRead))
                             {
