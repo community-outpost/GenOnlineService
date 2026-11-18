@@ -69,9 +69,10 @@ accountable for what they do.</p>
 <h3>Matches and statistics</h3>
 <p>We store your matches: the lobby settings, the map, the players with their teams, sides, colours and results, your rating
 and your statistics, and the leaderboards. The game uploads replays and screenshots of matches, which we store with our
-storage provider. Match data is part of the public record of the game and is kept without a fixed end.</p>
-<!-- TODO(operator): no purge exists for matches, statistics, replays or screenshots, and a lifecycle rule on the replay
-     bucket is not determinable from the code or the infrastructure. State a retention if one is decided. -->
+storage provider. Match data is part of the public record of the game and is kept without a fixed end. Replays and
+screenshots are deleted after 90 days, unless we tell you otherwise, for example when one is needed for a report or a ban.</p>
+<!-- TODO(operator): the 90 days for replays and screenshots is the operator's decision (2026-11-18); no purge or bucket
+     lifecycle rule enforcing it is visible in the code or the infrastructure yet. -->
 
 <h3>Logs and error reports</h3>
 <ul>
@@ -86,9 +87,8 @@ personal data.</li>
 <!-- TODO(operator): the Sentry data region (EU or US) is not determinable from the code or the configuration. -->
 
 <h3>Backups</h3>
-<p>We back up the database, encrypted, every day. Backups are kept for about four weeks and then replaced.</p>
-<!-- TODO(operator): pgBackRest keeps 4 weekly full and 7 differential backups in a Cloudflare R2 bucket, but its endpoint is
-     still a placeholder (CHANGE_ME), so the location and jurisdiction of the backups cannot be stated. -->
+<p>We back up the database, encrypted, every day, to Cloudflare R2 storage held in the European Union. Backups are kept for
+about four weeks and then replaced.</p>
 
 <h3>Children</h3>
 <p>Generals Online is for players aged 16 and older. We do not knowingly keep personal data of anyone younger. If we learn
@@ -127,6 +127,7 @@ connect the game to its online services.</li>
 <li><strong>Cloudflare</strong> relays the game's network traffic between players when a direct connection is not possible. It
 then sees your IP address.</li>
 <li><strong>Backblaze</strong> stores the replays and screenshots of matches, in its EU (Amsterdam) region.</li>
+<li><strong>Cloudflare</strong> stores our encrypted database backups in R2, with the data kept in the European Union.</li>
 <li><strong>Sentry</strong> receives error reports.</li>
 <li>Our <strong>hosting providers</strong> run the servers that hold the data: netcup in Germany, OVHcloud in France, Germany and the
 United Kingdom, and Worldstream in the Netherlands. The United Kingdom is outside the European Economic Area; the European
