@@ -1,0 +1,629 @@
+@* One partner: the page header (nav-02) with the description edit, disable and enable, stat cards (dashboard-01), the permissions granted and the
+   tokens in data tables (data-01). A new or rotated token's secret shows once, in a dialog with a copy button. tokens.manage
+   only; privileged permissions and their tokens stay with the CLI on the host *@
+@page "/admin/partners/{Id:long}"
+@inject PortalApi Api
+@inject ToastService Toasts
+
+<PageTitle>@(m_partner?.Name ?? "Partner") · Generals Online</PageTitle>
+
+@if (!Session.Can(PortalPermissions.TokensManage))
+{
+    <Refusal Title="Partners" Description="Managing partners and their API tokens needs the tokens.manage permission." Icon="lock" />
+}
+else if (m_error != null)
+{
+    @if (m_error == "not_found")
+    {
+        <Refusal Title="@($"No partner {Id}")" Description="No service account has this id." Icon="handshake" />
+    }
+    else
+    {
+        <Refusal Title="The partner could not load" Description="@PortalText.Error(m_error)" Icon="circle-alert" />
+    }
+}
+else if (m_partner == null || m_tokens == null)
+{
+    <div class="bb:space-y-4">
+        <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
+        <div class="go-stats">
+            @for (int i = 0; i < 4; i++)
+            {
+                <BbSkeleton Class="go-skeleton-card" />
+            }
+        </div>
+        <BbSkeleton Class="go-skeleton-panel" />
+    </div>
+}
+else
+{
+    PortalPartner partner = m_partner;
+    DateTime now = DateTime.UtcNow;
+    <PageHeader Description="@(partner.Description ?? "No description.")">
+        <Title>
+            <span class="bb:font-mono" data-testid="partner-name">@partner.Name</span>
+        </Title>
+        <Below>
+            <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2 bb:pt-1">
+                @if (partner.DisabledAt == null)
+                {
+                    <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="circle-check" />enabled</BbBadge>
+                }
+                else
+                {
+                    <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="ban" />disabled since @PortalText.Date(partner.DisabledAt)</BbBadge>
+                }
+                <BbBadge Variant="BadgeVariant.Outline">created @PortalText.Date(partner.CreatedAt)</BbBadge>
+            </div>
+        </Below>
+        <Actions>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="OpenDescription" data-testid="edit-description">
+                <LucideIcon Name="pencil" Class="bb:h-4 bb:w-4" />
+                Edit description
+            </BbButton>
+            @if (partner.DisabledAt == null)
+            {
+                <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" OnClick="@(() => Open("disable"))" data-testid="disable-partner">
+                    <LucideIcon Name="ban" Class="bb:h-4 bb:w-4" />
+                    Disable
+                </BbButton>
+            }
+            else
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("enable"))" data-testid="enable-partner">
+                    <LucideIcon Name="circle-check" Class="bb:h-4 bb:w-4" />
+                    Enable
+                </BbButton>
+            }
+        </Actions>
+    </PageHeader>
+
+    <div class="go-stats">
+        <StatCard Label="Permissions" Value="@partner.Permissions.Count.ToString()" Icon="shield" Hint="Granted to the account" />
+        <StatCard Label="Active tokens" Value="@partner.ActiveTokens.ToString()" Icon="key-round" Hint="@($"{m_tokens.Count} on record")" />
+        <StatCard Label="Last token use" Value="@(partner.LastTokenUsedAt is DateTime used ? PortalText.Recent(used, now) : "never")" Icon="activity" Hint="Any of its tokens" />
+        <StatCard Label="Next expiry" Value="@(m_tokens.Where(t => t.IsActive(now)).Select(t => (DateTime?)t.ExpiresAt).Min() is DateTime next ? PortalText.Day(next) : "none")" Icon="calendar" Hint="Of the active tokens" Attention="@m_tokens.Any(t => t.IsActive(now) && t.ExpiresAt < now.AddDays(14))" />
+    </div>
+
+    <BbCard>
+        <BbCardHeader>
+            <BbCardTitle As="h2">Permissions</BbCardTitle>
+            <BbCardDescription>What the partner's tokens may carry. Privileged permissions are granted and removed with the CLI on the host. Removing a permission does not change tokens that already carry it.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent Class="bb:space-y-4">
+            <BbDataTable TData="string" Data="@partner.Permissions" ShowToolbar="false" ShowPagination="false" AriaLabel="Permissions">
+                <Columns>
+                    <BbDataTableColumn TData="string" TValue="string" Property="@(p => p)" Header="Permission">
+                        <CellTemplate Context="permission">
+                            <span class="bb:inline-flex bb:items-center bb:gap-2 bb:font-mono" data-testid="permission-row">
+                                <LucideIcon Name="shield" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                @permission
+                            </span>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="string" TValue="string" Property="@(p => p)" Header="Kind">
+                        <CellTemplate Context="permission">
+                            @if (PortalPartnerPermissions.IsPrivileged(permission))
+                            {
+                                <BbBadge Variant="BadgeVariant.SoftDestructive">privileged, CLI only</BbBadge>
+                            }
+                            else
+                            {
+                                <BbBadge Variant="BadgeVariant.Outline">machine</BbBadge>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="string" TValue="string" Property="@(p => p)" Header="Actions" HeaderClass="go-sr-header">
+                        <CellTemplate Context="permission">
+                            @if (!PortalPartnerPermissions.IsPrivileged(permission))
+                            {
+                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OpenRemove(permission))" data-testid="remove-permission">Remove</BbButton>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                </Columns>
+                <EmptyTemplate>
+                    <BbEmpty Size="EmptySize.Small" Title="No permissions" Description="Grant a permission before creating a token.">
+                        <Icon>
+                            <LucideIcon Name="shield-off" />
+                        </Icon>
+                    </BbEmpty>
+                </EmptyTemplate>
+            </BbDataTable>
+
+            @{
+                string[] grantable = PortalPartnerPermissions.Grantable.Where(p => !partner.Permissions.Contains(p)).ToArray();
+            }
+            @if (grantable.Length > 0)
+            {
+                <form class="bb:flex bb:flex-wrap bb:items-end bb:gap-2" @onsubmit="GrantAsync">
+                    <div class="bb:space-y-2">
+                        <BbLabel For="grant-permission">Grant a permission</BbLabel>
+                        <BbNativeSelect TValue="string" Id="grant-permission" Value="@GrantChoice(grantable)" ValueChanged="@((string value) => m_grantPermission = value)" Class="bb:w-full">
+                            @foreach (string permission in grantable)
+                            {
+                                <option value="@permission">@permission</option>
+                            }
+                        </BbNativeSelect>
+                    </div>
+                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Loading="@m_granting" data-testid="grant-permission">
+                        <LucideIcon Name="shield-plus" Class="bb:h-4 bb:w-4" />
+                        Grant
+                    </BbButton>
+                </form>
+            }
+        </BbCardContent>
+    </BbCard>
+
+    <BbCard>
+        <BbCardHeader>
+            <div class="go-card-head">
+                <div class="go-card-head-text">
+                    <BbCardTitle As="h2">API tokens</BbCardTitle>
+                    <BbCardDescription>gopat- tokens of this partner, newest first. A token is shown once, when it is created or rotated. Times are UTC.</BbCardDescription>
+                </div>
+                <BbButton Size="ButtonSize.Small" OnClick="OpenNewToken" Disabled="@(Mintable(partner).Length == 0)" data-testid="new-token">
+                    <LucideIcon Name="key-round" Class="bb:h-4 bb:w-4" />
+                    New token
+                </BbButton>
+            </div>
+        </BbCardHeader>
+        <BbCardContent>
+            <BbDataTable TData="PortalPartnerToken" Data="@m_tokens" ShowToolbar="false" ShowPagination="false" AriaLabel="API tokens">
+                <Columns>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => t.Name)" Header="Name">
+                        <CellTemplate Context="token">
+                            <span data-testid="token-row">@token.Name</span>
+                            <span class="bb:text-xs bb:text-muted-foreground bb:font-mono">…@token.TokenLast4</span>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => String.Join(", ", t.Scopes))" Header="Scopes">
+                        <CellTemplate Context="token">
+                            <span class="go-cell-badges">
+                                @foreach (string scope in token.Scopes)
+                                {
+                                    <BbBadge Variant="BadgeVariant.Outline" Class="bb:font-mono">@scope</BbBadge>
+                                }
+                            </span>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => StatusOf(t, now))" Header="Status">
+                        <CellTemplate Context="token">
+                            <BbBadge Variant="@(token.IsActive(now) ? BadgeVariant.Secondary : BadgeVariant.Outline)">@StatusOf(token, now)</BbBadge>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => String.Join(", ", t.AllowedIps))" Header="Allowed addresses">
+                        <CellTemplate Context="token">
+                            @if (token.AllowedIps.Count == 0)
+                            {
+                                <span class="bb:text-muted-foreground">any</span>
+                            }
+                            else
+                            {
+                                <span class="go-cell-badges">
+                                    @foreach (string range in token.AllowedIps)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline" Class="bb:font-mono">@range</BbBadge>
+                                    }
+                                </span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => PortalText.Date(t.CreatedAt))" Header="Created" CellClass="go-nowrap" />
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => PortalText.Date(t.ExpiresAt))" Header="Expires" CellClass="go-nowrap" />
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => PortalText.Date(t.LastUsedAt))" Header="Last used" CellClass="go-nowrap">
+                        <CellTemplate Context="token">
+                            @PortalText.Date(token.LastUsedAt)
+                            @if (token.LastUsedIp != null)
+                            {
+                                <span class="bb:text-xs bb:text-muted-foreground bb:font-mono"> from @token.LastUsedIp</span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => t.Name)" Header="Actions" HeaderClass="go-sr-header">
+                        <CellTemplate Context="token">
+                            @if (token.IsActive(now))
+                            {
+                                <span class="bb:inline-flex bb:gap-2">
+                                    @if (token.Scopes.Any(PortalPartnerPermissions.IsPrivileged))
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="true" title="A token with a privileged scope is rotated with the CLI on the host" data-testid="rotate-token-cli-only">Rotate: CLI only</BbButton>
+                                    }
+                                    else if (token.RevokedAt == null)
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OpenToken("rotate", token))" data-testid="rotate-token">Rotate</BbButton>
+                                    }
+                                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OpenToken("revoke", token))" data-testid="revoke-token">Revoke</BbButton>
+                                </span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                </Columns>
+                <EmptyTemplate>
+                    <BbEmpty Size="EmptySize.Small" Title="No tokens" Description="Create a token for the partner to call the API with.">
+                        <Icon>
+                            <LucideIcon Name="key-round" />
+                        </Icon>
+                    </BbEmpty>
+                </EmptyTemplate>
+            </BbDataTable>
+        </BbCardContent>
+    </BbCard>
+
+    @* the confirmations: disable, enable, remove a permission, rotate and revoke a token *@
+    <BbDialog @bind-Open="m_confirmOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>@ConfirmTitle(partner)</BbDialogTitle>
+                <BbDialogDescription>@ConfirmDescription()</BbDialogDescription>
+            </BbDialogHeader>
+            @if (m_action == "rotate")
+            {
+                <div class="bb:space-y-2">
+                    <BbLabel For="rotate-overlap">The old token stops</BbLabel>
+                    <BbNativeSelect TValue="string" Id="rotate-overlap" @bind-Value="m_overlap" Class="bb:w-full">
+                        @foreach ((string minutes, string text) in s_overlaps)
+                        {
+                            <option value="@minutes">@text</option>
+                        }
+                    </BbNativeSelect>
+                </div>
+            }
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_confirmOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton Variant="@(m_action is "disable" or "revoke" or "remove" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_descriptionOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Description of @partner.Name</BbDialogTitle>
+                <BbDialogDescription>Who runs the partner and what it does, at most 256 characters. An empty description clears it. The change is in the audit log.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-2">
+                <BbLabel For="partner-description">Description</BbLabel>
+                <BbTextarea Id="partner-description" @bind-Value="m_description" autocomplete="off" />
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_descriptionOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="SaveDescriptionAsync" Loading="@m_saving" data-testid="save-description">Save</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_tokenOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>New token for @partner.Name</BbDialogTitle>
+                <BbDialogDescription>The token carries the scopes chosen here, never more than the partner holds. It is shown once.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <div class="bb:space-y-2">
+                    <BbLabel For="token-name">Name</BbLabel>
+                    <BbInput Id="token-name" @bind-Value="m_tokenName" Placeholder="partner-production" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="bb:space-y-2">
+                    <p class="bb:text-sm bb:font-medium">Scopes</p>
+                    <div class="bb:flex bb:flex-wrap bb:gap-2">
+                        @foreach (string scope in Mintable(partner))
+                        {
+                            bool chosen = m_scopes.Contains(scope);
+                            <BbButton Variant="@(chosen ? ButtonVariant.Default : ButtonVariant.Outline)" Size="ButtonSize.Small" OnClick="@(() => ToggleScope(scope))" aria-pressed="@(chosen ? "true" : "false")" Class="bb:font-mono">
+                                <LucideIcon Name="@(chosen ? "check" : "plus")" Class="bb:h-4 bb:w-4" />
+                                @scope
+                            </BbButton>
+                        }
+                    </div>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="token-expiry">Expires</BbLabel>
+                    <BbNativeSelect TValue="string" Id="token-expiry" @bind-Value="m_expiryDays" Class="bb:w-full">
+                        @foreach ((string days, string text) in s_lifetimes)
+                        {
+                            <option value="@days">@text</option>
+                        }
+                    </BbNativeSelect>
+                    <p class="bb:text-xs bb:text-muted-foreground">Every token expires. The service refuses a lifetime past its maximum (ApiTokens:max_lifetime_days, 365 days unless configured lower).</p>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="token-ips">Allowed addresses (optional)</BbLabel>
+                    <BbTextarea Id="token-ips" @bind-Value="m_allowedIps" Placeholder="203.0.113.4/32, 2001:db8::/48" autocomplete="off" spellcheck="false" />
+                    <p class="bb:text-xs bb:text-muted-foreground">IP addresses or CIDR ranges, separated by commas or lines. Empty allows any address.</p>
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_tokenOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="CreateTokenAsync" Loading="@m_saving" Disabled="@(m_scopes.Count == 0)" data-testid="create-token">Create token</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog Open="@(m_secret != null)" OpenChanged="@((bool open) => { if (!open) m_secret = null; })">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Copy the token now</BbDialogTitle>
+                <BbDialogDescription>@m_secret?.Name, valid until @PortalText.Date(m_secret?.ExpiresAt)</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <BbAlert Variant="AlertVariant.Warning">
+                    <Icon>
+                        <LucideIcon Name="triangle-alert" Class="bb:h-4 bb:w-4" />
+                    </Icon>
+                    <ChildContent>
+                        <BbAlertTitle>This is the only time the token is shown</BbAlertTitle>
+                        <BbAlertDescription>The service keeps only a hash. Give it to the partner through a secret store or another private channel; once this dialog closes, a lost token can only be rotated or revoked.</BbAlertDescription>
+                    </ChildContent>
+                </BbAlert>
+                <div class="bb:flex bb:items-center bb:gap-2">
+                    <BbInput Value="@m_secret?.Token" readonly Class="bb:font-mono bb:flex-1" AriaLabel="The new token" data-testid="token-secret" />
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="CopyAsync" data-testid="copy-token">
+                        <LucideIcon Name="copy" Class="bb:h-4 bb:w-4" />
+                        Copy
+                    </BbButton>
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton OnClick="@(() => m_secret = null)" data-testid="token-done">I stored it</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    private static readonly (string Minutes, string Text)[] s_overlaps =
+    {
+        ("0", "At once"), ("60", "After 1 hour"), ("1440", "After 24 hours")
+    };
+
+    private static readonly (string Days, string Text)[] s_lifetimes =
+    {
+        ("30", "In 30 days"), ("90", "In 90 days"), ("180", "In 180 days"), ("365", "In 365 days")
+    };
+
+    private const string DefaultLifetimeDays = "90";
+
+    [Parameter]
+    public long Id { get; set; }
+
+    private PortalPartner? m_partner;
+    private List<PortalPartnerToken>? m_tokens;
+    private string? m_error;
+
+    private bool m_confirmOpen;
+    private bool m_descriptionOpen;
+    private string? m_description;
+    private bool m_tokenOpen;
+    private bool m_saving;
+    private bool m_granting;
+    private string m_action = "";
+    private string? m_permission;
+    private PortalPartnerToken? m_token;
+    private string m_overlap = "0";
+    private string? m_grantPermission;
+
+    private string? m_tokenName;
+    private readonly HashSet<string> m_scopes = new(StringComparer.Ordinal);
+    private string m_expiryDays = DefaultLifetimeDays;
+    private string? m_allowedIps;
+
+    // the secret of the token just created or rotated, until the dialog closes
+    private PortalCreatedToken? m_secret;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Session.Can(PortalPermissions.TokensManage))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        PortalAnswer<PortalPartner> partner = await Api.GetPartnerAsync(Id);
+        if (!partner.Ok)
+        {
+            m_error = partner.Error;
+            return;
+        }
+
+        PortalAnswer<List<PortalPartnerToken>> tokens = await Api.ListPartnerTokensAsync(Id);
+        m_error = tokens.Ok ? null : tokens.Error;
+        m_partner = partner.Value;
+        m_tokens = tokens.Value;
+    }
+
+    // revoked, rotated (stopping at the end of its overlap) or expired
+    private static string StatusOf(PortalPartnerToken token, DateTime now) =>
+        token.RevokedAt is DateTime revoked && revoked > now ? "stops " + PortalText.Date(revoked)
+        : token.RevokedAt != null ? "revoked"
+        : token.ExpiresAt <= now ? "expired"
+        : "active";
+
+    // A token's scopes come from the partner's permissions; privileged ones are minted with the CLI only
+    private static string[] Mintable(PortalPartner partner) => partner.Permissions.Where(p => !PortalPartnerPermissions.IsPrivileged(p)).ToArray();
+
+    private string GrantChoice(string[] grantable) => m_grantPermission != null && grantable.Contains(m_grantPermission) ? m_grantPermission : grantable[0];
+
+    private async Task GrantAsync()
+    {
+        string[] grantable = m_partner == null ? [] : PortalPartnerPermissions.Grantable.Where(p => !m_partner.Permissions.Contains(p)).ToArray();
+        if (grantable.Length == 0)
+        {
+            return;
+        }
+
+        string permission = GrantChoice(grantable);
+        m_granting = true;
+        PortalAnswer<PortalPartner> answer = await Api.UpdatePartnerAsync(Id, new PortalUpdatePartnerRequest { Grants = new PortalGrantChanges { Add = [permission] } });
+        m_granting = false;
+        m_grantPermission = null;
+        Report(answer.Ok, answer.Error, $"{permission} is granted and in the audit log.");
+        await LoadAsync();
+    }
+
+    private void Open(string action)
+    {
+        m_action = action;
+        m_confirmOpen = true;
+    }
+
+    private void OpenRemove(string permission)
+    {
+        m_permission = permission;
+        Open("remove");
+    }
+
+    private void OpenToken(string action, PortalPartnerToken token)
+    {
+        m_token = token;
+        m_overlap = "0";
+        Open(action);
+    }
+
+    private string ConfirmTitle(PortalPartner partner) => m_action switch
+    {
+        "disable" => $"Disable {partner.Name}",
+        "enable" => $"Enable {partner.Name}",
+        "remove" => $"Remove {m_permission} from {partner.Name}",
+        "rotate" => $"Rotate the token {m_token?.Name}",
+        _ => $"Revoke the token {m_token?.Name}"
+    };
+
+    private string ConfirmDescription() => m_action switch
+    {
+        "disable" => "Every token of the partner stops working until the partner is enabled again. The tokens stay on record.",
+        "enable" => "The partner's tokens that are not revoked or expired work again.",
+        "remove" => "Tokens minted later cannot carry this permission.",
+        "rotate" => "A new token with the same scopes and allowed addresses replaces this one. The new token is shown once.",
+        _ => "The token stops working at once. This cannot be undone."
+    };
+
+    private async Task ConfirmAsync()
+    {
+        m_saving = true;
+        if (m_action == "rotate")
+        {
+            int overlap = int.TryParse(m_overlap, out int minutes) ? minutes : 0;
+            PortalAnswer<PortalCreatedToken> rotated = await Api.RotatePartnerTokenAsync(Id, m_token!.Id, overlap);
+            m_saving = false;
+            m_confirmOpen = false;
+            m_secret = rotated.Value;
+            Report(rotated.Ok, rotated.Error, "The token is rotated and in the audit log.");
+            await LoadAsync();
+            return;
+        }
+
+        PortalOutcome outcome = m_action switch
+        {
+            "revoke" => await Api.RevokePartnerTokenAsync(Id, m_token!.Id),
+            _ => await UpdateAsync(m_action switch
+            {
+                "disable" => new PortalUpdatePartnerRequest { Disabled = true },
+                "enable" => new PortalUpdatePartnerRequest { Disabled = false },
+                _ => new PortalUpdatePartnerRequest { Grants = new PortalGrantChanges { Remove = [m_permission!] } }
+            })
+        };
+        m_saving = false;
+        m_confirmOpen = false;
+        Report(outcome.Ok, outcome.Error, "The change is saved and in the audit log.");
+        await LoadAsync();
+    }
+
+    private async Task<PortalOutcome> UpdateAsync(PortalUpdatePartnerRequest change)
+    {
+        PortalAnswer<PortalPartner> answer = await Api.UpdatePartnerAsync(Id, change);
+        return answer.Ok ? PortalOutcome.Success : new PortalOutcome(false, answer.Error);
+    }
+
+    private void OpenDescription()
+    {
+        m_description = m_partner?.Description;
+        m_descriptionOpen = true;
+    }
+
+    private async Task SaveDescriptionAsync()
+    {
+        m_saving = true;
+        PortalOutcome outcome = await UpdateAsync(new PortalUpdatePartnerRequest { Description = m_description?.Trim() ?? "" });
+        m_saving = false;
+        if (outcome.Ok)
+        {
+            m_descriptionOpen = false;
+        }
+        Report(outcome.Ok, outcome.Error, "The description is saved and in the audit log.");
+        await LoadAsync();
+    }
+
+    private void OpenNewToken()
+    {
+        m_tokenName = null;
+        m_scopes.Clear();
+        m_expiryDays = DefaultLifetimeDays;
+        m_allowedIps = null;
+        m_tokenOpen = true;
+    }
+
+    private void ToggleScope(string scope)
+    {
+        if (!m_scopes.Remove(scope))
+        {
+            m_scopes.Add(scope);
+        }
+    }
+
+    private async Task CreateTokenAsync()
+    {
+        int days = int.TryParse(m_expiryDays, out int value) ? value : int.Parse(DefaultLifetimeDays);
+        List<string> addresses = (m_allowedIps ?? "").Split(new[] { ',', '\n', '\r', ' ' },StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var request = new PortalCreateTokenRequest
+        {
+            Name = m_tokenName?.Trim() ?? "",
+            Scopes = m_scopes.ToList(),
+            ExpiresAt = DateTime.UtcNow.AddDays(days).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            AllowedIps = addresses.Count > 0 ? addresses : null
+        };
+
+        m_saving = true;
+        PortalAnswer<PortalCreatedToken> created = await Api.CreatePartnerTokenAsync(Id, request);
+        m_saving = false;
+        if (created.Ok)
+        {
+            m_tokenOpen = false;
+            m_secret = created.Value;
+            await LoadAsync();
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(created.Error), "Not created");
+        }
+    }
+
+    private async Task CopyAsync()
+    {
+        if (m_secret != null && await Api.CopyAsync(m_secret.Token))
+        {
+            Toasts.Success("The token is on the clipboard.", "Copied");
+        }
+        else
+        {
+            Toasts.Error("The browser did not allow the clipboard. Select the token and copy it by hand.", "Not copied");
+        }
+    }
+
+    private void Report(bool ok, string? error, string done)
+    {
+        if (ok)
+        {
+            Toasts.Success(done, "Done");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(error), "Not done");
+        }
+    }
+}

@@ -262,7 +262,7 @@
     <value>ID игрока {0}</value>
   </data>
   <data name="Account.TagHint" xml:space="preserve">
-    <value>При переименовании ваш тег не меняется.</value>
+    <value>Тег привязан к имени: если вернуться к прежнему имени, вернётся и его тег.</value>
   </data>
   <data name="Account.Save" xml:space="preserve">
     <value>Сохранить изменения</value>

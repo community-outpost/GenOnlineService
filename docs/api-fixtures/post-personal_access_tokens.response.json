@@ -8,5 +8,6 @@
   "last_used_ip": null,
   "revoked_at": null,
   "token_last4": "aaaa",
+  "allowed_ips": [],
   "token": "gopat-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 }

@@ -114,6 +114,8 @@ namespace GenOnlineService.Rest
 			m_dbFactory = dbFactory;
 		}
 
+		[EndpointSummary("Lists the roles of a player.")]
+		[ProducesResponseType<RolesResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players/{id:long}/roles")]
 		public async Task<IActionResult> Get(long id)
 		{
@@ -125,6 +127,8 @@ namespace GenOnlineService.Rest
 			return RestResults.Ok(await Answer(db, id));
 		}
 
+		[EndpointSummary("Replaces the roles of a player.")]
+		[ProducesResponseType<RolesResponse>(StatusCodes.Status200OK)]
 		[HttpPut("~/api/v1/players/{id:long}/roles")]
 		public async Task<IActionResult> Put(long id, [FromBody] RolesRequest? body)
 		{
@@ -144,6 +148,8 @@ namespace GenOnlineService.Rest
 			return failure != null ? RestResults.Fail(failure.Value) : RestResults.Ok(await Answer(db, id));
 		}
 
+		[EndpointSummary("Removes every role of a player.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/players/{id:long}/roles")]
 		public async Task<IActionResult> Delete(long id)
 		{
@@ -159,6 +165,8 @@ namespace GenOnlineService.Rest
 
 		// Grants one local role; a role the player already holds locally answers the same and changes nothing
 		[AllowSignInCookie]
+		[EndpointSummary("Grants a player one role.")]
+		[ProducesResponseType<RolesResponse>(StatusCodes.Status200OK)]
 		[HttpPut("~/api/v1/players/{id:long}/roles/{role}")]
 		public async Task<IActionResult> Grant(long id, string role)
 		{
@@ -190,6 +198,8 @@ namespace GenOnlineService.Rest
 
 		// Revokes one local role; a role held only through a sign-in provider follows its sign-ins and is refused
 		[AllowSignInCookie]
+		[EndpointSummary("Revokes one role of a player.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/players/{id:long}/roles/{role}")]
 		public async Task<IActionResult> Revoke(long id, string role)
 		{

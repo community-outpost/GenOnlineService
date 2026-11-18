@@ -262,7 +262,7 @@
     <value>معرّف اللاعب {0}</value>
   </data>
   <data name="Account.TagHint" xml:space="preserve">
-    <value>يبقى الوسم كما هو عند تغيير الاسم.</value>
+    <value>الوسم مرتبط بالاسم: عند العودة إلى اسم سابق يعود وسمه أيضًا.</value>
   </data>
   <data name="Account.Save" xml:space="preserve">
     <value>حفظ التغييرات</value>

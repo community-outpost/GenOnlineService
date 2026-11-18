@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -87,6 +88,8 @@ namespace GenOnlineService.Rest
 		// lowest id first, and a Link rel=next with after_id=<last id> when the page is full. With neither: the newest page,
 		// highest id first and without a Link; a reader continues forward with after_id=<highest id of that page>.
 		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.MatchHistoryRead)]
+		[EndpointSummary("Lists finished matches.")]
+		[ProducesResponseType<MatchListResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/matches")]
 		public async Task<IActionResult> List()
 		{
@@ -110,6 +113,10 @@ namespace GenOnlineService.Rest
 		// One match, finished or running: match_history.read, or any staff permission through the sign-in cookie, so the
 		// staff pages open a match as the first staff area did (A1); a bearer caller still needs match_history.read
 		[AllowSignInCookie]
+		[EndpointSummary("Reads one match.")]
+		[EndpointDescription("With the sign-in cookie any staff member (moderation.kick, moderation.mute or moderation.ban) may read it.")]
+		[ProducesResponseType<MatchResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.MatchHistoryRead)]
 		[HttpGet("~/api/v1/matches/{matchID:long}")]
 		public async Task<IActionResult> Get(long matchID)
 		{

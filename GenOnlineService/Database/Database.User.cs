@@ -310,14 +310,14 @@ namespace Database
 
 			for (int attempt = 1; ; attempt++)
 			{
-				await DisplayNames.AssignNewUser(db, user);
+				await DisplayNames.AssignNewUser(db, user, attempt);
 				db.Users.Add(user);
 				try
 				{
 					await db.SaveChangesAsync();
 					return user;
 				}
-				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < DisplayNames.NewUserAttempts)
 				{
 					// a look-alike sign-up took the same tag at the same moment, so pick another
 					db.Entry(user).State = EntityState.Detached;

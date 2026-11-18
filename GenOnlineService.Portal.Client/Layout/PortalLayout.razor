@@ -37,6 +37,12 @@
                                 <span>Overview</span>
                             </BbSidebarMenuButton>
                         </BbSidebarMenuItem>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.LivePage" Tooltip="Live lobbies and status">
+                                <LucideIcon Name="activity" Class="bb:h-4 bb:w-4" />
+                                <span>Live</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
                     </BbSidebarMenu>
                 </BbSidebarGroup>
                 <BbSidebarGroup>
@@ -69,6 +75,15 @@
                                 <span>Matches</span>
                             </BbSidebarMenuButton>
                         </BbSidebarMenuItem>
+                        @if (staff.Can(PortalPermissions.PlayersInspect))
+                        {
+                            <BbSidebarMenuItem>
+                                <BbSidebarMenuButton Href="@PortalRoutes.InvestigatePage" Tooltip="Find accounts by device or address">
+                                    <LucideIcon Name="scan-search" Class="bb:h-4 bb:w-4" />
+                                    <span>Investigate</span>
+                                </BbSidebarMenuButton>
+                            </BbSidebarMenuItem>
+                        }
                     </BbSidebarMenu>
                 </BbSidebarGroup>
                 @if (staff.Can(PortalPermissions.AnticheatReview))
@@ -92,17 +107,79 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
-                @if (staff.Can(PortalPermissions.AuditRead))
+                @if (staff.Can(PortalPermissions.AnnouncementsSend) || staff.Can(PortalPermissions.SettingsManage) || staff.Can(PortalPermissions.TextRulesManage))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Community</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            @if (staff.Can(PortalPermissions.AnnouncementsSend))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AnnouncementsPage" Tooltip="Announcements">
+                                        <LucideIcon Name="megaphone" Class="bb:h-4 bb:w-4" />
+                                        <span>Announcements</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.SettingsManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.SettingsPage" Tooltip="Message of the day">
+                                        <LucideIcon Name="message-square-text" Class="bb:h-4 bb:w-4" />
+                                        <span>Message of the day</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.TextRulesManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.TextRulesPage" Tooltip="Text rules">
+                                        <LucideIcon Name="spell-check" Class="bb:h-4 bb:w-4" />
+                                        <span>Text rules</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
+                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage) || staff.Can(PortalPermissions.FlagsManage))
                 {
                     <BbSidebarGroup>
                         <BbSidebarGroupLabel>Administration</BbSidebarGroupLabel>
                         <BbSidebarMenu>
-                            <BbSidebarMenuItem>
-                                <BbSidebarMenuButton Href="@PortalRoutes.AuditPage" Tooltip="Audit log">
-                                    <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
-                                    <span>Audit log</span>
-                                </BbSidebarMenuButton>
-                            </BbSidebarMenuItem>
+                            @if (staff.Can(PortalPermissions.FlagsManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.ConfigPage" Tooltip="Game config">
+                                        <LucideIcon Name="sliders-horizontal" Class="bb:h-4 bb:w-4" />
+                                        <span>Game config</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.TokensManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.PartnersPage" Tooltip="Partners">
+                                        <LucideIcon Name="handshake" Class="bb:h-4 bb:w-4" />
+                                        <span>Partners</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.ApiDocs" Tooltip="API docs">
+                                        <LucideIcon Name="book-open" Class="bb:h-4 bb:w-4" />
+                                        <span>API docs</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.AuditRead))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AuditPage" Tooltip="Audit log">
+                                        <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
+                                        <span>Audit log</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
@@ -297,6 +374,38 @@
                 break;
             case "audit":
                 yield return ("Audit log", null);
+                break;
+            case "investigate":
+                yield return ("Investigate", null);
+                break;
+            case "live":
+                yield return ("Live", null);
+                break;
+            case "lobbies":
+                yield return ("Live", item == null ? null : PortalRoutes.LivePage);
+                if (item != null)
+                {
+                    yield return ("Lobby " + item, null);
+                }
+                break;
+            case "partners":
+                yield return ("Partners", item == null ? null : PortalRoutes.PartnersPage);
+                if (item != null)
+                {
+                    yield return ("Partner " + item, null);
+                }
+                break;
+            case "announcements":
+                yield return ("Announcements", null);
+                break;
+            case "settings":
+                yield return ("Message of the day", null);
+                break;
+            case "text-rules":
+                yield return ("Text rules", null);
+                break;
+            case "config":
+                yield return ("Game config", null);
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);

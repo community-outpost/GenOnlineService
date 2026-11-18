@@ -135,6 +135,29 @@ public class UserResetsTests
 		Assert.Equal("lost phone", audit.Reason);
 	}
 
+	// the CLI's rows stay as they were with the staff pages sharing the resets: a cli actor without an id, source cli, and
+	// now the number of sign-ins the reset revoked
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task CliResetsKeepTheirAuditRows(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		User user = await AddUser(probe, "rows@example.org", twoFactor: true);
+
+		await using (AppDbContext db = probe.Open())
+		{
+			await UserResets.ResetPassword(db, user.ID, null, 8, "cli:operator", " forgot it ");
+			await UserResets.ResetTwoFactor(db, user.ID, "cli:operator", null);
+		}
+
+		await using AppDbContext check = probe.Open();
+		List<AuditLogEntry> rows = await check.AuditLog.Where(a => a.TargetID == user.ID).OrderBy(a => a.ID).ToListAsync();
+		Assert.Equal(new[] { UserResets.PasswordResetAction, UserResets.TwoFactorResetAction }, rows.Select(r => r.Action));
+		Assert.All(rows, r => Assert.Equal((AuditActorKinds.Cli, (long?)null, "cli:operator", "cli", 0), (r.ActorKind, r.ActorID, r.Actor, r.Source, System.Text.Json.JsonDocument.Parse(r.Details!).RootElement.GetProperty("sign_ins_revoked").GetInt32())));
+		Assert.Equal(new string?[] { "forgot it", null }, rows.Select(r => r.Reason));
+	}
+
 	// the command line: unknown commands and options print the usage and exit 2 before touching a database
 	[Theory]
 	[InlineData("users")]

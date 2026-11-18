@@ -43,7 +43,18 @@ namespace GenOnlineService.Portal.Client
 		public const string Matches = "api/v1/matches";
 		public const string AntiCheat = "api/v1/anticheat_reports";
 		public const string AuditEvents = "api/v1/audit_events";
+		public const string ServiceAccounts = "api/v1/service_accounts";
 		public const string MatchSearch = "api/v1/matches/search";
+		public const string Settings = "api/v1/application/settings";
+		public const string Announcements = "api/v1/announcements";
+		public const string Messages = "api/v1/messages";
+		public const string StaffRealtime = "api/v1/staff/realtime";
+		public const string StaffLobbies = "api/v1/staff/lobbies";
+		public const string Lobbies = "api/v1/lobbies";
+		public const string TextRules = "api/v1/staff/text_rules";
+		public const string StaffInvestigate = "api/v1/staff/investigate";
+		public const string Flags = "api/v1/flags";
+		public const string FlagRevisions = "api/v1/flags/revisions";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -58,6 +69,16 @@ namespace GenOnlineService.Portal.Client
 		public const string MatchesPage = "/admin/matches";
 		public const string AntiCheatPage = "/admin/anticheat";
 		public const string AuditPage = "/admin/audit";
+		public const string PartnersPage = "/admin/partners";
+		// The interactive API docs the service serves outside the staff pages, for partners to read (OpenApi:enabled)
+		public const string ApiDocs = "/api/docs";
+		public const string SettingsPage = "/admin/settings";
+		public const string AnnouncementsPage = "/admin/announcements";
+		public const string LivePage = "/admin/live";
+		public const string LobbiesPage = "/admin/lobbies";
+		public const string TextRulesPage = "/admin/text-rules";
+		public const string InvestigatePage = "/admin/investigate";
+		public const string ConfigPage = "/admin/config";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -72,6 +93,11 @@ namespace GenOnlineService.Portal.Client
 
 		public static string MatchPage(long id) => MatchesPage + "/" + id;
 
+		public static string PartnerPage(long id) => PartnersPage + "/" + id;
+
+		// a lobby's connection reports, and its members while it is still open
+		public static string LobbyPage(long id) => LobbiesPage + "/" + id;
+
 		// the match list with one player's matches
 		public static string MatchesOf(long player) => MatchesPage + "?player=" + player.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
@@ -79,6 +105,11 @@ namespace GenOnlineService.Portal.Client
 
 		// the audit log with the actions on one player
 		public static string AuditOf(long target) => AuditPage + "?target=" + target;
+
+		// the investigation search for one identifier, or for a stored device by its key
+		public static string InvestigateOf(string kind, string value) => InvestigatePage + "?kind=" + Uri.EscapeDataString(kind) + "&value=" + Uri.EscapeDataString(value);
+
+		public static string InvestigateDevice(string kind, string key) => InvestigatePage + "?kind=" + Uri.EscapeDataString(kind) + "&key=" + Uri.EscapeDataString(key);
 	}
 
 	// The permission names the pages show or hide parts by, the host checks each one again
@@ -92,6 +123,25 @@ namespace GenOnlineService.Portal.Client
 		public const string PlayersInspect = "players.inspect";
 		public const string RolesManage = "roles.manage";
 		public const string AuditRead = "audit.read";
+		public const string TokensManage = "tokens.manage";
+		public const string ChatDeleteAny = "chat.delete_any";
+		public const string AnnouncementsSend = "announcements.send";
+		public const string SettingsManage = "settings.manage";
+		public const string ServerStats = "server.stats";
+		public const string AccountsSupport = "accounts.support";
+		public const string TextRulesManage = "textrules.manage";
+		public const string FlagsManage = "flags.manage";
+	}
+
+	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
+	// only the CLI on the host grants (Permissions.Machine and Permissions.Privileged on the host)
+	public static class PortalPartnerPermissions
+	{
+		public static readonly IReadOnlyList<string> Grantable = ["lobbies.read", "match_history.read"];
+
+		public static readonly IReadOnlyList<string> Privileged = ["ops.database", "users.revoke"];
+
+		public static bool IsPrivileged(string permission) => Privileged.Contains(permission);
 	}
 
 	// The audit actions the log's filter offers, in the words of the host's audit_log.action
@@ -132,6 +182,23 @@ namespace GenOnlineService.Portal.Client
 			"revoke_sessions" => "Signed out everywhere",
 			"revoke_client_sessions" => "Client sessions revoked",
 			"client_add" => "Client added",
+			"sa_update" => "Service account changed",
+			"text_term_add" => "Word added",
+			"text_term_update" => "Word changed",
+			"text_term_remove" => "Word removed",
+			"text_exception_add" => "Exception added",
+			"text_exception_remove" => "Exception removed",
+			"text_workflow_update" => "Text rule changed",
+			"text_rules_seed" => "Word lists imported",
+			"investigate_search" => "Investigation search",
+			"flag_create" => "Config field added",
+			"flag_update" => "Config field changed",
+			"flag_archive" => "Config field archived",
+			"flag_restore" => "Config field restored",
+			"flags_publish" => "Game config published",
+			"flags_rollback" => "Game config rolled back",
+			"flags_import" => "Game config imported",
+			"flags_reset" => "Game config draft reset",
 			_ => action
 		};
 
@@ -140,8 +207,9 @@ namespace GenOnlineService.Portal.Client
 			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
 			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
 			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
-			"token_revoke", "sa_create", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
-			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
+			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
+			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "text_term_add", "text_term_update",
+			"text_term_remove", "text_exception_add", "text_exception_remove", "text_workflow_update", "text_rules_seed", "investigate_search", "flag_create", "flag_update", "flag_archive", "flag_restore", "flags_publish", "flags_rollback", "flags_import", "flags_reset"
 		];
 	}
 
@@ -251,6 +319,8 @@ namespace GenOnlineService.Portal.Client
 		public string? ResolvedByKind { get; init; }
 		public PortalMember? ResolvedBy { get; init; }
 		public string? ResolutionNote { get; init; }
+		// The reported message's text as the report stored it, null for a report of a player
+		public string? MessageContent { get; init; }
 
 		// Flat values for the grid columns
 		[JsonIgnore]
@@ -441,6 +511,12 @@ namespace GenOnlineService.Portal.Client
 		public DateTime FirstSeenAt { get; init; }
 		public DateTime LastSeenAt { get; init; }
 		public string? LastIp { get; init; }
+
+		// The whole keyed hash, the investigation search finds the other accounts of the device with it
+		public string Key { get; init; } = "";
+
+		// A MAC address: its vendor in the IEEE registry, or "locally administered / virtual"; null when unknown
+		public string? Vendor { get; init; }
 	}
 
 	public sealed record PortalAddress
@@ -450,6 +526,61 @@ namespace GenOnlineService.Portal.Client
 		public DateTime FirstSeenAt { get; init; }
 		public DateTime LastSeenAt { get; init; }
 		public int Events { get; init; }
+
+		// From the GeoIP databases of the host, null when unknown
+		public string? City { get; init; }
+		public long? Asn { get; init; }
+		public string? NetworkOwner { get; init; }
+	}
+
+	// What the GeoIP databases of the host know about an address
+	public sealed record PortalAddressFacts
+	{
+		public string? Country { get; init; }
+		public string? City { get; init; }
+		public long? Asn { get; init; }
+		public string? NetworkOwner { get; init; }
+	}
+
+	// An account that used the searched identifier; events counts its sessions on the addresses, null for devices
+	public sealed record PortalInvestigationAccount
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public string? Tag { get; init; }
+		public string State { get; init; } = "";
+		public DateTime FirstSeenAt { get; init; }
+		public DateTime LastSeenAt { get; init; }
+		public int? Events { get; init; }
+
+		[JsonIgnore]
+		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	// GET /api/v1/staff/investigate: every account that used one identifier, with players.inspect and audited
+	public sealed record PortalInvestigation
+	{
+		public static readonly IReadOnlyList<(string Kind, string Label, string Hint)> Kinds =
+		[
+			("mac", "MAC address", "AA:BB:CC:DD:EE:FF, with colons, dashes or nothing"),
+			("machine_guid", "Machine id", "The Windows machine GUID"),
+			("volume_serial", "Volume serial", "1234-ABCD, as the vol command shows it"),
+			("ip", "IP address", "IPv4 or IPv6"),
+			("ip_range", "IP range", "CIDR, at most a /16 for IPv4 and a /48 for IPv6"),
+			("country", "Country", "Two letter code, such as NL")
+		];
+
+		public string Kind { get; init; } = "";
+		// the searched value as the host normalized it
+		public string Value { get; init; } = "";
+		// a MAC search: the vendor of the address
+		public string? Vendor { get; init; }
+		// an IP search: what the GeoIP databases know about the address
+		public PortalAddressFacts? Network { get; init; }
+		public IReadOnlyList<PortalInvestigationAccount> Accounts { get; init; } = [];
+
+		[JsonIgnore]
+		public bool HasNext { get; init; }
 	}
 
 	// Another account on the same device ("device") or only on the same address ("ip")
@@ -491,10 +622,34 @@ namespace GenOnlineService.Portal.Client
 		public string? Reason { get; init; }
 	}
 
+	// The new password of a staff password reset, answered once
+	public sealed record PortalPasswordReset
+	{
+		public string Password { get; init; } = "";
+	}
+
 	public sealed record PortalRenameRequest
 	{
 		public string? Name { get; init; }
 		public string? Reason { get; init; }
+	}
+
+	// The settings staff may change at runtime, GET /api/v1/application/settings
+	public sealed record PortalSettings
+	{
+		// the message of the day, null when none is set
+		public string? Motd { get; init; }
+	}
+
+	public sealed record PortalAnnouncementRequest
+	{
+		public string? Message { get; init; }
+	}
+
+	// The users online the announcement went to
+	public sealed record PortalAnnouncementResult
+	{
+		public int DeliveredTo { get; init; }
 	}
 
 	public sealed record PortalMatchFile
@@ -673,6 +828,11 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalError
 	{
 		public string Error { get; init; } = "";
+
+		// the details of the code, such as {field} of invalid_argument
+		public JsonElement? Params { get; init; }
+
+		public string? Field => Params is JsonElement details && details.ValueKind == JsonValueKind.Object && details.TryGetProperty("field", out JsonElement named) && named.ValueKind == JsonValueKind.String ? named.GetString() : null;
 	}
 
 	// What the player list shows (T17f), in the address of the page (?q=&filter=&signed_in_within=&order_by=&sort=) and,
@@ -810,10 +970,420 @@ namespace GenOnlineService.Portal.Client
 			DateTime.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text : null;
 	}
 
+	// A partner: a service account with the permissions granted to it and what its tokens add up to, as
+	// /api/v1/service_accounts answers
+	public sealed record PortalPartner
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public string? Description { get; init; }
+		public DateTime CreatedAt { get; init; }
+		public DateTime? DisabledAt { get; init; }
+		public IReadOnlyList<string> Permissions { get; init; } = [];
+		public int ActiveTokens { get; init; }
+		public DateTime? LastTokenUsedAt { get; init; }
+	}
+
+	public sealed record PortalPartnerPage
+	{
+		public IReadOnlyList<PortalPartner> ServiceAccounts { get; init; } = [];
+	}
+
+	// A token of a partner, never its secret; revoked_at in the future is the end of a rotation overlap
+	public sealed record PortalPartnerToken
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public IReadOnlyList<string> Scopes { get; init; } = [];
+		public DateTime CreatedAt { get; init; }
+		public DateTime ExpiresAt { get; init; }
+		public DateTime? LastUsedAt { get; init; }
+		public string? LastUsedIp { get; init; }
+		public DateTime? RevokedAt { get; init; }
+		public string TokenLast4 { get; init; } = "";
+		// empty when any address may use the token
+		public IReadOnlyList<string> AllowedIps { get; init; } = [];
+
+		// Revoked, rotated past its overlap, or expired
+		public bool IsActive(DateTime utcNow) => ExpiresAt > utcNow && (RevokedAt == null || RevokedAt > utcNow);
+	}
+
+	public sealed record PortalPartnerTokenPage
+	{
+		public IReadOnlyList<PortalPartnerToken> PersonalAccessTokens { get; init; } = [];
+	}
+
+	// The create and rotate answers, the only place the gopat- secret is ever shown
+	public sealed record PortalCreatedToken
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public DateTime ExpiresAt { get; init; }
+		public string Token { get; init; } = "";
+	}
+
+	public sealed record PortalCreatePartnerRequest
+	{
+		public string? Name { get; init; }
+		public string? Description { get; init; }
+	}
+
+	public sealed record PortalGrantChanges
+	{
+		public IReadOnlyList<string>? Add { get; init; }
+		public IReadOnlyList<string>? Remove { get; init; }
+	}
+
+	// Each part is optional; the null ones are left out of the body, an empty description clears it
+	public sealed record PortalUpdatePartnerRequest
+	{
+		public string? Description { get; init; }
+		public PortalGrantChanges? Grants { get; init; }
+		public bool? Disabled { get; init; }
+	}
+
+	// expires_at is a day (midnight UTC); allowed_ips holds addresses or CIDR ranges
+	public sealed record PortalCreateTokenRequest
+	{
+		public string Name { get; init; } = "";
+		public IReadOnlyList<string> Scopes { get; init; } = [];
+		public string ExpiresAt { get; init; } = "";
+		public IReadOnlyList<string>? AllowedIps { get; init; }
+	}
+
 	public static class PortalQueries
 	{
 		// name=value pairs without the null ones, each value escaped
 		public static string Join(IEnumerable<KeyValuePair<string, object?>> arguments) =>
 			String.Join('&', arguments.Where(a => a.Value != null).Select(a => a.Key + "=" + Uri.EscapeDataString(a.Value!.ToString()!)));
+	}
+
+	// GET /api/v1/staff/realtime: the failover lease as "realtime status" prints it (null without PostgreSQL), and the
+	// players, lobbies and queues of the service copy that answered
+	public sealed record PortalRealtime
+	{
+		public PortalRealtimeCopy Copy { get; init; } = new PortalRealtimeCopy();
+		public PortalRealtimeLease? Lease { get; init; }
+		public int PlayersOnline { get; init; }
+		public int LobbiesOpen { get; init; }
+		public IReadOnlyList<PortalRealtimeQueue> Queues { get; init; } = [];
+	}
+
+	public sealed record PortalRealtimeCopy
+	{
+		public string Id { get; init; } = "";
+		public bool Serving { get; init; }
+		public bool Failover { get; init; }
+	}
+
+	// Holder and standby are null for none, expires_in_ms is null once the lease expired
+	public sealed record PortalRealtimeLease
+	{
+		public string? Holder { get; init; }
+		public long Epoch { get; init; }
+		public long? ExpiresInMs { get; init; }
+		public string? Standby { get; init; }
+		public bool HandoverRequested { get; init; }
+	}
+
+	public sealed record PortalRealtimeQueue
+	{
+		public int PlaylistId { get; init; }
+		public string Name { get; init; } = "";
+		public int Queued { get; init; }
+	}
+
+	// GET /api/v1/staff/lobbies: every live lobby in the fields of the hub's LobbyState
+	public sealed record PortalLobbyList
+	{
+		public IReadOnlyList<PortalLobby> Lobbies { get; init; } = [];
+	}
+
+	public sealed record PortalLobby
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public long HostId { get; init; }
+		public string Type { get; init; } = "";
+		public string State { get; init; } = "";
+		public string Visibility { get; init; } = "";
+		public bool HasPassword { get; init; }
+		public PortalMatchMap Map { get; init; } = new PortalMatchMap();
+		public string Region { get; init; } = "";
+		public long? MatchId { get; init; }
+		public DateTime CreatedAt { get; init; }
+		public IReadOnlyList<PortalSlot> Slots { get; init; } = [];
+
+		[JsonIgnore]
+		public IEnumerable<PortalSlot> Players => Slots.Where(s => s.Member != null);
+
+		[JsonIgnore]
+		public int Seats => Slots.Count(s => s.State != "closed");
+	}
+
+	public sealed record PortalSlot
+	{
+		public int Index { get; init; }
+		public string State { get; init; } = "";
+		public PortalMember? Member { get; init; }
+		public bool Ready { get; init; }
+	}
+
+	// One connection report as "connections player|lobby" prints it, a report never carries an address
+	public sealed record PortalConnectionReport
+	{
+		public long Id { get; init; }
+		public long LobbyId { get; init; }
+		public PortalMember Reporter { get; init; } = new PortalMember();
+		public PortalMember Target { get; init; } = new PortalMember();
+		public int Attempt { get; init; }
+		public string Outcome { get; init; } = "";
+		public string Transport { get; init; } = "";
+		public int IpVersion { get; init; }
+		public IReadOnlyList<PortalConnectionEvent> Events { get; init; } = [];
+		public DateTime CreatedAt { get; init; }
+		public DateTime UpdatedAt { get; init; }
+
+		// the timeline as the CLI prints it: connecting@0ms, failed@5000ms
+		[JsonIgnore]
+		public string Timeline => String.Join(", ", Events.Select(e => $"{e.State}@{e.TMs}ms"));
+	}
+
+	public sealed record PortalConnectionEvent
+	{
+		public string State { get; init; } = "";
+		public long TMs { get; init; }
+	}
+
+	public sealed record PortalConnectionReports
+	{
+		public IReadOnlyList<PortalConnectionReport> Reports { get; init; } = [];
+	}
+
+	// The text rules page (/admin/text-rules) of GET /api/v1/staff/text_rules/*: words, exceptions, rule workflows, the test
+	public sealed record PortalTextTerm
+	{
+		public long Id { get; init; }
+		public string Term { get; init; } = "";
+		public string Language { get; init; } = "";
+		public string Category { get; init; } = "";
+		public string Severity { get; init; } = "";
+		public string Match { get; init; } = "";
+		public string Source { get; init; } = "";
+		public string UpdatedBy { get; init; } = "";
+		public DateTime UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalTextTerms
+	{
+		public int Total { get; init; }
+		public IReadOnlyList<PortalTextTerm> Terms { get; init; } = [];
+	}
+
+	// A new word sends every field, an edit only the ones that change
+	public sealed record PortalTextTermRequest
+	{
+		public string? Term { get; init; }
+		public string? Language { get; init; }
+		public string? Category { get; init; }
+		public string? Severity { get; init; }
+		public string? Match { get; init; }
+	}
+
+	public sealed record PortalTextException
+	{
+		public long Id { get; init; }
+		public string Term { get; init; } = "";
+		public string Language { get; init; } = "";
+		public string Source { get; init; } = "";
+		public string UpdatedBy { get; init; } = "";
+		public DateTime UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalTextExceptions
+	{
+		public IReadOnlyList<PortalTextException> Exceptions { get; init; } = [];
+	}
+
+	public sealed record PortalTextRule
+	{
+		public string Name { get; init; } = "";
+		public string Expression { get; init; } = "";
+		public string Outcome { get; init; } = "";
+		public bool Enabled { get; init; } = true;
+	}
+
+	public sealed record PortalTextWorkflowDefinition
+	{
+		public IReadOnlyList<PortalTextRule> Rules { get; init; } = [];
+	}
+
+	public sealed record PortalTextWorkflow
+	{
+		public string Kind { get; init; } = "";
+		public PortalTextWorkflowDefinition Definition { get; init; } = new PortalTextWorkflowDefinition();
+		public IReadOnlyList<string> Outcomes { get; init; } = [];
+		public IReadOnlyList<string> Fields { get; init; } = [];
+		public string UpdatedBy { get; init; } = "";
+		public DateTime? UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalTextWorkflows
+	{
+		public IReadOnlyList<PortalTextWorkflow> Workflows { get; init; } = [];
+	}
+
+	public sealed record PortalTextTestReading
+	{
+		public string Name { get; init; } = "";
+		public string Text { get; init; } = "";
+	}
+
+	public sealed record PortalTextTestHit
+	{
+		public string Term { get; init; } = "";
+		public string Language { get; init; } = "";
+		public string Category { get; init; } = "";
+		public string Severity { get; init; } = "";
+		public string Reading { get; init; } = "";
+		public string Text { get; init; } = "";
+	}
+
+	public sealed record PortalTextTest
+	{
+		public string Kind { get; init; } = "";
+		public string Outcome { get; init; } = "";
+		public string? Rule { get; init; }
+		public string? Masked { get; init; }
+		public IReadOnlyList<PortalTextTestReading> Readings { get; init; } = [];
+		public IReadOnlyList<PortalTextTestHit> Hits { get; init; } = [];
+	}
+
+	// The choices of the text rules, as the host's TextKinds, TextLanguages, TextCategories, TextSeverities and TextMatchModes
+	public static class PortalTextChoices
+	{
+		public static readonly IReadOnlyList<(string Value, string Title)> Kinds = [("display_name", "Display name"), ("lobby_name", "Lobby name"), ("chat", "Chat message")];
+		public static readonly IReadOnlyList<(string Value, string Title)> Languages = [("en", "English"), ("ar", "Arabic")];
+		public static readonly IReadOnlyList<string> Categories = ["slur", "sexual", "profanity", "insult", "impersonation", "reserved"];
+		public static readonly IReadOnlyList<string> Severities = ["block", "flag"];
+		public static readonly IReadOnlyList<string> Matches = ["word", "anywhere", "literal"];
+
+		public static string KindTitle(string kind) => Kinds.FirstOrDefault(k => k.Value == kind).Title ?? kind;
+	}
+
+	// An error answer with its reason, as a refused rule workflow carries it in params.reason
+	public sealed record PortalReasonError
+	{
+		public string Error { get; init; } = "";
+		public PortalReasonParams? Params { get; init; }
+	}
+
+	public sealed record PortalReasonParams
+	{
+		public string? Reason { get; init; }
+	}
+
+	// The game config (GET /api/v1/flags and its routes): one field of the draft as staff edit it, FlagDefinition on the host
+	public sealed record PortalFlag
+	{
+		public string Key { get; init; } = "";
+		public string Scope { get; init; } = "client";
+		public string Label { get; init; } = "";
+		public string? Description { get; init; }
+		public string Group { get; init; } = "";
+
+		// bool, int, number, string or choice
+		public string Type { get; init; } = "string";
+		public string? Unit { get; init; }
+		public double? Min { get; init; }
+		public double? Max { get; init; }
+		public IReadOnlyList<PortalFlagChoice>? Choices { get; init; }
+
+		// false leaves the field out of the game's answer, the game then keeps its built-in default
+		public bool Enabled { get; init; } = true;
+		public JsonElement Value { get; init; }
+		public IReadOnlyList<PortalFlagRule> Rules { get; init; } = [];
+
+		// flagd targeting written by hand, edited through export and import only
+		public JsonElement? Custom { get; init; }
+	}
+
+	public sealed record PortalFlagChoice
+	{
+		public JsonElement Value { get; init; }
+		public string Label { get; init; } = "";
+	}
+
+	// role, client or country with values, or percentage with percent; the first rule that matches gives its value
+	public sealed record PortalFlagRule
+	{
+		public string Kind { get; init; } = "";
+		public IReadOnlyList<string>? Values { get; init; }
+		public int? Percent { get; init; }
+		public JsonElement Value { get; init; }
+	}
+
+	public sealed record PortalDraftFlag
+	{
+		public PortalFlag Flag { get; init; } = new();
+		public bool Archived { get; init; }
+
+		// the If-Match value of a change to this field
+		public int Version { get; init; }
+
+		// service code reads it, so it cannot be archived
+		public bool UsedByService { get; init; }
+
+		// unchanged, added, changed or archived against the live revision
+		public string Status { get; init; } = "";
+		public string UpdatedBy { get; init; } = "";
+		public DateTime UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalFlagDraft
+	{
+		// the live revision, 0 before the first publish
+		public int Revision { get; init; }
+
+		// the If-Match value of a publish, so only the reviewed draft goes live
+		public string DraftEtag { get; init; } = "";
+		public IReadOnlyList<PortalDraftFlag> Flags { get; init; } = [];
+	}
+
+	public sealed record PortalFlagChange
+	{
+		public string Key { get; init; } = "";
+		public string Label { get; init; } = "";
+
+		// added, removed or changed
+		public string Change { get; init; } = "";
+		public IReadOnlyList<string> Fields { get; init; } = [];
+		public PortalFlag? Before { get; init; }
+		public PortalFlag? After { get; init; }
+	}
+
+	public sealed record PortalFlagChanges
+	{
+		public int? From { get; init; }
+		public int? To { get; init; }
+		public IReadOnlyList<PortalFlagChange> Changes { get; init; } = [];
+	}
+
+	public sealed record PortalFlagRevision
+	{
+		public int Number { get; init; }
+		public DateTime CreatedAt { get; init; }
+		public string CreatedBy { get; init; } = "";
+		public string? Comment { get; init; }
+		public int? RollbackOf { get; init; }
+		public bool Live { get; init; }
+
+		// the flagd file, only when one revision is read (the export)
+		public JsonElement? Document { get; init; }
+	}
+
+	public sealed record PortalFlagComment
+	{
+		public string? Comment { get; init; }
 	}
 }

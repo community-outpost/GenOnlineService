@@ -57,6 +57,15 @@ namespace GenOnlineService.Tests
 			Assert.Equal("user:7 does not hold moderation.ban; a token never grants more than its owner holds.", ex.Message);
 		}
 
+		// a staff-only permission works through the staff pages only, so no token carries it, a personal one included
+		[Fact]
+		public void StaffOnlyScopeIsForbiddenOnEveryToken()
+		{
+			var held = new HashSet<string>(StringComparer.Ordinal) { Permissions.AccountsSupport };
+			Assert.Equal("{\"error\":\"forbidden\",\"params\":{\"permission\":\"accounts.support\"}}", Body(() => ApiTokenAdmin.CheckScopes(ApiTokenOwnerKinds.User, [Permissions.AccountsSupport], held, "user:7", bFromHost: false)));
+			Assert.Equal("{\"error\":\"forbidden\",\"params\":{\"permission\":\"accounts.support\"}}", Body(() => ApiTokenAdmin.CheckScopes(ApiTokenOwnerKinds.User, [Permissions.AccountsSupport], held, "user:7", bFromHost: true)));
+		}
+
 		[Fact]
 		public void UnknownScopeIsInvalid()
 		{
@@ -211,6 +220,18 @@ namespace GenOnlineService.Tests
 			Assert.Equal(ApiTokenCallers.GameSession, ApiTokenAdmin.CallerOf(Principal("session", me, new Claim("client_id", "gone")), KindOf));
 			Assert.Equal(ApiTokenCallers.Token, ApiTokenAdmin.CallerOf(Principal(TokenPrincipal.AuthenticationType, new Claim(ApiTokenHandler.TokenIDClaim, "3")), KindOf));
 			Assert.Equal(ApiTokenCallers.None, ApiTokenAdmin.CallerOf(new ClaimsPrincipal(new ClaimsIdentity()), KindOf));
+		}
+
+		// The staff pages' sign-in cookie, as SignInCookieHandler builds it, counts as a web session; its marker alone does not
+		[Fact]
+		public void TheSignInCookieOfAUserIsAWebSession()
+		{
+			var cookie = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "7")], "Identity.Application"));
+			cookie.AddIdentity(new ClaimsIdentity(ApiAuthentication.SignInCookieScheme));
+			Assert.Equal(ApiTokenCallers.WebSession, ApiTokenAdmin.CallerOf(cookie, KindOf));
+
+			var markerOnly = new ClaimsPrincipal(new ClaimsIdentity(ApiAuthentication.SignInCookieScheme));
+			Assert.Equal(ApiTokenCallers.None, ApiTokenAdmin.CallerOf(markerOnly, KindOf));
 		}
 	}
 }

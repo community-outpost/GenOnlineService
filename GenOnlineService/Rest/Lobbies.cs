@@ -44,6 +44,8 @@ namespace GenOnlineService.Rest
 
 		// A player connected to the hub sees the list WatchLobbyList gives them. Any other caller (a lobbies.read token,
 		// or a player without a hub connection) sees every public custom lobby in setup or countdown, of every build, with latency_ms 0.
+		[EndpointSummary("Lists the open lobbies.")]
+		[ProducesResponseType<LobbyListResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/lobbies")]
 		public IActionResult List()
 		{

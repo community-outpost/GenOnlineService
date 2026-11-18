@@ -24,7 +24,8 @@ using System.Text.Json;
 namespace GenOnlineService.Identity
 {
 	// The operator's way back into an email + password account without mail: a new password, or the end of two-factor
-	// sign-in. Each ends the lockout, rotates the security stamp (website sessions stop within a minute) and is audited.
+	// sign-in. Each ends the lockout, rotates the security stamp (website sessions stop within a minute), revokes every
+	// sign-in of the account with its refresh tokens and game sessions and every personal token it owns, and is audited.
 	public static class UserResets
 	{
 		public const string PasswordResetAction = "password_reset";
@@ -35,7 +36,15 @@ namespace GenOnlineService.Identity
 		private const int GeneratedLength = 20;
 
 		// Sets the given password, or a new random one, and returns it
-		public static async Task<string> ResetPassword(AppDbContext db, Int64 userID, string? password, int minLength, string actor, string? reason)
+		public static Task<string> ResetPassword(AppDbContext db, Int64 userID, string? password, int minLength, string actor, string? reason)
+			=> ResetPassword(db, userID, password, minLength, CliActor(actor), reason, live: false);
+
+		public static Task ResetTwoFactor(AppDbContext db, Int64 userID, string actor, string? reason)
+			=> ResetTwoFactor(db, userID, CliActor(actor), reason, live: false);
+
+		// The CLI and the staff pages share these; the actor gives the audit row its kind, id, name and source. live is
+		// the running service, which also drops the game sessions it holds and closes the realtime connections at once
+		public static async Task<string> ResetPassword(AppDbContext db, Int64 userID, string? password, int minLength, Database.ModerationActor actor, string? reason, bool live)
 		{
 			User user = await Find(db, userID);
 			if (user.Email == null)
@@ -49,24 +58,68 @@ namespace GenOnlineService.Identity
 				throw new InvalidOperationException($"Passwords must be at least {minLength} characters and at most {PasswordSignInSettings.MaximumLength}.");
 			}
 
+			await using var transaction = await db.Database.BeginTransactionAsync();
 			user.PasswordHash = new PasswordHasher<User>().HashPassword(user, chosen);
 			Unlock(user);
-			db.AuditLog.Add(Audit(PasswordResetAction, userID, actor, reason));
+			(int signIns, int tokens) = await RevokeSignIns(db, userID, actor, PasswordResetAction);
+			db.AuditLog.Add(Audit(PasswordResetAction, userID, actor, reason, signIns, tokens));
 			await db.SaveChangesAsync();
+			await transaction.CommitAsync();
+			await EndLive(db, userID, live, tokens, "password reset");
 			return chosen;
 		}
 
-		public static async Task ResetTwoFactor(AppDbContext db, Int64 userID, string actor, string? reason)
+		public static async Task ResetTwoFactor(AppDbContext db, Int64 userID, Database.ModerationActor actor, string? reason, bool live)
 		{
 			User user = await Find(db, userID);
 			await using var transaction = await db.Database.BeginTransactionAsync();
 			user.TwoFactorEnabled = false;
 			user.AuthenticatorKey = null;
 			Unlock(user);
-			db.AuditLog.Add(Audit(TwoFactorResetAction, userID, actor, reason));
+			(int signIns, int tokens) = await RevokeSignIns(db, userID, actor, TwoFactorResetAction);
+			db.AuditLog.Add(Audit(TwoFactorResetAction, userID, actor, reason, signIns, tokens));
 			await db.SaveChangesAsync();
 			await db.UserRecoveryCodes.Where(c => c.UserID == userID).ExecuteDeleteAsync();
 			await transaction.CommitAsync();
+			await EndLive(db, userID, live, tokens, "two-factor reset");
+		}
+
+		// Every stored sign-in and its tokens end, the stored game sessions go and every personal gopat- token of the
+		// account is revoked (each with its token_revoke row), so no copy of the service and no refresh accepts them again;
+		// returns the number of sign-ins and of personal tokens revoked
+		private static async Task<(int SignIns, int Tokens)> RevokeSignIns(AppDbContext db, Int64 userID, Database.ModerationActor actor, string action)
+		{
+			int signIns = await SignInRevocation.RevokeStored(db, userID);
+			await Database.GameSessionStore.DeleteUser(db, userID, null);
+
+			DateTime now = DateTime.UtcNow;
+			List<ApiToken> owned = await db.ApiTokens.AsTracking()
+				.Where(t => t.OwnerUserID == userID && (t.RevokedAt == null || t.RevokedAt > now) && t.ExpiresAt > now)
+				.ToListAsync();
+			var tokenActor = new Rest.ApiTokenActor(actor.Kind, actor.UserID, actor.Name, actor.Source);
+			int tokens = 0;
+			foreach (ApiToken token in owned)
+			{
+				if (await Rest.ApiTokenAdmin.Revoke(db, tokenActor, token, action))
+				{
+					tokens++;
+				}
+			}
+			return (signIns, tokens);
+		}
+
+		// The token cache of this process follows at once, other copies on their reconcile tick; the running service also
+		// forgets the game sessions it caches and closes the realtime connections with auth.revoked
+		private static async Task EndLive(AppDbContext db, Int64 userID, bool live, int tokens, string reason)
+		{
+			if (tokens > 0)
+			{
+				await ApiTokenCache.Reload(db);
+			}
+			if (live)
+			{
+				await SessionRevocation.RevokeUser(userID, false, reason);
+			}
 		}
 
 		private static async Task<User> Find(AppDbContext db, Int64 userID)
@@ -80,17 +133,20 @@ namespace GenOnlineService.Identity
 			user.UpdatedAt = DateTime.UtcNow;
 		}
 
-		private static AuditLogEntry Audit(string action, Int64 userID, string actor, string? reason) => new()
+		private static Database.ModerationActor CliActor(string actor) => new() { Kind = AuditActorKinds.Cli, Name = actor, Source = ModerationSources.Cli };
+
+		private static AuditLogEntry Audit(string action, Int64 userID, Database.ModerationActor actor, string? reason, int signInsRevoked, int tokensRevoked) => new()
 		{
 			CreatedAt = DateTime.UtcNow,
-			ActorKind = AuditActorKinds.Cli,
-			Actor = actor.Length > 64 ? actor.Substring(0, 64) : actor,
+			ActorKind = actor.Kind,
+			ActorID = actor.UserID,
+			Actor = actor.Name.Length > 64 ? actor.Name.Substring(0, 64) : actor.Name,
 			Action = action,
 			TargetKind = AuditTargetKinds.User,
 			TargetID = userID,
 			Reason = String.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
-			Source = "cli",
-			Details = JsonSerializer.Serialize(new { })
+			Source = actor.Source,
+			Details = JsonSerializer.Serialize(new { sign_ins_revoked = signInsRevoked, tokens_revoked = tokensRevoked })
 		};
 	}
 }

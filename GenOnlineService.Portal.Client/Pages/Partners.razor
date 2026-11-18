@@ -1,0 +1,213 @@
+@* The partners: the page header (nav-02) with "New partner", stat cards (dashboard-01) and a data table (data-01) of the
+   service accounts of GET /api/v1/service_accounts with their active tokens and last token use. tokens.manage only; a new partner gets the machine
+   permissions the staff pages may grant, privileged ones stay with the CLI on the host *@
+@page "/admin/partners"
+@inject PortalApi Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>Partners · Generals Online</PageTitle>
+
+<PageHeader Description="Service accounts of partner sites and tools, and their gopat- API tokens. Every change is in the audit log.">
+    <Title>Partners</Title>
+    <Actions>
+        @if (Session.Can(PortalPermissions.TokensManage))
+        {
+            <BbButton Size="ButtonSize.Small" OnClick="OpenCreate" data-testid="new-partner">
+                <LucideIcon Name="plus" Class="bb:h-4 bb:w-4" />
+                New partner
+            </BbButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!Session.Can(PortalPermissions.TokensManage))
+{
+    <Refusal Title="Partners" Description="Managing partners and their API tokens needs the tokens.manage permission." Icon="lock" />
+}
+else if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The partners could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+else
+{
+    <div class="go-stats">
+        <StatCard Label="Partners" Value="@m_partners?.Count.ToString()" Icon="handshake" Hint="Service accounts" />
+        <StatCard Label="Enabled" Value="@m_partners?.Count(p => p.DisabledAt == null).ToString()" Icon="circle-check" Hint="May call the API" />
+        <StatCard Label="Active tokens" Value="@m_partners?.Sum(p => p.ActiveTokens).ToString()" Icon="key-round" Hint="Not revoked or expired" />
+    </div>
+
+    <BbCard>
+        <BbCardHeader>
+            <BbCardTitle As="h2">Service accounts</BbCardTitle>
+            <BbCardDescription>Privileged permissions (ops.database, users.revoke) and their tokens are granted only with the CLI on the host.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent>
+            @if (m_partners == null)
+            {
+                <FeedSkeleton />
+            }
+            else
+            {
+                <BbDataTable TData="PortalPartner" Data="@m_partners" ShowToolbar="false" ShowPagination="false" AriaLabel="Partners">
+                    <Columns>
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.Name)" Header="Name">
+                            <CellTemplate Context="row">
+                                <BbLink Href="@PortalRoutes.PartnerPage(row.Id)" data-testid="partner-row">@row.Name</BbLink>
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.Description ?? "")" Header="Description" CellClass="bb:text-muted-foreground" />
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.DisabledAt == null ? "enabled" : "disabled")" Header="Status">
+                            <CellTemplate Context="row">
+                                @if (row.DisabledAt == null)
+                                {
+                                    <BbBadge Variant="BadgeVariant.Secondary">enabled</BbBadge>
+                                }
+                                else
+                                {
+                                    <BbBadge Variant="BadgeVariant.SoftDestructive">disabled</BbBadge>
+                                }
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => String.Join(", ", p.Permissions))" Header="Permissions">
+                            <CellTemplate Context="row">
+                                <span class="go-cell-badges">
+                                    @foreach (string permission in row.Permissions)
+                                    {
+                                        <BbBadge Variant="@(PortalPartnerPermissions.IsPrivileged(permission) ? BadgeVariant.SoftDestructive : BadgeVariant.Outline)" Class="bb:font-mono">@permission</BbBadge>
+                                    }
+                                </span>
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.ActiveTokens.ToString())" Header="Active tokens" CellClass="go-nowrap" />
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => PortalText.Date(p.LastTokenUsedAt))" Header="Last token use" CellClass="go-nowrap" />
+                    </Columns>
+                    <EmptyTemplate>
+                        <BbEmpty Size="EmptySize.Small" Title="No partners yet" Description="Create a partner, then give it a token.">
+                            <Icon>
+                                <LucideIcon Name="handshake" />
+                            </Icon>
+                        </BbEmpty>
+                    </EmptyTemplate>
+                </BbDataTable>
+            }
+        </BbCardContent>
+    </BbCard>
+
+    <BbDialog @bind-Open="m_createOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>New partner</BbDialogTitle>
+                <BbDialogDescription>A service account for a partner site or tool. Its tokens never carry more than the permissions chosen here.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <div class="bb:space-y-2">
+                    <BbLabel For="partner-name">Name</BbLabel>
+                    <BbInput Id="partner-name" @bind-Value="m_name" Placeholder="partner-site" autocomplete="off" spellcheck="false" />
+                    <p class="bb:text-xs bb:text-muted-foreground">1 to 64 characters of a-z, 0-9, - and _, starting with a letter or digit.</p>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="partner-description">Description (optional)</BbLabel>
+                    <BbTextarea Id="partner-description" @bind-Value="m_description" Placeholder="Who runs it and what it does…" autocomplete="off" />
+                </div>
+                <div class="bb:space-y-2">
+                    <p class="bb:text-sm bb:font-medium">Permissions</p>
+                    <div class="bb:flex bb:flex-wrap bb:gap-2">
+                        @foreach (string permission in PortalPartnerPermissions.Grantable)
+                        {
+                            bool chosen = m_permissions.Contains(permission);
+                            <BbButton Variant="@(chosen ? ButtonVariant.Default : ButtonVariant.Outline)" Size="ButtonSize.Small" OnClick="@(() => Toggle(permission))" aria-pressed="@(chosen ? "true" : "false")" Class="bb:font-mono">
+                                <LucideIcon Name="@(chosen ? "check" : "plus")" Class="bb:h-4 bb:w-4" />
+                                @permission
+                            </BbButton>
+                        }
+                    </div>
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_createOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="CreateAsync" Loading="@m_saving" data-testid="create-partner">Create</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    private List<PortalPartner>? m_partners;
+    private string? m_error;
+    private bool m_createOpen;
+    private bool m_saving;
+    private string? m_name;
+    private string? m_description;
+    private readonly HashSet<string> m_permissions = new(StringComparer.Ordinal);
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Can(PortalPermissions.TokensManage))
+        {
+            await LoadAsync();
+        }
+    }
+
+    // The host counts each partner's active tokens and last token use
+    private async Task LoadAsync()
+    {
+        PortalAnswer<List<PortalPartner>> answer = await Api.ListPartnersAsync();
+        m_error = answer.Ok ? null : answer.Error;
+        m_partners = answer.Value;
+    }
+
+    private void OpenCreate()
+    {
+        m_name = null;
+        m_description = null;
+        m_permissions.Clear();
+        m_createOpen = true;
+    }
+
+    private void Toggle(string permission)
+    {
+        if (!m_permissions.Remove(permission))
+        {
+            m_permissions.Add(permission);
+        }
+    }
+
+    // The account first, then its grants; the page of the new partner opens either way
+    private async Task CreateAsync()
+    {
+        m_saving = true;
+        PortalAnswer<PortalPartner> created = await Api.CreatePartnerAsync(m_name?.Trim() ?? "", String.IsNullOrWhiteSpace(m_description) ? null : m_description.Trim());
+        if (!created.Ok)
+        {
+            m_saving = false;
+            Toasts.Error(PortalText.Error(created.Error), "Not created");
+            return;
+        }
+
+        if (m_permissions.Count > 0)
+        {
+            PortalAnswer<PortalPartner> granted = await Api.UpdatePartnerAsync(created.Value!.Id, new PortalUpdatePartnerRequest { Grants = new PortalGrantChanges { Add = m_permissions.ToList() } });
+            if (!granted.Ok)
+            {
+                Toasts.Error(PortalText.Error(granted.Error), "Created without permissions");
+            }
+        }
+
+        m_saving = false;
+        m_createOpen = false;
+        Toasts.Success($"{created.Value!.Name} is created and in the audit log.", "Done");
+        Navigation.NavigateTo(PortalRoutes.PartnerPage(created.Value.Id));
+    }
+}

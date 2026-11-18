@@ -786,6 +786,77 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("devices", (string)null);
                 });
 
+            modelBuilder.Entity("FlagRevision", b =>
+                {
+                    b.Property<int>("Number")
+                        .HasColumnType("integer")
+                        .HasColumnName("number");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("document");
+
+                    b.Property<int?>("RollbackOf")
+                        .HasColumnType("integer")
+                        .HasColumnName("rollback_of");
+
+                    b.HasKey("Number");
+
+                    b.ToTable("flag_revisions", (string)null);
+                });
+
+            modelBuilder.Entity("FlagRow", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("definition");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("flags", (string)null);
+                });
+
             modelBuilder.Entity("FriendRequest", b =>
                 {
                     b.Property<long>("FromUserId")
@@ -907,6 +978,143 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasKey("ID");
 
                     b.ToTable("data_protection_keys", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.TextRules.TextRuleException", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("term");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Language", "Term")
+                        .IsUnique()
+                        .HasDatabaseName("ux_text_rule_exceptions_language_term");
+
+                    b.ToTable("text_rule_exceptions", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.TextRules.TextRuleTerm", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Match")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("match_mode");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("severity");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("term");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("Language", "Term")
+                        .IsUnique()
+                        .HasDatabaseName("ux_text_rule_terms_language_term");
+
+                    b.ToTable("text_rule_terms", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.TextRules.TextRuleWorkflow", b =>
+                {
+                    b.Property<string>("Kind")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("definition");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Kind");
+
+                    b.ToTable("text_rule_workflows", (string)null);
                 });
 
             modelBuilder.Entity("LeaderboardEntry", b =>
@@ -1378,6 +1586,51 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasDatabaseName("ix_match_publications_pending");
 
                     b.ToTable("match_publications", (string)null);
+                });
+
+            modelBuilder.Entity("NameReservation", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("HeldAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("held_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("name_key");
+
+                    b.Property<int>("NameTag")
+                        .HasColumnType("integer")
+                        .HasColumnName("name_tag");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_name_reservations_user_id");
+
+                    b.HasIndex("NameKey", "NameTag")
+                        .IsUnique()
+                        .HasDatabaseName("ux_name_reservations_name_key_name_tag");
+
+                    b.ToTable("name_reservations", (string)null);
                 });
 
             modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
@@ -2111,6 +2364,9 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasIndex("UserID", "CreatedAt")
                         .HasDatabaseName("ix_session_events_user_created");
 
+                    b.HasIndex("Country", "UserID", "CreatedAt")
+                        .HasDatabaseName("ix_session_events_country_user");
+
                     b.ToTable("session_events", (string)null);
                 });
 
@@ -2485,6 +2741,17 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasForeignKey("MatchPublication", "MatchId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("NameReservation", b =>
+                {
+                    b.HasOne("User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>

@@ -55,12 +55,18 @@ internal sealed class AdminBrowser
 	private readonly IServiceProvider m_services;
 	private readonly Dictionary<string, string> m_cookies = new();
 
-	// settings: more configuration over password sign-in, such as Agreements:*
-	public AdminBrowser(ProbeDatabase probe, params (string Key, string Value)[] settings)
+	// extra settings add to the accounts settings, such as a registered client
+	public AdminBrowser(ProbeDatabase probe, params (string Key, string Value)[] extra) : this(probe, (Action<IServiceCollection>?)null, extra)
 	{
-		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled(settings)) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
+	}
+
+	// configure adds to the host's services, such as the LobbyManager the live lobby reads use
+	public AdminBrowser(ProbeDatabase probe, Action<IServiceCollection>? configure, params (string Key, string Value)[] extra)
+	{
+		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled(extra)) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
 		IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 		AccountsSettings accounts = AccountsSettings.Read(configuration);
+		Settings = accounts;
 
 		ServiceCollection services = new();
 		services.AddLogging();
@@ -83,6 +89,7 @@ internal sealed class AdminBrowser
 		services.AddSingleton<IAuthorizationHandler, ProbeRolesHandler>();
 		services.AddSingleton<IAuthorizationHandler, TokenPermissionHandler>();
 		PortalSetup.AddPortal(services);
+		configure?.Invoke(services);
 		m_services = services.BuildServiceProvider();
 
 		var app = new ApplicationBuilder(m_services);
@@ -99,6 +106,14 @@ internal sealed class AdminBrowser
 		});
 		m_pipeline = app.Build();
 	}
+
+	public AccountsSettings Settings { get; }
+
+	// The client address of every request, as the proxy or Kestrel reports it; null as a bare in-process request
+	public IPAddress? RemoteAddress { get; set; }
+
+	// The clients of the settings, written as Program seeds them at start
+	public Task SeedClients() => AccountsSetup.SeedClients(m_services, Settings);
 
 	public Task<PageResponse> Get(string path, Dictionary<string, string>? headers = null) => Send("GET", path, null, null, headers);
 
@@ -117,6 +132,7 @@ internal sealed class AdminBrowser
 		context.Request.Method = method;
 		context.Request.Scheme = "http";
 		context.Request.Host = new HostString(Host);
+		context.Connection.RemoteIpAddress = RemoteAddress;
 		int query = pathAndQuery.IndexOf('?');
 		context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery.Substring(0, query);
 		context.Request.QueryString = query < 0 ? QueryString.Empty : new QueryString(pathAndQuery.Substring(query));

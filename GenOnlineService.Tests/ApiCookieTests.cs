@@ -107,8 +107,8 @@ public class ApiCookieTests
 			Assert.Equal(401, response.Status);
 			Assert.Equal("unauthorized", AdminArea.ErrorOf(response));
 		}
-		PageResponse reset = await admin.SendJson("POST", $"/api/v1/players/{chief.ID}/reset_name", new { reason = "probe" }, await admin.Csrf());
-		Assert.Equal(401, reset.Status);
+		PageResponse roles = await admin.SendJson("PUT", $"/api/v1/players/{chief.ID}/roles", new { roles = new[] { "admin" } }, await admin.Csrf());
+		Assert.Equal(401, roles.Status);
 	}
 
 	// an API token needs no antiforgery header, with or without a sign-in cookie next to it

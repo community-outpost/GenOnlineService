@@ -72,6 +72,10 @@ public class MySqlAppDbContext : AppDbContext
 			e.Property(x => x.Provider).UseCollation("utf8mb4_bin");
 			e.Property(x => x.ExternUid).UseCollation("utf8mb4_bin");
 		});
+
+		// a listed word is told apart exactly, as on PostgreSQL: the lists hold Arabic letter variants and accented forms
+		modelBuilder.Entity<GenOnlineService.TextRules.TextRuleTerm>(e => e.Property(x => x.Term).UseCollation("utf8mb4_bin"));
+		modelBuilder.Entity<GenOnlineService.TextRules.TextRuleException>(e => e.Property(x => x.Term).UseCollation("utf8mb4_bin"));
 	}
 }
 

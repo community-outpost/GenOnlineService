@@ -265,7 +265,7 @@
     <value>Player id {0}</value>
   </data>
   <data name="Account.TagHint" xml:space="preserve">
-    <value>Your tag stays the same when you rename.</value>
+    <value>Your tag follows the name: switching back to an earlier name brings back its tag.</value>
   </data>
   <data name="Account.Save" xml:space="preserve">
     <value>Save changes</value>

@@ -501,14 +501,10 @@ namespace GenOnlineService
 				}
 
 				// both sides of a pair line up: user a to b, then b to a, attempt by attempt
-				var pairs = rows
-					.GroupBy(r => (Low: Math.Min(r.ReporterID, r.TargetUserID), High: Math.Max(r.ReporterID, r.TargetUserID)))
-					.OrderBy(g => g.Key.Low).ThenBy(g => g.Key.High);
-
-				foreach (var pair in pairs)
+				foreach (Database.ConnectionReports.Pair pair in Database.ConnectionReports.InPairs(rows))
 				{
-					Console.WriteLine($"pair user {pair.Key.Low} and user {pair.Key.High}:");
-					foreach (ConnectionReport r in pair.OrderBy(r => r.Attempt).ThenBy(r => r.ReporterID == pair.Key.Low ? 0 : 1))
+					Console.WriteLine($"pair user {pair.Low} and user {pair.High}:");
+					foreach (ConnectionReport r in pair.Reports)
 					{
 						Console.WriteLine("  " + DescribeConnection(r));
 					}
@@ -530,7 +526,7 @@ namespace GenOnlineService
 			return id;
 		}
 
-		private static string DescribeConnection(ConnectionReport r)
+		internal static string DescribeConnection(ConnectionReport r)
 		{
 			string timeline = String.Join(", ", Database.ConnectionReports.ParseEvents(r.Events).Select(e => $"{e.State}@{e.TMs}ms"));
 			return $"lobby {r.LobbyID}  user {r.ReporterID} -> user {r.TargetUserID}  attempt {r.Attempt}  {r.Outcome}  {r.Transport}  ipv{r.IpVersion}  updated {r.UpdatedAt:yyyy-MM-dd HH:mm:ss} UTC  events [{timeline}]";
@@ -601,13 +597,13 @@ namespace GenOnlineService
 			return 1;
 		});
 
-		private static string DescribeLease(RealtimeLease lease, DateTime now)
+		internal static string DescribeLease(RealtimeLease lease, DateTime now)
 		{
-			string holder = lease.Holder.Length == 0 ? "none" : lease.Holder;
-			string expiry = lease.ExpiresAt > now ? $"expires in {(lease.ExpiresAt - now).TotalMilliseconds:0} ms" : "expired";
-			string standby = lease.Standby != null && lease.StandbyExpiresAt > now ? lease.Standby : "none";
-			string requested = lease.HandoverRequestedAt != null ? "  handover requested" : String.Empty;
-			return $"holder {holder}  epoch {lease.Epoch}  {expiry}  standby {standby}{requested}";
+			// the staff pages read the same state (GET /api/v1/staff/realtime)
+			Rest.StaffRealtimeLease state = Rest.StaffRealtimeLease.Of(lease, now);
+			string expiry = state.ExpiresInMs is long ms ? $"expires in {ms} ms" : "expired";
+			string requested = state.HandoverRequested ? "  handover requested" : String.Empty;
+			return $"holder {state.Holder ?? "none"}  epoch {state.Epoch}  {expiry}  standby {state.Standby ?? "none"}{requested}";
 		}
 	}
 }

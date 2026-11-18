@@ -262,7 +262,7 @@
     <value>Spieler-ID {0}</value>
   </data>
   <data name="Account.TagHint" xml:space="preserve">
-    <value>Dein Tag bleibt bei einer Umbenennung gleich.</value>
+    <value>Dein Tag gehört zum Namen: Wechselst du zu einem früheren Namen zurück, bekommst du auch seinen Tag zurück.</value>
   </data>
   <data name="Account.Save" xml:space="preserve">
     <value>Änderungen speichern</value>

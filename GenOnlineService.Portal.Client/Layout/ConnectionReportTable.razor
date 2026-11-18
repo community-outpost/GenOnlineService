@@ -1,0 +1,65 @@
+@* The connection reports of a player or a lobby, as "connections player|lobby" prints them: who tried to reach whom,
+   which attempt, how it ended, over which transport, and the timeline of states. A report never carries an address *@
+
+<BbDataTable TData="PortalConnectionReport" Data="@Reports" ShowToolbar="false" ShowPagination="@(Reports.Count > 20)" InitialPageSize="20" AriaLabel="Connection reports" data-testid="connection-reports">
+    <Columns>
+        @if (ShowLobby)
+        {
+            <BbDataTableColumn TData="PortalConnectionReport" TValue="long" Property="@(r => r.LobbyId)" Header="Lobby">
+                <CellTemplate Context="report">
+                    <BbLink Href="@PortalRoutes.LobbyPage(report.LobbyId)" Class="bb:font-mono" data-testid="lobby-link">@report.LobbyId</BbLink>
+                </CellTemplate>
+            </BbDataTableColumn>
+        }
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => r.Reporter.FullName)" Header="From">
+            <CellTemplate Context="report">
+                <BbLink Href="@PortalRoutes.PlayerPage(report.Reporter.Id)">@report.Reporter.FullName</BbLink>
+            </CellTemplate>
+        </BbDataTableColumn>
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => r.Target.FullName)" Header="To">
+            <CellTemplate Context="report">
+                <BbLink Href="@PortalRoutes.PlayerPage(report.Target.Id)">@report.Target.FullName</BbLink>
+            </CellTemplate>
+        </BbDataTableColumn>
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="int" Property="@(r => r.Attempt)" Header="Attempt" CellClass="go-num" />
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => r.Outcome)" Header="Outcome">
+            <CellTemplate Context="report">
+                <BbBadge Variant="@VariantOf(report.Outcome)">@TextOf(report.Outcome)</BbBadge>
+            </CellTemplate>
+        </BbDataTableColumn>
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => r.Transport)" Header="Transport" />
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => "IPv" + r.IpVersion)" Header="IP" />
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => PortalText.Date(r.UpdatedAt))" Header="Updated" CellClass="go-nowrap" />
+        <BbDataTableColumn TData="PortalConnectionReport" TValue="string" Property="@(r => r.Timeline)" Header="Timeline" CellClass="bb:font-mono bb:text-xs" />
+    </Columns>
+    <EmptyTemplate>
+        <BbEmpty Size="EmptySize.Small" Title="No connection reports" Description="@EmptyText" />
+    </EmptyTemplate>
+</BbDataTable>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PortalConnectionReport> Reports { get; set; } = [];
+
+    // the player view shows the lobby of each report, the lobby view does not repeat it
+    [Parameter]
+    public bool ShowLobby { get; set; }
+
+    [Parameter]
+    public string EmptyText { get; set; } = "Game clients report each connection attempt to the other members of a lobby. Reports are kept 30 days.";
+
+    private static BadgeVariant VariantOf(string outcome) => outcome switch
+    {
+        "connected_direct" => BadgeVariant.Soft,
+        "connected_relay" => BadgeVariant.Secondary,
+        "failed" => BadgeVariant.SoftDestructive,
+        _ => BadgeVariant.Outline
+    };
+
+    private static string TextOf(string outcome) => outcome switch
+    {
+        "connected_direct" => "direct",
+        "connected_relay" => "relay",
+        _ => outcome
+    };
+}

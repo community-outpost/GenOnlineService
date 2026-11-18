@@ -91,6 +91,8 @@ namespace GenOnlineService.Rest
 
 		// online=true lists connected players from the hub's sessions; search= matches the start of display names, ignoring case;
 		// both together search the connected players. Sorted by name, offset paged with ?page=&per_page=.
+		[EndpointSummary("Lists connected players or searches players by name.")]
+		[ProducesResponseType<PlayerListResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players")]
 		public async Task<IActionResult> List()
 		{
@@ -153,6 +155,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// Blocked and deactivated accounts answer not_found; ratings are the stored ones
+		[EndpointSummary("Reads the public profile of a player.")]
+		[ProducesResponseType<PlayerProfileResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players/{userID:long}")]
 		public async Task<IActionResult> Get(long userID)
 		{
@@ -179,6 +183,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// A connected player's stats come from the session cache, which holds updates not yet read back; others from the database
+		[EndpointSummary("Reads the stats of a player.")]
+		[ProducesResponseType<PlayerStatsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players/{userID:long}/stats")]
 		public async Task<IActionResult> GetStats(long userID)
 		{
@@ -196,6 +202,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// Up to 100 players in one call: connected ones from the session cache, the rest in one bulk read; unknown ids are left out
+		[EndpointSummary("Reads the stats of several players.")]
+		[ProducesResponseType<PlayerStatsBatchResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players/stats")]
 		public async Task<IActionResult> GetStatsBatch([FromQuery] string? ids)
 		{

@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -216,6 +217,9 @@ namespace GenOnlineService.Rest
 
 		// Running and finished matches, newest first, offset paged; past 10,000 rows the answer carries no X-Total
 		[AllowSignInCookie]
+		[EndpointSummary("Searches matches for the staff pages.")]
+		[ProducesResponseType<StaffMatchListResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/matches/search")]
 		public async Task<IActionResult> Search()
 		{

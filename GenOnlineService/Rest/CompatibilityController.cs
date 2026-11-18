@@ -27,6 +27,8 @@ namespace GenOnlineService.Rest
 	[AllowAnonymous]
 	public sealed class CompatibilityController : ControllerBase
 	{
+		[EndpointSummary("Tells a client build whether it may play.")]
+		[ProducesResponseType<CompatibilityResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/compatibility")]
 		public async Task<IActionResult> Get()
 		{

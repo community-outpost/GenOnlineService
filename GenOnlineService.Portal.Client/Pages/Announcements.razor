@@ -1,0 +1,147 @@
+@* Announcements: the page header (nav-02) over a compose card that asks before POST /api/v1/announcements sends to every
+   connected player, and, with audit.read, the recent announcements from the audit log. announcements.send only *@
+@page "/admin/announcements"
+@inject PortalApi Api
+@inject ToastService Toasts
+
+<PageTitle>Announcements · Generals Online</PageTitle>
+
+<PageHeader Description="An announcement goes at once to every player connected to the game. Each one is in the audit log.">
+    <Title>Announcements</Title>
+</PageHeader>
+
+@if (!Session.Can(PortalPermissions.AnnouncementsSend))
+{
+    <Refusal Title="Announcements" Description="Sending an announcement needs the announcements.send permission." Icon="lock" />
+}
+else
+{
+    <div class="go-dashboard">
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Compose</BbCardTitle>
+                <BbCardDescription>Plain text, at most @MaximumLength characters. Players who connect later do not see it.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent Class="bb:space-y-4">
+                <div class="bb:space-y-2">
+                    <BbLabel For="announcement">Message</BbLabel>
+                    <BbTextarea Id="announcement" @bind-Value="m_message" UpdateTiming="UpdateTiming.Immediate" MaxLength="@MaximumLength" ShowCharacterCount="true" Placeholder="Servers restart in 10 minutes…" autocomplete="off" data-testid="announcement" />
+                </div>
+                <BbButton OnClick="@(() => m_confirmOpen = true)" Disabled="@(Text.Length == 0)" data-testid="send">
+                    <LucideIcon Name="megaphone" Class="bb:h-4 bb:w-4" />
+                    Send…
+                </BbButton>
+            </BbCardContent>
+        </BbCard>
+        @if (Session.Can(PortalPermissions.AuditRead))
+        {
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Recent announcements</BbCardTitle>
+                    <BbCardDescription>The newest @RecentCount from the audit log. Times are UTC.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    @if (m_recentError != null)
+                    {
+                        <p class="bb:text-sm bb:text-destructive" role="alert">@PortalText.Error(m_recentError)</p>
+                    }
+                    else if (m_recent == null)
+                    {
+                        <FeedSkeleton />
+                    }
+                    else if (m_recent.Count == 0)
+                    {
+                        <p class="bb:text-sm bb:text-muted-foreground">No announcement was sent yet.</p>
+                    }
+                    else
+                    {
+                        <ul class="bb:space-y-3" data-testid="recent-announcements">
+                            @foreach (PortalAuditEvent entry in m_recent)
+                            {
+                                <li class="bb:space-y-1">
+                                    <p class="bb:text-sm" style="white-space: pre-wrap; overflow-wrap: anywhere">@MessageOf(entry)</p>
+                                    <p class="bb:text-xs bb:text-muted-foreground">@PortalText.Date(entry.CreatedAt) · @(entry.Actor?.DisplayName ?? entry.ActorName)</p>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </BbCardContent>
+            </BbCard>
+        }
+    </div>
+
+    <BbDialog @bind-Open="m_confirmOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Send this announcement?</BbDialogTitle>
+                <BbDialogDescription>Every connected player sees it at once. It cannot be taken back.</BbDialogDescription>
+            </BbDialogHeader>
+            <p class="bb:text-sm bb:rounded-md bb:border bb:p-3" style="white-space: pre-wrap; overflow-wrap: anywhere">@Text</p>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_confirmOpen = false)" Disabled="@m_sending">Cancel</BbButton>
+                <BbButton OnClick="SendAsync" Loading="@m_sending" data-testid="confirm">Send</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    // Announcements.MaximumLength on the host
+    private const int MaximumLength = 512;
+    private const int RecentCount = 10;
+
+    private string? m_message;
+    private bool m_confirmOpen;
+    private bool m_sending;
+    private IReadOnlyList<PortalAuditEvent>? m_recent;
+    private string? m_recentError;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    // The host sends the trimmed text
+    private string Text => m_message?.Trim() ?? "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRecentAsync();
+    }
+
+    private async Task LoadRecentAsync()
+    {
+        if (!Session.Can(PortalPermissions.AnnouncementsSend) || !Session.Can(PortalPermissions.AuditRead))
+        {
+            return;
+        }
+
+        PortalAnswer<PortalAuditPage> answer = await Api.GetAuditAsync(new PortalAuditQuery { Action = "announcement" }, null, RecentCount, CancellationToken.None);
+        m_recent = answer.Value?.AuditEvents;
+        m_recentError = answer.Ok ? null : answer.Error;
+    }
+
+    // The audit row keeps the text as {message}
+    private static string MessageOf(PortalAuditEvent entry) =>
+        entry.Details is { ValueKind: System.Text.Json.JsonValueKind.Object } details && details.TryGetProperty("message", out System.Text.Json.JsonElement message) && message.ValueKind == System.Text.Json.JsonValueKind.String
+            ? message.GetString()!
+            : "";
+
+    private async Task SendAsync()
+    {
+        m_sending = true;
+        PortalAnswer<PortalAnnouncementResult> answer = await Api.SendAnnouncementAsync(Text);
+        m_sending = false;
+        m_confirmOpen = false;
+
+        if (answer.Ok)
+        {
+            int delivered = answer.Value!.DeliveredTo;
+            Toasts.Success($"Sent to {PortalText.Count(delivered)} {(delivered == 1 ? "player" : "players")} online.", "Announcement sent");
+            m_message = null;
+            await LoadRecentAsync();
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(answer.Error), "Not sent");
+        }
+    }
+}

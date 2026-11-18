@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.OpenApi;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -132,6 +133,9 @@ namespace GenOnlineService.Api
 		}
 
 		// 32 events fit in about 1.5 KB, larger bodies are refused before parsing
+		[EndpointSummary("Reports how a connection attempt to another lobby member went.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(ConnectionReportRequest))]
 		[HttpPost("~/api/v1/lobbies/{lobbyID:long}/connection_reports")]
 		[RequestSizeLimit(8192)]
 		public async Task<IActionResult> Create(long lobbyID)

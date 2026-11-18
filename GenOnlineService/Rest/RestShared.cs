@@ -67,6 +67,8 @@ namespace GenOnlineService.Rest
 			[RestCodes.MethodNotAllowed] = StatusCodes.Status405MethodNotAllowed,
 			[RestCodes.RoleRank] = StatusCodes.Status403Forbidden,
 			[RestCodes.RoleUpstream] = StatusCodes.Status409Conflict,
+			[GenOnlineService.Flags.FlagCodes.Stale] = StatusCodes.Status409Conflict,
+			[GenOnlineService.Flags.FlagCodes.Exists] = StatusCodes.Status409Conflict,
 		};
 
 		public static int StatusOf(string code) => s_statuses.TryGetValue(code, out int status) ? status : ApiResults.StatusOf(code);

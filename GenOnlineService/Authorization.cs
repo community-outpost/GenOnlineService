@@ -40,12 +40,23 @@ namespace GenOnlineService
 		public const string TokensManage = "tokens.manage";
 		public const string AuditRead = "audit.read";
 		public const string SettingsManage = "settings.manage";
+		public const string FlagsManage = "flags.manage";
+		public const string PlaylistsManage = "playlists.manage";
+		public const string LaddersManage = "ladders.manage";
+		public const string ChannelsManage = "channels.manage";
+		public const string BroadcastsManage = "broadcasts.manage";
 
 		// Reads the anti-cheat review lists and marks their rows reviewed
 		public const string AnticheatReview = "anticheat.review";
 
 		// Reads the sign-ins, devices, addresses and possible duplicate accounts of a player
 		public const string PlayersInspect = "players.inspect";
+
+		// Resets the password or the two-factor sign-in of a player who lost them, from the staff pages only
+		public const string AccountsSupport = "accounts.support";
+
+		// Changes the word lists, exceptions and rules of the text checks of names, lobby names and chat
+		public const string TextRulesManage = "textrules.manage";
 
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
@@ -55,7 +66,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect, AccountsSupport, TextRulesManage, FlagsManage, PlaylistsManage, LaddersManage, ChannelsManage, BroadcastsManage
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -69,6 +80,12 @@ namespace GenOnlineService
 			UsersRevoke, OpsDatabase
 		};
 
+		// Human permissions that act only through the staff pages, so no service account is ever granted them
+		public static readonly IReadOnlySet<string> StaffOnly = new HashSet<string>(StringComparer.Ordinal)
+		{
+			AccountsSupport
+		};
+
 		public static IEnumerable<string> All => Human.Concat(Machine);
 
 		public static bool IsKnown(string permission) => Human.Contains(permission) || Machine.Contains(permission);
@@ -76,6 +93,8 @@ namespace GenOnlineService
 		public static bool IsMachine(string permission) => Machine.Contains(permission);
 
 		public static bool IsPrivileged(string permission) => Privileged.Contains(permission);
+
+		public static bool IsStaffOnly(string permission) => StaffOnly.Contains(permission);
 	}
 
 	// The in-memory copy is reloaded on the reconcile tick, so a change made in the database applies without a restart
@@ -115,7 +134,14 @@ namespace GenOnlineService
 			Permissions.AuditRead,
 			Permissions.SettingsManage,
 			Permissions.AnticheatReview,
-			Permissions.PlayersInspect
+			Permissions.PlayersInspect,
+			Permissions.AccountsSupport,
+			Permissions.TextRulesManage,
+			Permissions.FlagsManage,
+			Permissions.PlaylistsManage,
+			Permissions.LaddersManage,
+			Permissions.ChannelsManage,
+			Permissions.BroadcastsManage
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)
