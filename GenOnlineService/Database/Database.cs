@@ -89,6 +89,7 @@ public abstract partial class AppDbContext : DbContext
 	public DbSet<Sanction> Sanctions => Set<Sanction>();
 	public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 	public DbSet<SanctionEvidence> SanctionEvidence => Set<SanctionEvidence>();
+	public DbSet<GenOnlineService.Identity.ErasedAccount> ErasedAccounts => Set<GenOnlineService.Identity.ErasedAccount>();
 
 	// Social
 	public DbSet<Friendship> Friendships => Set<Friendship>();
@@ -240,6 +241,7 @@ public abstract partial class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new SanctionConfiguration());
 		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
 		modelBuilder.ApplyConfiguration(new SanctionEvidenceConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.Identity.ErasedAccountConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendshipConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
 		modelBuilder.ApplyConfiguration(new UserBlockConfiguration());

@@ -106,10 +106,16 @@ namespace GenOnlineService.Identity
 			return IdentityResult.Success;
 		}
 
-		// Accounts are deactivated, never deleted, so ids and match history stay intact
-		public Task<IdentityResult> DeleteAsync(User user, CancellationToken cancellationToken)
+		// Deleting an account erases its personal data and keeps the row as a tombstone, so ids, matches and bans stay intact
+		// (AccountErasure); the owner is the actor
+		public async Task<IdentityResult> DeleteAsync(User user, CancellationToken cancellationToken)
 		{
-			return Task.FromResult(IdentityResult.Failed(new IdentityError { Code = "NotSupported", Description = "Accounts are deactivated, not deleted." }));
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			var actor = new Database.ModerationActor { Kind = AuditActorKinds.User, UserID = user.ID, Name = $"user:{user.ID}", Source = ModerationSources.Api };
+			ErasureResult result = await AccountErasure.Erase(db, user.ID, actor, null, live: true, cancellationToken);
+			return result.Found
+				? IdentityResult.Success
+				: IdentityResult.Failed(new IdentityError { Code = "NotFound", Description = "The account does not exist." });
 		}
 
 		public async Task<User?> FindByIdAsync(string userId, CancellationToken cancellationToken)

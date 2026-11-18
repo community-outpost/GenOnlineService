@@ -30,9 +30,13 @@ namespace GenOnlineService
 			+ "  GenOnlineService users password-reset <user_id> [--password-stdin] [--reason <text>]\n"
 			+ "  GenOnlineService users two-factor-reset <user_id> [--reason <text>]\n"
 			+ "  GenOnlineService users name-reset <user_id> [--reason <text>]\n"
+			+ "  GenOnlineService users delete <user_id> --reason <text> --yes\n"
 			+ "password-reset prints a new random password once, or sets the one read from standard input with --password-stdin.\n"
 			+ "Both end the account's lockout, revoke every sign-in of the game with its refresh tokens, and sign it out of the website within a minute.\n"
-			+ "name-reset replaces an inappropriate player name with a placeholder and ends every sign-in; the player chooses a new name when signing in again.";
+			+ "name-reset replaces an inappropriate player name with a placeholder and ends every sign-in; the player chooses a new name when signing in again.\n"
+			+ "delete erases the account on its owner's request and cannot be undone: the personal data goes, the account id stays with a\n"
+			+ "neutral name so matches, ratings and bans keep it, and the name leaves the player's matches. While a ban is active its device\n"
+			+ "ids and sign-in provider links stay until the ban ends. --yes confirms; the reason (the request) is required.";
 
 		private sealed class CliException : Exception
 		{
@@ -45,7 +49,7 @@ namespace GenOnlineService
 			public AppDbContext CreateDbContext() => Program.OpenConfiguredDbContext();
 		}
 
-		private sealed record Arguments(string Command, Int64 UserID, bool PasswordFromStdin, string? Reason);
+		private sealed record Arguments(string Command, Int64 UserID, bool PasswordFromStdin, string? Reason, bool Confirmed);
 
 		private static Arguments Parse(string[] args)
 		{
@@ -55,18 +59,23 @@ namespace GenOnlineService
 			}
 
 			string command = args[1].ToLowerInvariant();
-			if (command != "password-reset" && command != "two-factor-reset" && command != "name-reset")
+			if (command != "password-reset" && command != "two-factor-reset" && command != "name-reset" && command != "delete")
 			{
 				throw new CliException(Usage);
 			}
 
 			bool fromStdin = false;
+			bool confirmed = false;
 			string? reason = null;
 			for (int i = 3; i < args.Length; i++)
 			{
 				if (args[i].Equals("--password-stdin", StringComparison.OrdinalIgnoreCase) && command == "password-reset")
 				{
 					fromStdin = true;
+				}
+				else if (args[i].Equals("--yes", StringComparison.OrdinalIgnoreCase) && command == "delete")
+				{
+					confirmed = true;
 				}
 				else if (args[i].Equals("--reason", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
 				{
@@ -79,7 +88,12 @@ namespace GenOnlineService
 				}
 			}
 
-			return new Arguments(command, userID, fromStdin, reason);
+			if (command == "delete" && (String.IsNullOrWhiteSpace(reason) || !confirmed))
+			{
+				throw new CliException($"delete cannot be undone: give the request as --reason <text> and confirm with --yes.{Environment.NewLine}{Usage}");
+			}
+
+			return new Arguments(command, userID, fromStdin, reason, confirmed);
 		}
 
 		private static string CliActor()
@@ -109,6 +123,22 @@ namespace GenOnlineService
 						throw new InvalidOperationException(reset.Code == Realtime.ErrorCodes.NotFound ? $"No user with id {parsed.UserID}." : $"The name of user {parsed.UserID} was not reset: {reset.Code}.");
 					}
 					Console.WriteLine($"The name of user {parsed.UserID} is reset and their sign-ins ended; they choose a new name when they sign in again.");
+					return 0;
+				}
+
+				if (parsed.Command == "delete")
+				{
+					var actor = new Database.ModerationActor { Kind = AuditActorKinds.Cli, Name = CliActor(), Source = ModerationSources.Cli };
+					// the running service picks up the deactivated account on its 5 second access reload and ends its connections
+					ErasureResult erased = await AccountErasure.Erase(db, parsed.UserID, actor, parsed.Reason, live: false);
+					if (!erased.Found)
+					{
+						throw new InvalidOperationException($"No user with id {parsed.UserID}.");
+					}
+					Console.WriteLine(erased.AlreadyErased
+						? $"User {parsed.UserID} was already erased, nothing changed."
+						: $"User {parsed.UserID} is erased; their name left {erased.MatchesRenamed} match row(s)."
+							+ (erased.BanHeld ? " An active ban holds their device ids and sign-in provider links until it ends." : String.Empty));
 					return 0;
 				}
 

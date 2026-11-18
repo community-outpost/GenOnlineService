@@ -989,6 +989,21 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("data_protection_keys", (string)null);
                 });
 
+            modelBuilder.Entity("GenOnlineService.Identity.ErasedAccount", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTime>("ErasedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("erased_at");
+
+                    b.HasKey("UserID");
+
+                    b.ToTable("erased_accounts", (string)null);
+                });
+
             modelBuilder.Entity("GenOnlineService.Rules.AutomatedRule", b =>
                 {
                     b.Property<long>("ID")

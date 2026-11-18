@@ -87,7 +87,7 @@ namespace GenOnlineService.Identity
 		// Every stored sign-in and its tokens end, the stored game sessions go and every personal gopat- token of the
 		// account is revoked (each with its token_revoke row), so no copy of the service and no refresh accepts them again;
 		// returns the number of sign-ins and of personal tokens revoked
-		private static async Task<(int SignIns, int Tokens)> RevokeSignIns(AppDbContext db, Int64 userID, Database.ModerationActor actor, string action)
+		internal static async Task<(int SignIns, int Tokens)> RevokeSignIns(AppDbContext db, Int64 userID, Database.ModerationActor actor, string action)
 		{
 			int signIns = await SignInRevocation.RevokeStored(db, userID);
 			await Database.GameSessionStore.DeleteUser(db, userID, null);
@@ -110,7 +110,7 @@ namespace GenOnlineService.Identity
 
 		// The token cache of this process follows at once, other copies on their reconcile tick; the running service also
 		// forgets the game sessions it caches and closes the realtime connections with auth.revoked
-		private static async Task EndLive(AppDbContext db, Int64 userID, bool live, int tokens, string reason)
+		internal static async Task EndLive(AppDbContext db, Int64 userID, bool live, int tokens, string reason)
 		{
 			if (tokens > 0)
 			{

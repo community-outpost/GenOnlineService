@@ -1716,6 +1716,20 @@ namespace GenOnlineService
 							app.Logger.LogError(ex, "Sanction and staff log retention purge failed");
 						}
 
+						// The sign-in provider links an erased account kept for its ban go once the ban is over
+						try
+						{
+							int identities = await GenOnlineService.Identity.AccountErasure.PurgeHeldIdentities(db, DateTime.UtcNow);
+							if (identities > 0)
+							{
+								app.Logger.LogInformation("Retention purge removed {IdentityCount} sign-in provider links of erased accounts", identities);
+							}
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Erased account identity purge failed");
+						}
+
 						// A copy is held until 90 days after its sanction ended; the rows of a purged sanction go too
 						try
 						{

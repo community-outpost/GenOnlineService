@@ -102,6 +102,10 @@ audit_log                 -- append-only, purged 2 years after created_at
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
   index (target_kind, target_id), index (created_at)
 
+erased_accounts           -- one row per account erased on request (AccountErasure, docs/identity.md section 7); the users row
+                          -- stays as a tombstone under the same id, so matches, ratings and sanctions keep it
+  user_id pk, erased_at
+
 sanction_evidence         -- retention: the row and its object go 90 days after the sanction ended (lifted or expired),
                           -- or when the sanction is gone; an object another sanction still holds stays
   id, sanction_id, user_id, match_id, object_key varchar(256), created_at, created_by_id bigint null

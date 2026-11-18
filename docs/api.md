@@ -24,7 +24,7 @@ Every REST route of the service. The realtime hub is `/realtime` (`docs/realtime
 | `POST /api/v1/me/linked_accounts/:provider/sign_in_token` | game session | `{token, expires_in}`; for `eos` the EOS ID token. `not_found {what: provider}` (404), `session.game_required` (403), `service.unavailable {what: linked_account, provider}` (503) |
 | `PUT /api/v1/me/linked_accounts/:provider` | game session | body `{proof}` (for `eos` the Epic Connect ID token), 204; `not_found {what: provider}` (404), `invalid_argument {field: proof}` (400), `session.game_required` (403), `linked_account.invalid_proof` (422), `linked_account.mismatch` (403), `linked_account.in_use` (409), `linked_account.locked` (409), all four with `{provider}`, `service.unavailable {what: linked_account, provider}` (503) |
 
-Account deletion (`DELETE /api/v1/me`) is not built: it needs a data-retention decision. Signing out is `DELETE /api/v1/auth/session`.
+Self-service account deletion (`DELETE /api/v1/me`) is not built; staff erase an account on request with `users delete` (`docs/identity.md` section 7). Signing out is `DELETE /api/v1/auth/session`.
 
 ## Meta
 
