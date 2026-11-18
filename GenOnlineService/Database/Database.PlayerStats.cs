@@ -57,16 +57,6 @@ namespace Database
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(UserStats));
 
-		private static readonly Func<AppDbContext, long, Task<string?>> _getUserStatsJson =
-	EF.CompileAsyncQuery(
-		(AppDbContext db, long userId) =>
-			db.PlayerStats
-			  .Where(s => s.UserId == userId)
-			  .Select(s => s.Stats)
-			  .FirstOrDefault()
-	);
-
-
 		public static async Task<PlayerStats> GetPlayerStats(
 	AppDbContext db,
 	long userId)
@@ -88,7 +78,7 @@ namespace Database
 			try
 			{
 				// Load stats JSON via EF
-				string? json = await _getUserStatsJson(db, userId);
+				string? json = await db.PlayerStats.Where(s => s.UserId == userId).Select(s => s.Stats).FirstOrDefaultAsync();
 
 				// no stats row → return ELO-only stats
 				ApplyStatsJson(ps, json);
