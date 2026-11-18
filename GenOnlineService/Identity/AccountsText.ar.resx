@@ -688,4 +688,208 @@
   <data name="Account.StaffTools" xml:space="preserve">
     <value>أدوات الطاقم</value>
   </data>
+  <data name="Social.Friends.Title" xml:space="preserve">
+    <value>الأصدقاء</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.Intro" xml:space="preserve">
+    <value>التغييرات هنا تظهر في اللعبة فورًا.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Count" xml:space="preserve">
+    <value>{0} طلبات صداقة</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Title" xml:space="preserve">
+    <value>إضافة صديق</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Placeholder" xml:space="preserve">
+    <value>الاسم#0000 أو معرّف اللاعب</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Hint" xml:space="preserve">
+    <value>اسمه الكامل مع الوسم كما يظهر في اللعبة، أو معرّف اللاعب (رقم مثل 1042291).</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Submit" xml:space="preserve">
+    <value>إرسال الطلب</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Title" xml:space="preserve">
+    <value>الطلبات</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Description" xml:space="preserve">
+    <value>الواردة: {0}. التي أرسلتها: {1}.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.EmptyTitle" xml:space="preserve">
+    <value>لا توجد طلبات معلّقة</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.EmptyBody" xml:space="preserve">
+    <value>ستظهر طلبات الصداقة الجديدة هنا.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Request.Incoming" xml:space="preserve">
+    <value>يريد أن يصبح صديقك</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Request.Outgoing" xml:space="preserve">
+    <value>أرسلت طلبًا</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Accept" xml:space="preserve">
+    <value>قبول</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Decline" xml:space="preserve">
+    <value>رفض</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Cancel" xml:space="preserve">
+    <value>إلغاء الطلب</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.List.Title" xml:space="preserve">
+    <value>أصدقاؤك</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.List.Description" xml:space="preserve">
+    <value>{0} من {1} أصدقاء.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.EmptyTitle" xml:space="preserve">
+    <value>لا أصدقاء بعد</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.EmptyBody" xml:space="preserve">
+    <value>أضف صديقًا بالاسم والوسم أعلاه.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Offline" xml:space="preserve">
+    <value>غير متصل</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Online" xml:space="preserve">
+    <value>متصل</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Lobby" xml:space="preserve">
+    <value>متصل، في غرفة انتظار</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Matchmaking" xml:space="preserve">
+    <value>متصل، في البحث عن مباراة</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.InGame" xml:space="preserve">
+    <value>متصل، في لعبة</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.More" xml:space="preserve">
+    <value>المزيد لـ {0}</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Remove" xml:space="preserve">
+    <value>إزالة الصديق</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.MenuNote" xml:space="preserve">
+    <value>تحتوي قائمة كل صديق على «إزالة الصديق» و«حظر».</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Sent" xml:space="preserve">
+    <value>تم إرسال طلب الصداقة.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Accepted" xml:space="preserve">
+    <value>أصبحتما صديقين الآن.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Declined" xml:space="preserve">
+    <value>تم رفض الطلب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Cancelled" xml:space="preserve">
+    <value>تم إلغاء الطلب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Removed" xml:space="preserve">
+    <value>تمت إزالة الصديق.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Neutral" xml:space="preserve">
+    <value>تعذّر إرسال هذا الطلب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Full" xml:space="preserve">
+    <value>قائمة الأصدقاء ممتلئة (الحد الأقصى {0} صديق)، لذلك تعذّر ذلك.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Self" xml:space="preserve">
+    <value>هذا أنت. أدخل لاعبًا آخر.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Gone" xml:space="preserve">
+    <value>تغيّر هذا بالفعل. تعرض الصفحة الحالة الحالية.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.TooMany" xml:space="preserve">
+    <value>محاولات كثيرة جدًا. انتظر بضع دقائق ثم حاول مجددًا.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Title" xml:space="preserve">
+    <value>اللاعبون المحظورون</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Intro" xml:space="preserve">
+    <value>اللاعبون الذين حظرتهم هنا أو في اللعبة. يمكنك إلغاء الحظر في أي وقت؛ ولن يُبلَّغوا في الحالتين.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Title" xml:space="preserve">
+    <value>حظر لاعب</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Hint" xml:space="preserve">
+    <value>اسمه الكامل مع الوسم، أو معرّف اللاعب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Submit" xml:space="preserve">
+    <value>حظر</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Meta" xml:space="preserve">
+    <value>محظور</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Unblock" xml:space="preserve">
+    <value>إلغاء الحظر</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyTitle" xml:space="preserve">
+    <value>لا يوجد لاعبون محظورون</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyBody" xml:space="preserve">
+    <value>اللاعبون الذين تحظرهم يظهرون هنا. يمكنك إلغاء حظرهم في أي وقت.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.ReportNote" xml:space="preserve">
+    <value>هل يخالف أحدهم القواعد؟ الحظر يخفيه عنك أنت فقط. أبلغ عنه داخل اللعبة ليتمكن مشرف من التصرف.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Block" xml:space="preserve">
+    <value>حظر</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Blocked" xml:space="preserve">
+    <value>تم حظر اللاعب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Unblocked" xml:space="preserve">
+    <value>تم إلغاء حظر اللاعب.</value>
+    <comment>needs native review</comment>
+  </data>
 </root>

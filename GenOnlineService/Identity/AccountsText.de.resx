@@ -688,4 +688,208 @@
   <data name="Account.StaffTools" xml:space="preserve">
     <value>Team-Werkzeuge</value>
   </data>
+  <data name="Social.Friends.Title" xml:space="preserve">
+    <value>Freunde</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.Intro" xml:space="preserve">
+    <value>Änderungen hier erscheinen sofort im Spiel.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Count" xml:space="preserve">
+    <value>{0} Freundschaftsanfragen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Title" xml:space="preserve">
+    <value>Freund hinzufügen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Placeholder" xml:space="preserve">
+    <value>Name#0000 oder Spieler-ID</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Hint" xml:space="preserve">
+    <value>Der vollständige Name mit Tag, wie im Spiel angezeigt, oder die Spieler-ID (eine Zahl wie 1042291).</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Add.Submit" xml:space="preserve">
+    <value>Anfrage senden</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Title" xml:space="preserve">
+    <value>Anfragen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.Description" xml:space="preserve">
+    <value>Eingehend: {0}. Von dir gesendet: {1}.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.EmptyTitle" xml:space="preserve">
+    <value>Keine offenen Anfragen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Requests.EmptyBody" xml:space="preserve">
+    <value>Neue Freundschaftsanfragen erscheinen hier.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Request.Incoming" xml:space="preserve">
+    <value>Möchte mit dir befreundet sein</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Request.Outgoing" xml:space="preserve">
+    <value>Du hast eine Anfrage gesendet</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Accept" xml:space="preserve">
+    <value>Annehmen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Decline" xml:space="preserve">
+    <value>Ablehnen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Cancel" xml:space="preserve">
+    <value>Anfrage zurückziehen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.List.Title" xml:space="preserve">
+    <value>Deine Freunde</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.List.Description" xml:space="preserve">
+    <value>{0} von {1} Freunden.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.EmptyTitle" xml:space="preserve">
+    <value>Noch keine Freunde</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.EmptyBody" xml:space="preserve">
+    <value>Füge oben einen Freund mit Name und Tag hinzu.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Offline" xml:space="preserve">
+    <value>Offline</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Online" xml:space="preserve">
+    <value>Online</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Lobby" xml:space="preserve">
+    <value>Online, in einer Lobby</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.Matchmaking" xml:space="preserve">
+    <value>Online, in der Spielersuche</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Presence.InGame" xml:space="preserve">
+    <value>Online, in einem Spiel</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.More" xml:space="preserve">
+    <value>Mehr für {0}</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Remove" xml:space="preserve">
+    <value>Freund entfernen</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friends.MenuNote" xml:space="preserve">
+    <value>Das Menü bei jedem Freund enthält „Freund entfernen“ und „Blockieren“.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Sent" xml:space="preserve">
+    <value>Freundschaftsanfrage gesendet.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Accepted" xml:space="preserve">
+    <value>Ihr seid jetzt befreundet.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Declined" xml:space="preserve">
+    <value>Anfrage abgelehnt.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Cancelled" xml:space="preserve">
+    <value>Anfrage zurückgezogen.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Removed" xml:space="preserve">
+    <value>Freund entfernt.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Neutral" xml:space="preserve">
+    <value>Wir konnten diese Anfrage nicht senden.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Full" xml:space="preserve">
+    <value>Eine Freundesliste ist voll (höchstens {0} Freunde), daher ging das nicht.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Self" xml:space="preserve">
+    <value>Das bist du. Gib einen anderen Spieler ein.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.Gone" xml:space="preserve">
+    <value>Das hat sich schon geändert. Die Seite zeigt den aktuellen Stand.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Error.TooMany" xml:space="preserve">
+    <value>Zu viele Versuche. Bitte warte ein paar Minuten und versuche es erneut.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Title" xml:space="preserve">
+    <value>Blockierte Spieler</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Intro" xml:space="preserve">
+    <value>Spieler, die du hier oder im Spiel blockiert hast. Du kannst sie jederzeit entsperren; sie erfahren in keinem Fall davon.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Title" xml:space="preserve">
+    <value>Spieler blockieren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Hint" xml:space="preserve">
+    <value>Der vollständige Name mit Tag oder die Spieler-ID.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Submit" xml:space="preserve">
+    <value>Blockieren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Meta" xml:space="preserve">
+    <value>Blockiert</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Unblock" xml:space="preserve">
+    <value>Entsperren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyTitle" xml:space="preserve">
+    <value>Keine blockierten Spieler</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyBody" xml:space="preserve">
+    <value>Spieler, die du blockierst, erscheinen hier. Du kannst sie jederzeit entsperren.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.ReportNote" xml:space="preserve">
+    <value>Jemand verstößt gegen die Regeln? Blockieren blendet ihn nur für dich aus. Melde ihn im Spiel, damit ein Moderator eingreifen kann.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Block" xml:space="preserve">
+    <value>Blockieren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Blocked" xml:space="preserve">
+    <value>Spieler blockiert.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Unblocked" xml:space="preserve">
+    <value>Spieler entsperrt.</value>
+    <comment>needs native review</comment>
+  </data>
 </root>
