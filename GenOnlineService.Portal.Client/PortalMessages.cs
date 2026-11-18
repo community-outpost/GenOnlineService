@@ -182,6 +182,23 @@ namespace GenOnlineService.Portal.Client
 			"revoke_sessions" => "Signed out everywhere",
 			"revoke_client_sessions" => "Client sessions revoked",
 			"client_add" => "Client added",
+			"sa_update" => "Service account changed",
+			"text_term_add" => "Word added",
+			"text_term_update" => "Word changed",
+			"text_term_remove" => "Word removed",
+			"text_exception_add" => "Exception added",
+			"text_exception_remove" => "Exception removed",
+			"text_workflow_update" => "Text rule changed",
+			"text_rules_seed" => "Word lists imported",
+			"investigate_search" => "Investigation search",
+			"flag_create" => "Config field added",
+			"flag_update" => "Config field changed",
+			"flag_archive" => "Config field archived",
+			"flag_restore" => "Config field restored",
+			"flags_publish" => "Game config published",
+			"flags_rollback" => "Game config rolled back",
+			"flags_import" => "Game config imported",
+			"flags_reset" => "Game config draft reset",
 			_ => action
 		};
 
