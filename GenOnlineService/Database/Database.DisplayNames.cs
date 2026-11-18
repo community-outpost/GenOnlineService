@@ -43,7 +43,8 @@ public class NameReservation
 	public string NameKey { get; set; } = String.Empty;
 	public int NameTag { get; set; }
 
-	// When the user last took the pair; the newest of a user's tags for one key comes back first
+	// When the user last held the pair: when they took it, or when they left it if they have since (the changed_at of
+	// that user_username_history row). The newest of a user's tags for one key comes back first.
 	public DateTime HeldAt { get; set; } = DateTime.UnixEpoch;
 }
 
@@ -76,6 +77,12 @@ public enum LocalRenameOutcome
 	Taken
 }
 
+// Another user holds the reservation of the pair a name change was about to take; the caller reads again and retries
+public sealed class NameReservationConflictException : Exception
+{
+	public NameReservationConflictException(string name, int tag) : base($"The pair {name}#{tag:D4} is reserved for another user") { }
+}
+
 // Every one of the 9,999 tags of a name is in use
 public sealed class NameTagsExhaustedException : Exception
 {
@@ -96,6 +103,12 @@ namespace Database
 
 		// Candidates tried before a crowded name falls back to the next free tag after the first one
 		private const int CandidateLimit = 64;
+
+		// How often a sign-up tries a tag before the unique indexes' refusal reaches the caller
+		public const int NewUserAttempts = 8;
+
+		// Retries up to this attempt pick among the next free candidates; later ones pick any free tag
+		private const int SpreadAttempts = 4;
 
 		private static readonly ILogger s_log = AppLog.For(typeof(DisplayNames));
 
@@ -140,7 +153,9 @@ namespace Database
 		// The tag a user gets with a name: the one they hold now when the name is a look-alike of their current one, else their
 		// own reserved tag for it, newest first, else the first of their candidates (NameTags) that no other user holds or has
 		// reserved under the look-alike key. The same player and name always end at the same tag while it stays theirs.
-		private static async Task<int> TagFor(AppDbContext db, Int64 userID, User? current, string name)
+		// A retry after a lost race (attempt 2 on) picks a random one of the next free candidates, and past SpreadAttempts any
+		// free tag, so many sign-ups of one name at once spread out instead of meeting on the same tag again.
+		private static async Task<int> TagFor(AppDbContext db, Int64 userID, User? current, string name, int attempt = 1)
 		{
 			string key = NameKey.Of(name);
 			string normalized = NameNormalizer.Normalize(name);
@@ -174,18 +189,22 @@ namespace Database
 				throw new NameTagsExhaustedException(name);
 			}
 
-			int first = 0;
-			foreach (int tag in NameTags.Candidates(userID, key).Take(CandidateLimit))
+			List<int> candidates = NameTags.Candidates(userID, key).Take(CandidateLimit).ToList();
+			List<int> free = candidates.Where(t => !used.Contains(t)).ToList();
+			if (attempt > 1 && attempt <= SpreadAttempts && free.Count > 1)
 			{
-				if (!used.Contains(tag))
-				{
-					return tag;
-				}
-				if (first == 0)
-				{
-					first = tag;
-				}
+				return free[1 + Random.Shared.Next(Math.Min(free.Count - 1, attempt * 4))];
 			}
+			if (attempt > SpreadAttempts)
+			{
+				List<int> any = Enumerable.Range(MinTag, range).Where(t => !used.Contains(t)).ToList();
+				return any[Random.Shared.Next(any.Count)];
+			}
+			if (free.Count > 0)
+			{
+				return free[0];
+			}
+			int first = candidates[0];
 
 			// a crowded name: the next free tag after the first candidate, still the same for the same player and name
 			for (int step = 1; ; step++)
@@ -198,9 +217,10 @@ namespace Database
 			}
 		}
 
-		// Keeps name#tag for the user. With take the user now holds the pair, and a reservation of theirs is refreshed;
-		// otherwise the pair is only added when nobody has it reserved, which covers a name copied from an upstream earlier.
-		private static async Task Reserve(AppDbContext db, Int64 userID, string name, int tag, DateTime now, bool take)
+		// Keeps name#tag for the user at now: take is the pair the user takes, otherwise the one they leave. A reservation of
+		// theirs is refreshed, a missing one is added (a name copied from an upstream earlier has none). Another user's
+		// reservation of a pair being taken means that user took the pair after TagFor read it, so the change must start over.
+		internal static async Task Reserve(AppDbContext db, Int64 userID, string name, int tag, DateTime now, bool take)
 		{
 			string key = NameKey.Of(name);
 			NameReservation? reservation = db.ChangeTracker.Entries<NameReservation>().Select(e => e.Entity).FirstOrDefault(r => r.NameKey == key && r.NameTag == tag)
@@ -209,17 +229,22 @@ namespace Database
 			{
 				db.NameReservations.Add(new NameReservation { UserID = userID, Name = name, NameKey = key, NameTag = tag, HeldAt = now });
 			}
-			else if (take && reservation.UserID == userID)
+			else if (reservation.UserID == userID)
 			{
 				reservation.Name = name;
 				reservation.HeldAt = now;
+			}
+			else if (take)
+			{
+				throw new NameReservationConflictException(name, tag);
 			}
 		}
 
 		// Sets a new, unsaved user's normalized name, key and tag (TagFor), and reserves the pair for the user. The id is only
 		// known after the insert, so a sign-up uses the candidates of user id 0 unless the caller gave an id. Two look-alike
-		// sign-ups that pick the same tag at once meet a unique index, and the caller retries with the next tag.
-		public static async Task AssignNewUser(AppDbContext db, User user)
+		// sign-ups that pick the same tag at once meet a unique index, and the caller retries with the next attempt, up to
+		// NewUserAttempts; only the first attempt is deterministic.
+		public static async Task AssignNewUser(AppDbContext db, User user, int attempt = 1)
 		{
 			// a retry detaches the user after a unique violation; the reservation of that attempt goes with it
 			foreach (EntityEntry<NameReservation> stale in db.ChangeTracker.Entries<NameReservation>().Where(e => ReferenceEquals(e.Entity.User, user)).ToList())
@@ -229,7 +254,7 @@ namespace Database
 
 			user.UsernameNormalized = NameNormalizer.Normalize(user.Username);
 			user.NameKey = NameKey.Of(user.Username);
-			user.NameTag = await TagFor(db, user.ID, null, user.Username);
+			user.NameTag = await TagFor(db, user.ID, null, user.Username, attempt);
 			db.NameReservations.Add(new NameReservation { User = user, Name = user.Username, NameKey = user.NameKey, NameTag = user.NameTag, HeldAt = DateTime.UtcNow });
 		}
 
@@ -355,7 +380,15 @@ namespace Database
 				NameChange? change = null;
 				if (!String.Equals(user.Username, name, StringComparison.Ordinal))
 				{
-					change = await Assign(db, user, name, await TagFor(db, userID, user, name), changedBy);
+					try
+					{
+						change = await Assign(db, user, name, await TagFor(db, userID, user, name), changedBy);
+					}
+					catch (NameReservationConflictException) when (attempt < 3)
+					{
+						db.ChangeTracker.Clear();
+						continue;
+					}
 				}
 				user.NameRequiredAt = null;
 
@@ -385,7 +418,16 @@ namespace Database
 				}
 
 				string placeholder = Placeholder();
-				NameChange change = await Assign(db, user, placeholder, await TagFor(db, userID, user, placeholder), changedBy);
+				NameChange change;
+				try
+				{
+					change = await Assign(db, user, placeholder, await TagFor(db, userID, user, placeholder), changedBy);
+				}
+				catch (NameReservationConflictException) when (attempt < 3)
+				{
+					db.ChangeTracker.Clear();
+					continue;
+				}
 				user.NameRequiredAt = DateTime.UtcNow;
 				user.SecurityStamp = Guid.NewGuid().ToString("N");
 
@@ -427,6 +469,16 @@ namespace Database
 				{
 					return (LocalRenameOutcome.Taken, null);
 				}
+				catch (NameReservationConflictException)
+				{
+					// another player took the pair after it was read
+					db.ChangeTracker.Clear();
+					if (attempt == 3)
+					{
+						return (LocalRenameOutcome.Taken, null);
+					}
+					continue;
+				}
 
 				try
 				{
@@ -445,20 +497,21 @@ namespace Database
 			}
 		}
 
-		// A local name change: Record, and the old and new pairs reserved for the user (Reserve)
+		// A local name change: Record, and the old and new pairs reserved for the user (Reserve), all at one time, so the
+		// left pair's held_at equals its history row's changed_at and the taken pair's equals renamed_at
 		private static async Task<NameChange> Assign(AppDbContext db, User user, string name, int tag, string changedBy)
 		{
 			DateTime now = DateTime.UtcNow;
 			await Reserve(db, user.ID, user.Username, user.NameTag, now, take: false);
-			NameChange change = Record(db, user, name, tag, changedBy);
+			NameChange change = Record(db, user, name, tag, changedBy, now);
 			await Reserve(db, user.ID, name, tag, now, take: true);
 			return change;
 		}
 
 		// The one writer of a name change: history row of the previous name and tag, then the new values
-		private static NameChange Record(AppDbContext db, User user, string name, int tag, string changedBy)
+		private static NameChange Record(AppDbContext db, User user, string name, int tag, string changedBy, DateTime? at = null)
 		{
-			DateTime now = DateTime.UtcNow;
+			DateTime now = at ?? DateTime.UtcNow;
 			NameChange change = new(user.ID, user.Username, user.NameTag, name, tag);
 
 			db.UserUsernameHistory.Add(new UserUsernameHistory

@@ -17,109 +17,206 @@
 */
 
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GenOnlineService.Names
 {
 	// Brings name_reservations in line with users and user_username_history: every name#tag a user holds or has held is
 	// reserved for them under NameKey.Of(name). SQL cannot compute the key, so the NameReservations migration creates the
 	// table empty and "GenOnlineService migrate" runs this afterwards on every run, which also rekeys after a NameKey change.
-	// Names and tags of users never change here. A pair several users held stays with the user who holds it now, else with
-	// the one who held it last, else with the lowest id; the run counts those pairs.
+	// It reads users in batches by id, with their history and reservations, so memory stays bounded. Names and tags of users
+	// never change here. A pair several users claim stays with the user who holds it now, else with the one who held it last,
+	// else with the lowest id. held_at means what the service writes: when the user last held the pair, the newest of the
+	// row and the pair's history rows, or renamed_at (created_at before any rename) for a current pair without either.
 	public static class NameReservationBackfill
 	{
-		// Added and Removed count rows; Contested counts pairs more than one user held
-		public sealed record Outcome(int Added, int Removed, int Contested);
+		public const int DefaultBatchSize = 1000;
+
+		// Added and Removed count rows, Lost counts claims another user's claim beat, Skipped counts rows the running service
+		// reserved for someone else while this ran
+		public sealed record Outcome(int Added, int Removed, int Lost, int Skipped);
 
 		private sealed record Claim(Int64 UserID, string Name, bool Current, DateTime HeldAt);
 
-		public static async Task<Outcome> Run(AppDbContext db, CancellationToken cancellationToken = default)
+		public static Task<Outcome> Run(AppDbContext db, CancellationToken cancellationToken = default) => Run(db, DefaultBatchSize, null, cancellationToken);
+
+		// beforeWrite runs between reading a batch and writing it; the tests use it to race the running service
+		internal static async Task<Outcome> Run(AppDbContext db, int batchSize, Func<Task>? beforeWrite, CancellationToken cancellationToken = default)
 		{
-			DateTime now = DateTime.UtcNow;
-			var users = await db.Users.AsNoTracking().Select(u => new { u.ID, u.Username, u.NameTag }).ToListAsync(cancellationToken);
-			HashSet<Int64> userIDs = users.Select(u => u.ID).ToHashSet();
-			var history = await db.UserUsernameHistory.AsNoTracking()
-				.Where(h => h.NameTag != null)
-				.Select(h => new { h.UserID, h.Username, h.NameTag, h.ChangedAt })
-				.ToListAsync(cancellationToken);
-			List<NameReservation> existing = await db.NameReservations.AsNoTracking().ToListAsync(cancellationToken);
-
-			// every claim on a pair: the reservation rows themselves, the current names and the history of existing users
-			List<(string Key, int Tag, Claim Claim)> claims = new();
-			claims.AddRange(existing.Where(r => userIDs.Contains(r.UserID)).Select(r => (NameKey.Of(r.Name), r.NameTag, new Claim(r.UserID, r.Name, false, r.HeldAt))));
-			claims.AddRange(history.Where(h => userIDs.Contains(h.UserID)).Select(h => (NameKey.Of(h.Username), h.NameTag!.Value, new Claim(h.UserID, h.Username, false, h.ChangedAt))));
-			claims.AddRange(users.Select(u => (NameKey.Of(u.Username), u.NameTag, new Claim(u.ID, u.Username, true, now))));
-
-			Dictionary<(string Key, int Tag), NameReservation> wanted = new();
-			int contested = 0;
-			foreach (var pair in claims.GroupBy(c => (c.Key, c.Tag)))
+			int added = 0, removed = 0, lost = 0, skipped = 0;
+			Int64 after = Int64.MinValue;
+			while (true)
 			{
-				// one claim per user: current when they hold it now, held last at the newest time, with the name they held then;
-				// a current pair keeps the time its row already has, so a second run changes nothing
-				List<Claim> perUser = pair.GroupBy(c => c.Claim.UserID).Select(g =>
+				var users = await db.Users.AsNoTracking()
+					.Where(u => u.ID > after)
+					.OrderBy(u => u.ID)
+					.Take(batchSize)
+					.Select(u => new { u.ID, u.Username, u.NameTag, Since = u.RenamedAt ?? u.CreatedAt })
+					.ToListAsync(cancellationToken);
+				if (users.Count == 0)
 				{
-					List<Claim> held = g.Select(c => c.Claim).ToList();
-					Claim? current = held.FirstOrDefault(c => c.Current);
-					Claim latest = held.Where(c => !c.Current).OrderByDescending(c => c.HeldAt).FirstOrDefault() ?? current!;
-					return current == null
-						? latest
-						: current with { HeldAt = held.Any(c => !c.Current) ? held.Where(c => !c.Current).Max(c => c.HeldAt) : current.HeldAt };
-				}).ToList();
-				if (perUser.Count > 1)
+					break;
+				}
+				Int64 first = users[0].ID;
+				after = users[^1].ID;
+				List<Int64> ids = users.Select(u => u.ID).ToList();
+				HashSet<Int64> inBatch = ids.ToHashSet();
+
+				var history = await db.UserUsernameHistory.AsNoTracking()
+					.Where(h => ids.Contains(h.UserID) && h.NameTag != null)
+					.Select(h => new { h.UserID, h.Username, h.NameTag, h.ChangedAt })
+					.ToListAsync(cancellationToken);
+				List<NameReservation> own = await db.NameReservations.AsNoTracking().Where(r => ids.Contains(r.UserID)).ToListAsync(cancellationToken);
+
+				// one claim per user and pair: the newest of the row and the history rows (the row on a tie), current when the
+				// user holds the pair now, with the name they hold
+				Dictionary<(Int64 User, string Key, int Tag), Claim> claims = new();
+				void Merge(Int64 user, string name, int tag, DateTime heldAt)
 				{
-					contested++;
+					var id = (user, NameKey.Of(name), tag);
+					if (!claims.TryGetValue(id, out Claim? claim) || heldAt > claim.HeldAt)
+					{
+						claims[id] = new Claim(user, name, false, heldAt);
+					}
+				}
+				foreach (NameReservation row in own)
+				{
+					Merge(row.UserID, row.Name, row.NameTag, row.HeldAt);
+				}
+				foreach (var row in history)
+				{
+					Merge(row.UserID, row.Username, row.NameTag!.Value, row.ChangedAt);
+				}
+				foreach (var user in users)
+				{
+					var id = (user.ID, NameKey.Of(user.Username), user.NameTag);
+					claims[id] = new Claim(user.ID, user.Username, true, claims.TryGetValue(id, out Claim? claim) ? claim.HeldAt : user.Since);
 				}
 
-				Claim winner = perUser.OrderByDescending(c => c.Current).ThenByDescending(c => c.HeldAt).ThenBy(c => c.UserID).First();
-				wanted[pair.Key] = new NameReservation { UserID = winner.UserID, Name = winner.Name, NameKey = pair.Key.Key, NameTag = pair.Key.Tag, HeldAt = winner.HeldAt };
-			}
-
-			// a row stays when it already says what is wanted; every other row is replaced
-			List<Int64> stale = new();
-			foreach (NameReservation row in existing)
-			{
-				if (wanted.TryGetValue((row.NameKey, row.NameTag), out NameReservation? want)
-					&& want.ID == 0
-					&& want.UserID == row.UserID
-					&& String.Equals(want.Name, row.Name, StringComparison.Ordinal)
-					&& want.HeldAt == row.HeldAt)
+				// other users' claims on the same pairs: the pairs they hold now, else their reservation rows
+				List<string> keys = claims.Keys.Select(k => k.Key).Distinct().ToList();
+				Dictionary<(string Key, int Tag), Claim> others = new();
+				List<NameReservation> foreign = new();
+				foreach (string[] chunk in keys.Chunk(500))
 				{
-					want.ID = row.ID;
+					foreign.AddRange(await db.NameReservations.AsNoTracking().Where(r => chunk.Contains(r.NameKey) && !ids.Contains(r.UserID)).ToListAsync(cancellationToken));
+					var holders = await db.Users.AsNoTracking()
+						.Where(u => chunk.Contains(u.NameKey) && !ids.Contains(u.ID))
+						.Select(u => new { u.ID, u.Username, u.NameTag, u.NameKey, Since = u.RenamedAt ?? u.CreatedAt })
+						.ToListAsync(cancellationToken);
+					foreach (var holder in holders)
+					{
+						others[(holder.NameKey, holder.NameTag)] = new Claim(holder.ID, holder.Username, true, holder.Since);
+					}
 				}
-				else
+				foreach (NameReservation row in foreign)
 				{
-					stale.Add(row.ID);
+					others.TryAdd((row.NameKey, row.NameTag), new Claim(row.UserID, row.Name, false, row.HeldAt));
 				}
-			}
-			List<NameReservation> added = wanted.Values.Where(r => r.ID == 0).ToList();
-			if (stale.Count == 0 && added.Count == 0)
-			{
-				return new Outcome(0, 0, contested);
-			}
 
-			await using IDbContextTransaction tx = await db.Database.BeginTransactionAsync(cancellationToken);
-			// stale rows go first, so a rekeyed pair never meets its old row in the unique index
-			foreach (Int64[] chunk in stale.Chunk(1000))
-			{
-				await db.NameReservations.Where(r => chunk.Contains(r.ID)).ExecuteDeleteAsync(cancellationToken);
+				Dictionary<(string Key, int Tag), NameReservation> wanted = new();
+				foreach (var pair in claims.GroupBy(c => (c.Key.Key, c.Key.Tag), c => c.Value))
+				{
+					List<Claim> contenders = pair.ToList();
+					if (others.TryGetValue(pair.Key, out Claim? other))
+					{
+						contenders.Add(other);
+					}
+					List<Claim> ranked = contenders.OrderByDescending(c => c.Current).ThenByDescending(c => c.HeldAt).ThenBy(c => c.UserID).ToList();
+					// a beaten outside user counts here only when their batch has passed, so every lost claim counts once
+					lost += ranked.Skip(1).Count(c => inBatch.Contains(c.UserID) || c.UserID < first);
+					Claim winner = ranked[0];
+					if (inBatch.Contains(winner.UserID))
+					{
+						wanted[pair.Key] = new NameReservation { UserID = winner.UserID, Name = winner.Name, NameKey = pair.Key.Key, NameTag = pair.Key.Tag, HeldAt = winner.HeldAt };
+					}
+				}
+
+				// a row stays when it already says what is wanted; this batch's other rows and beaten outside rows go
+				List<Int64> stale = new();
+				foreach (NameReservation row in own)
+				{
+					if (wanted.TryGetValue((row.NameKey, row.NameTag), out NameReservation? want) && want.ID == 0 && want.UserID == row.UserID
+						&& String.Equals(want.Name, row.Name, StringComparison.Ordinal) && want.HeldAt == row.HeldAt)
+					{
+						want.ID = row.ID;
+					}
+					else
+					{
+						stale.Add(row.ID);
+					}
+				}
+				stale.AddRange(foreign.Where(r => wanted.ContainsKey((r.NameKey, r.NameTag))).Select(r => r.ID));
+				List<NameReservation> inserts = wanted.Values.Where(r => r.ID == 0).ToList();
+
+				if (beforeWrite != null)
+				{
+					await beforeWrite();
+				}
+				foreach (Int64[] chunk in stale.Chunk(1000))
+				{
+					removed += await db.NameReservations.Where(r => chunk.Contains(r.ID)).ExecuteDeleteAsync(cancellationToken);
+				}
+				int written = await Insert(db, inserts, cancellationToken);
+				added += written;
+				skipped += inserts.Count - written;
+				db.ChangeTracker.Clear();
 			}
-			db.NameReservations.AddRange(added);
-			await db.SaveChangesAsync(cancellationToken);
-			await tx.CommitAsync(cancellationToken);
-			db.ChangeTracker.Clear();
-			return new Outcome(added.Count, stale.Count, contested);
+			return new Outcome(added, removed, lost, skipped);
 		}
 
-		// The migrate command's step after the name keys; it never stops the run
+		// All rows at once, or row by row when the running service reserved one of the pairs meanwhile; returns the rows written
+		private static async Task<int> Insert(AppDbContext db, List<NameReservation> rows, CancellationToken cancellationToken)
+		{
+			if (rows.Count == 0)
+			{
+				return 0;
+			}
+
+			db.NameReservations.AddRange(rows);
+			try
+			{
+				await db.SaveChangesAsync(cancellationToken);
+				return rows.Count;
+			}
+			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+			{
+				db.ChangeTracker.Clear();
+			}
+
+			int written = 0;
+			foreach (NameReservation row in rows)
+			{
+				row.ID = 0;
+				db.NameReservations.Add(row);
+				try
+				{
+					await db.SaveChangesAsync(cancellationToken);
+					written++;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+				{
+					// the running service reserved this pair for a player after the batch was read; its row stands
+				}
+				db.ChangeTracker.Clear();
+			}
+			return written;
+		}
+
+		// The migrate command's step after the name keys. A pair the running service reserves meanwhile is skipped and
+		// counted, so that race never fails the run; the next run settles it.
 		public static async Task RunCommand(AppDbContext db, TextWriter output, CancellationToken cancellationToken = default)
 		{
 			Outcome outcome = await Run(db, cancellationToken);
 			output.WriteLine(outcome.Added == 0 && outcome.Removed == 0
 				? "Name reservations are up to date."
 				: $"Reserved {outcome.Added} name#tag pair(s) and removed {outcome.Removed} outdated reservation(s).");
-			if (outcome.Contested > 0)
+			if (outcome.Lost > 0)
 			{
-				output.WriteLine($"{outcome.Contested} name#tag pair(s) were held by more than one user; each stays reserved for the user who holds it now, else the one who held it last.");
+				output.WriteLine($"{outcome.Lost} name#tag claim(s) lost to another user; each pair stays reserved for the user who holds it now, else the one who held it last.");
+			}
+			if (outcome.Skipped > 0)
+			{
+				output.WriteLine($"Skipped {outcome.Skipped} pair(s) the running service reserved meanwhile; run migrate again to settle them.");
 			}
 		}
 	}
