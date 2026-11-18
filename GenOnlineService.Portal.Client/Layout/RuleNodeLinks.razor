@@ -1,0 +1,91 @@
+@* Where one output of a node leads, as a list a keyboard and a screen reader use: each connection with its remove button,
+   and a choice of the nodes the canvas would let this output connect to *@
+
+@{
+    List<BlowEdge> links = Edges.Where(e => e.Source == From && (e.SourceHandle ?? "") == (Output ?? "")).ToList();
+    List<BlowNode> choices = Nodes.Where(n => RuleGraph.Check(Nodes, Edges, From, Output, n.Id).IsValid).ToList();
+}
+<div class="go-rule-links">
+    <h3 class="go-rule-links-title">@Title</h3>
+    @if (links.Count == 0)
+    {
+        <p class="go-rule-hint">Nothing happens.</p>
+    }
+    else
+    {
+        <ul class="go-rule-link-list">
+            @foreach (BlowEdge edge in links)
+            {
+                <li class="go-rule-link">
+                    <span class="go-rule-link-text">@NameOf(edge.Target)</span>
+                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OnDisconnect.InvokeAsync(edge))" AriaLabel="@($"Remove the connection to {NameOf(edge.Target)}")">
+                        <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+                    </BbButton>
+                </li>
+            }
+        </ul>
+    }
+    @if (choices.Count > 0)
+    {
+        <div class="go-rule-condition-row">
+            <BbNativeSelect TValue="string" @bind-Value="m_target" AriaLabel="@($"{Title}: connect to")" Class="go-rule-field">
+                <option value="">Connect to…</option>
+                @foreach (BlowNode node in choices)
+                {
+                    <option value="@node.Id">@NameOf(node.Id)</option>
+                }
+            </BbNativeSelect>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="@String.IsNullOrEmpty(m_target)" OnClick="ConnectAsync">Connect</BbButton>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public string From { get; set; } = "";
+
+    // true or false of a condition, null for the trigger
+    [Parameter]
+    public string? Output { get; set; }
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<BlowNode> Nodes { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<BlowEdge> Edges { get; set; } = [];
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    [Parameter]
+    public EventCallback<(string From, string? Output, string To)> OnConnect { get; set; }
+
+    [Parameter]
+    public EventCallback<BlowEdge> OnDisconnect { get; set; }
+
+    private string? m_target;
+
+    private string NameOf(string id)
+    {
+        BlowNode? node = Nodes.FirstOrDefault(n => n.Id == id);
+        if (node == null)
+        {
+            return id;
+        }
+        PortalRuleNode rule = RuleGraph.RuleOf(node);
+        return rule.Kind == PortalRuleWords.Condition ? "Check: " + RuleOutline.Summary(rule.Query, Catalog) : RuleOutline.Action(rule);
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (!String.IsNullOrEmpty(m_target))
+        {
+            string target = m_target;
+            m_target = null;
+            await OnConnect.InvokeAsync((From, Output, target));
+        }
+    }
+}

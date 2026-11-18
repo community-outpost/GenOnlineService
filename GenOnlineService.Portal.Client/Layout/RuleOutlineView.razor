@@ -1,0 +1,68 @@
+@* The rule as a readable outline beside the canvas for S6: nested lists a screen reader announces by level, and a button on
+   each line that starts a node, which selects it and opens its panel as a click on the canvas does *@
+
+<section class="go-rule-outline" aria-labelledby="rule-outline-title" data-testid="rule-outline">
+    <h2 id="rule-outline-title" class="go-rule-panel-title">
+        <LucideIcon Name="list-tree" Class="bb:h-4 bb:w-4" />
+        Outline
+    </h2>
+    @Branch(Tree(RuleOutline.Lines(Document, Catalog)))
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public PortalRuleDocument Document { get; set; } = new PortalRuleDocument();
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    [Parameter]
+    public string? SelectedId { get; set; }
+
+    // null to show the outline without buttons, as the versions do
+    [Parameter]
+    public EventCallback<string> OnSelect { get; set; }
+
+    private sealed record Item(RuleOutlineLine Line, List<Item> Children);
+
+    // The flat lines nested by their depth
+    private static List<Item> Tree(List<RuleOutlineLine> lines)
+    {
+        var roots = new List<Item>();
+        var open = new Stack<Item>();
+        foreach (RuleOutlineLine line in lines)
+        {
+            var item = new Item(line, []);
+            while (open.Count > 0 && open.Peek().Line.Depth >= line.Depth)
+            {
+                open.Pop();
+            }
+            (open.Count == 0 ? roots : open.Peek().Children).Add(item);
+            open.Push(item);
+        }
+        return roots;
+    }
+
+    private RenderFragment Branch(List<Item> items) => __builder =>
+    {
+        <ul class="go-rule-outline-list">
+            @foreach (Item item in items)
+            {
+                <li>
+                    @if (item.Line.NodeId is string id && OnSelect.HasDelegate)
+                    {
+                        <button type="button" class="go-rule-outline-node" aria-pressed="@(id == SelectedId ? "true" : "false")" @onclick="@(() => OnSelect.InvokeAsync(id))">@item.Line.Text</button>
+                    }
+                    else
+                    {
+                        <span class="go-rule-outline-text">@item.Line.Text</span>
+                    }
+                    @if (item.Children.Count > 0)
+                    {
+                        @Branch(item.Children)
+                    }
+                </li>
+            }
+        </ul>
+    };
+}

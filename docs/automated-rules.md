@@ -183,6 +183,20 @@ Every copy keeps the current versions of the enabled rules compiled in memory. T
 tells the others through `CatalogSignals` (resource `rules`); the reconcile tick reloads a copy that missed it. A copy
 compiles again only when a rule's version, mode or enabled state changed.
 
+## Staff pages
+
+`/admin/rules` lists the rules for staff with `rules.manage`, in the Administration group of the sidebar: trigger, mode,
+switch, current version, last match and circuit breaker, with create, archive and restore. A new rule starts in Watch
+mode and switched off. `/admin/rules/:id` is the editor: a node canvas (Bit.Blow, pinned to one version) of the trigger,
+condition and action nodes, whose handles allow only the connections the service accepts, the panel of the selected
+node with the AND/OR query builder from the field catalogue, and an outline of the same graph beside the canvas for
+keyboard and screen reader use. Saving sends `base_version` and shows a conflict, problems land on the node and field
+their path names, switching to Enforce asks first and names what the rule does, and the preview runs the document on
+the canvas, saved or not. The versions show any version and the difference of two outlines. The persisted format is
+the rule document above, mapped to the canvas in `GenOnlineService.Portal.Client/Rules/RuleGraph.cs` alone.
+`/admin/rules/matches`, linked under Anti-cheat for `anticheat.review`, is the review queue. Audit rows written by a
+rule read "Automated rule", its name and version.
+
 ## API
 
 Every route takes the staff sign-in cookie and needs `rules.manage` (admins and owners); `docs/api.md` lists them.
