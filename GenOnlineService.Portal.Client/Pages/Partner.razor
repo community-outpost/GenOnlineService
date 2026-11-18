@@ -225,7 +225,11 @@ else
                             @if (token.IsActive(now))
                             {
                                 <span class="bb:inline-flex bb:gap-2">
-                                    @if (token.RevokedAt == null)
+                                    @if (token.Scopes.Any(PortalPartnerPermissions.IsPrivileged))
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="true" title="A token with a privileged scope is rotated with the CLI on the host" data-testid="rotate-token-cli-only">Rotate: CLI only</BbButton>
+                                    }
+                                    else if (token.RevokedAt == null)
                                     {
                                         <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OpenToken("rotate", token))" data-testid="rotate-token">Rotate</BbButton>
                                     }

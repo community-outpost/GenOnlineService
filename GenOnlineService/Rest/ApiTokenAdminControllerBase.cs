@@ -169,14 +169,15 @@ namespace GenOnlineService.Rest
 			});
 		}
 
-		// ?overlap_minutes= (0 to 1440, default 0) keeps the old token working that long; ?expires_at= replaces the old lifetime
+		// ?overlap_minutes= (0 to 1440, default 0) keeps the old token working that long; ?expires_at= replaces the old lifetime.
+		// A token with a privileged scope answers forbidden {permission}, it rotates through the CLI only
 		protected async Task<IActionResult> RotateToken(AppDbContext db, ApiToken old)
 		{
 			return await Answer(async () =>
 			{
 				(ApiToken token, string secret) = await ApiTokenAdmin.Rotate(db, Settings, Actor, old,
 					() => ApiTokenAdmin.CheckOverlap(QueryValue("overlap_minutes")),
-					() => QueryValue("expires_at") is string text ? ApiTokenAdmin.ParseExpiresAt(text) : null);
+					() => QueryValue("expires_at") is string text ? ApiTokenAdmin.ParseExpiresAt(text) : null, bFromHost: false);
 				// The change takes effect at once in this instance; other instances follow on the reconcile tick
 				await ApiTokenCache.Reload(db);
 				return RestResults.Created(CreatedOf(token, secret));
