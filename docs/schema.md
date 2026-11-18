@@ -274,6 +274,23 @@ text_rule_workflows       -- the rules of one input kind as JSON ({rules: [{name
 
 `application_settings` `text_rules.revision` changes with every change of these tables; each copy rebuilds its matcher when it differs. `text_rules.seed_version` holds the seed version written (no row on a database seeded by version 1); a start with a newer version adds only the seed words and exceptions of the versions after it and replaces a workflow only while it still equals an earlier default, so words staff removed stay removed and rules staff changed stay.
 
+### Automated rules
+
+```
+automated_rules           -- the automated rules (docs/automated-rules.md); mode and enabled live here, the logic in the versions
+  id bigint pk, name varchar(100), description varchar(1000) null, mode varchar(16) ('watch' | 'flag' | 'enforce'), enabled bool,
+  current_version int, archived_at null, created_by varchar(64), created_at, updated_by varchar(64), updated_at
+automated_rule_versions   -- every saved document, never changed after it is written
+  rule_id bigint, number int, document json, created_by varchar(64), comment varchar(500) null, created_at, pk (rule_id, number)
+automated_rule_matches    -- every time a rule matched a player, with the version that fired and the facts that decided it
+  id bigint pk, rule_id bigint, rule_version int, user_id bigint, trigger varchar(32), matched_at, mode varchar(16),
+  actions varchar(64) null (the actions taken, comma separated), outcome varchar(32), facts json,
+  review_state varchar(16) ('none' | 'pending' | 'reviewed' | 'dismissed'), reviewed_by bigint null, reviewed_at null,
+  index (rule_id, user_id, trigger, matched_at), index (rule_id, matched_at), index (review_state, user_id), index (user_id)
+```
+
+The tables are add-only. Each copy compiles the current versions of the enabled rules and reloads them through `CatalogSignals` (resource `rules`) when a rule changes.
+
 ### OAuth clients
 
 ```

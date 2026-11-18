@@ -1780,6 +1780,9 @@ namespace GenOnlineService
 
 				// the live flags revision; later revisions arrive through CatalogSignals and the reconcile tick
 				GenOnlineService.Catalog.CatalogSignals.Register(GenOnlineService.Catalog.CatalogResources.Flags, GenOnlineService.Flags.FlagCatalog.Reload);
+
+				// the enabled automated rules, whose staff changes arrive through CatalogSignals and the reconcile tick
+				GenOnlineService.Catalog.CatalogSignals.Register(GenOnlineService.Catalog.CatalogResources.Rules, GenOnlineService.Rules.RuleEngine.ReloadAsync);
 				await GenOnlineService.Flags.FlagSeed.EnsureAsync(db);
 				await GenOnlineService.Catalog.CatalogStartup.RunAsync(db);
 				await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);

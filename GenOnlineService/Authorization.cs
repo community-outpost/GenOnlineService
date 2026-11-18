@@ -58,6 +58,9 @@ namespace GenOnlineService
 		// Changes the word lists, exceptions and rules of the text checks of names, lobby names and chat
 		public const string TextRulesManage = "textrules.manage";
 
+		// Edits, previews and sweeps the automated rules that flag, kick, mute and ban players
+		public const string RulesManage = "rules.manage";
+
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
 		public const string OpsDatabase = "ops.database";
@@ -66,7 +69,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect, AccountsSupport, TextRulesManage, FlagsManage, PlaylistsManage, LaddersManage, ChannelsManage, BroadcastsManage
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect, AccountsSupport, TextRulesManage, RulesManage, FlagsManage, PlaylistsManage, LaddersManage, ChannelsManage, BroadcastsManage
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -137,6 +140,7 @@ namespace GenOnlineService
 			Permissions.PlayersInspect,
 			Permissions.AccountsSupport,
 			Permissions.TextRulesManage,
+			Permissions.RulesManage,
 			Permissions.FlagsManage,
 			Permissions.PlaylistsManage,
 			Permissions.LaddersManage,

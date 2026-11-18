@@ -980,6 +980,188 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("data_protection_keys", (string)null);
                 });
 
+            modelBuilder.Entity("GenOnlineService.Rules.AutomatedRule", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("CurrentVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("current_version");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("automated_rules", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.Rules.AutomatedRuleMatch", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("Actions")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("actions");
+
+                    b.Property<string>("Facts")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("facts");
+
+                    b.Property<DateTime>("MatchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("matched_at");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReviewState")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("review_state");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<long>("RuleID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("rule_id");
+
+                    b.Property<int>("RuleVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("rule_version");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("trigger");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_automated_rule_matches_user");
+
+                    b.HasIndex("ReviewState", "UserID")
+                        .HasDatabaseName("ix_automated_rule_matches_review_user");
+
+                    b.HasIndex("RuleID", "MatchedAt")
+                        .HasDatabaseName("ix_automated_rule_matches_rule_matched_at");
+
+                    b.HasIndex("RuleID", "UserID", "Trigger", "MatchedAt")
+                        .HasDatabaseName("ix_automated_rule_matches_rule_user_trigger");
+
+                    b.ToTable("automated_rule_matches", (string)null);
+                });
+
+            modelBuilder.Entity("GenOnlineService.Rules.AutomatedRuleVersion", b =>
+                {
+                    b.Property<long>("RuleID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("rule_id");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer")
+                        .HasColumnName("number");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("document");
+
+                    b.HasKey("RuleID", "Number");
+
+                    b.ToTable("automated_rule_versions", (string)null);
+                });
+
             modelBuilder.Entity("GenOnlineService.TextRules.TextRuleException", b =>
                 {
                     b.Property<long>("ID")

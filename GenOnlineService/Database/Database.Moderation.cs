@@ -45,6 +45,9 @@ public static class AuditActorKinds
 	public const string Discord = "discord";
 	public const string ServiceAccount = "service_account";
 	public const string Upstream = "upstream";
+
+	// An automated rule acted, the actor name is rule:<id>@v<version>
+	public const string Automation = "automation";
 }
 
 public static class AuditTargetKinds
@@ -100,6 +103,7 @@ public static class ModerationSources
 	public const string Cli = "cli";
 	public const string Realtime = "realtime";
 	public const string Api = "api";
+	public const string AutomatedRules = "automated_rules";
 }
 
 public class UserRole

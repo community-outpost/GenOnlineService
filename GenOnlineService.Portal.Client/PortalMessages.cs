@@ -199,6 +199,11 @@ namespace GenOnlineService.Portal.Client
 			"flags_rollback" => "Game config rolled back",
 			"flags_import" => "Game config imported",
 			"flags_reset" => "Game config draft reset",
+			"rule_create" => "Automated rule added",
+			"rule_version" => "Automated rule saved",
+			"rule_update" => "Automated rule changed",
+			"rule_archive" => "Automated rule archived",
+			"rule_restore" => "Automated rule restored",
 			_ => action
 		};
 
@@ -209,7 +214,8 @@ namespace GenOnlineService.Portal.Client
 			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
 			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
 			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "text_term_add", "text_term_update",
-			"text_term_remove", "text_exception_add", "text_exception_remove", "text_workflow_update", "text_rules_seed", "investigate_search", "flag_create", "flag_update", "flag_archive", "flag_restore", "flags_publish", "flags_rollback", "flags_import", "flags_reset"
+			"text_term_remove", "text_exception_add", "text_exception_remove", "text_workflow_update", "text_rules_seed", "investigate_search", "flag_create", "flag_update", "flag_archive", "flag_restore", "flags_publish", "flags_rollback", "flags_import", "flags_reset",
+			"rule_create", "rule_version", "rule_update", "rule_archive", "rule_restore"
 		];
 	}
 
