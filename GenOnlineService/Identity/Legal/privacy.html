@@ -79,12 +79,14 @@ screenshots are deleted after 90 days, unless we tell you otherwise, for example
 <li>Our web server logs each request with the IP address, the address requested, the time, the browser's user agent and the
 referring page. These logs are kept for 14 days and are checked automatically for attacks.</li>
 <li>The service writes its own logs of what it does and of errors.</li>
-<li>When an error happens, an error report is sent to Sentry so that we can fix it. We do not turn on Sentry's sending of
-personal data.</li>
+<li>When the game crashes or hits an error, it sends an error report to our own error tracker (GlitchTip, at
+errors.generals.online), which runs on our servers, so that we can fix it. A report holds technical details of the error and
+of your computer, and can include the IP address it came from. Error reports are deleted after 90 days.</li>
 </ul>
 <!-- TODO(operator): the retention of the service's own logs (the systemd journal on the server) is not configured in the
      infrastructure, so it cannot be stated. Set one and state it here. -->
-<!-- TODO(operator): the Sentry data region (EU or US) is not determinable from the code or the configuration. -->
+<!-- The service's own Sentry reporting is off in the genonline chart (Sentry.enabled false, empty dsn); if it is turned on,
+     point it at GlitchTip and keep this paragraph true. -->
 
 <h3>Backups</h3>
 <p>We back up the database, encrypted, every day, to Cloudflare R2 storage held in the European Union. Backups are kept for
@@ -128,12 +130,11 @@ connect the game to its online services.</li>
 then sees your IP address.</li>
 <li><strong>Backblaze</strong> stores the replays and screenshots of matches, in its EU (Amsterdam) region.</li>
 <li><strong>Cloudflare</strong> stores our encrypted database backups in R2, with the data kept in the European Union.</li>
-<li><strong>Sentry</strong> receives error reports.</li>
 <li>Our <strong>hosting providers</strong> run the servers that hold the data: netcup in Germany, OVHcloud in France, Germany and the
 United Kingdom, and Worldstream in the Netherlands. The United Kingdom is outside the European Economic Area; the European
 Commission has decided that it protects personal data adequately, so data can go there without further safeguards.</li>
 </ul>
-<!-- TODO(operator): Some recipients (Discord, Google, Cloudflare, Sentry, Epic) may process data outside the European
+<!-- TODO(operator): Some recipients (Discord, Google, Cloudflare, Epic) may process data outside the European
      Economic Area. State the safeguards relied on (for example the EU-US Data Privacy Framework or standard contractual
      clauses) once confirmed with each provider. -->
 </section>
