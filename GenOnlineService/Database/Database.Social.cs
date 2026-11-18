@@ -92,30 +92,8 @@ namespace Database
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Social));
 
-		private static readonly Func<AppDbContext, long, IAsyncEnumerable<Friendship>> _getFriends =
-		EF.CompileAsyncQuery(
-			(AppDbContext db, long userId) =>
-				db.Friendships
-				  .Where(f => f.UserIdLow == userId || f.UserIdHigh == userId)
-		);
-
-		private static readonly Func<AppDbContext, long, IAsyncEnumerable<long>> _getBlocked =
-		EF.CompileAsyncQuery(
-			(AppDbContext db, long userId) =>
-				db.Blocks
-				  .Where(b => b.UserId == userId)
-				  .Select(b => b.BlockedUserId)
-		);
-		private static readonly Func<AppDbContext, long, IAsyncEnumerable<long>> _getPendingRequests =
-		EF.CompileAsyncQuery(
-			(AppDbContext db, long targetUserId) =>
-				db.FriendRequests
-				  .Where(r => r.ToUserId == targetUserId)
-				  .Select(r => r.FromUserId)
-		);
-
-
-
+		// Plain queries, not static EF compiled queries: a compiled query is bound to the first model it runs against, and the
+		// tests run Postgres and MariaDB in one process. EF caches the plan of a plain query per model
 
 		public static async Task<HashSet<long>> GetFriends(AppDbContext db, long userId)
 		{
@@ -123,7 +101,7 @@ namespace Database
 
 			try
 			{
-				await foreach (var f in _getFriends(db, userId))
+				await foreach (var f in db.Friendships.Where(f => f.UserIdLow == userId || f.UserIdHigh == userId).AsAsyncEnumerable())
 				{
 					result.Add(f.UserIdLow == userId ? f.UserIdHigh : f.UserIdLow);
 				}
@@ -160,7 +138,7 @@ namespace Database
 
 			try
 			{
-				await foreach (var id in _getBlocked(db, sourceUserId))
+				await foreach (var id in db.Blocks.Where(b => b.UserId == sourceUserId).Select(b => b.BlockedUserId).AsAsyncEnumerable())
 					result.Add(id);
 			}
 			catch (Exception ex)
@@ -178,7 +156,7 @@ namespace Database
 
 			try
 			{
-				await foreach (var id in _getPendingRequests(db, targetUserId))
+				await foreach (var id in db.FriendRequests.Where(r => r.ToUserId == targetUserId).Select(r => r.FromUserId).AsAsyncEnumerable())
 					result.Add(id);
 			}
 			catch (Exception ex)
