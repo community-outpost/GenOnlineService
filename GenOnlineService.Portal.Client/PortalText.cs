@@ -60,6 +60,9 @@ namespace GenOnlineService.Portal.Client
 			_ => state
 		};
 
+		// AS64500 Example Transit, from the GeoIP ASN database; empty when it is not deployed
+		public static string Network(long? asn, string? owner) => asn == null ? owner ?? "" : "AS" + asn.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + (owner == null ? "" : " " + owner);
+
 		public static string Error(string? code) => code switch
 		{
 			null or "" => "The request failed.",

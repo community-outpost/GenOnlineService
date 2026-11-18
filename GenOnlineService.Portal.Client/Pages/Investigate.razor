@@ -1,0 +1,199 @@
+@* The investigation search: the page header (nav-02) over a filter bar with the kind and the value, then the accounts
+   that used the identifier in a table, paged. GET /api/v1/staff/investigate with players.inspect; the host audits every
+   search. The kind, value or device key and the page live in the address, so the player page links here *@
+@page "/admin/investigate"
+@inject PortalApi Api
+@inject NavigationManager Navigation
+
+<PageTitle>Investigate · Generals Online</PageTitle>
+
+<PageHeader Description="Find every account that used a MAC address, machine id, volume serial, IP address or range, or signed in from a country. Each search is in the audit log.">
+    <Title>Investigate</Title>
+</PageHeader>
+
+@if (!Session.Can(PortalPermissions.PlayersInspect))
+{
+    <Refusal Title="Investigate" Description="Searching accounts by device and network identifiers needs the players.inspect permission." Icon="lock" />
+}
+else
+{
+    <div class="bb:space-y-4">
+        <BbCard Class="go-filtered">
+            <BbCardContent Class="bb:pt-6">
+                <form class="go-filterbar" role="search" aria-label="Search by identifier" @onsubmit="Search">
+                    <div class="go-filterbar-selects">
+                        <BbNativeSelect TValue="string" Value="@m_kind" ValueChanged="@((string? v) => m_kind = v ?? DefaultKind)" AriaLabel="Identifier" Class="go-select" data-testid="investigate-kind">
+                            @foreach ((string kind, string label, _) in PortalInvestigation.Kinds)
+                            {
+                                <option value="@kind">@label</option>
+                            }
+                        </BbNativeSelect>
+                    </div>
+                    <div class="go-filterbar-search">
+                        <BbInput Id="investigate-value" Type="InputType.Search" @bind-Value="m_typed" UpdateTiming="UpdateTiming.Immediate" Placeholder="@HintOf(m_kind)" AriaLabel="Value" autocomplete="off" spellcheck="false" data-testid="investigate-value" />
+                    </div>
+                    <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Disabled="@String.IsNullOrWhiteSpace(m_typed)" data-testid="investigate-search">
+                        <LucideIcon Name="search" Class="bb:h-4 bb:w-4" />
+                        Search
+                    </BbButton>
+                </form>
+                <p class="go-filterbar-hint">@HintOf(m_kind). The addresses and countries are those of the sessions of the last 90 days, the devices those seen in the last 180 days.</p>
+            </BbCardContent>
+        </BbCard>
+
+        @if (m_error != null)
+        {
+            <BbAlert Variant="AlertVariant.Danger">
+                <Icon>
+                    <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+                </Icon>
+                <ChildContent>
+                    <BbAlertTitle>The search did not run</BbAlertTitle>
+                    <BbAlertDescription>@(m_error == "invalid_argument" ? "The value does not fit the identifier, the range is wider than allowed, or the page is past the last one a search shows." : PortalText.Error(m_error))</BbAlertDescription>
+                </ChildContent>
+            </BbAlert>
+        }
+        else if (m_loading)
+        {
+            <BbSkeleton Class="go-skeleton-panel" />
+        }
+        else if (m_found is PortalInvestigation found)
+        {
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">@LabelOf(found.Kind) <span class="bb:font-mono">@(Key != null ? found.Value[..8] : found.Value)</span></BbCardTitle>
+                    <BbCardDescription>@Describe(found)</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    <BbDataTable TData="PortalInvestigationAccount" Data="@found.Accounts" ShowToolbar="false" ShowPagination="false" AriaLabel="Accounts">
+                        <Columns>
+                            <BbDataTableColumn TData="PortalInvestigationAccount" TValue="string" Property="@(a => a.FullName)" Header="Player">
+                                <CellTemplate Context="account">
+                                    <BbLink Href="@PortalRoutes.PlayerPage(account.Id)" data-testid="investigate-player">@account.FullName</BbLink>
+                                    @if (account.State != "active")
+                                    {
+                                        <span class="go-muted"> @account.State</span>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalInvestigationAccount" TValue="string" Property="@(a => PortalText.Date(a.FirstSeenAt))" Header="First seen" />
+                            <BbDataTableColumn TData="PortalInvestigationAccount" TValue="string" Property="@(a => PortalText.Date(a.LastSeenAt))" Header="Last seen" />
+                            @if (found.Accounts.Any(a => a.Events != null))
+                            {
+                                <BbDataTableColumn TData="PortalInvestigationAccount" TValue="string" Property="@(a => a.Events == null ? "" : a.Events.Value.ToString())" Header="Sessions" />
+                            }
+                        </Columns>
+                        <EmptyTemplate>
+                            <BbEmpty Size="EmptySize.Small" Title="No account used it" Description="No account on record used this identifier." />
+                        </EmptyTemplate>
+                    </BbDataTable>
+                    @if (Page > 1 || found.HasNext)
+                    {
+                        <div class="bb:mt-4 bb:flex bb:gap-2">
+                            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="@(Page <= 1)" OnClick="@(() => Show(Page - 1))">
+                                <LucideIcon Name="chevron-left" Class="bb:h-4 bb:w-4" />
+                                Previous
+                            </BbButton>
+                            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="@(!found.HasNext)" OnClick="@(() => Show(Page + 1))">
+                                Next
+                                <LucideIcon Name="chevron-right" Class="bb:h-4 bb:w-4" />
+                            </BbButton>
+                        </div>
+                    }
+                </BbCardContent>
+            </BbCard>
+        }
+    </div>
+}
+
+@code {
+    private const string DefaultKind = "mac";
+    private const int PerPage = 50;
+
+    [SupplyParameterFromQuery(Name = "kind")]
+    public string? Kind { get; set; }
+
+    [SupplyParameterFromQuery(Name = "value")]
+    public string? Value { get; set; }
+
+    [SupplyParameterFromQuery(Name = "key")]
+    public string? Key { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private string m_kind = DefaultKind;
+    private string? m_typed;
+    private PortalInvestigation? m_found;
+    private string? m_error;
+    private bool m_loading;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    private int Page => Math.Max(PageNumber ?? 1, 1);
+
+    private static string LabelOf(string kind) => PortalInvestigation.Kinds.FirstOrDefault(k => k.Kind == kind).Label ?? kind;
+
+    private static string HintOf(string kind) => PortalInvestigation.Kinds.FirstOrDefault(k => k.Kind == kind).Hint ?? "";
+
+    // what the host knows about the searched value, as one line
+    private string Describe(PortalInvestigation found)
+    {
+        var parts = new List<string>();
+        if (Key != null)
+        {
+            parts.Add("The device of the player page, by its stored key.");
+        }
+        if (found.Vendor != null)
+        {
+            parts.Add("Vendor: " + found.Vendor + ".");
+        }
+        if (found.Network is PortalAddressFacts network)
+        {
+            string place = String.Join(", ", new[] { network.City, network.Country }.Where(p => p != null));
+            if (place.Length > 0)
+            {
+                parts.Add("GeoIP: " + place + ".");
+            }
+            if (network.Asn is long asn)
+            {
+                parts.Add($"Network: AS{asn}{(network.NetworkOwner != null ? " " + network.NetworkOwner : "")}.");
+            }
+        }
+        parts.Add(found.Accounts.Count == 1 ? "1 account on this page." : found.Accounts.Count + " accounts on this page.");
+        return String.Join(" ", parts);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        m_kind = Kind != null && PortalInvestigation.Kinds.Any(k => k.Kind == Kind) ? Kind : DefaultKind;
+        m_typed = Key == null ? Value : null;
+        m_found = null;
+        m_error = null;
+        if (!Session.Can(PortalPermissions.PlayersInspect) || (String.IsNullOrWhiteSpace(Value) && Key == null))
+        {
+            return;
+        }
+
+        m_loading = true;
+        PortalAnswer<PortalInvestigation> answer = await Api.InvestigateAsync(m_kind, Value, Key, Page, PerPage);
+        m_loading = false;
+        m_found = answer.Value;
+        m_error = answer.Ok ? null : answer.Error;
+    }
+
+    private void Search()
+    {
+        if (!String.IsNullOrWhiteSpace(m_typed))
+        {
+            Navigation.NavigateTo(PortalRoutes.InvestigateOf(m_kind, m_typed.Trim()));
+        }
+    }
+
+    private void Show(int page)
+    {
+        string address = Key != null ? PortalRoutes.InvestigateDevice(m_kind, Key) : PortalRoutes.InvestigateOf(m_kind, Value ?? "");
+        Navigation.NavigateTo(page > 1 ? address + "&page=" + page : address);
+    }
+}

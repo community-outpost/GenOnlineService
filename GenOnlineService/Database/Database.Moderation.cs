@@ -59,6 +59,8 @@ public static class AuditTargetKinds
 	public const string Announcement = "announcement";
 	public const string Lobby = "lobby";
 	public const string AnticheatReport = "anticheat_report";
+	// a staff search by an identifier, which names no single target
+	public const string Investigation = "investigation";
 }
 
 public static class ModerationActions
@@ -84,6 +86,8 @@ public static class ModerationActions
 
 	// A staff member opened the sign-ins, devices and addresses of a player
 	public const string PlayerInspect = "player_inspect";
+	// A staff member searched the accounts that used a device or network identifier, every search is a row
+	public const string InvestigateSearch = "investigate_search";
 	public const string AnticheatReview = "anticheat_review";
 }
 

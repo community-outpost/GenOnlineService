@@ -1209,6 +1209,10 @@ namespace GenOnlineService
 
 			builder.Services.AddSingleton<GenOnlineService.Names.PlayerNames>();
 
+			// The GeoIP and MAC vendor lookups of the staff pages, never shown to players
+			builder.Services.AddSingleton<GenOnlineService.Investigation.IAddressDirectory>(_ => GenOnlineService.Investigation.MaxMindAddressDirectory.Default);
+			builder.Services.AddSingleton(_ => GenOnlineService.Investigation.OuiRegistry.Default);
+
 			// bearer tokens everywhere, and the sign-in cookie on the /api/v1 routes the staff pages call (T16), where accounts run
 			GenOnlineService.Api.ApiAuthentication.AddApiAuthentication(builder.Services, signInCookie: accountsSettings.Enabled);
 
@@ -1470,6 +1474,10 @@ namespace GenOnlineService
 			{
 				app.Logger.LogWarning("Created the device HMAC key at {DeviceKeyPath}. Back it up with the database: without it stored device values can never be matched again.", deviceKeyPath);
 			}
+
+			// Loaded now rather than on the first staff page, so a missing file shows in the startup log
+			GenOnlineService.Investigation.MaxMindAddressDirectory addressDirectory = GenOnlineService.Investigation.MaxMindAddressDirectory.Default;
+			app.Logger.LogInformation("Staff enrichment: GeoIP city {HasCity}, GeoIP ASN {HasAsn}, {OuiBlocks} OUI blocks", addressDirectory.HasCity, addressDirectory.HasAsn, GenOnlineService.Investigation.OuiRegistry.Default.Count);
 
 			if (useForwardedHeaders)
 			{

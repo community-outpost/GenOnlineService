@@ -18,6 +18,7 @@
 
 using GenOnlineService.Api;
 using GenOnlineService.Identity;
+using GenOnlineService.Investigation;
 using GenOnlineService.OpenApi;
 using GenOnlineService.Portal.Client;
 using GenOnlineService.Realtime;
@@ -340,9 +341,11 @@ namespace GenOnlineService.Rest
 			});
 		}
 
-		// Sign-ins, devices, addresses and possible duplicates, after one audit row an hour per staff member and player
-		public static async Task<Result<PortalInspection>> InspectAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, long userID, CancellationToken cancellationToken = default)
+		// Sign-ins, devices, addresses and possible duplicates, after one audit row an hour per staff member and player;
+		// addresses carry their GeoIP facts and MAC addresses their vendor, without enrichment the files of the service are used
+		public static async Task<Result<PortalInspection>> InspectAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, long userID, CancellationToken cancellationToken = default, StaffEnrichment? enrichment = null)
 		{
+			enrichment ??= new StaffEnrichment(MaxMindAddressDirectory.Default, OuiRegistry.Default);
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken);
 			if (!await Database.Users.Exists(db, userID))
 			{
@@ -371,8 +374,22 @@ namespace GenOnlineService.Rest
 					LastUsedAt = i.LastUsedAt,
 					ProfileUrl = s_profileUrls.TryGetValue(i.Provider, out string? prefix) ? prefix + Uri.EscapeDataString(i.ExternUid) : null
 				}).ToList(),
-				Devices = devices.Select(d => new PortalDevice { Kind = d.Kind, Fingerprint = d.Fingerprint, FirstSeenAt = d.FirstSeenAt, LastSeenAt = d.LastSeenAt, LastIp = d.LastIp }).ToList(),
-				Addresses = addresses.Select(a => new PortalAddress { Ip = a.Ip, Country = a.Country, FirstSeenAt = a.FirstSeenAt, LastSeenAt = a.LastSeenAt, Events = a.Events }).ToList(),
+				Devices = devices.Select(d => new PortalDevice
+				{
+					Kind = d.Kind,
+					Fingerprint = d.Fingerprint,
+					FirstSeenAt = d.FirstSeenAt,
+					LastSeenAt = d.LastSeenAt,
+					LastIp = d.LastIp,
+					Key = d.Key,
+					Vendor = enrichment.VendorOf(d.Kind, d.ValueRaw)
+				}).ToList(),
+				Addresses = addresses.Select(a =>
+				{
+					AddressFacts? facts = enrichment.Addresses.Lookup(a.Ip);
+					// the country stored at sign-in stays, the database fills it for older rows
+					return new PortalAddress { Ip = a.Ip, Country = a.Country ?? facts?.Country, FirstSeenAt = a.FirstSeenAt, LastSeenAt = a.LastSeenAt, Events = a.Events, City = facts?.City, Asn = facts?.Asn, NetworkOwner = facts?.NetworkOwner };
+				}).ToList(),
 				Duplicates = duplicates.Select(d => new PortalDuplicate
 				{
 					Id = d.UserID,
@@ -470,7 +487,7 @@ namespace GenOnlineService.Rest
 		[HttpGet("~/api/v1/players/{userID:long}/inspection")]
 		public async Task<IActionResult> Inspect(long userID)
 		{
-			return ApiResults.Answer(await StaffPlayerActions.InspectAsync(m_dbFactory, CallerActors.Of(User), userID, HttpContext.RequestAborted));
+			return ApiResults.Answer(await StaffPlayerActions.InspectAsync(m_dbFactory, CallerActors.Of(User), userID, HttpContext.RequestAborted, StaffEnrichment.Of(HttpContext.RequestServices)));
 		}
 	}
 }
