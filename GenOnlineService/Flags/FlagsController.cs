@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using GenOnlineService.Rest;
 using Microsoft.AspNetCore.Authorization;
@@ -82,7 +83,9 @@ namespace GenOnlineService.Flags
 	}
 
 	// Staff manage the client and service flags: edit the draft, publish revisions, roll back, export and import (GitLab style, flags.manage)
+	// Every route also takes the staff sign-in cookie, so the game config page calls them under the cookie rules
 	[ApiController]
+	[AllowSignInCookie]
 	[Authorize(Policy = PermissionPolicies.Prefix + Permissions.FlagsManage)]
 	public sealed class FlagsController : ControllerBase
 	{
@@ -93,6 +96,8 @@ namespace GenOnlineService.Flags
 			m_dbFactory = dbFactory;
 		}
 
+		[EndpointSummary("Reads the draft flags with their status against the live revision.")]
+		[ProducesResponseType<DraftResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/flags")]
 		public async Task<IActionResult> List()
 		{
@@ -100,6 +105,9 @@ namespace GenOnlineService.Flags
 			return Ok(await Draft(db));
 		}
 
+		[EndpointSummary("Adds a flag to the draft.")]
+		[ProducesResponseType<DraftFlagResponse>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(FlagDefinition))]
 		[HttpPost("~/api/v1/flags")]
 		public async Task<IActionResult> Create()
 		{
@@ -114,6 +122,8 @@ namespace GenOnlineService.Flags
 			return RestResults.Created(await Describe(db, created));
 		}
 
+		[EndpointSummary("Reads one draft flag; the ETag is its version.")]
+		[ProducesResponseType<DraftFlagResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/flags/{key}")]
 		public async Task<IActionResult> Get(string key)
 		{
@@ -125,6 +135,9 @@ namespace GenOnlineService.Flags
 			return Ok(await Describe(db, flag));
 		}
 
+		[EndpointSummary("Changes one draft flag; If-Match takes its version.")]
+		[ProducesResponseType<DraftFlagResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(FlagDefinition))]
 		[HttpPut("~/api/v1/flags/{key}")]
 		public async Task<IActionResult> Update(string key)
 		{
@@ -139,6 +152,8 @@ namespace GenOnlineService.Flags
 		}
 
 		// Archives: the field leaves the next revision and can be restored
+		[EndpointSummary("Archives a draft flag, so it leaves the next revision.")]
+		[ProducesResponseType<DraftFlagResponse>(StatusCodes.Status200OK)]
 		[HttpDelete("~/api/v1/flags/{key}")]
 		public async Task<IActionResult> Archive(string key)
 		{
@@ -150,6 +165,8 @@ namespace GenOnlineService.Flags
 			return await Answer(db, archived, failure);
 		}
 
+		[EndpointSummary("Brings an archived draft flag back.")]
+		[ProducesResponseType<DraftFlagResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/flags/{key}/restore")]
 		public async Task<IActionResult> Restore(string key)
 		{
@@ -162,6 +179,8 @@ namespace GenOnlineService.Flags
 		}
 
 		// What publishing the draft would change
+		[EndpointSummary("Lists what publishing the draft would change.")]
+		[ProducesResponseType<FlagChangesResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/flags/draft/changes")]
 		public async Task<IActionResult> DraftChanges()
 		{
@@ -177,6 +196,9 @@ namespace GenOnlineService.Flags
 		}
 
 		// If-Match takes draft_etag from GET /api/v1/flags, so only the reviewed draft goes live
+		[EndpointSummary("Publishes the draft as the next live revision; If-Match takes draft_etag.")]
+		[ProducesResponseType<RevisionResponse>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(PublishRequest))]
 		[HttpPost("~/api/v1/flags/draft/publish")]
 		public async Task<IActionResult> Publish()
 		{
@@ -191,6 +213,8 @@ namespace GenOnlineService.Flags
 			return RestResults.Created(Summary(revision!, true));
 		}
 
+		[EndpointSummary("Throws the draft away and starts again from the live revision.")]
+		[ProducesResponseType<DraftResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/flags/draft/reset")]
 		public async Task<IActionResult> Reset()
 		{
@@ -201,6 +225,9 @@ namespace GenOnlineService.Flags
 		}
 
 		// Takes an export (GET /api/v1/flags/revisions/:number, its document) or any flagd file as the new draft
+		[EndpointSummary("Replaces the draft with a flagd file, such as an exported revision.")]
+		[ProducesResponseType<DraftResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(JsonObject))]
 		[HttpPost("~/api/v1/flags/draft/import")]
 		public async Task<IActionResult> Import([FromBody] JsonNode? document)
 		{
@@ -210,6 +237,8 @@ namespace GenOnlineService.Flags
 			return Ok(await Draft(db));
 		}
 
+		[EndpointSummary("Lists the published revisions, newest first.")]
+		[ProducesResponseType<List<RevisionResponse>>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/flags/revisions")]
 		public async Task<IActionResult> Revisions()
 		{
@@ -223,6 +252,8 @@ namespace GenOnlineService.Flags
 			return Ok(revisions.Select(r => Summary(r, r.Number == live)).ToList());
 		}
 
+		[EndpointSummary("Reads one revision with its flagd document, the export.")]
+		[ProducesResponseType<RevisionResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/flags/revisions/{number:int}")]
 		public async Task<IActionResult> Revision(int number)
 		{
@@ -233,6 +264,8 @@ namespace GenOnlineService.Flags
 			return Ok(Summary(revision, revision.Number == live) with { Document = JsonNode.Parse(revision.Document) });
 		}
 
+		[EndpointSummary("Lists what one revision changed against the one before it.")]
+		[ProducesResponseType<FlagChangesResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/flags/revisions/{number:int}/changes")]
 		public async Task<IActionResult> RevisionChanges(int number)
 		{
@@ -248,6 +281,9 @@ namespace GenOnlineService.Flags
 			});
 		}
 
+		[EndpointSummary("Publishes an earlier revision again as the next live revision.")]
+		[ProducesResponseType<RevisionResponse>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(PublishRequest))]
 		[HttpPost("~/api/v1/flags/revisions/{number:int}/rollback")]
 		public async Task<IActionResult> Rollback(int number)
 		{

@@ -55,7 +55,7 @@ namespace GenOnlineService.Tests
 			Assert.Equal(1, current.Number);
 			Assert.Equal(FlagSeed.Actor, current.CreatedBy);
 			Assert.Equal(1, await db.FlagRevisions.CountAsync());
-			Assert.Equal(39, await db.Flags.CountAsync());
+			Assert.Equal(38, await db.Flags.CountAsync());
 
 			// the database may reorder JSON keys; the draft still reads as unchanged
 			Assert.Empty(FlagStore.Diff(JsonNode.Parse(current.Document), FlagStore.DocumentOf(await db.Flags.AsNoTracking().ToListAsync())));
@@ -209,13 +209,13 @@ namespace GenOnlineService.Tests
 			Assert.Null(failure);
 			Assert.Single(draft!, f => !f.Archived);
 			Assert.True((await Draft(db, "client.lobby.host_migration")).Value.GetBoolean());
-			Assert.Equal(38, draft!.Count(f => f.Archived));
+			Assert.Equal(37, draft!.Count(f => f.Archived));
 
 			(_, Failure? bad) = await FlagStore.Import(db, JsonNode.Parse("""{"flags":{"Bad Key":{}}}"""), s_staff);
 			Assert.Equal(Result.Invalid("flags.Bad Key"), bad);
 
 			(List<DraftFlag>? reset, _) = await FlagStore.ResetDraft(db, s_staff);
-			Assert.Equal(39, reset!.Count(f => !f.Archived));
+			Assert.Equal(38, reset!.Count(f => !f.Archived));
 			Assert.False((await Draft(db, "client.lobby.host_migration")).Value.GetBoolean());
 			Assert.Equal(1, (await FlagStore.Current(db))!.Number);
 		}

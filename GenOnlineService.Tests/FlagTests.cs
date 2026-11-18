@@ -306,7 +306,7 @@ namespace GenOnlineService.Tests
 		{
 			List<FlagDefinition> flags = FlagSeed.FromGroupedConfig((JsonObject)JsonNode.Parse(FlagSeed.ServiceConfig)!);
 			Assert.All(flags, f => Assert.Null(FlagRules.Check(f)));
-			Assert.Equal(39, flags.Count);
+			Assert.Equal(38, flags.Count);
 			Assert.Contains(flags, f => f.Key == "client.input_delay.formula.repair_budget" && f.Group == "Input delay / Formula" && f.Type == FlagTypes.Bool);
 			Assert.Contains(flags, f => f.Key == "client.connection.reconnect_timeout_ms" && f.Label == "Reconnect timeout" && f.Unit == "ms" && f.Type == FlagTypes.Int);
 
@@ -314,6 +314,13 @@ namespace GenOnlineService.Tests
 			JsonObject grouped = snapshot.ServiceConfigFor(Context(7));
 
 			Assert.True(JsonNode.DeepEquals(JsonNode.Parse(FlagSeed.ServiceConfig), grouped), grouped.ToJsonString());
+		}
+
+		[Fact]
+		public void TheSeedIsTheServiceConfigOfTheDocumentedConfigAnswer()
+		{
+			JsonNode fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "api-fixtures", "get-config.response.json")))!;
+			Assert.True(JsonNode.DeepEquals(fixture["service_config"], JsonNode.Parse(FlagSeed.ServiceConfig)));
 		}
 
 		[Fact]
