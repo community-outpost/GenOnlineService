@@ -51,6 +51,8 @@ namespace GenOnlineService.Portal.Client
 		public const string StaffRealtime = "api/v1/staff/realtime";
 		public const string StaffLobbies = "api/v1/staff/lobbies";
 		public const string Lobbies = "api/v1/lobbies";
+		public const string Flags = "api/v1/flags";
+		public const string FlagRevisions = "api/v1/flags/revisions";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -72,6 +74,7 @@ namespace GenOnlineService.Portal.Client
 		public const string AnnouncementsPage = "/admin/announcements";
 		public const string LivePage = "/admin/live";
 		public const string LobbiesPage = "/admin/lobbies";
+		public const string ConfigPage = "/admin/config";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -111,6 +114,7 @@ namespace GenOnlineService.Portal.Client
 		public const string SettingsManage = "settings.manage";
 		public const string ServerStats = "server.stats";
 		public const string AccountsSupport = "accounts.support";
+		public const string FlagsManage = "flags.manage";
 	}
 
 	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
@@ -133,7 +137,8 @@ namespace GenOnlineService.Portal.Client
 			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
 			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
 			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
-			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
+			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "flag_create", "flag_update",
+			"flag_archive", "flag_restore", "flags_publish", "flags_rollback", "flags_import", "flags_reset"
 		];
 	}
 
@@ -565,6 +570,11 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalError
 	{
 		public string Error { get; init; } = "";
+
+		// the details of the code, such as {field} of invalid_argument
+		public JsonElement? Params { get; init; }
+
+		public string? Field => Params is JsonElement details && details.ValueKind == JsonValueKind.Object && details.TryGetProperty("field", out JsonElement named) && named.ValueKind == JsonValueKind.String ? named.GetString() : null;
 	}
 
 	// What the player list shows (T17f), in the address of the page (?q=&filter=&signed_in_within=&order_by=&sort=) and,
@@ -890,5 +900,109 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalConnectionReports
 	{
 		public IReadOnlyList<PortalConnectionReport> Reports { get; init; } = [];
+	}
+
+	// The game config (GET /api/v1/flags and its routes): one field of the draft as staff edit it, FlagDefinition on the host
+	public sealed record PortalFlag
+	{
+		public string Key { get; init; } = "";
+		public string Scope { get; init; } = "client";
+		public string Label { get; init; } = "";
+		public string? Description { get; init; }
+		public string Group { get; init; } = "";
+
+		// bool, int, number, string or choice
+		public string Type { get; init; } = "string";
+		public string? Unit { get; init; }
+		public double? Min { get; init; }
+		public double? Max { get; init; }
+		public IReadOnlyList<PortalFlagChoice>? Choices { get; init; }
+
+		// false leaves the field out of the game's answer, the game then keeps its built-in default
+		public bool Enabled { get; init; } = true;
+		public JsonElement Value { get; init; }
+		public IReadOnlyList<PortalFlagRule> Rules { get; init; } = [];
+
+		// flagd targeting written by hand, edited through export and import only
+		public JsonElement? Custom { get; init; }
+	}
+
+	public sealed record PortalFlagChoice
+	{
+		public JsonElement Value { get; init; }
+		public string Label { get; init; } = "";
+	}
+
+	// role, client or country with values, or percentage with percent; the first rule that matches gives its value
+	public sealed record PortalFlagRule
+	{
+		public string Kind { get; init; } = "";
+		public IReadOnlyList<string>? Values { get; init; }
+		public int? Percent { get; init; }
+		public JsonElement Value { get; init; }
+	}
+
+	public sealed record PortalDraftFlag
+	{
+		public PortalFlag Flag { get; init; } = new();
+		public bool Archived { get; init; }
+
+		// the If-Match value of a change to this field
+		public int Version { get; init; }
+
+		// service code reads it, so it cannot be archived
+		public bool UsedByService { get; init; }
+
+		// unchanged, added, changed or archived against the live revision
+		public string Status { get; init; } = "";
+		public string UpdatedBy { get; init; } = "";
+		public DateTime UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalFlagDraft
+	{
+		// the live revision, 0 before the first publish
+		public int Revision { get; init; }
+
+		// the If-Match value of a publish, so only the reviewed draft goes live
+		public string DraftEtag { get; init; } = "";
+		public IReadOnlyList<PortalDraftFlag> Flags { get; init; } = [];
+	}
+
+	public sealed record PortalFlagChange
+	{
+		public string Key { get; init; } = "";
+		public string Label { get; init; } = "";
+
+		// added, removed or changed
+		public string Change { get; init; } = "";
+		public IReadOnlyList<string> Fields { get; init; } = [];
+		public PortalFlag? Before { get; init; }
+		public PortalFlag? After { get; init; }
+	}
+
+	public sealed record PortalFlagChanges
+	{
+		public int? From { get; init; }
+		public int? To { get; init; }
+		public IReadOnlyList<PortalFlagChange> Changes { get; init; } = [];
+	}
+
+	public sealed record PortalFlagRevision
+	{
+		public int Number { get; init; }
+		public DateTime CreatedAt { get; init; }
+		public string CreatedBy { get; init; } = "";
+		public string? Comment { get; init; }
+		public int? RollbackOf { get; init; }
+		public bool Live { get; init; }
+
+		// the flagd file, only when one revision is read (the export)
+		public JsonElement? Document { get; init; }
+	}
+
+	public sealed record PortalFlagComment
+	{
+		public string? Comment { get; init; }
 	}
 }

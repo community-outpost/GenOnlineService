@@ -38,6 +38,12 @@ namespace GenOnlineService.Portal.Client
 		public bool Ok => Error == null && Value != null;
 	}
 
+	// The outcome of a game config change: the saved value, or the error code and the field the host refused
+	public readonly record struct PortalFlagOutcome<T>(T? Value, string? Error, string? Field) where T : class
+	{
+		public bool Ok => Error == null && Value != null;
+	}
+
 	// Calls /api/v1 with the sign-in cookie the browser already holds, the browser never sees a token. Who is signed in
 	// and the antiforgery token come with the host page, in its <meta> tags (PortalDocument)
 	public sealed class PortalApi
@@ -316,6 +322,72 @@ namespace GenOnlineService.Portal.Client
 
 		public Task<PortalOutcome> RevokePartnerTokenAsync(long id, long tokenID) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.ServiceAccounts}/{id}/personal_access_tokens/{tokenID}", new { });
 
+		// The game config draft, every field with its status against the live revision
+		public Task<PortalAnswer<PortalFlagDraft>> GetFlagsAsync(CancellationToken cancellationToken = default) => GetAsync<PortalFlagDraft>(PortalRoutes.Flags, cancellationToken);
+
+		// One field of the draft; version is the If-Match value, so a change made meanwhile is refused (conflict.stale)
+		public Task<PortalFlagOutcome<PortalDraftFlag>> SaveFlagAsync(PortalFlag flag, int version)
+		{
+			return SendFlagAsync<PortalDraftFlag>(HttpMethod.Put, $"{PortalRoutes.Flags}/{Uri.EscapeDataString(flag.Key)}", flag, Quoted(version));
+		}
+
+		// The field leaves the next revision and can be restored
+		public Task<PortalFlagOutcome<PortalDraftFlag>> ArchiveFlagAsync(string key, int version)
+		{
+			return SendFlagAsync<PortalDraftFlag>(HttpMethod.Delete, $"{PortalRoutes.Flags}/{Uri.EscapeDataString(key)}", new { }, Quoted(version));
+		}
+
+		public Task<PortalFlagOutcome<PortalDraftFlag>> RestoreFlagAsync(string key, int version)
+		{
+			return SendFlagAsync<PortalDraftFlag>(HttpMethod.Post, $"{PortalRoutes.Flags}/{Uri.EscapeDataString(key)}/restore", new { }, Quoted(version));
+		}
+
+		// What publishing the draft would change
+		public Task<PortalAnswer<PortalFlagChanges>> GetDraftChangesAsync(CancellationToken cancellationToken = default) => GetAsync<PortalFlagChanges>(PortalRoutes.Flags + "/draft/changes", cancellationToken);
+
+		// draftEtag is the draft the page showed, so a draft changed meanwhile is refused (conflict.stale)
+		public Task<PortalFlagOutcome<PortalFlagRevision>> PublishFlagsAsync(string? comment, string draftEtag)
+		{
+			return SendFlagAsync<PortalFlagRevision>(HttpMethod.Post, PortalRoutes.Flags + "/draft/publish", new PortalFlagComment { Comment = comment }, draftEtag);
+		}
+
+		// The draft starts again from the live revision
+		public Task<PortalFlagOutcome<PortalFlagDraft>> ResetFlagsAsync() => SendFlagAsync<PortalFlagDraft>(HttpMethod.Post, PortalRoutes.Flags + "/draft/reset", new { }, null);
+
+		// A flagd file, such as an export, becomes the draft
+		public Task<PortalFlagOutcome<PortalFlagDraft>> ImportFlagsAsync(JsonElement document) => SendFlagAsync<PortalFlagDraft>(HttpMethod.Post, PortalRoutes.Flags + "/draft/import", document, null);
+
+		// Every revision, newest first; one per publish or rollback, read page by page
+		public async Task<PortalAnswer<List<PortalFlagRevision>>> ListFlagRevisionsAsync(CancellationToken cancellationToken = default)
+		{
+			var revisions = new List<PortalFlagRevision>();
+			for (int page = 1; ; page++)
+			{
+				PortalAnswer<List<PortalFlagRevision>> answer = await GetAsync<List<PortalFlagRevision>>($"{PortalRoutes.FlagRevisions}?page={page}&per_page={MaximumPerPage}", cancellationToken);
+				if (!answer.Ok)
+				{
+					return new PortalAnswer<List<PortalFlagRevision>>(null, answer.Error ?? "");
+				}
+				revisions.AddRange(answer.Value!);
+				if (answer.Value!.Count < MaximumPerPage)
+				{
+					return new PortalAnswer<List<PortalFlagRevision>>(revisions, null);
+				}
+			}
+		}
+
+		// One revision with its flagd file, the export
+		public Task<PortalAnswer<PortalFlagRevision>> GetFlagRevisionAsync(int number) => GetAsync<PortalFlagRevision>($"{PortalRoutes.FlagRevisions}/{number}");
+
+		// What one revision changed against the one before it
+		public Task<PortalAnswer<PortalFlagChanges>> GetFlagRevisionChangesAsync(int number) => GetAsync<PortalFlagChanges>($"{PortalRoutes.FlagRevisions}/{number}/changes");
+
+		// The revision goes live again as the next revision
+		public Task<PortalFlagOutcome<PortalFlagRevision>> RollbackFlagsAsync(int number, string? comment)
+		{
+			return SendFlagAsync<PortalFlagRevision>(HttpMethod.Post, $"{PortalRoutes.FlagRevisions}/{number}/rollback", new PortalFlagComment { Comment = comment }, null);
+		}
+
 		// False when the browser refuses the clipboard, the value is then copied by hand
 		public async Task<bool> CopyAsync(string text)
 		{
@@ -378,6 +450,18 @@ namespace GenOnlineService.Portal.Client
 			return (new PortalAnswer<T>(null, await ErrorOfAsync(response)), 0);
 		}
 
+		private static string Quoted(int version) => "\"" + version.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\"";
+
+		// A game config change: the answer, or the error code with the field an invalid_argument names
+		private async Task<PortalFlagOutcome<TResult>> SendFlagAsync<TResult>(HttpMethod method, string path, object body, string? ifMatch) where TResult : class
+		{
+			(HttpResponseMessage? response, PortalError? failure) = await SendRawAsync(method, path, body, ifMatch);
+			using (response)
+			{
+				return failure != null ? new PortalFlagOutcome<TResult>(null, failure.Error, failure.Field) : new PortalFlagOutcome<TResult>(await response!.Content.ReadFromJsonAsync<TResult>(PortalJson.Options), null, null);
+			}
+		}
+
 		// Every change carries the antiforgery token of the host page
 		private async Task<PortalOutcome> SendAsync<T>(HttpMethod method, string path, T body)
 		{
@@ -401,14 +485,25 @@ namespace GenOnlineService.Portal.Client
 		// The answer on success, otherwise the error code; the caller disposes the answer
 		private async Task<(HttpResponseMessage? Response, string? Error)> SendCoreAsync<T>(HttpMethod method, string path, T body)
 		{
+			(HttpResponseMessage? response, PortalError? failure) = await SendRawAsync(method, path, body, null);
+			return (response, failure?.Error);
+		}
+
+		// The answer on success, otherwise the error with its details; ifMatch goes in the If-Match header when set
+		private async Task<(HttpResponseMessage? Response, PortalError? Failure)> SendRawAsync<T>(HttpMethod method, string path, T body, string? ifMatch)
+		{
 			PortalSessionInfo? session = await LoadSessionAsync();
 			if (session == null)
 			{
-				return (null, "unauthorized");
+				return (null, new PortalError { Error = "unauthorized" });
 			}
 
 			using var request = new HttpRequestMessage(method, path) { Content = JsonContent.Create(body, options: PortalJson.Options) };
 			request.Headers.Add(session.CsrfHeader, session.CsrfToken);
+			if (ifMatch != null)
+			{
+				request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+			}
 
 			HttpResponseMessage response = await m_http.SendAsync(request);
 			if (response.IsSuccessStatusCode)
@@ -421,29 +516,32 @@ namespace GenOnlineService.Portal.Client
 				if (response.StatusCode == HttpStatusCode.Unauthorized)
 				{
 					SignIn();
-					return (null, "unauthorized");
+					return (null, new PortalError { Error = "unauthorized" });
 				}
 
-				return (null, await ErrorOfAsync(response));
+				return (null, await FailureOfAsync(response));
 			}
 		}
 
-		private static async Task<string> ErrorOfAsync(HttpResponseMessage response)
+		private static async Task<string> ErrorOfAsync(HttpResponseMessage response) => (await FailureOfAsync(response)).Error;
+
+		// The error and its details, or the status code when the body is not the error shape
+		private static async Task<PortalError> FailureOfAsync(HttpResponseMessage response)
 		{
-			string code = ((int)response.StatusCode).ToString();
+			var failure = new PortalError { Error = ((int)response.StatusCode).ToString() };
 			try
 			{
 				PortalError? error = await response.Content.ReadFromJsonAsync<PortalError>(PortalJson.Options);
 				if (!String.IsNullOrEmpty(error?.Error))
 				{
-					code = error.Error;
+					failure = error;
 				}
 			}
 			catch (JsonException)
 			{
 				// a body that is not the error shape leaves the status code as the answer
 			}
-			return code;
+			return failure;
 		}
 	}
 

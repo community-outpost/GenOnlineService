@@ -1,0 +1,78 @@
+@* The changes between two game config revisions in words: each field added, removed or changed, and for a change every
+   property before and after *@
+
+<ul class="go-feed">
+    @foreach (PortalFlagChange change in Changes)
+    {
+        PortalFlag flag = change.After ?? change.Before ?? new PortalFlag();
+        <li class="bb:p-3 bb:space-y-1" data-testid="change-@change.Key">
+            <div class="bb:flex bb:items-center bb:gap-2 bb:flex-wrap">
+                <span class="bb:font-medium">@change.Label</span>
+                <BbBadge Variant="@(change.Change == "removed" ? BadgeVariant.SoftDestructive : BadgeVariant.Soft)">@change.Change</BbBadge>
+            </div>
+            <p class="bb:text-xs bb:text-muted-foreground bb:font-mono bb:break-all">@change.Key</p>
+            @if (change.Change == "added")
+            {
+                <p class="bb:text-sm">@PortalFlagText.Display(flag, flag.Value)</p>
+            }
+            else if (change.Change == "removed")
+            {
+                <p class="bb:text-sm">was @PortalFlagText.Display(flag, flag.Value)</p>
+            }
+            else
+            {
+                @foreach (string field in change.Fields)
+                {
+                    <p class="bb:text-sm">
+                        <span class="bb:text-muted-foreground">@FieldName(field):</span>
+                        <span>@Property(change.Before, field)</span>
+                        <span aria-label="becomes"> &rarr; </span>
+                        <span class="bb:font-medium">@Property(change.After, field)</span>
+                    </p>
+                }
+            }
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PortalFlagChange> Changes { get; set; } = [];
+
+    private static string FieldName(string field) => field switch
+    {
+        "value" => "Value",
+        "enabled" => "In the answer",
+        "rules" => "Targeting",
+        "custom" => "Custom targeting",
+        "min" => "Lowest",
+        "max" => "Highest",
+        _ => field.Length == 0 ? field : Char.ToUpperInvariant(field[0]) + field[1..]
+    };
+
+    // One property of a definition in words, the names as FlagStore.Diff lists them
+    private static string Property(PortalFlag? flag, string field)
+    {
+        if (flag == null)
+        {
+            return "none";
+        }
+        return field switch
+        {
+            "value" => PortalFlagText.Display(flag, flag.Value),
+            "enabled" => flag.Enabled ? "sent" : "left out",
+            "rules" => flag.Rules.Count == 0 ? "none" : String.Join("; ", flag.Rules.Select(r => PortalFlagText.RuleText(flag, r))),
+            "custom" => flag.Custom == null ? "none" : "written by hand",
+            "label" => flag.Label,
+            "description" => flag.Description ?? "none",
+            "group" => flag.Group,
+            "type" => flag.Type,
+            "scope" => flag.Scope,
+            "unit" => flag.Unit ?? "none",
+            "min" => flag.Min?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none",
+            "max" => flag.Max?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none",
+            "choices" => String.Join(", ", (flag.Choices ?? []).Select(c => c.Label)),
+            _ => "changed"
+        };
+    }
+}

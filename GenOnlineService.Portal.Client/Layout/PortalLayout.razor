@@ -124,11 +124,20 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
-                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage))
+                @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage) || staff.Can(PortalPermissions.FlagsManage))
                 {
                     <BbSidebarGroup>
                         <BbSidebarGroupLabel>Administration</BbSidebarGroupLabel>
                         <BbSidebarMenu>
+                            @if (staff.Can(PortalPermissions.FlagsManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.ConfigPage" Tooltip="Game config">
+                                        <LucideIcon Name="sliders-horizontal" Class="bb:h-4 bb:w-4" />
+                                        <span>Game config</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
                             @if (staff.Can(PortalPermissions.TokensManage))
                             {
                                 <BbSidebarMenuItem>
@@ -370,6 +379,9 @@
                 break;
             case "settings":
                 yield return ("Message of the day", null);
+                break;
+            case "config":
+                yield return ("Game config", null);
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);
