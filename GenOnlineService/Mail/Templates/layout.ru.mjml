@@ -1,0 +1,26 @@
+<mjml lang="ru">
+  <mj-head>
+    <mj-title>{{subject}}</mj-title>
+    <mj-attributes>
+      <mj-all font-family="'IBM Plex Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif" />
+      <mj-text font-size="15px" line-height="24px" color="#1c1917" />
+    </mj-attributes>
+  </mj-head>
+  <mj-body background-color="#f5f5f4">
+    <mj-section padding="32px 16px 8px">
+      <mj-column>
+        <mj-text font-size="13px" letter-spacing="2px" color="#78716c">GENERALS ONLINE</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#fafaf9" border="1px solid #e7e5e4" padding="24px 16px">
+      <mj-column>
+<!--body-->
+      </mj-column>
+    </mj-section>
+    <mj-section padding="16px">
+      <mj-column>
+        <mj-text font-size="12px" line-height="18px" color="#a8a29e">Вы получили это письмо из-за вашей учётной записи Generals Online. Если вы его не запрашивали, просто проигнорируйте его.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

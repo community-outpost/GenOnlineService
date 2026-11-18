@@ -1,0 +1,4 @@
+        <mj-text font-size="22px" line-height="30px" font-weight="300">أكّد عنوان بريدك الإلكتروني</mj-text>
+        <mj-text>مرحبًا {{name}}، يُرجى تأكيد أن هذا العنوان يخصك. تحتاج إلى عنوان مؤكَّد لكي تلعب.</mj-text>
+        <mj-button href="{{link}}" background-color="#f0b429" color="#1c1917" border-radius="2px" font-weight="500" align="right">تأكيد عنوان البريد الإلكتروني</mj-button>
+        <mj-text font-size="13px" color="#78716c">يعمل الرابط لمدة 24 ساعة. إذا لم يعمل الزر، افتح هذا العنوان: {{link}}</mj-text>

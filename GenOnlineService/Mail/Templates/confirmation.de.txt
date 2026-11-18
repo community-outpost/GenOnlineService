@@ -1,0 +1,9 @@
+Hallo {{name}},
+
+bitte bestätige, dass diese Adresse dir gehört. Zum Spielen brauchst du eine bestätigte Adresse.
+
+E-Mail-Adresse bestätigen: {{link}}
+
+Der Link ist 24 Stunden gültig.
+
+Du erhältst diese E-Mail wegen deines Generals-Online-Kontos. Wenn du sie nicht angefordert hast, kannst du sie ignorieren.
