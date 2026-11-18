@@ -156,15 +156,6 @@ namespace GenOnlineService.Tests
 			Assert.Equal(value, motd);
 		}
 
-		[Theory]
-		[InlineData("{\"use_mapped_port\":true,\"min_run_ahead_frames\":4}", true)]
-		[InlineData("[1,2]", false)]
-		[InlineData("not json", false)]
-		public void ServiceConfigIsAJsonObject(string text, bool valid)
-		{
-			Assert.Equal(valid, ConfigSources.ParseServiceConfig(text) != null);
-		}
-
 		[Fact]
 		public void EosRequestNeedsTheIdToken()
 		{

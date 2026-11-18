@@ -31,38 +31,12 @@ namespace GenOnlineService.Rest
 		public string? Motd { get; init; }
 	}
 
-	// Reads the sources of GET /api/v1/config: files under data/ and the motd application setting
+	// Reads the motd of GET /api/v1/config: the motd application setting, else data/motd.txt
 	public static class ConfigSources
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(ConfigSources));
 
-		private static readonly string s_serviceConfigPath = Path.Combine("data", "serviceconfig.json");
 		private static readonly string s_motdPath = Path.Combine("data", "motd.txt");
-
-		// Null when the file is missing or is not a JSON object
-		public static async Task<JsonElement?> ReadServiceConfigAsync()
-		{
-			string? text = await ReadFileAsync(s_serviceConfigPath);
-			JsonElement? config = text == null ? null : ParseServiceConfig(text);
-			if (text != null && config == null)
-			{
-				s_log.LogError("data/serviceconfig.json is not a JSON object");
-			}
-			return config;
-		}
-
-		public static JsonElement? ParseServiceConfig(string text)
-		{
-			try
-			{
-				using JsonDocument document = JsonDocument.Parse(text);
-				return document.RootElement.ValueKind == JsonValueKind.Object ? document.RootElement.Clone() : null;
-			}
-			catch (JsonException)
-			{
-				return null;
-			}
-		}
 
 		// The motd setting wins over data/motd.txt; {0} is the number of players online
 		public static async Task<string?> ReadMotdAsync(IDbContextFactory<AppDbContext> dbFactory)

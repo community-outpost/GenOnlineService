@@ -40,6 +40,11 @@ namespace GenOnlineService
 		public const string TokensManage = "tokens.manage";
 		public const string AuditRead = "audit.read";
 		public const string SettingsManage = "settings.manage";
+		public const string FlagsManage = "flags.manage";
+		public const string PlaylistsManage = "playlists.manage";
+		public const string LaddersManage = "ladders.manage";
+		public const string ChannelsManage = "channels.manage";
+		public const string BroadcastsManage = "broadcasts.manage";
 
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
@@ -49,7 +54,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, FlagsManage, PlaylistsManage, LaddersManage, ChannelsManage, BroadcastsManage
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -103,7 +108,12 @@ namespace GenOnlineService
 			Permissions.AnnouncementsSend,
 			Permissions.TokensManage,
 			Permissions.AuditRead,
-			Permissions.SettingsManage
+			Permissions.SettingsManage,
+			Permissions.FlagsManage,
+			Permissions.PlaylistsManage,
+			Permissions.LaddersManage,
+			Permissions.ChannelsManage,
+			Permissions.BroadcastsManage
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)

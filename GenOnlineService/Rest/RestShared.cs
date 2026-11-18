@@ -59,6 +59,8 @@ namespace GenOnlineService.Rest
 			[RestCodes.EosAccountLocked] = StatusCodes.Status409Conflict,
 			[RestCodes.Conflict] = StatusCodes.Status409Conflict,
 			[RestCodes.MethodNotAllowed] = StatusCodes.Status405MethodNotAllowed,
+			[GenOnlineService.Flags.FlagCodes.Stale] = StatusCodes.Status409Conflict,
+			[GenOnlineService.Flags.FlagCodes.Exists] = StatusCodes.Status409Conflict,
 		};
 
 		public static int StatusOf(string code) => s_statuses.TryGetValue(code, out int status) ? status : ApiResults.StatusOf(code);

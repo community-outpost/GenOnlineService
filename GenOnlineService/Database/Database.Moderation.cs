@@ -58,6 +58,8 @@ public static class AuditTargetKinds
 	public const string Setting = "setting";
 	public const string Announcement = "announcement";
 	public const string Lobby = "lobby";
+	public const string Flag = "flag";
+	public const string FlagRevision = "flag_revision";
 }
 
 public static class ModerationActions

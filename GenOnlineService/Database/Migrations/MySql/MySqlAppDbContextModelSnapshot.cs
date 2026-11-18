@@ -681,6 +681,77 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("devices", (string)null);
                 });
 
+            modelBuilder.Entity("FlagRevision", b =>
+                {
+                    b.Property<int>("Number")
+                        .HasColumnType("int")
+                        .HasColumnName("number");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("document");
+
+                    b.Property<int?>("RollbackOf")
+                        .HasColumnType("int")
+                        .HasColumnName("rollback_of");
+
+                    b.HasKey("Number");
+
+                    b.ToTable("flag_revisions", (string)null);
+                });
+
+            modelBuilder.Entity("FlagRow", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("archived_at");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasColumnType("json")
+                        .HasColumnName("definition");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int")
+                        .HasColumnName("version");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("flags", (string)null);
+                });
+
             modelBuilder.Entity("FriendRequest", b =>
                 {
                     b.Property<long>("FromUserId")
