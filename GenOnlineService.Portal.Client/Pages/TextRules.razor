@@ -1,0 +1,617 @@
+@* The text rules (S7): the page header (nav-02) over tabs for the words, the exception words, the rule workflows and a
+   test of a text, of /api/v1/staff/text_rules. textrules.manage only (admins); every change is in the audit log and
+   applies on every service copy within about 5 seconds *@
+@page "/admin/text-rules"
+@inject PortalApi Api
+@inject ToastService Toasts
+
+<PageTitle>Text rules · Generals Online</PageTitle>
+
+<PageHeader Description="Word lists and rules that check display names, lobby names and chat. Every change is in the audit log.">
+    <Title>Text rules</Title>
+    <Actions>
+        @if (Session.Can(PortalPermissions.TextRulesManage))
+        {
+            <BbButton Size="ButtonSize.Small" OnClick="OpenAdd" data-testid="new-word">
+                <LucideIcon Name="plus" Class="bb:h-4 bb:w-4" />
+                Add word
+            </BbButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!Session.Can(PortalPermissions.TextRulesManage))
+{
+    <Refusal Title="Text rules" Description="Changing the word lists and rules needs the textrules.manage permission." Icon="lock" />
+}
+else
+{
+    <BbTabs DefaultValue="words">
+        <BbTabsList>
+            <BbTabsTrigger Value="words">Words</BbTabsTrigger>
+            <BbTabsTrigger Value="exceptions">Exceptions</BbTabsTrigger>
+            <BbTabsTrigger Value="rules">Rules</BbTabsTrigger>
+            <BbTabsTrigger Value="test">Test a text</BbTabsTrigger>
+        </BbTabsList>
+
+        <BbTabsContent Value="words" Class="bb:mt-4">
+            <BbCard Class="go-filtered">
+                <BbCardContent Class="bb:pt-6 bb:space-y-4">
+                    <form class="go-filterbar" role="search" aria-label="Filter words" @onsubmit="LoadTermsAsync">
+                        <div class="go-filterbar-search">
+                            <BbInput Id="word-query" Type="InputType.Search" @bind-Value="m_query" Placeholder="Part of a word…" AriaLabel="Word" autocomplete="off" spellcheck="false" />
+                        </div>
+                        <div class="go-filterbar-selects">
+                            <BbNativeSelect TValue="string" @bind-Value="m_language" AriaLabel="Language" Class="go-select">
+                                <option value="">Any language</option>
+                                @foreach ((string value, string title) in PortalTextChoices.Languages)
+                                {
+                                    <option value="@value">@title</option>
+                                }
+                            </BbNativeSelect>
+                            <BbNativeSelect TValue="string" @bind-Value="m_category" AriaLabel="Category" Class="go-select">
+                                <option value="">Any category</option>
+                                @foreach (string category in PortalTextChoices.Categories)
+                                {
+                                    <option value="@category">@category</option>
+                                }
+                            </BbNativeSelect>
+                            <BbNativeSelect TValue="string" @bind-Value="m_severity" AriaLabel="Severity" Class="go-select">
+                                <option value="">Any severity</option>
+                                @foreach (string severity in PortalTextChoices.Severities)
+                                {
+                                    <option value="@severity">@severity</option>
+                                }
+                            </BbNativeSelect>
+                            <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-testid="filter-words">
+                                <LucideIcon Name="search" Class="bb:h-4 bb:w-4" />
+                                Filter
+                            </BbButton>
+                        </div>
+                    </form>
+
+                    @if (m_termsError != null)
+                    {
+                        <BbAlert Variant="AlertVariant.Danger">
+                            <Icon>
+                                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+                            </Icon>
+                            <ChildContent>
+                                <BbAlertTitle>The words could not load</BbAlertTitle>
+                                <BbAlertDescription>@PortalText.Error(m_termsError)</BbAlertDescription>
+                            </ChildContent>
+                        </BbAlert>
+                    }
+                    else if (m_terms == null)
+                    {
+                        <FeedSkeleton />
+                    }
+                    else
+                    {
+                        <p class="bb:text-xs bb:text-muted-foreground" data-testid="word-count">@(m_terms.Total > m_terms.Terms.Count ? $"The first {m_terms.Terms.Count} of {m_terms.Total} words." : $"{m_terms.Total} words.") A block word refuses a display name or lobby name and blocks a chat message, a flag word is masked in chat; impersonation and reserved words refuse display names only.</p>
+                        <BbDataTable TData="PortalTextTerm" Data="@m_terms.Terms" ShowToolbar="false" ShowPagination="false" AriaLabel="Words">
+                            <Columns>
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => t.Term)" Header="Word">
+                                    <CellTemplate Context="row">
+                                        <span class="bb:font-mono" dir="auto" data-testid="word-row">@row.Term</span>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => t.Language)" Header="Language" CellClass="go-nowrap" />
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => t.Category)" Header="Category" CellClass="go-nowrap" />
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => t.Severity)" Header="Severity">
+                                    <CellTemplate Context="row">
+                                        <BbBadge Variant="@(row.Severity == "block" ? BadgeVariant.SoftDestructive : BadgeVariant.Secondary)">@row.Severity</BbBadge>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => t.Match)" Header="Match" CellClass="go-nowrap" />
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => t.Source)" Header="Source" CellClass="bb:text-muted-foreground" />
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => PortalText.Date(t.UpdatedAt))" Header="Changed" CellClass="go-nowrap" />
+                                <BbDataTableColumn TData="PortalTextTerm" TValue="string" Property="@(t => "")" Header="">
+                                    <CellTemplate Context="row">
+                                        <span class="go-cell-badges">
+                                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OpenEdit(row))" aria-label="@($"Edit {row.Term}")">
+                                                <LucideIcon Name="pencil" Class="bb:h-4 bb:w-4" />
+                                            </BbButton>
+                                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => m_removing = row)" aria-label="@($"Remove {row.Term}")">
+                                                <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4" />
+                                            </BbButton>
+                                        </span>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                            </Columns>
+                            <EmptyTemplate>
+                                <BbEmpty Size="EmptySize.Small" Title="No words" Description="No listed word matches the filters.">
+                                    <Icon>
+                                        <LucideIcon Name="spell-check" />
+                                    </Icon>
+                                </BbEmpty>
+                            </EmptyTemplate>
+                        </BbDataTable>
+                    }
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="exceptions" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Exception words</BbCardTitle>
+                    <BbCardDescription>Words that contain a listed word and stay allowed, such as Scunthorpe. They only matter for words matched anywhere in a word.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent Class="bb:space-y-4">
+                    <form class="go-filterbar" aria-label="Add an exception word" @onsubmit="AddExceptionAsync">
+                        <div class="go-filterbar-search">
+                            <BbInput Id="exception-term" @bind-Value="m_exceptionTerm" Placeholder="Exception word…" AriaLabel="Exception word" autocomplete="off" spellcheck="false" />
+                        </div>
+                        <div class="go-filterbar-selects">
+                            <BbNativeSelect TValue="string" @bind-Value="m_exceptionLanguage" AriaLabel="Language" Class="go-select">
+                                @foreach ((string value, string title) in PortalTextChoices.Languages)
+                                {
+                                    <option value="@value">@title</option>
+                                }
+                            </BbNativeSelect>
+                            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Loading="@m_saving" data-testid="add-exception">
+                                <LucideIcon Name="plus" Class="bb:h-4 bb:w-4" />
+                                Add
+                            </BbButton>
+                        </div>
+                    </form>
+                    @if (m_exceptions == null)
+                    {
+                        <FeedSkeleton />
+                    }
+                    else
+                    {
+                        <BbDataTable TData="PortalTextException" Data="@m_exceptions" ShowToolbar="false" ShowPagination="false" AriaLabel="Exception words">
+                            <Columns>
+                                <BbDataTableColumn TData="PortalTextException" TValue="string" Property="@(e => e.Term)" Header="Word" CellClass="bb:font-mono" />
+                                <BbDataTableColumn TData="PortalTextException" TValue="string" Property="@(e => e.Language)" Header="Language" CellClass="go-nowrap" />
+                                <BbDataTableColumn TData="PortalTextException" TValue="string" Property="@(e => e.Source)" Header="Source" CellClass="bb:text-muted-foreground" />
+                                <BbDataTableColumn TData="PortalTextException" TValue="string" Property="@(e => PortalText.Date(e.UpdatedAt))" Header="Changed" CellClass="go-nowrap" />
+                                <BbDataTableColumn TData="PortalTextException" TValue="string" Property="@(e => "")" Header="">
+                                    <CellTemplate Context="row">
+                                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => RemoveExceptionAsync(row))" aria-label="@($"Remove {row.Term}")">
+                                            <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4" />
+                                        </BbButton>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                            </Columns>
+                            <EmptyTemplate>
+                                <BbEmpty Size="EmptySize.Small" Title="No exception words" Description="Add a word that a listed word must not refuse." />
+                            </EmptyTemplate>
+                        </BbDataTable>
+                    }
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="rules" Class="bb:mt-4">
+            @if (m_workflows == null)
+            {
+                <BbSkeleton Class="go-skeleton-panel" />
+            }
+            else
+            {
+                <div class="bb:space-y-4">
+                    <p class="bb:text-sm bb:text-muted-foreground">The rules of each input are checked in order: the first enabled rule whose condition holds decides, none means allow. A condition reads @String.Join(", ", m_fields.Select(f => "input." + f)) with numbers, comparisons and &amp;&amp;, || and !. The service compiles and runs the rules before it saves them.</p>
+                    @foreach (WorkflowDraft workflow in m_workflows)
+                    {
+                        <BbCard>
+                            <BbCardHeader>
+                                <BbCardTitle As="h2">@PortalTextChoices.KindTitle(workflow.Kind)</BbCardTitle>
+                                <BbCardDescription>Outcomes: @String.Join(", ", workflow.Outcomes).@(workflow.UpdatedAt == null ? " The default rules." : $" Changed {PortalText.Date(workflow.UpdatedAt)} by {workflow.UpdatedBy}.")</BbCardDescription>
+                            </BbCardHeader>
+                            <BbCardContent Class="bb:space-y-4">
+                                @foreach (RuleDraft rule in workflow.Rules)
+                                {
+                                    <div class="go-filterbar" data-testid="rule-row">
+                                        <div class="go-filterbar-search">
+                                            <BbInput @bind-Value="rule.Name" Placeholder="Name…" AriaLabel="Rule name" autocomplete="off" />
+                                        </div>
+                                        <div class="go-filterbar-search">
+                                            <BbInput @bind-Value="rule.Expression" Placeholder="input.Block > 0" AriaLabel="Condition" Class="bb:font-mono" autocomplete="off" spellcheck="false" />
+                                        </div>
+                                        <div class="go-filterbar-selects">
+                                            <BbNativeSelect TValue="string" @bind-Value="rule.Outcome" AriaLabel="Outcome" Class="go-select">
+                                                @foreach (string outcome in workflow.Outcomes)
+                                                {
+                                                    <option value="@outcome">@outcome</option>
+                                                }
+                                            </BbNativeSelect>
+                                            <BbButton Type="ButtonType.Button" Variant="@(rule.Enabled ? ButtonVariant.Secondary : ButtonVariant.Outline)" Size="ButtonSize.Small" OnClick="@(() => rule.Enabled = !rule.Enabled)" aria-pressed="@(rule.Enabled ? "true" : "false")">
+                                                <LucideIcon Name="@(rule.Enabled ? "check" : "plus")" Class="bb:h-4 bb:w-4" />
+                                                @(rule.Enabled ? "Enabled" : "Disabled")
+                                            </BbButton>
+                                            <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => workflow.Rules.Remove(rule))" aria-label="Remove the rule">
+                                                <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4" />
+                                            </BbButton>
+                                        </div>
+                                    </div>
+                                }
+                                @if (workflow.Reason != null)
+                                {
+                                    <p class="bb:text-sm bb:text-destructive" role="alert">@workflow.Reason</p>
+                                }
+                                <div class="bb:flex bb:gap-2">
+                                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => workflow.Rules.Add(new RuleDraft { Outcome = workflow.Outcomes.LastOrDefault() ?? "allow" }))">
+                                        <LucideIcon Name="plus" Class="bb:h-4 bb:w-4" />
+                                        Add rule
+                                    </BbButton>
+                                    <BbButton Size="ButtonSize.Small" OnClick="@(() => SaveWorkflowAsync(workflow))" Loading="@workflow.Saving" data-testid="save-rules">
+                                        <LucideIcon Name="save" Class="bb:h-4 bb:w-4" />
+                                        Save
+                                    </BbButton>
+                                </div>
+                            </BbCardContent>
+                        </BbCard>
+                    }
+                </div>
+            }
+        </BbTabsContent>
+
+        <BbTabsContent Value="test" Class="bb:mt-4">
+            <div class="go-dashboard">
+                <BbCard>
+                    <BbCardHeader>
+                        <BbCardTitle As="h2">Test a text</BbCardTitle>
+                        <BbCardDescription>Checks a text against the rules this service copy holds now. Nothing is saved.</BbCardDescription>
+                    </BbCardHeader>
+                    <BbCardContent Class="bb:space-y-4">
+                        <div class="bb:space-y-2">
+                            <BbLabel For="test-kind">Input</BbLabel>
+                            <BbNativeSelect TValue="string" Id="test-kind" @bind-Value="m_testKind" Class="bb:w-full">
+                                @foreach ((string value, string title) in PortalTextChoices.Kinds)
+                                {
+                                    <option value="@value">@title</option>
+                                }
+                            </BbNativeSelect>
+                        </div>
+                        <div class="bb:space-y-2">
+                            <BbLabel For="test-text">Text</BbLabel>
+                            <BbTextarea Id="test-text" @bind-Value="m_testText" UpdateTiming="UpdateTiming.Immediate" MaxLength="512" Placeholder="A name or a message…" autocomplete="off" dir="auto" data-testid="test-text" />
+                        </div>
+                        <BbButton OnClick="TestAsync" Loading="@m_testing" Disabled="@String.IsNullOrEmpty(m_testText)" data-testid="test">
+                            <LucideIcon Name="flask-conical" Class="bb:h-4 bb:w-4" />
+                            Check
+                        </BbButton>
+                    </BbCardContent>
+                </BbCard>
+                <BbCard>
+                    <BbCardHeader>
+                        <BbCardTitle As="h2">Result</BbCardTitle>
+                        <BbCardDescription>@(m_test == null ? "Check a text to see how it reads and what it matches." : m_test.Rule == null ? "No rule held." : $"Decided by the rule {m_test.Rule}.")</BbCardDescription>
+                    </BbCardHeader>
+                    @if (m_test != null)
+                    {
+                        <BbCardContent Class="bb:space-y-4">
+                            <BbBadge Variant="@(m_test.Outcome == "allow" ? BadgeVariant.Secondary : BadgeVariant.SoftDestructive)" data-testid="test-outcome">@m_test.Outcome</BbBadge>
+                            @if (m_test.Masked != null)
+                            {
+                                <p class="bb:text-sm" dir="auto">@m_test.Masked</p>
+                            }
+                            <div class="go-list">
+                                @foreach (PortalTextTestReading reading in m_test.Readings)
+                                {
+                                    <div class="go-list-item">
+                                        <span class="bb:text-xs bb:text-muted-foreground">@reading.Name</span>
+                                        <span class="bb:flex-1 bb:text-sm bb:font-mono" dir="auto">@reading.Text</span>
+                                    </div>
+                                }
+                            </div>
+                            @if (m_test.Hits.Count == 0)
+                            {
+                                <p class="bb:text-sm bb:text-muted-foreground">No listed word matched.</p>
+                            }
+                            else
+                            {
+                                <div class="go-list">
+                                    @foreach (PortalTextTestHit hit in m_test.Hits)
+                                    {
+                                        <div class="go-list-item">
+                                            <span class="bb:flex-1 bb:text-sm" dir="auto">@hit.Text → <span class="bb:font-mono">@hit.Term</span></span>
+                                            <span class="go-cell-badges">
+                                                <BbBadge Variant="BadgeVariant.Outline">@hit.Category</BbBadge>
+                                                <BbBadge Variant="@(hit.Severity == "block" ? BadgeVariant.SoftDestructive : BadgeVariant.Secondary)">@hit.Severity</BbBadge>
+                                                <BbBadge Variant="BadgeVariant.Outline">@hit.Reading</BbBadge>
+                                            </span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </BbCardContent>
+                    }
+                </BbCard>
+            </div>
+        </BbTabsContent>
+    </BbTabs>
+
+    <BbDialog @bind-Open="m_editOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>@(m_editing == null ? "Add a word" : "Edit a word")</BbDialogTitle>
+                <BbDialogDescription>Folding reads through case, accents, tashkeel, tatweel, look-alike letters, leetspeak, Arabizi digits, spacing and repeated letters, so list each word once in its plain form.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <div class="bb:space-y-2">
+                    <BbLabel For="word-term">Word or phrase</BbLabel>
+                    <BbInput Id="word-term" @bind-Value="m_draft.Term" Placeholder="A word…" autocomplete="off" spellcheck="false" dir="auto" />
+                    <p class="bb:text-xs bb:text-muted-foreground">At most 64 characters; it is saved in lower case.</p>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="word-language">Language</BbLabel>
+                    <BbNativeSelect TValue="string" Id="word-language" @bind-Value="m_draft.Language" Class="bb:w-full">
+                        @foreach ((string value, string title) in PortalTextChoices.Languages)
+                        {
+                            <option value="@value">@title</option>
+                        }
+                    </BbNativeSelect>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="word-category">Category</BbLabel>
+                    <BbNativeSelect TValue="string" Id="word-category" @bind-Value="m_draft.Category" Class="bb:w-full">
+                        @foreach (string category in PortalTextChoices.Categories)
+                        {
+                            <option value="@category">@category</option>
+                        }
+                    </BbNativeSelect>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="word-severity">Severity</BbLabel>
+                    <BbNativeSelect TValue="string" Id="word-severity" @bind-Value="m_draft.Severity" Class="bb:w-full">
+                        @foreach (string severity in PortalTextChoices.Severities)
+                        {
+                            <option value="@severity">@severity</option>
+                        }
+                    </BbNativeSelect>
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="word-match">Match</BbLabel>
+                    <BbNativeSelect TValue="string" Id="word-match" @bind-Value="m_draft.Match" Class="bb:w-full">
+                        @foreach (string match in PortalTextChoices.Matches)
+                        {
+                            <option value="@match">@match</option>
+                        }
+                    </BbNativeSelect>
+                    <p class="bb:text-xs bb:text-muted-foreground">word: the whole word only; anywhere: also inside a longer word, unless an exception word covers it; literal: the text contains the word as typed, nothing folded.</p>
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_editOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="SaveTermAsync" Loading="@m_saving" data-testid="save-word">Save</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog Open="@(m_removing != null)" OpenChanged="@((bool open) => { if (!open) m_removing = null; })">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Remove a word</BbDialogTitle>
+                <BbDialogDescription>@(m_removing == null ? "" : $"\"{m_removing.Term}\" stops matching on every service copy within about 5 seconds.")</BbDialogDescription>
+            </BbDialogHeader>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_removing = null)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton Variant="ButtonVariant.Destructive" OnClick="RemoveTermAsync" Loading="@m_saving" data-testid="remove-word">Remove</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    private sealed class RuleDraft
+    {
+        public string? Name { get; set; }
+        public string? Expression { get; set; }
+        public string? Outcome { get; set; }
+        public bool Enabled { get; set; } = true;
+    }
+
+    private sealed class WorkflowDraft
+    {
+        public string Kind { get; init; } = "";
+        public IReadOnlyList<string> Outcomes { get; init; } = [];
+        public List<RuleDraft> Rules { get; init; } = [];
+        public string UpdatedBy { get; set; } = "";
+        public DateTime? UpdatedAt { get; set; }
+        public string? Reason { get; set; }
+        public bool Saving { get; set; }
+    }
+
+    private sealed class TermDraft
+    {
+        public string? Term { get; set; }
+        public string? Language { get; set; } = "en";
+        public string? Category { get; set; } = "profanity";
+        public string? Severity { get; set; } = "block";
+        public string? Match { get; set; } = "word";
+    }
+
+    private PortalTextTerms? m_terms;
+    private string? m_termsError;
+    private string? m_query;
+    private string? m_language;
+    private string? m_category;
+    private string? m_severity;
+
+    private List<PortalTextException>? m_exceptions;
+    private string? m_exceptionTerm;
+    private string? m_exceptionLanguage = "en";
+
+    private List<WorkflowDraft>? m_workflows;
+    private IReadOnlyList<string> m_fields = [];
+
+    private string? m_testKind = "chat";
+    private string? m_testText;
+    private PortalTextTest? m_test;
+    private bool m_testing;
+
+    private bool m_editOpen;
+    private PortalTextTerm? m_editing;
+    private PortalTextTerm? m_removing;
+    private TermDraft m_draft = new TermDraft();
+    private bool m_saving;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Can(PortalPermissions.TextRulesManage))
+        {
+            return;
+        }
+        await Task.WhenAll(LoadTermsAsync(), LoadExceptionsAsync(), LoadWorkflowsAsync());
+    }
+
+    private async Task LoadTermsAsync()
+    {
+        PortalAnswer<PortalTextTerms> answer = await Api.GetTextTermsAsync(m_query, m_language, m_category, m_severity);
+        m_terms = answer.Value;
+        m_termsError = answer.Ok ? null : answer.Error;
+    }
+
+    private async Task LoadExceptionsAsync()
+    {
+        PortalAnswer<PortalTextExceptions> answer = await Api.GetTextExceptionsAsync();
+        m_exceptions = answer.Value?.Exceptions.ToList() ?? [];
+        if (!answer.Ok)
+        {
+            Toasts.Error(PortalText.Error(answer.Error), "The exception words could not load");
+        }
+    }
+
+    private async Task LoadWorkflowsAsync()
+    {
+        PortalAnswer<PortalTextWorkflows> answer = await Api.GetTextWorkflowsAsync();
+        if (!answer.Ok)
+        {
+            m_workflows = [];
+            Toasts.Error(PortalText.Error(answer.Error), "The rules could not load");
+            return;
+        }
+        m_fields = answer.Value!.Workflows.FirstOrDefault()?.Fields ?? [];
+        m_workflows = answer.Value.Workflows.Select(DraftOf).ToList();
+    }
+
+    private static WorkflowDraft DraftOf(PortalTextWorkflow workflow) => new WorkflowDraft
+    {
+        Kind = workflow.Kind,
+        Outcomes = workflow.Outcomes,
+        Rules = workflow.Definition.Rules.Select(r => new RuleDraft { Name = r.Name, Expression = r.Expression, Outcome = r.Outcome, Enabled = r.Enabled }).ToList(),
+        UpdatedBy = workflow.UpdatedBy,
+        UpdatedAt = workflow.UpdatedAt
+    };
+
+    private void OpenAdd()
+    {
+        m_editing = null;
+        m_draft = new TermDraft();
+        m_editOpen = true;
+    }
+
+    private void OpenEdit(PortalTextTerm term)
+    {
+        m_editing = term;
+        m_draft = new TermDraft { Term = term.Term, Language = term.Language, Category = term.Category, Severity = term.Severity, Match = term.Match };
+        m_editOpen = true;
+    }
+
+    private async Task SaveTermAsync()
+    {
+        m_saving = true;
+        var request = new PortalTextTermRequest { Term = m_draft.Term, Language = m_draft.Language, Category = m_draft.Category, Severity = m_draft.Severity, Match = m_draft.Match };
+        PortalAnswer<PortalTextTerm> saved = m_editing == null ? await Api.AddTextTermAsync(request) : await Api.UpdateTextTermAsync(m_editing.Id, request);
+        m_saving = false;
+        if (!saved.Ok)
+        {
+            Toasts.Error(saved.Error == "conflict" ? "That word is already listed in this language." : PortalText.Error(saved.Error), "Not saved");
+            return;
+        }
+        m_editOpen = false;
+        Toasts.Success($"\"{saved.Value!.Term}\" is saved and in the audit log.", "Saved");
+        await LoadTermsAsync();
+    }
+
+    private async Task RemoveTermAsync()
+    {
+        if (m_removing == null)
+        {
+            return;
+        }
+        m_saving = true;
+        PortalOutcome removed = await Api.RemoveTextTermAsync(m_removing.Id);
+        m_saving = false;
+        if (!removed.Ok)
+        {
+            Toasts.Error(PortalText.Error(removed.Error), "Not removed");
+            return;
+        }
+        Toasts.Success($"\"{m_removing.Term}\" is removed and in the audit log.", "Removed");
+        m_removing = null;
+        await LoadTermsAsync();
+    }
+
+    private async Task AddExceptionAsync()
+    {
+        if (String.IsNullOrWhiteSpace(m_exceptionTerm))
+        {
+            return;
+        }
+        m_saving = true;
+        PortalAnswer<PortalTextException> added = await Api.AddTextExceptionAsync(m_exceptionTerm, m_exceptionLanguage ?? "en");
+        m_saving = false;
+        if (!added.Ok)
+        {
+            Toasts.Error(added.Error == "conflict" ? "That exception word is already listed." : PortalText.Error(added.Error), "Not added");
+            return;
+        }
+        m_exceptionTerm = null;
+        Toasts.Success($"\"{added.Value!.Term}\" stays allowed.", "Added");
+        await LoadExceptionsAsync();
+    }
+
+    private async Task RemoveExceptionAsync(PortalTextException exception)
+    {
+        PortalOutcome removed = await Api.RemoveTextExceptionAsync(exception.Id);
+        if (!removed.Ok)
+        {
+            Toasts.Error(PortalText.Error(removed.Error), "Not removed");
+            return;
+        }
+        Toasts.Success($"\"{exception.Term}\" is no longer an exception.", "Removed");
+        await LoadExceptionsAsync();
+    }
+
+    private async Task SaveWorkflowAsync(WorkflowDraft workflow)
+    {
+        workflow.Saving = true;
+        workflow.Reason = null;
+        var definition = new PortalTextWorkflowDefinition
+        {
+            Rules = workflow.Rules.Select(r => new PortalTextRule { Name = r.Name?.Trim() ?? "", Expression = r.Expression?.Trim() ?? "", Outcome = r.Outcome ?? "", Enabled = r.Enabled }).ToList()
+        };
+        (PortalAnswer<PortalTextWorkflow> saved, string? reason) = await Api.SaveTextWorkflowAsync(workflow.Kind, definition);
+        workflow.Saving = false;
+        if (!saved.Ok)
+        {
+            workflow.Reason = reason ?? PortalText.Error(saved.Error);
+            Toasts.Error(workflow.Reason, "Not saved");
+            return;
+        }
+        workflow.UpdatedBy = saved.Value!.UpdatedBy;
+        workflow.UpdatedAt = saved.Value.UpdatedAt;
+        Toasts.Success($"The {PortalTextChoices.KindTitle(workflow.Kind).ToLowerInvariant()} rules are saved and in the audit log.", "Saved");
+    }
+
+    private async Task TestAsync()
+    {
+        m_testing = true;
+        PortalAnswer<PortalTextTest> answer = await Api.TestTextAsync(m_testKind ?? "chat", m_testText ?? "");
+        m_testing = false;
+        if (!answer.Ok)
+        {
+            Toasts.Error(PortalText.Error(answer.Error), "Not checked");
+            return;
+        }
+        m_test = answer.Value;
+    }
+}

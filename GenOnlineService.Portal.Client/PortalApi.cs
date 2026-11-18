@@ -222,6 +222,71 @@ namespace GenOnlineService.Portal.Client
 			return SendForAsync<PortalAnnouncementResult>(HttpMethod.Post, PortalRoutes.Announcements, new PortalAnnouncementRequest { Message = message });
 		}
 
+		// The words of the text rules, filtered on the host; the answer holds at most 1000 with the count of all
+		public Task<PortalAnswer<PortalTextTerms>> GetTextTermsAsync(string? query, string? language, string? category, string? severity)
+		{
+			var filters = new List<string>();
+			foreach ((string name, string? value) in new[] { ("query", query), ("language", language), ("category", category), ("severity", severity) })
+			{
+				if (!String.IsNullOrWhiteSpace(value))
+				{
+					filters.Add(name + "=" + Uri.EscapeDataString(value));
+				}
+			}
+			return GetAsync<PortalTextTerms>($"{PortalRoutes.TextRules}/terms" + (filters.Count == 0 ? "" : "?" + String.Join("&", filters)));
+		}
+
+		public Task<PortalAnswer<PortalTextTerm>> AddTextTermAsync(PortalTextTermRequest term) => SendForAsync<PortalTextTerm>(HttpMethod.Post, $"{PortalRoutes.TextRules}/terms", term);
+
+		public Task<PortalAnswer<PortalTextTerm>> UpdateTextTermAsync(long id, PortalTextTermRequest change) => SendForAsync<PortalTextTerm>(HttpMethod.Patch, $"{PortalRoutes.TextRules}/terms/{id}", change);
+
+		public Task<PortalOutcome> RemoveTextTermAsync(long id) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.TextRules}/terms/{id}", new { });
+
+		public Task<PortalAnswer<PortalTextExceptions>> GetTextExceptionsAsync() => GetAsync<PortalTextExceptions>($"{PortalRoutes.TextRules}/exceptions");
+
+		public Task<PortalAnswer<PortalTextException>> AddTextExceptionAsync(string term, string language) =>
+			SendForAsync<PortalTextException>(HttpMethod.Post, $"{PortalRoutes.TextRules}/exceptions", new { term, language });
+
+		public Task<PortalOutcome> RemoveTextExceptionAsync(long id) => SendAsync(HttpMethod.Delete, $"{PortalRoutes.TextRules}/exceptions/{id}", new { });
+
+		public Task<PortalAnswer<PortalTextWorkflows>> GetTextWorkflowsAsync() => GetAsync<PortalTextWorkflows>($"{PortalRoutes.TextRules}/workflows");
+
+		// The host compiles and runs the rules before it stores them; a refusal brings the reason, such as the rule that fails
+		public async Task<(PortalAnswer<PortalTextWorkflow> Answer, string? Reason)> SaveTextWorkflowAsync(string kind, PortalTextWorkflowDefinition definition)
+		{
+			PortalSessionInfo? session = await LoadSessionAsync();
+			if (session == null)
+			{
+				return (new PortalAnswer<PortalTextWorkflow>(null, "unauthorized"), null);
+			}
+
+			using var request = new HttpRequestMessage(HttpMethod.Put, $"{PortalRoutes.TextRules}/workflows/{Uri.EscapeDataString(kind)}") { Content = JsonContent.Create(definition, options: PortalJson.Options) };
+			request.Headers.Add(session.CsrfHeader, session.CsrfToken);
+			using HttpResponseMessage response = await m_http.SendAsync(request);
+			if (response.IsSuccessStatusCode)
+			{
+				return (new PortalAnswer<PortalTextWorkflow>(await response.Content.ReadFromJsonAsync<PortalTextWorkflow>(PortalJson.Options), null), null);
+			}
+			if (response.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				SignIn();
+				return (new PortalAnswer<PortalTextWorkflow>(null, "unauthorized"), null);
+			}
+			try
+			{
+				PortalReasonError? error = await response.Content.ReadFromJsonAsync<PortalReasonError>(PortalJson.Options);
+				return (new PortalAnswer<PortalTextWorkflow>(null, String.IsNullOrEmpty(error?.Error) ? ((int)response.StatusCode).ToString() : error.Error), error?.Params?.Reason);
+			}
+			catch (JsonException)
+			{
+				return (new PortalAnswer<PortalTextWorkflow>(null, ((int)response.StatusCode).ToString()), null);
+			}
+		}
+
+		// What the current rules decide for a text; nothing is stored
+		public Task<PortalAnswer<PortalTextTest>> TestTextAsync(string kind, string text) =>
+			SendForAsync<PortalTextTest>(HttpMethod.Post, $"{PortalRoutes.TextRules}/test", new { kind, text });
+
 		// One local role, under the host's rank rule; each change is in the audit log
 		public Task<PortalOutcome> GrantRoleAsync(long userID, string role) => SendAsync(HttpMethod.Put, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
 
