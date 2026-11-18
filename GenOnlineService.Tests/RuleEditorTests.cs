@@ -25,7 +25,7 @@ using Xunit;
 
 namespace GenOnlineService.Tests;
 
-// The staff editor of the automated rules (S2, S6) without a browser: the rule document to the canvas graph and back,
+// The staff editor of the automated rules, S2 and S6, without a browser: the rule document to the canvas graph and back,
 // the handles that decide which connections the canvas allows, the outline and its difference, and where a problem of
 // the host lands in the editor
 public class RuleEditorTests
@@ -240,6 +240,18 @@ public class RuleEditorTests
 		Assert.Null(RuleValues.ParseRange("5", "1", out problem));
 		Assert.Equal(("1", "5"), RuleValues.Range(JsonSerializer.SerializeToElement(new[] { 1, 5 })));
 		Assert.Equal("a\nb", RuleValues.Text(JsonSerializer.SerializeToElement(new[] { "a", "b" })));
+	}
+
+	// The staff pages name the host's permissions, and the rule pages check the one their routes need
+	[Fact]
+	public void ThePagesAskForTheHostsPermissions()
+	{
+		Assert.Equal(Permissions.RulesManage, PortalPermissions.RulesManage);
+		Assert.Equal(Permissions.AnticheatReview, PortalPermissions.AnticheatReview);
+		string pages = Path.Combine(SolutionRoot(), "GenOnlineService.Portal.Client", "Pages");
+		Assert.Contains("Api.Session!.Can(PortalPermissions.RulesManage)", File.ReadAllText(Path.Combine(pages, "Rules.razor")));
+		Assert.Contains("Api.Session!.Can(PortalPermissions.RulesManage)", File.ReadAllText(Path.Combine(pages, "Rule.razor")));
+		Assert.Contains("Api.Session!.Can(PortalPermissions.AnticheatReview)", File.ReadAllText(Path.Combine(pages, "RuleMatches.razor")));
 	}
 
 	private static string SolutionRoot()
