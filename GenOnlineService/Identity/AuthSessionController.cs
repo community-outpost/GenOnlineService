@@ -57,6 +57,8 @@ namespace GenOnlineService.Identity
 		// Every REST failure is {"error": "<code>", "params": {...}}
 		private static object Problem(string error, object? parameters = null) => new { error, @params = parameters ?? new { } };
 
+		[EndpointSummary("Registers the game session of the access token.")]
+		[ProducesResponseType<GenOnlineService.OpenApi.AuthSessionResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/auth/session")]
 		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<IActionResult> Register([FromBody] AuthSessionRequest? body)
@@ -129,6 +131,8 @@ namespace GenOnlineService.Identity
 		}
 
 		// Logout: drops the game session and its realtime connection, and revokes this sign-in's refresh chain
+		[EndpointSummary("Ends the game session of this sign-in and revokes its refresh tokens.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/auth/session")]
 		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<IActionResult> Unregister()
@@ -167,6 +171,8 @@ namespace GenOnlineService.Identity
 		}
 
 		// Sign out everywhere for one user (website account security page); privileged, so only through a CLI-minted token
+		[EndpointSummary("Signs a user out everywhere.")]
+		[ProducesResponseType<GenOnlineService.OpenApi.RevokeSessionsResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/users/{id:long}/revoke_sessions")]
 		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.UsersRevoke)]
 		public async Task<IActionResult> RevokeSessions(Int64 id)

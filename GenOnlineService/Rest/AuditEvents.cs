@@ -128,6 +128,8 @@ namespace GenOnlineService.Rest
 
 		// The audit log page of the staff area reads this with the sign-in cookie
 		[AllowSignInCookie]
+		[EndpointSummary("Lists audit log entries, newest first.")]
+		[ProducesResponseType<AuditEventsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/audit_events")]
 		public async Task<IActionResult> List()
 		{

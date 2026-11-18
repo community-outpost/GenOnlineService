@@ -18,6 +18,7 @@
 
 using GenOnlineService.Api;
 using GenOnlineService.Identity;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Portal.Client;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
@@ -402,6 +403,9 @@ namespace GenOnlineService.Rest
 
 		// Without a query every account, most recently signed in first; with filters, sorting and paging in the database (T17f)
 		[AllowSignInCookie]
+		[EndpointSummary("Searches player accounts for the staff pages.")]
+		[ProducesResponseType<StaffPlayerListResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/players/search")]
 		public async Task<IActionResult> Search()
 		{
@@ -436,6 +440,9 @@ namespace GenOnlineService.Rest
 
 		// The player page of the staff pages: the account, its sessions, ratings and sanctions, for any staff permission
 		[AllowSignInCookie]
+		[EndpointSummary("Reads a player account as staff see it.")]
+		[ProducesResponseType<PortalPlayer>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/players/{userID:long}/staff_view")]
 		public async Task<IActionResult> StaffView(long userID)
 		{
@@ -458,6 +465,8 @@ namespace GenOnlineService.Rest
 		// The personal data of a player, players.inspect and audited before it is read
 		[AllowSignInCookie]
 		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.PlayersInspect)]
+		[EndpointSummary("Reads the devices and addresses of a player account.")]
+		[ProducesResponseType<PortalInspection>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players/{userID:long}/inspection")]
 		public async Task<IActionResult> Inspect(long userID)
 		{

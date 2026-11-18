@@ -18,6 +18,7 @@
 
 using GenOnlineService.Api;
 using GenOnlineService.Identity;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -47,6 +48,8 @@ namespace GenOnlineService.Rest
 		private Int64 Me => RealtimeClaims.UserID(User);
 
 		// Roles and permissions come from the roles the service holds, never from the token
+		[EndpointSummary("Reads the account of the caller.")]
+		[ProducesResponseType<MeResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/me")]
 		public async Task<IActionResult> GetMe()
 		{
@@ -66,6 +69,8 @@ namespace GenOnlineService.Rest
 			});
 		}
 
+		[EndpointSummary("Lists the game sessions of the caller.")]
+		[ProducesResponseType<MeSessionsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/me/sessions")]
 		public IActionResult GetSessions()
 		{
@@ -95,6 +100,8 @@ namespace GenOnlineService.Rest
 		// provider names are opaque and case-sensitive
 		private ILinkedAccountProvider? Find(string provider) => m_providers.FirstOrDefault(p => p.Name == provider);
 
+		[EndpointSummary("Issues a short-lived token to sign in to a linked account provider.")]
+		[ProducesResponseType<SignInTokenResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/me/linked_accounts/{provider}/sign_in_token")]
 		public IActionResult IssueSignInToken(string provider)
 		{
@@ -117,6 +124,9 @@ namespace GenOnlineService.Rest
 			return RestResults.Ok(new SignInTokenResponse { Token = issued.Data!.Token, ExpiresIn = issued.Data.ExpiresIn });
 		}
 
+		[EndpointSummary("Links an account of another provider to the caller.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(LinkAccountRequest))]
 		[HttpPut("~/api/v1/me/linked_accounts/{provider}")]
 		public async Task<IActionResult> LinkAccount(string provider)
 		{

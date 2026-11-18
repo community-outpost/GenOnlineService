@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -153,6 +154,9 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Reads the counts of the staff overview page.")]
+		[ProducesResponseType<StaffOverviewResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/staff/overview")]
 		public async Task<IActionResult> Get()
 		{

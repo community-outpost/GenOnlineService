@@ -86,6 +86,8 @@ namespace GenOnlineService.Rest
 
 		// The announcements page of the staff pages takes the sign-in cookie too
 		[AllowSignInCookie]
+		[EndpointSummary("Sends an announcement to every connected player.")]
+		[ProducesResponseType<AnnouncementResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/announcements")]
 		public async Task<IActionResult> Post([FromBody] AnnouncementRequest? body)
 		{

@@ -1266,8 +1266,8 @@ namespace GenOnlineService
 			{
 				options.InvalidModelStateResponseFactory = GenOnlineService.Rest.RestSetup.InvalidModelState;
 			});
-			// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-			//builder.Services.AddOpenApi();
+			// the OpenAPI document of /api/v1 and its viewer, unless OpenApi:enabled turns them off
+			GenOnlineService.OpenApi.ApiDocs.AddApiDocs(builder.Services, builder.Configuration);
 
 			ReloadingPemCertificateProvider? certificateProvider = null;
 
@@ -1508,12 +1508,6 @@ namespace GenOnlineService
 			// end websocket
 
 			// Configure the HTTP request pipeline.
-			/*
-			if (app.Environment.IsDevelopment())
-			{
-				app.MapOpenApi();
-			}
-			*/
 
 			app.Use((context, next) =>
 			{
@@ -1545,6 +1539,8 @@ namespace GenOnlineService
 			}
 
 			app.MapControllers();
+			// /openapi/v1.json and the viewer at /docs/api
+			GenOnlineService.OpenApi.ApiDocs.MapApiDocs(app, builder.Configuration);
 			if (accountsSettings.Enabled)
 			{
 				// the sign-in pages' stylesheet, theme and theme script (PortalLook): wwwroot/portal and Blazor Blueprint's _content,

@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -196,6 +197,8 @@ namespace GenOnlineService.Rest
 			m_dbFactory = dbFactory;
 		}
 
+		[EndpointSummary("Lists anti-cheat reports of one kind with paging.")]
+		[ProducesResponseType<AntiCheatReportsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/anticheat_reports/{kind}")]
 		public async Task<IActionResult> List(string kind)
 		{
@@ -221,6 +224,9 @@ namespace GenOnlineService.Rest
 			return RestResults.Fail(failure.Value);
 		}
 
+		[EndpointSummary("Marks an anti-cheat report reviewed or not.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(AntiCheatReviewRequest))]
 		[HttpPatch("~/api/v1/anticheat_reports/{kind}/{reportID:long}")]
 		public async Task<IActionResult> Review(string kind, long reportID)
 		{

@@ -60,6 +60,8 @@ namespace GenOnlineService.Rest
 			m_lobbyManager = lobbyManager;
 		}
 
+		[EndpointSummary("Reads the global player and match counts.")]
+		[ProducesResponseType<GlobalStatsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/stats/global")]
 		public IActionResult Get()
 		{
