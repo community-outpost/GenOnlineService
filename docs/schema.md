@@ -261,7 +261,7 @@ data_protection_keys      -- ASP.NET Core data protection key ring shared by eve
 text_rule_terms           -- the words of the text checks (S7); the first start seeds them (TextRuleSeeds)
   id bigint pk, term varchar(64) (utf8mb4_bin on MySQL), language varchar(8) ('en' | 'ar'),
   category varchar(32) ('slur' | 'sexual' | 'profanity' | 'insult' | 'impersonation' | 'reserved'), severity varchar(16) ('block' | 'flag'),
-  match_mode varchar(16) ('word' | 'anywhere' | 'literal'), source varchar(16) ('seed' | 'reserved' | 'staff'), updated_by varchar(64), updated_at,
+  match_mode varchar(16) ('word' | 'anywhere' | 'literal'), source varchar(16) ('seed' | 'reserved' | 'ldnoobw' | 'staff'), updated_by varchar(64), updated_at,
   unique (language, term)
 text_rule_exceptions      -- words that stay allowed although they contain a listed word
   id bigint pk, term varchar(64) (utf8mb4_bin on MySQL), language varchar(8), source varchar(16), updated_by varchar(64), updated_at, unique (language, term)
@@ -269,7 +269,7 @@ text_rule_workflows       -- the rules of one input kind as JSON ({rules: [{name
   kind varchar(32) pk ('display_name' | 'lobby_name' | 'chat'), definition text, updated_by varchar(64), updated_at
 ```
 
-`application_settings` `text_rules.revision` changes with every change of these tables; each copy rebuilds its matcher when it differs. Its row also marks the seed as written, so the seed never runs again once staff removed words.
+`application_settings` `text_rules.revision` changes with every change of these tables; each copy rebuilds its matcher when it differs. `text_rules.seed_version` holds the seed version written (no row on a database seeded by version 1); a start with a newer version adds only the seed words and exceptions of the versions after it and replaces a workflow only while it still equals an earlier default, so words staff removed stay removed and rules staff changed stay.
 
 ### OAuth clients
 

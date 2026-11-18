@@ -137,6 +137,7 @@ namespace GenOnlineService.TextRules
 		public const string Seed = "seed";
 		public const string Reserved = "reserved";
 		public const string Staff = "staff";
+		public const string Ldnoobw = "ldnoobw";
 	}
 
 	public class TextRuleTermConfiguration : IEntityTypeConfiguration<TextRuleTerm>

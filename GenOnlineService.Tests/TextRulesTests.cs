@@ -68,7 +68,6 @@ public class TextRulesTests
 	[InlineData("Sussex")]
 	[InlineData("\u0632\u0628\u0648\u0646")]
 	[InlineData("\u0643\u0633\u0644\u0627\u0646")]
-	[InlineData("Idiot")]
 	public void AllowedNamesPass(string name)
 	{
 		Assert.Null(ProfileActions.ReservedWordIn(name));
@@ -143,9 +142,57 @@ public class TextRulesTests
 	[InlineData("the admin said hi")]
 	[InlineData("\u0645\u0631\u062D\u0628\u0627 \u0643\u064A\u0641 \u062D\u0627\u0644\u0643")]
 	[InlineData("Scunthorpe united")]
+	[InlineData("thumping the enemy base")]
+	[InlineData("trimming the build order")]
+	[InlineData("bisexuality and heterosexuality")]
 	public void OtherChatIsDeliveredUnchanged(string content)
 	{
 		Assert.Equal(((Failure?)null, content), TextChecks.ChatContent(content));
+	}
+
+	// The imported LDNOOBW lists (flag words): matched in display names, masked in chat
+	[Theory]
+	[InlineData("Bukkake", "bukkake")]
+	[InlineData("XxCamwh0rexX", "camwhore")]
+	[InlineData("B.u.t.t.h.o.l.e", "butthole")]
+	[InlineData("\u0627\u063A\u062A\u0635\u0627\u0628", "\u0627\u063A\u062A\u0635\u0627\u0628")]
+	public void AnImportedWordRefusesADisplayName(string name, string word)
+	{
+		Assert.Equal(word, ProfileActions.ReservedWordIn(name));
+		TextTermInfo term = TextChecks.Current.Terms.First(t => t.Term == word);
+		Assert.Equal((TextSeverities.Flag, TextCategories.Profanity), (term.Severity, term.Category));
+	}
+
+	[Theory]
+	[InlineData("nice camel toe", "nice ***** ***")]
+	[InlineData("total bukkake gg", "total ******* gg")]
+	[InlineData("\u064A\u0627 \u0644\u0628\u0648\u0629 gg", "\u064A\u0627 **** gg")]
+	public void AnImportedWordIsMaskedInChat(string content, string masked)
+	{
+		Assert.Equal(((Failure?)null, masked), TextChecks.ChatContent(content));
+	}
+
+	// Display names are stricter than chat: a flag word that chat only masks refuses the name
+	[Theory]
+	[InlineData("Idiot", "idiot")]
+	[InlineData("Shitlord", "shit")]
+	[InlineData("DumbassKing", "dumbass")]
+	public void AFlagWordRefusesADisplayName(string name, string word)
+	{
+		Assert.Equal(word, ProfileActions.ReservedWordIn(name));
+		Assert.Equal(TextOutcomes.Mask, TextChecks.Check(TextKinds.Chat, name).Outcome);
+	}
+
+	// Entries the folding cannot read and entries game chat uses innocently stay out of the lists
+	[Fact]
+	public void TheImportLeavesOutWhatItCannotReadOrWhatGamesSayInnocently()
+	{
+		Assert.DoesNotContain(TextChecks.Current.Terms, t => t.Term is "2g1c" or "s&m" or "escort" or "domination" or "hardcore" or "suck" or "sucks" or "tied up");
+		Assert.Equal(((Failure?)null, "escort the convoy, domination mode, hardcore ai sucks"), TextChecks.ChatContent("escort the convoy, domination mode, hardcore ai sucks"));
+		Assert.Null(TextChecks.LobbyNameRefusal("shit map hardcore"));
+		Assert.Equal(TextRuleSources.Ldnoobw, TextRuleSeeds.Terms().First(t => t.Term == "bukkake").Source);
+		// a word both lists hold keeps the service's own entry
+		Assert.Equal((TextRuleSources.Seed, TextSeverities.Block), TextRuleSeeds.Terms().Where(t => t.Term == "fuck").Select(t => (t.Source, t.Severity)).Single());
 	}
 
 	// The test page shows how a text was read and what it matched

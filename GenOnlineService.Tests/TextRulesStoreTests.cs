@@ -108,6 +108,70 @@ public class TextRulesStoreTests
 		}
 	}
 
+	// A database seeded before the import (seed version 1) as it stood: no imported words, no new exceptions, the old
+	// display name rules unless staff changed them, and a seed word staff removed
+	private static async Task BackToSeedVersionOneAsync(ProbeDatabase probe, string? displayNameRules, string updatedBy)
+	{
+		await using AppDbContext db = probe.Open();
+		await db.ApplicationSettings.Where(s => s.Key == TextChecks.SeedVersionKey).ExecuteDeleteAsync();
+		await db.TextRuleTerms.Where(t => t.Source == TextRuleSources.Ldnoobw).ExecuteDeleteAsync();
+		List<string> added = TextRuleSeeds.Exceptions(1).Select(e => e.Term).ToList();
+		await db.TextRuleExceptions.Where(e => added.Contains(e.Term)).ExecuteDeleteAsync();
+		await db.TextRuleTerms.Where(t => t.Term == "idiot").ExecuteDeleteAsync();
+		string rules = displayNameRules ?? TextRuleWorkflows.Serialize(TextRuleWorkflows.PreviousDefaults[TextKinds.DisplayName][0]);
+		await db.TextRuleWorkflows.Where(w => w.Kind == TextKinds.DisplayName).ExecuteUpdateAsync(set => set.SetProperty(w => w.Definition, rules).SetProperty(w => w.UpdatedBy, updatedBy));
+	}
+
+	// An environment seeded before gets the new seed entries and default rules once on upgrade; staff edits stay
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AnUpgradeAddsTheNewSeedOnceAndKeepsStaffEdits(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		try
+		{
+			await SeedAsync(probe);
+			int imported = TextRuleSeeds.Terms(1).Count;
+			Assert.True(imported > 300);
+
+			// untouched default rules are replaced, a removed seed word stays removed
+			await BackToSeedVersionOneAsync(probe, null, "startup");
+			await using (AppDbContext db = probe.Open())
+			{
+				Assert.True(await TextChecks.SeedAsync(db));
+				Assert.False(await TextChecks.SeedAsync(db));
+				await TextChecks.ReloadAsync(db);
+				Assert.Equal(imported, await db.TextRuleTerms.CountAsync(t => t.Source == TextRuleSources.Ldnoobw));
+				Assert.Equal(TextRuleSeeds.Exceptions().Count, await db.TextRuleExceptions.CountAsync());
+				Assert.False(await db.TextRuleTerms.AnyAsync(t => t.Term == "idiot"));
+				Assert.Equal(TextRuleWorkflows.Serialize(TextRuleWorkflows.Defaults[TextKinds.DisplayName]), (await db.TextRuleWorkflows.SingleAsync(w => w.Kind == TextKinds.DisplayName)).Definition);
+				Assert.Equal(TextRuleSeeds.Version.ToString(), (await db.ApplicationSettings.SingleAsync(s => s.Key == TextChecks.SeedVersionKey)).Value);
+			}
+			List<AuditLogEntry> seeds = await AuditOf(probe, TextRuleAudit.Seed);
+			Assert.Equal(2, seeds.Count);
+			Assert.Equal(1, JsonDocument.Parse(seeds[1].Details!).RootElement.GetProperty("from_version").GetInt32());
+			Assert.Equal("bukkake", ProfileActions.ReservedWordIn("Bukkake"));
+			Assert.Null(ProfileActions.ReservedWordIn("Idiot"));
+
+			// rules staff changed are kept as they are
+			const string edited = "{\"rules\":[{\"name\":\"mine\",\"expression\":\"input.Block > 1\",\"outcome\":\"refuse\",\"enabled\":true}]}";
+			await BackToSeedVersionOneAsync(probe, edited, "user:7");
+			await using (AppDbContext db = probe.Open())
+			{
+				Assert.True(await TextChecks.SeedAsync(db));
+				TextRuleWorkflow kept = await db.TextRuleWorkflows.SingleAsync(w => w.Kind == TextKinds.DisplayName);
+				Assert.Equal((edited, "user:7"), (kept.Definition, kept.UpdatedBy));
+				Assert.Equal(imported, await db.TextRuleTerms.CountAsync(t => t.Source == TextRuleSources.Ldnoobw));
+			}
+			Assert.Equal(3, (await AuditOf(probe, TextRuleAudit.Seed)).Count);
+		}
+		finally
+		{
+			TextChecks.UseDefaults();
+		}
+	}
+
 	// Sign-up, rename and the name choice refuse a name with a listed word as name.reserved, as for the plugin's words
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
@@ -125,6 +189,21 @@ public class TextRulesStoreTests
 			Assert.Equal(302, (await PasswordPagesTests.SignUp(new AccountsBrowser(probe, PasswordPagesTests.Enabled()), "Scunthorpe", "fine@example.org", "a long enough password")).Status);
 
 			User user = (await PasswordPagesTests.UserByEmail(probe, "fine@example.org"))!;
+
+			// another test database left the process-wide role cache holding its admin under the same user id, as
+			// AccountSupportTests does: names.protected of that admin skips the name rules of this user
+			await using (ProbeDatabase? other = await ProbeDatabase.Create(provider))
+			{
+				(_, User admin) = await StaffAsync(other!, "Elsewhere", StaffRoles.Admin);
+				Assert.Equal(user.ID, admin.ID);
+				await using AppDbContext otherDb = other!.Open();
+				await StaffRoles.Reload(otherDb);
+			}
+			// the name rules read that cache, so this test loads the roles of its own database first
+			await using (AppDbContext db = probe.Open())
+			{
+				await StaffRoles.Reload(db);
+			}
 			var names = new Names.PlayerNames(new ProbeFactory(probe));
 			Result<Empty> renamed = await names.RenameSelfAsync(user.ID, "F.u.c.k");
 			Assert.Equal(ErrorCodes.NameReserved, renamed.Code);
@@ -191,13 +270,13 @@ public class TextRulesStoreTests
 			Assert.Single(await AuditOf(probe, TextRuleAudit.TermRemove));
 			Assert.Equal("you zorg blat gg", TextChecks.ChatContent("you zorg blat gg").Content);
 
-			Assert.Equal("fuck", ProfileActions.ReservedWordIn("Fuckingham"));
+			Assert.Equal("fucking", ProfileActions.ReservedWordIn("Fuckingham"));
 			PageResponse exception = await admin.SendJson("POST", ExceptionsPath, new { term = "Fuckingham", language = "en" }, csrf);
 			Assert.Equal(201, exception.Status);
 			Assert.Null(ProfileActions.ReservedWordIn("Fuckingham"));
 			Assert.Contains(Json(await admin.Get(ExceptionsPath)).GetProperty("exceptions").EnumerateArray(), e => e.GetProperty("term").GetString() == "fuckingham");
 			Assert.Equal(204, (await admin.SendJson("DELETE", $"{ExceptionsPath}/{Json(exception).GetProperty("id").GetInt64()}", new { }, csrf)).Status);
-			Assert.Equal("fuck", ProfileActions.ReservedWordIn("Fuckingham"));
+			Assert.Equal("fucking", ProfileActions.ReservedWordIn("Fuckingham"));
 			Assert.Equal((1, 1), ((await AuditOf(probe, TextRuleAudit.ExceptionAdd)).Count, (await AuditOf(probe, TextRuleAudit.ExceptionRemove)).Count));
 		}
 		finally

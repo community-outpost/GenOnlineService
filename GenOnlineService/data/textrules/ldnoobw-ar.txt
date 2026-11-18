@@ -1,0 +1,28 @@
+# Imported from "List of Dirty, Naughty, Obscene, and Otherwise Bad Words" (ar), by LDNOOBW and contributors,
+# https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words, commit 5faf2ba42d7b1c0977169ec3611df25a3c08eb13, retrieved 2026-11-18.
+# License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), its text in LDNOOBW-LICENSE next to this file.
+# Modified: deduplicated against the service's own lists, normalized (trimmed, lower case, NFC), some entries left out
+# (LICENSE-THIRD-PARTY.md lists them), and given a category, severity and match mode.
+# term	category	severity	match
+شرج	profanity	flag	word
+لعق	profanity	flag	word
+لحس	profanity	flag	word
+مص	profanity	flag	word
+تمص	profanity	flag	word
+ثدي	profanity	flag	word
+بز	profanity	flag	word
+حلمة	profanity	flag	word
+مفلقسة	profanity	flag	anywhere
+بظر	profanity	flag	word
+شهوة	profanity	flag	word
+شاذ	profanity	flag	word
+جماع	profanity	flag	word
+قضيب	profanity	flag	word
+لواط	profanity	flag	word
+سحاق	profanity	flag	word
+سحاقية	profanity	flag	anywhere
+اغتصاب	profanity	flag	anywhere
+خنثي	profanity	flag	word
+احتلام	profanity	flag	anywhere
+متناكة	profanity	flag	anywhere
+لبوة	profanity	flag	word

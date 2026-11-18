@@ -1,6 +1,6 @@
 # Words that contain a listed word and stay allowed (the Scunthorpe problem), loaded into text_rule_exceptions once,
 # on the first start. Written for this service (no third-party list), under the service's license.
-# term	language
+# term	language	seed version (1 when left out)
 scunthorpe	en
 penistone	en
 cockpit	en
@@ -22,3 +22,15 @@ niggardly	en
 swank	en
 swanky	en
 classic	en
+# Added with seed version 2, for words of the LDNOOBW lists (term, language, seed version)
+thumping	en	2
+trimming	en	2
+brimming	en	2
+bisexuality	en	2
+heterosexuality	en	2
+homosexuality	en	2
+asexuality	en	2
+bisexually	en	2
+heterosexually	en	2
+homosexually	en	2
+asexually	en	2

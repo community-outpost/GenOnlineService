@@ -120,7 +120,9 @@ namespace GenOnlineService.TextRules
 				Rules =
 				[
 					new TextRuleDefinition { Name = "reserved words", Expression = "input.Impersonation > 0 || input.Reserved > 0", Outcome = TextOutcomes.Refuse },
-					new TextRuleDefinition { Name = "blocked words", Expression = "input.Block > 0", Outcome = TextOutcomes.Refuse }
+					new TextRuleDefinition { Name = "blocked words", Expression = "input.Block > 0", Outcome = TextOutcomes.Refuse },
+					// names are stricter than chat, which only masks these
+					new TextRuleDefinition { Name = "flagged words", Expression = "input.Flag > 0", Outcome = TextOutcomes.Refuse }
 				]
 			},
 			[TextKinds.LobbyName] = new TextWorkflowDefinition
@@ -135,6 +137,23 @@ namespace GenOnlineService.TextRules
 					new TextRuleDefinition { Name = "flagged words", Expression = "input.Flag > 0", Outcome = TextOutcomes.Mask }
 				]
 			}
+		};
+
+		// The defaults of earlier seed versions: a stored workflow still equal to one of them was never changed by staff and
+		// takes the current default on upgrade
+		public static readonly IReadOnlyDictionary<string, IReadOnlyList<TextWorkflowDefinition>> PreviousDefaults = new Dictionary<string, IReadOnlyList<TextWorkflowDefinition>>(StringComparer.Ordinal)
+		{
+			[TextKinds.DisplayName] =
+			[
+				new TextWorkflowDefinition
+				{
+					Rules =
+					[
+						new TextRuleDefinition { Name = "reserved words", Expression = "input.Impersonation > 0 || input.Reserved > 0", Outcome = TextOutcomes.Refuse },
+						new TextRuleDefinition { Name = "blocked words", Expression = "input.Block > 0", Outcome = TextOutcomes.Refuse }
+					]
+				}
+			]
 		};
 
 		private readonly RulesEngine.RulesEngine m_engine;
