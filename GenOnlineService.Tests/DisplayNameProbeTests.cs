@@ -50,17 +50,19 @@ public sealed class ProbeDatabase : IAsyncDisposable
 		}
 
 		string name = "gn_probe_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+		// queries do not track, as the service configures every context (Program.ConfigureDbContextOptions), so a probe catches
+		// a write that changes a loaded entity without tracking it
 		Func<AppDbContext> create;
 		if (provider == "postgres")
 		{
 			string connection = $"{server};Database={name}";
-			create = () => new PostgresAppDbContext(new DbContextOptionsBuilder<PostgresAppDbContext>().UseNpgsql(connection).Options);
+			create = () => new PostgresAppDbContext(new DbContextOptionsBuilder<PostgresAppDbContext>().UseNpgsql(connection).UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking).Options);
 		}
 		else
 		{
 			string connection = $"{server};Database={name}";
 			ServerVersion version = ServerVersion.AutoDetect(server);
-			create = () => new MySqlAppDbContext(new DbContextOptionsBuilder<MySqlAppDbContext>().UseMySql(connection, version).Options);
+			create = () => new MySqlAppDbContext(new DbContextOptionsBuilder<MySqlAppDbContext>().UseMySql(connection, version).UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking).Options);
 		}
 
 		var probe = new ProbeDatabase(provider, create);
