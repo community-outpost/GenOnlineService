@@ -254,6 +254,26 @@ less than". On a narrow screen the field takes its own line with the operator an
 their path names, switching to Enforce asks first and names what the rule does, and the preview runs the document on
 the canvas, saved or not. The versions show any version and the difference of two outlines. The persisted format is
 the rule document above, mapped to the canvas in `GenOnlineService.Portal.Client/Rules/RuleGraph.cs` alone.
+
+The outline writes the graph from the trigger, branch by branch, with each condition node as one CEL style
+expression over the field keys: `&&`, `||` and `!`, parentheses around a nested group, quoted texts and lists in
+brackets. The example above reads:
+
+```
+on event.action == "sign_in"
+  if host.id in ["AB12-CD34-YY"] && (user.age_days < 7 || cidr("203.0.113.0/24").containsIP(source.ip))
+    then ban permanently, reason "Ban evasion"
+  else
+    nothing
+```
+
+A yes or no field reads as itself or negated, such as `!user.email_confirmed`; `between` reads as
+`(3 <= user.age_days && user.age_days <= 10)`, `is_empty` as `size(field) == 0`, `contains` and `starts_with` as
+`.contains("x")` and `.startsWith("x")`, and an action as `then ban for 7d, reason "..."`. A node reached a second time
+reads `see above:` and a node the trigger never reaches is listed under `unreached:`. Every line also carries the
+same in words for screen readers, such as "If Account age in days is less than 7 and either Email is not confirmed or
+MAC is virtual", and the difference of two versions compares the expressions line by line.
+
 `/admin/rules/matches`, linked under Anti-cheat for `anticheat.review`, is the review queue. Audit rows written by a
 rule read "Automated rule", its name and version.
 

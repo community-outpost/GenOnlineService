@@ -2324,6 +2324,18 @@ a.go-list-item:hover {
     "value value value value";
 }
 
+/* the two versions a difference compares */
+.go-rule-version-compare {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-rule-version-compare .go-rule-operator {
+  flex: 0 1 7rem;
+}
+
 .go-rule-range {
   display: flex;
   align-items: center;
@@ -2422,8 +2434,10 @@ a.go-list-item:hover {
   margin: 0;
   padding: 0;
   list-style: none;
+  font-family: var(--go-font-mono);
   font-size: var(--go-font-size-sm);
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .go-rule-outline-list .go-rule-outline-list {

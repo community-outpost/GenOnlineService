@@ -377,7 +377,7 @@ else
                 }
                 @if (m_detail.Versions.Count > 1)
                 {
-                    <div class="go-rule-condition-row">
+                    <div class="go-rule-version-compare">
                         <BbNativeSelect TValue="int" Value="@m_diffFrom" ValueChanged="@((int v) => DiffAsync(v, m_diffTo))" AriaLabel="Older version" Class="go-rule-operator">
                             @foreach (PortalRuleVersion version in m_detail.Versions)
                             {
@@ -395,7 +395,7 @@ else
                     @if (m_diff != null)
                     {
                         <pre class="go-rule-diff" aria-label="@($"Difference of version {m_diffFrom} to version {m_diffTo}")" data-testid="version-diff">@foreach (RuleOutlineChange change in m_diff)
-                        {<span class="@DiffClass(change.Kind)">@(change.Kind == ' ' ? "  " : change.Kind + " ")@change.Line<span class="go-sr-only">@DiffWord(change.Kind)</span>
+                        {<span class="@DiffClass(change.Kind)"><span aria-hidden="true">@(change.Kind == ' ' ? "  " : change.Kind + " ")@change.Line</span><span class="go-sr-only">@(change.Spoken ?? change.Line)@DiffWord(change.Kind)</span>
 </span>}</pre>
                     }
                 }
@@ -869,8 +869,8 @@ else
 
     private static string DiffWord(char kind) => kind switch
     {
-        '+' => " added",
-        '-' => " removed",
+        '+' => ", added",
+        '-' => ", removed",
         _ => ""
     };
 

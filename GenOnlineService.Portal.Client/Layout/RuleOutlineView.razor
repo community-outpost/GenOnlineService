@@ -1,5 +1,6 @@
 @* The rule as a readable outline beside the canvas for S6: nested lists a screen reader announces by level, and a button on
-   each line that starts a node, which selects it and opens its panel as a click on the canvas does *@
+   each line that starts a node, which selects it and opens its panel as a click on the canvas does. Each line shows its
+   CEL style expression and gives a screen reader the same line in words. *@
 
 <section class="go-rule-outline" aria-labelledby="rule-outline-title" data-testid="rule-outline">
     <h2 id="rule-outline-title" class="go-rule-panel-title">
@@ -51,11 +52,11 @@
                 <li>
                     @if (item.Line.NodeId is string id && OnSelect.HasDelegate)
                     {
-                        <button type="button" class="go-rule-outline-node" aria-pressed="@(id == SelectedId ? "true" : "false")" @onclick="@(() => OnSelect.InvokeAsync(id))">@item.Line.Text</button>
+                        <button type="button" class="go-rule-outline-node" aria-label="@item.Line.Words" aria-pressed="@(id == SelectedId ? "true" : "false")" @onclick="@(() => OnSelect.InvokeAsync(id))">@item.Line.Text</button>
                     }
                     else
                     {
-                        <span class="go-rule-outline-text">@item.Line.Text</span>
+                        <span class="go-rule-outline-text" aria-hidden="true">@item.Line.Text</span><span class="go-sr-only">@item.Line.Words</span>
                     }
                     @if (item.Children.Count > 0)
                     {
