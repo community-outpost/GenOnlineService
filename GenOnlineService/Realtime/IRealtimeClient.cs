@@ -35,6 +35,7 @@ namespace GenOnlineService.Realtime
 		Task ChannelHistory(ChannelHistoryEvent e);
 		Task MessageCreate(Message e);
 		Task MessageDelete(MessageRefEvent e);
+		Task MentionCreate(MentionCreateEvent e);
 		Task Conversations(ConversationsEvent e);
 		Task ReadMarker(ReadMarkerEvent e);
 		Task GroupCreate(GroupEvent e);

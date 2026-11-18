@@ -1,14 +1,17 @@
 @using GenOnlineService.Identity
-@* The HTML document of the staff pages: dark only, the same three stylesheets in the same order as the sign-in pages (PortalLook) *@
+@* The HTML document of the staff pages: dark only, on the design system. The tokens and fonts that PortalLook links,
+   then the design's Blueprint theme, Blueprint's stylesheet and generals.css, so the design's values win *@
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0c0a09" />
+    <meta name="theme-color" content="#0B1114" />
     <base href="/" />
     <title>Admin · Generals Online</title>
+    <link rel="stylesheet" href="@PortalLook.TokensPath" />
+    <link rel="stylesheet" href="@PortalLook.FontsPath" />
     <link rel="stylesheet" href="@PortalLook.ThemePath" />
     <link rel="stylesheet" href="@PortalLook.StylesheetPath" />
     <link rel="stylesheet" href="@PortalLook.GeneralsPath" />

@@ -166,18 +166,38 @@ namespace GenOnlineService.Identity
 				body.Append(await AgreementsCard(user.ID));
 			}
 
-			// the top bar's account menu: the staff pages (/admin) for a holder of a staff role (the gate there checks the
-			// permission again), and sign out
+			return await AccountDocument(status, user, T("Account.Profile.Title"), AccountPath, body.ToString());
+		}
+
+		// A signed-in page of the account area: the top bar's account menu (the staff pages (/admin) for a holder of a staff
+		// role, whose gate checks the permission again, and sign out) and the sidebar of the sections that exist, around the
+		// page's own body. The sidebar shows how many friend requests wait.
+		private async Task<ContentResult> AccountDocument(int status, User user, string title, string currentHref, string body)
+		{
+			string tag = "#" + Database.DisplayNames.FormatTag(user.NameTag);
+			IReadOnlyCollection<string> roles = StaffRoles.RolesOf(user.ID);
 			bool staff = await m_passwords.IsStaff(user.ID);
 			string signOut = FormStart("/users/sign_out", AccountPath) + $"<button type=\"submit\">{PortalLook.Icon("log-out")}{WebUtility.HtmlEncode(T("SignOut"))}</button></form>";
-			var shell = new AccountShell(user.Username, "#" + tag, user.ID.ToString(CultureInfo.InvariantCulture), roles.Count == 0 ? T("Account.RolePlayer") : String.Join(", ", roles), staff, signOut);
-			// only the sections that exist: Profile (the rest of the account pages come with later phases)
-			(string, string, string)[] sections = [(AccountPath, T("Account.Profile.Title"), "user")];
+			var shell = new AccountShell(user.Username, tag, user.ID.ToString(CultureInfo.InvariantCulture), roles.Count == 0 ? T("Account.RolePlayer") : String.Join(", ", roles), staff, signOut);
+
+			int requests;
+			await using (AppDbContext db = await HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContextAsync())
+			{
+				requests = await db.FriendRequests.AsNoTracking().CountAsync(r => r.ToUserId == user.ID && db.Users.Any(u => u.ID == r.FromUserId));
+			}
+			var badges = new Dictionary<string, (int, string)> { [FriendsPath] = (requests, T("Social.Requests.Count", requests)) };
+
+			(string, string, string)[] sections =
+			[
+				(AccountPath, T("Account.Profile.Title"), "user"),
+				(FriendsPath, T("Social.Friends.Title"), "users"),
+				(BlockedPath, T("Social.Blocked.Title"), "ban")
+			];
 			return new ContentResult
 			{
 				StatusCode = status,
 				ContentType = "text/html; charset=utf-8",
-				Content = PortalLook.AppDocument(T("Account.Profile.Title"), shell, sections, AccountPath, body.ToString(), Language, Site)
+				Content = PortalLook.AppDocument(title, shell, sections, currentHref, body, Language, Site, badges)
 			};
 		}
 

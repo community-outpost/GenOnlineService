@@ -78,7 +78,7 @@ The server answers `{}` (or `{"error":"..."}`). Every line below ends with `0x1E
 | Arguments | Every hub method and event takes exactly **one** argument: an object. Never positional parameters |
 | Field names | `snake_case` (server uses `JsonNamingPolicy.SnakeCaseLower`) |
 | Method and event names | `PascalCase` (`SendMessage`, `MessageCreate`) |
-| Ids | User, lobby and channel ids are JSON numbers (all fit in 53 bits). Message ids are strings |
+| Ids | User, lobby, match and channel ids are JSON numbers (all fit in 53 bits). New match ids are 48 bit snowflakes, larger than older ones. Message ids are strings |
 | Channel ids | Typed strings: `channel:<channel_id>`, `lobby:<lobby_id>`, `dm:<user_id>`, `group:<group_id>` |
 | Durations and times | A duration a person sees or chooses is whole seconds with `_s`; a delay the service computes for a client to wait is milliseconds with `_ms`; a point in time is ISO 8601 UTC with `_at` (`2026-11-13T20:00:00Z`). The measured `latency_ms` stays in milliseconds |
 | Binary data | Base64 strings (signalling payloads) |
@@ -115,7 +115,7 @@ connect ──> handshake ──> Ready ──> snapshots ──> events / comma
 | `server.switching` | true | Planned handover to another service copy (`docs/realtime-failover.md`); `ServerSwitching` came before | Reconnect after its `retry_after_ms`, without backoff or a reconnect screen |
 | `protocol.error` | false | Malformed traffic | Log and return to login (client bug) |
 
-Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat, direct messages and group chat sent during the gap come back through `ChannelHistory`, `Conversations` and `GetHistory` (section 6.2); lobby chat comes back through `ChannelHistory` for `lobby:<id>` after `LobbyState`. A reconnect during lobby setup is safe: once the reconnecting member's `SetPeerTransports` of the new session has arrived (section 5.6), the service sends `StartSignalling` again for every pair of members that has not reported connected (a pair counts as connected once both list each other as `connected` in a `MeshCheckResponse`; before any mesh check that is every pair of the reconnecting member; nothing is resent once the game runs), and a client treats a repeated `StartSignalling` for a peer as a restart of that pair. `LobbyState.start` carries the start data, so a client that missed `GameStart` still starts. Events are not replayed by sequence number in v1; that can be added later without a breaking change (section 13).
+Missed events while disconnected are not replayed in v1: state is restored by the snapshots. Channel chat, direct messages and group chat sent during the gap come back through `ChannelHistory`, `Conversations` and `GetHistory` (section 6.2); lobby chat comes back through `ChannelHistory` for `lobby:<id>` after `LobbyState`. A reconnect during lobby setup is safe: once the reconnecting member's `SetPeerTransports` of the new session has arrived (section 5.6), the service sends `StartSignalling` again for every pair of members that has not reported connected (a pair counts as connected once both list each other as `connected` in a `MeshCheckResponse`; before any mesh check that is every pair of the reconnecting member; nothing is resent once the game runs), and a client treats a repeated `StartSignalling` for a peer as a restart of that pair. When both members of a pair reconnect from the same handover, the service may send one `StartSignalling` per pair instead, once both members' `SetPeerTransports` have arrived or after a short grace if one of them is late. `LobbyState.start` carries the start data, so a client that missed `GameStart` still starts. Events are not replayed by sequence number in v1; that can be added later without a breaking change (section 13).
 
 ## 4. Shared objects
 
@@ -143,6 +143,15 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 ```
 
 `type`: `chat`, `action` (an emote, rendered as "Ann waves"), `announcement` (lobby host only, rendered prominently). `created_at` is when the service stored the message.
+
+`mentions?: [user_id]` lists the users the service found as `@name` or `@name#tag` in `content`, in order of appearance, without duplicates, at most `mention_max` (section 6.1); further mentions stay plain text. Absent when there is none. The service fills it, a client never sends it, and it is stored with the message and returned by the history methods. Resolution:
+
+- `@name` and `@name#tag` resolve against the current members of the conversation: the channel, the lobby, the two users of a `dm:`, the group members. In a `channel:` an exact `@name#tag` (tag required) also resolves a user who is not in the channel, unless that account is not active (blocked or deactivated) or is banned; a bare `@name` never does, and in `lobby:`, `dm:` and `group:` no outsider resolves.
+- A mention starts only at `@` at the start of `content` or after whitespace or punctuation, so `mail@Bob` mentions nobody.
+- Names compare case insensitively on the stored player name after NFC normalisation, never on the look-alike key. Names may contain spaces: the longest matching name wins, and it must end at the end of the text, whitespace, punctuation or `#`, so `@Bob` does not mention `Bobby`. The tag is the number after `#` and matches with or without leading zeros (`#42`, `#0042`). A `#tag` written straight after a name must belong to the user of that longest name, or the mention resolves to nobody; it never falls back to a shorter name, so with members `Bob` and `Bob Smith`, `@Bob Smith#99` mentions nobody unless Bob Smith's tag is 99.
+- A bare `@name` that matches more than one user resolves to nobody; the tag tells them apart.
+
+Clients highlight a message whose `mentions` holds their own id and do not parse `@` for notifications. A user mentioned from outside a channel gets `MentionCreate` (section 6.2).
 
 A message deleted by staff appears in history as a tombstone with no author and no content:
 
@@ -233,7 +242,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 |---|---|---|---|
 | `JoinChannel` | `{channel_id}` | Result | Then `ChannelMembers`, then `ChannelHistory`. A parent channel resolves to its default child; `ChannelMembers.channel_id` is the channel actually joined. Leaving a channel happens by joining another or `LeaveChannel` |
 | `LeaveChannel` | `{}` | Result | |
-| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters. The text rules check every message (section 5.1a): a blocked word answers `chat.blocked` and nothing is stored or delivered; a flagged word is masked with `*`, and the masked text is what is stored, delivered (`MessageCreate.content`), kept in history and relayed |
+| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters. The text rules check every message (section 5.1a): a blocked word answers `chat.blocked` and nothing is stored or delivered; a flagged word is masked with `*`, and the masked text is what is stored, delivered (`MessageCreate.content`), kept in history and relayed. The service fills the message's `mentions` (section 4) |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:`, `dm:`, `group:` and `lobby:` (current members of that lobby) only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id}` | Result | Marks the whole conversation read, up to the newest message the service holds at that moment; `Conversations` then shows `unread` 0 for it. The user's other connections get `ReadMarker`. `dm:` and `group:` conversations the caller is part of, otherwise `not_found {what: channel}` or `group.not_member` |
 
@@ -299,7 +308,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members, mention_max}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only; `mention_max` is the most users one message mentions (10) |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `FeaturesUpdate` | `{features: [string]}` (the user's full new feature list, sent to every connection of the user whenever it changes, for example after a role change) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
@@ -319,6 +328,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `MemberUpdate` | `{member: Member}` (rename, new tag, badge change; sent to everyone who can see the user) |
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
+| `MentionCreate` | `{channel_id, message: Message}` (a `channel:` message mentioned the user by `@name#tag` while none of the user's connections was in that channel; sent through `user:<id>` to every connection of an online user, never stored for an offline one, and never between users who blocked each other in either direction. At most one per user per channel per 30 s, and at most 5 outsider mentions per author per minute, counting every outsider the author mentions whether or not a `MentionCreate` is sent; further ones only appear in the message's `mentions`) |
 | `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: the user's direct message conversations with friends neither side blocked, plus staff conversations, and every group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
 | `ReadMarker` | `{channel_id}` (the user read that whole conversation on another connection; clear its unread count) |
 | `GroupCreate` | `{group: Group}` (the user was put in a group, by creating it or being added) |

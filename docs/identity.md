@@ -248,6 +248,8 @@ Only prod's client also holds `genonline-rename`, the role for the plugin's rena
 
 The sign-in and account pages follow the Generals Online design system (boards Main, ChooseName, TwoFactor, CheckEmail, Refused, PhoneArabic and Account): `wwwroot/portal/tokens.css` (the `--go-*` tokens, dark only), the `gp-*` classes in `wwwroot/portal/generals.css`, self-hosted Play, IBM Plex Sans and IBM Plex Sans Arabic. `Accounts:cover_images` is a list of public paths on this service; missing means the three faction images, an empty list means no image, and an entry that is not a path on this service (an address with a host, whitespace or a quote) stops the start. The footer links come from `Agreements:terms:url`, `Agreements:privacy:url` and `Agreements:rules:url`; a document without an address has no link, and there is no Help link until a help page exists. Each address must be an absolute http or https URL without spaces or quotes, or the start fails.
 
+The staff area (`/admin`) follows the design's Admin board on the same tokens and fonts: `wwwroot/portal/theme.css` is a copy of the design's Blazor Blueprint theme (`dist/portal/theme.css`), and the staff rules of `generals.css` restyle Blueprint's components to the design's component specs (nav, button, badge, card, field). Its account menu holds Edit profile and Sign out only, as the staff pages are in English and have no language switch, and its Help item opens the API docs.
+
 Two differences from the earlier pages are intended: the two-factor sign-in page shows one code at a time, with "Use a recovery code instead" at `?recovery=1` on the same route and the same POST, and the pages now carry Back links, a skip link and a footer with the configured Terms, Privacy and Rules links.
 
 ## 5c. Agreements (S19)
@@ -337,6 +339,8 @@ To rotate the data protection certificate, list the new certificate first and ke
 ```
 /users/sign_in, /users/sign_up, /users/sign_out, /users/password, /users/confirmation   (HTML)
 /users/sign_up/welcome (choose a name), /users/agreements (rules and terms), /profile (the player page), /profile/two_factor_auth   (HTML)
+/profile/friends (friends and requests; POST add, accept, decline, cancel, remove, block)                           (HTML)
+/profile/blocked (blocked players; POST add, remove)                                                               (HTML)
 /users/two_factor, /profile/applications, /profile/identities                            (HTML)
 /users/auth/:provider, /users/auth/:provider/callback                                     (upstream sign-in)
 /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect, /oauth/userinfo         (OpenIddict)

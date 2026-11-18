@@ -1,13 +1,24 @@
-@* The message of the day: the page header (nav-02) over an editor card and a preview card of GET and PUT
-   /api/v1/application/settings. settings.manage only; each save is in the audit log *@
+@* The message of the day: a full-width monospace editor of GET and PUT /api/v1/application/settings with a colour swatch
+   in the margin of every line, and below it the game's list box drawing the message as players see it. PortalMotd reads
+   the lines as the game does. settings.manage only, and each save is in the audit log *@
 @page "/admin/settings"
 @inject PortalApi Api
 @inject ToastService Toasts
 
 <PageTitle>Message of the day · Generals Online</PageTitle>
 
-<PageHeader Description="The game shows players the message of the day. Each change is in the audit log.">
+<PageHeader Description="The game shows players the message of the day on its welcome screen. Each change is in the audit log.">
     <Title>Message of the day</Title>
+    <Actions>
+        @if (m_saved != null)
+        {
+            <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_motd = m_saved.Motd)" Disabled="@(!Changed || m_saving)">Undo changes</BbButton>
+            <BbButton OnClick="SaveAsync" Loading="@m_saving" Disabled="@(!Changed)" data-testid="save">
+                <LucideIcon Name="save" Class="bb:h-4 bb:w-4" />
+                Save
+            </BbButton>
+        }
+    </Actions>
 </PageHeader>
 
 @if (!Session.Can(PortalPermissions.SettingsManage))
@@ -32,61 +43,166 @@ else if (m_saved == null)
 }
 else
 {
-    <div class="go-dashboard">
-        <BbCard>
-            <BbCardHeader>
-                <BbCardTitle As="h2">Edit</BbCardTitle>
-                <BbCardDescription>Plain text, at most @MaximumLength characters; {0} stands for the number of players online. Leave it empty to show the default message of the service (data/motd.txt).</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent Class="bb:space-y-4">
-                <div class="bb:space-y-2">
-                    <BbLabel For="motd">Message</BbLabel>
-                    <BbTextarea Id="motd" @bind-Value="m_motd" UpdateTiming="UpdateTiming.Immediate" MaxLength="@MaximumLength" ShowCharacterCount="true" Placeholder="No message of the day…" autocomplete="off" data-testid="motd" />
-                </div>
-                <div class="bb:flex bb:gap-2">
-                    <BbButton OnClick="SaveAsync" Loading="@m_saving" Disabled="@(!Changed)" data-testid="save">
-                        <LucideIcon Name="save" Class="bb:h-4 bb:w-4" />
-                        Save
-                    </BbButton>
-                    <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_motd = m_saved.Motd)" Disabled="@(!Changed || m_saving)">Undo changes</BbButton>
-                </div>
-            </BbCardContent>
-        </BbCard>
-        <BbCard>
-            <BbCardHeader>
-                <BbCardTitle As="h2">Preview</BbCardTitle>
-                <BbCardDescription>@(Changed ? "Not saved yet." : "As players see it now.")</BbCardDescription>
-            </BbCardHeader>
-            <BbCardContent>
-                @if (String.IsNullOrEmpty(m_motd))
+    string[] lines = (m_motd ?? "").Split('\n');
+    IReadOnlyList<PortalMotdLine> shown = PortalMotd.Parse(m_motd, SamplePlayers);
+    <section class="go-motd" aria-labelledby="motd-label">
+        <div class="go-motd-head">
+            <label for="motd" id="motd-label">Message</label>
+            <p class="go-motd-hint">
+                At most @MaximumLength characters. {0} stands for the number of players online. A line that starts with a
+                backslash and 8 hex digits, alpha, red, green and blue, takes that colour: pick one with the swatch beside the
+                line. Leave the message empty to show the default message of the service (data/motd.txt).
+            </p>
+        </div>
+        <div class="go-motd-editor">
+            <div class="go-motd-gutter" aria-label="Line colours" role="group">
+                @for (int i = 0; i < lines.Length; i++)
                 {
-                    <p class="bb:text-sm bb:text-muted-foreground" data-testid="motd-preview">Players see the default message of the service.</p>
+                    int at = i;
+                    string? code = PortalMotd.CodeOf(lines[i]);
+                    PortalMotdLine line = PortalMotd.ParseLine(lines[i]);
+                    <BbDropdownMenu>
+                        <BbDropdownMenuTrigger>
+                            <BbButton Variant="ButtonVariant.Ghost" Class="go-motd-swatch" style="@($"--swatch: {line.Css}")" AriaLabel="@($"Colour of line {at + 1}")" data-testid="@($"swatch-{at + 1}")" />
+                        </BbDropdownMenuTrigger>
+                        <BbDropdownMenuContent Align="PopoverAlign.Start" Class="go-admin-menu">
+                            <BbDropdownMenuLabel>Line @(at + 1)</BbDropdownMenuLabel>
+                            <BbDropdownMenuItem OnClick="@(_ => SetCode(at, null))">
+                                <span class="go-motd-chip" style="--swatch: rgb(255 255 255)" aria-hidden="true"></span>
+                                Default
+                            </BbDropdownMenuItem>
+                            @foreach (string used in Palette())
+                            {
+                                string pick = used;
+                                <BbDropdownMenuItem OnClick="@(_ => SetCode(at, pick))">
+                                    <span class="go-motd-chip" style="@($"--swatch: {PortalMotd.ParseLine("\\" + pick + "x").Css}")" aria-hidden="true"></span>
+                                    <span class="go-motd-code">@pick</span>
+                                    @if (pick == code)
+                                    {
+                                        <LucideIcon Name="check" Class="bb:h-4 bb:w-4 bb:ms-auto" />
+                                    }
+                                </BbDropdownMenuItem>
+                            }
+                            <BbDropdownMenuSeparator />
+                            <BbDropdownMenuItem OnClick="@(_ => OpenCustom(at, code))">
+                                <LucideIcon Name="palette" Class="bb:h-4 bb:w-4" />
+                                Custom colour…
+                            </BbDropdownMenuItem>
+                        </BbDropdownMenuContent>
+                    </BbDropdownMenu>
                 }
-                else
+            </div>
+            <textarea id="motd" class="go-motd-text" rows="@Math.Max(lines.Length + 1, 6)" wrap="off" maxlength="@MaximumLength" spellcheck="false" autocomplete="off"
+                      placeholder="No message of the day…" value="@m_motd" @oninput="@(e => m_motd = e.Value?.ToString())" aria-describedby="motd-count" data-testid="motd"></textarea>
+        </div>
+        <p class="go-motd-count" id="motd-count">@((m_motd ?? "").Length) / @MaximumLength characters</p>
+        @if (shown.Any(l => l.Problem != PortalMotdProblem.None))
+        {
+            <ul class="go-motd-warnings" data-testid="motd-warnings">
+                @for (int i = 0; i < shown.Count; i++)
                 {
-                    <p class="bb:text-sm" style="white-space: pre-wrap; overflow-wrap: anywhere" data-testid="motd-preview">@Preview(m_motd)</p>
+                    if (shown[i].Problem == PortalMotdProblem.InvalidCode)
+                    {
+                        <li><LucideIcon Name="triangle-alert" Class="bb:h-4 bb:w-4" />Line @(i + 1) starts with a backslash but no colour code, so the game cuts the 8 characters after the backslash. Start it with two backslashes to show one.</li>
+                    }
+                    else if (shown[i].Problem == PortalMotdProblem.CodeWithoutText)
+                    {
+                        <li><LucideIcon Name="triangle-alert" Class="bb:h-4 bb:w-4" />Line @(i + 1) has a colour code and no text, so the game shows the code as it is.</li>
+                    }
                 }
-            </BbCardContent>
-        </BbCard>
-    </div>
+            </ul>
+        }
+    </section>
+
+    <section class="go-motd" aria-labelledby="preview-title">
+        <div class="go-motd-head">
+            <h2 id="preview-title" class="go-motd-title">In the game</h2>
+            <p class="go-motd-hint">@(Changed ? "Not saved yet. " : "As players see it now. ")The welcome screen's list box at the game's width, with @SamplePlayers players online as a sample.</p>
+        </div>
+        <div class="go-motd-game" data-testid="motd-preview">
+            @if (shown.Count == 0)
+            {
+                <p class="go-motd-empty">Players see the default message of the service.</p>
+            }
+            else
+            {
+                @foreach (PortalMotdLine line in shown)
+                {
+                    <div class="go-motd-line" style="@($"color: {line.Css}")">@line.Text</div>
+                }
+            }
+        </div>
+    </section>
+
+    <BbDialog @bind-Open="m_customOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Colour of line @(m_customLine + 1)</BbDialogTitle>
+                <BbDialogDescription>Pick a colour, or type 8 hex digits: alpha, red, green and blue.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="go-motd-custom">
+                <input type="color" class="go-motd-picker" value="@("#" + CustomRgb())" @oninput="@(e => m_custom = "ff" + (e.Value?.ToString() ?? "").TrimStart('#'))" aria-label="Colour" />
+                <BbInput @bind-Value="m_custom" UpdateTiming="UpdateTiming.Immediate" MaxLength="8" AriaLabel="Colour code" AriaInvalid="@(PortalMotd.IsCode(m_custom ?? "") ? null : true)" Class="go-motd-code" autocomplete="off" spellcheck="false" />
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_customOpen = false)">Cancel</BbButton>
+                <BbButton OnClick="ApplyCustom" Disabled="@(!PortalMotd.IsCode(m_custom ?? ""))">Use this colour</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
 }
 
 @code {
     // ApplicationSettingsRules.MaximumMotdLength on the host
     private const int MaximumLength = 2000;
 
+    // the player count the preview fills {0} with
+    private const int SamplePlayers = 1234;
+
+    // the colours the picker offers before any line uses one: the orange and red of the game's examples
+    private static readonly string[] s_suggested = ["ffff7f2f", "ffff0000"];
+
     private PortalSettings? m_saved;
     private string? m_motd;
     private string? m_error;
     private bool m_saving;
 
+    private bool m_customOpen;
+    private int m_customLine;
+    private string? m_custom;
+
     // The layout renders pages only once the session is known
     private PortalSessionInfo Session => Api.Session!;
 
-    // {0} reads as a sample count, as ConfigSources.FormatMotd fills in the players online
-    private static string Preview(string motd) => motd.Replace("{0}", "1234", StringComparison.Ordinal);
-
     private bool Changed => (m_motd ?? "") != (m_saved?.Motd ?? "");
+
+    // The colours the message already uses, then the suggested ones
+    private IEnumerable<string> Palette() => PortalMotd.CodesOf(m_motd).Concat(s_suggested).Distinct(StringComparer.Ordinal);
+
+    private void SetCode(int line, string? code)
+    {
+        string[] lines = (m_motd ?? "").Split('\n');
+        if (line < lines.Length)
+        {
+            lines[line] = PortalMotd.WithCode(lines[line], code);
+            m_motd = String.Join('\n', lines);
+        }
+    }
+
+    private void OpenCustom(int line, string? code)
+    {
+        m_customLine = line;
+        m_custom = code ?? PortalMotd.DefaultCode;
+        m_customOpen = true;
+    }
+
+    private string CustomRgb() => PortalMotd.IsCode(m_custom ?? "") ? m_custom![2..] : "ffffff";
+
+    private void ApplyCustom()
+    {
+        SetCode(m_customLine, m_custom);
+        m_customOpen = false;
+    }
 
     protected override async Task OnInitializedAsync()
     {

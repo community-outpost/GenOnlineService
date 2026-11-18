@@ -1,127 +1,24 @@
-/* Generals Online over the stock dark theme of theme.css, in the Swiss International Style: stone neutrals, hierarchy by
-   opacity of one text colour, and exactly one accent, the gold of the Generals Online logo, kept for primary buttons,
-   the active navigation item, focus rings and the numbers that need attention. Rectilinear shapes, IBM Plex Sans, an 8px
-   grid. The layouts follow GitLab: a grouped left sidebar, page headers with their actions on the right, compact tables,
-   settings sections with their title on the left. Every page is dark only (PortalLook and PortalDocument set .dark).
-   This file is not in a cascade layer, so it wins over blazorblueprint.css, which is: the components restyle through the
-   variables below, and the go-* classes cover only what no component or prebuilt bb: utility does. */
+/* The page classes of every portal page on the Generals Online design system. The staff area at /admin uses the go-*
+   classes and the restyle of Blazor Blueprint's components below, and the sign-in and account pages use the gp-* classes
+   at the end. The values are the --go-* tokens of tokens.css, which every page links first, and the fonts are in
+   fonts.css. Every page is dark only, as PortalLook and PortalDocument set .dark. This file is not in a cascade layer, so
+   it wins over blazorblueprint.css and the design's theme.css, which are. The components restyle through the theme's
+   variables and the rules below, and the go-* classes cover only what no component or prebuilt bb: utility does. */
 
-/* IBM Plex Sans 1.1.0 (SIL Open Font License, fonts/OFL.txt), the Latin1 subsets of npm @ibm/plex-sans
-   (cdn.jsdelivr.net/npm/@ibm/plex-sans@1.1.0/fonts/split/woff2), served from here: a font host would learn the address
-   of every visitor of the sign-in pages */
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-Light-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-Regular-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-Medium-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("/portal/fonts/IBMPlexSans-SemiBold-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-
-/* The theme: stone-950 page, stone-900 surfaces, stone-800 borders, stone-50 text at full, 70% and 40% */
+/* The Blueprint knobs that the design's theme.css leaves at Blueprint's defaults, set to the design's values */
 .dark {
-  --go-gold: #f0b429;
-  --go-text-2: rgb(250 250 249 / 0.7);
-  --go-text-3: rgb(250 250 249 / 0.4);
-
-  --background: #0c0a09;
-  --foreground: #fafaf9;
-  --card: #1c1917;
-  --card-foreground: #fafaf9;
-  --popover: #1c1917;
-  --popover-foreground: #fafaf9;
-  --primary: var(--go-gold);
-  --primary-foreground: #0c0a09;
-  --secondary: #292524;
-  --secondary-foreground: #fafaf9;
-  --muted: #1c1917;
-  --muted-foreground: var(--go-text-2);
-  --accent: #292524;
-  --accent-foreground: #fafaf9;
-  /* the one exception to the single accent: a danger action and a ban stay recognisable, in a brick red muted towards
-     the stone and kept to solid fills on the two ban buttons and 10% tints on the restriction badges */
-  --destructive: #9c4a41;
-  --destructive-foreground: #fafaf9;
-  --border: #292524;
-  --input: rgb(250 250 249 / 0.16);
-  --ring: var(--go-gold);
-
-  --radius: 0.125rem;
-  --bb-radius-xs: 0.125rem;
-  --bb-radius-xl: 0.125rem;
-  --sidebar-menu-button-radius: 0;
-  --sidebar-group-label-radius: 0;
-  --sidebar-sub-button-radius: 0;
-  --sidebar-badge-radius: 0.125rem;
+  --bb-radius-xs: var(--go-radius-sm);
+  --bb-radius-xl: var(--go-radius-md);
+  --sidebar-menu-button-radius: var(--go-radius-md);
+  --sidebar-group-label-radius: var(--go-radius-md);
+  --sidebar-sub-button-radius: var(--go-radius-md);
+  --sidebar-badge-radius: var(--go-radius-sm);
+  --sidebar-badge-bg: var(--go-color-accent-tint-14);
+  --sidebar-badge-color: var(--go-color-accent-default);
   --bb-card-shadow: none;
-  --shadow-2xs: none;
-  --shadow-xs: none;
-  --shadow-sm: none;
-  --shadow: none;
-  --shadow-md: none;
-
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --bb-default-font-family: var(--font-sans);
-
-  /* alerts: neutral, the warning in the accent, the danger in the muted red */
-  --alert-success: var(--go-text-2);
-  --alert-success-foreground: #fafaf9;
-  --alert-success-bg: #1c1917;
-  --alert-info: var(--go-text-2);
-  --alert-info-foreground: #fafaf9;
-  --alert-info-bg: #1c1917;
-  --alert-warning: var(--go-gold);
-  --alert-warning-foreground: #fafaf9;
-  --alert-warning-bg: rgb(240 180 41 / 0.1);
-  --alert-danger: var(--destructive);
-  --alert-danger-foreground: #fafaf9;
-  --alert-danger-bg: rgb(156 74 65 / 0.12);
-
-  /* GitLab's left sidebar: a surface beside the page, the active item marked in gold (.go-admin rules below) */
-  --sidebar: #1c1917;
-  --sidebar-foreground: var(--go-text-2);
-  --sidebar-primary: var(--go-gold);
-  --sidebar-primary-foreground: #0c0a09;
-  --sidebar-accent: transparent;
-  --sidebar-accent-foreground: #fafaf9;
-  --sidebar-border: #292524;
-  --sidebar-ring: var(--go-gold);
-  --sidebar-badge-bg: #292524;
-  --sidebar-badge-color: var(--go-text-2);
-
-  /* charts: the accent, then the text colour at falling opacities */
-  --chart-1: var(--go-gold);
-  --chart-2: rgb(250 250 249 / 0.7);
-  --chart-3: rgb(250 250 249 / 0.5);
-  --chart-4: rgb(250 250 249 / 0.35);
-  --chart-5: rgb(250 250 249 / 0.2);
+  --bb-default-font-family: var(--go-font-body);
+  --sidebar: var(--go-color-bg-panel);
+  --sidebar-accent: var(--go-color-bg-surface);
 }
 
 .dark body {
@@ -132,18 +29,12 @@
 /* no double-tap zoom delay; anchors land below the sticky top bar of the staff pages */
 html.dark {
   touch-action: manipulation;
-  scroll-padding-top: 4.5rem;
+  scroll-padding-top: 4rem;
 }
 
 /* the round pieces of the components (avatars, skeletons, timeline marks) square like everything else */
 .dark [class~="bb:rounded-full"] {
   border-radius: var(--radius);
-}
-
-/* dialog titles and empty-state titles at normal weight: Swiss headings are never bold */
-.dark [role="dialog"] h2,
-.dark [role="alertdialog"] h2 {
-  font-weight: 400;
 }
 
 /* explanatory copy no wider than 60 characters */
@@ -178,13 +69,13 @@ html.dark {
 
 .go-skip:focus-visible {
   transform: none;
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
 }
 
 /* touch targets of at least 44px on a phone or any coarse pointer */
 @media (pointer: coarse), (max-width: 47.99rem) {
-  .dark button,
+  .dark button:not([role="switch"]):not(.go-motd-swatch),
   .dark [role="tab"],
   .dark [role="menuitem"],
   .dark [data-sidebar="menu-button"],
@@ -195,7 +86,7 @@ html.dark {
     min-height: 44px;
   }
 
-  .dark button[aria-label],
+  .dark button[aria-label]:not(.go-motd-swatch),
   .dark [data-sidebar="trigger"] {
     min-width: 44px;
   }
@@ -226,579 +117,368 @@ html.dark {
   }
 }
 
-/* ===== The sign-in pages: login-02's split, the form beside the cover ===== */
+/* ===== The staff pages (/admin): the shell of the design's Admin board =====
+   From here to the sign-in pages every value is a --go-* token, and every rule places things by the start and end of a
+   line, never by left and right. */
 
-.go-split {
-  display: grid;
-  min-height: 100vh;
-}
-
-@media (min-width: 64rem) {
-  .go-split {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.go-main {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 6.5rem 1rem 2rem;
-}
-
-/* Generals Online's logo, top left of the form column (top right when the page reads right to left) */
-.go-logo {
-  position: absolute;
-  top: 2rem;
-  inset-inline-start: 1rem;
-  display: block;
-}
-
-@media (min-width: 48rem) {
-  .go-logo {
-    inset-inline-start: 2rem;
-  }
-}
-
-.go-logo > img {
-  display: block;
-  height: 2.5rem;
-  width: auto;
-}
-
-/* the cover: the box art without its colours under a flat veil, so the accent stays the only hue. The grey, the darkening
-   and the veil are baked into poster.webp; the page sets --go-poster to its fingerprinted address (PortalLook.Document) */
-.go-cover {
-  display: none;
-  position: relative;
-  overflow: hidden;
-  border-inline-start: 1px solid var(--border);
-  background-color: var(--background);
-  background-image: var(--go-poster);
-  background-size: cover;
-  background-position: center;
-}
-
-@media (min-width: 64rem) {
-  .go-main {
-    padding: 2rem;
-  }
-
-  .go-cover {
-    display: block;
-  }
-}
-
-/* the language switch: each language in its own words, the current one in gold; under the form, or in the top bar */
-.go-languages {
+/* one top bar over the whole area, then the sidebar and the page side by side */
+.go-admin-shell {
+  --sidebar-width: 15rem;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.25rem 1rem;
-  font-size: 0.8125rem;
-}
-
-.go-language {
-  color: var(--go-text-2);
-  text-underline-offset: 4px;
-}
-
-.go-language:hover {
-  color: var(--foreground);
-  text-decoration: underline;
-}
-
-.go-language[aria-current="true"] {
-  color: var(--go-gold);
-  font-weight: 500;
-}
-
-@media (pointer: coarse), (max-width: 47.99rem) {
-  .go-language {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-  }
-}
-
-/* an arrow points the way the text reads: mirrored on a right-to-left page */
-[dir="rtl"] .go-directional {
-  transform: scaleX(-1);
-}
-
-/* a page title: light, tight, as the Swiss H2 */
-.go-heading {
-  font-size: 2rem;
-  font-weight: 300;
-  line-height: 2.5rem;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
-}
-
-/* a form's fields and button, on the 8px grid */
-.go-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* a label and its field */
-.go-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.go-field > label {
-  color: var(--go-text-2);
-}
-
-/* an icon inside the start edge of a field: the left, or the right when the page reads right to left */
-.go-field-icon {
-  position: absolute;
-  top: 50%;
-  inset-inline-start: 0.75rem;
-  display: flex;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.go-iconed {
-  padding-inline-start: 2.25rem;
-}
-
-/* login-02's "Or continue with": a caption on the rule */
-.go-or {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.go-or > div {
-  position: absolute;
-  inset: 50% 0 auto 0;
-}
-
-.go-or > span {
-  position: relative;
-  padding: 0 0.5rem;
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-2);
-  background: var(--background);
-}
-
-/* the providers full width, one under another, as login-02 */
-.go-providers {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-/* a provider button: its mark a little further from its name */
-.go-provider {
-  gap: 0.5rem;
-}
-
-/* each provider in its brand's colours, the one place another hue appears: Discord blurple, Steam's dark navy,
-   Google's dark-theme button and GameReplays' blue (from its logo) */
-.go-provider-discord {
-  border-color: #5865f2;
-  background: #5865f2;
-  color: #fff;
-}
-
-.go-provider-discord:hover {
-  border-color: #4752c4;
-  background: #4752c4;
-  color: #fff;
-}
-
-.go-provider-steam {
-  border-color: #2a475e;
-  background: #171a21;
-  color: #fff;
-}
-
-.go-provider-steam:hover {
-  background: #2a475e;
-  color: #fff;
-}
-
-.go-provider-google {
-  border-color: #8e918f;
-  background: #131314;
-  color: #e3e3e3;
-}
-
-.go-provider-google:hover {
-  background: #1f1f20;
-  color: #e3e3e3;
-}
-
-.go-provider-gamereplays {
-  border-color: #0090d8;
-  background: #0b4f7a;
-  color: #fff;
-}
-
-.go-provider-gamereplays:hover {
-  background: #0d6197;
-  color: #fff;
-}
-
-/* ===== /profile: GitLab's user settings, a top bar and settings sections ===== */
-
-.go-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 3.5rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
-}
-
-@media (min-width: 48rem) {
-  .go-topbar {
-    padding: 0.5rem 2rem;
-  }
-}
-
-.go-topbar-logo > img {
-  display: block;
-  height: 2rem;
-  width: auto;
-}
-
-.go-topbar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.go-topbar-actions form {
-  margin: 0;
-}
-
-/* the page: a title, then one settings section under another */
-.go-column {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
+  align-content: flex-start;
   width: 100%;
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: 2rem 1rem 4rem;
+  min-height: 100vh;
+  background: var(--go-color-bg-ground);
 }
 
-@media (min-width: 48rem) {
-  .go-column {
-    padding: 3rem 2rem 6rem;
-  }
-}
-
-/* a settings section: its title and a short description in the left column, the form or content on the right, a rule
-   above each, as GitLab's user settings */
-.go-settings {
-  display: grid;
-  gap: 1rem;
-  padding-top: 2rem;
-  border-top: 1px solid var(--border);
-}
-
-@media (min-width: 64rem) {
-  .go-settings {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    gap: 2rem;
-  }
-}
-
-.go-settings-title {
-  font-size: 1.25rem;
-  font-weight: 400;
-  line-height: 1.75rem;
-}
-
-.go-settings-intro > p {
-  max-width: 60ch;
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.5rem;
-  color: var(--go-text-2);
-}
-
-.go-settings-body {
+.go-admin-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
-  font-size: 0.875rem;
-}
-
-/* the buttons under a section's form */
-.go-card-footer {
-  display: flex;
-  justify-content: flex-start;
-  gap: 0.5rem;
-  padding-top: 0.5rem;
-}
-
-/* a button its own width: in a section or the top bar */
-.go-narrow {
-  width: auto;
-  align-self: flex-start;
-}
-
-/* a muted label: a role, a state; the accent only for a staff role */
-.go-badge {
-  display: inline-flex;
+  flex: 0 0 100%;
   align-items: center;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid rgb(240 180 41 / 0.3);
-  border-radius: var(--radius);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  background: rgb(240 180 41 / 0.1);
-  color: var(--go-gold);
+  gap: var(--go-space-4);
+  height: var(--go-space-12);
+  padding: 0 var(--go-space-4);
+  background: var(--go-color-bg-topbar);
+  border-bottom: 1px solid var(--go-color-border-subtle);
 }
 
-.go-badge-muted {
-  border-color: var(--border);
-  background: var(--secondary);
-  color: var(--go-text-2);
-}
-
-.go-avatar {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 4rem;
-  height: 4rem;
-  border-radius: var(--radius);
-  font-size: 1.25rem;
-  font-weight: 400;
-  background: var(--secondary);
-  color: var(--go-text-2);
-}
-
-/* the profile's name and its tag */
-.go-profile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.go-profile-name {
-  font-size: 1.5rem;
-  font-weight: 300;
-  letter-spacing: -0.02em;
-}
-
-.go-tag {
-  color: var(--go-text-3);
-}
-
-.go-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-/* a label and its value on one line, ruled like a table row */
-.go-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.go-row-value {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.go-provider-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 500;
-}
-
-/* a field's message under it: the rule it broke */
-.go-field-error {
-  font-size: 0.875rem;
-  color: var(--destructive);
-}
-
-.go-field-hint {
-  font-size: 0.75rem;
-  color: var(--go-text-2);
-}
-
-/* ===== The staff pages (/admin): GitLab's shell ===== */
-
-/* the logo heads the sidebar, and shrinks to the shield when the sidebar collapses to its icon rail (sidebar-07) */
 .go-admin-logo {
-  display: flex;
-  align-items: center;
-  height: 2.5rem;
-  overflow: hidden;
+  display: block;
+  flex: none;
 }
 
 .go-admin-logo > img {
   display: block;
-  height: 2rem;
   width: auto;
-  max-width: 100%;
-  object-fit: contain;
-  object-position: left center;
+  height: 28px;
 }
 
-aside[data-collapsible="icon"] .go-admin-logo {
-  width: 2rem;
+/* the menu button opens the sidebar sheet on a phone, and a wide screen always shows the sidebar */
+@media (min-width: 48rem) {
+  .go-admin-trigger {
+    display: none;
+  }
 }
 
-aside[data-collapsible="icon"] .go-admin-logo > img {
-  max-width: none;
+/* the player search in the middle of the top bar, a magnifier inside its start edge */
+.go-admin-search-slot {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
 }
 
-/* the group captions as Swiss labels */
-.dark [data-sidebar="group-label"] {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-3);
-}
-
-/* a menu item: square, no fill; hover raises the label from 70% to full opacity */
-.dark [data-sidebar="menu-button"] {
-  position: relative;
-  border-radius: 0;
-  background: transparent;
-  color: var(--go-text-2);
-}
-
-.dark [data-sidebar="menu-button"]:hover {
-  background: transparent;
-  color: var(--foreground);
-}
-
-/* the active item, GitLab's marker as one cue: a straight full-height bar flush with its left edge, drawn as a box so it
-   cannot curve, and the label at full opacity and medium weight; the same in the collapsed icon rail */
-.dark [data-sidebar="menu-button"][data-active="true"] {
-  background: transparent;
-  box-shadow: none;
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.dark [data-sidebar="menu-button"][data-active="true"]::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  background: var(--go-gold);
-}
-
-/* sidebar-06's search field, a magnifier inside its left edge; the rail has no room for it */
 .go-admin-search {
   position: relative;
+  width: 100%;
+  max-width: 460px;
   margin: 0;
 }
 
 .go-admin-search-icon {
   position: absolute;
   top: 50%;
-  left: 0.5rem;
+  inset-inline-start: 10px;
   transform: translateY(-50%);
+  color: var(--go-color-text-muted);
   pointer-events: none;
 }
 
-.go-admin-search .go-admin-search-input {
-  padding-left: 2rem;
+.dark .go-admin-search .go-admin-search-input {
+  height: var(--go-space-8);
+  padding-inline: 34px var(--go-space-3);
+  background: var(--go-color-bg-surface);
+  font-size: var(--go-font-size-sm);
 }
 
-aside[data-collapsible="icon"] .go-admin-search,
-aside[data-collapsible="icon"] .go-admin-user-text {
-  display: none;
+/* the account menu at the end of the top bar: the avatar, the name and its tag */
+.dark .go-admin-top button.go-admin-me[class] {
+  gap: var(--go-space-2);
+  height: 36px;
+  padding: 0 var(--go-space-2);
+  color: var(--go-color-text-muted);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
-aside[data-collapsible="icon"] .go-admin-user {
-  justify-content: center;
-  padding: 0;
+.dark .go-admin-me:hover,
+.dark .go-admin-me[aria-expanded="true"] {
+  background: var(--go-color-bg-raised);
 }
 
-.go-admin-user-menu {
-  width: 14rem;
+.go-admin-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-xs);
 }
 
-/* the content column beside the sidebar may shrink below its widest row, so a phone never scrolls sideways */
-.go-admin-inset {
+.go-admin-me:hover .go-admin-avatar,
+.go-admin-me[aria-expanded="true"] .go-admin-avatar {
+  background: var(--go-color-bg-surface);
+}
+
+.go-admin-avatar-lg {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.go-admin-name {
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-primary);
+  white-space: nowrap;
+}
+
+.go-admin-tag {
+  font-weight: var(--go-font-weight-regular);
+  color: var(--go-color-text-muted);
+}
+
+@media (max-width: 39.99rem) {
+  .go-admin-me .go-admin-name,
+  .go-admin-me-chevron {
+    display: none;
+  }
+}
+
+.dark .go-admin-menu {
+  width: 260px;
+  padding: 6px;
+  background: var(--go-color-bg-surface);
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  box-shadow: var(--shadow-xl);
+}
+
+.go-admin-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--go-space-2) 10px 10px;
+}
+
+.go-admin-menu-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-/* the top bar over every page: the sidebar toggle and the breadcrumb, kept in view while the page scrolls */
-.go-admin-topbar {
+.go-admin-role {
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+}
+
+.dark .go-admin-menu [role="menuitem"] {
+  gap: 10px;
+  height: var(--go-space-8);
+  min-height: 0;
+  padding: 0 10px;
+  border-radius: var(--go-radius-md);
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+}
+
+.dark .go-admin-menu [role="menuitem"]:hover,
+.dark .go-admin-menu [role="menuitem"]:focus {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+}
+
+.dark .go-admin-menu [role="menuitem"] svg {
+  margin: 0;
+}
+
+.dark .go-admin-menu [role="separator"] {
+  margin: 6px 0;
+  background: var(--go-color-border-subtle);
+}
+
+/* the Staff sidebar: the panel beside the page and below the top bar */
+.go-admin-shell > aside {
   position: sticky;
-  top: 0;
-  z-index: 10;
+  top: var(--go-space-12);
+  align-self: flex-start;
+  height: calc(100vh - var(--go-space-12));
+  height: calc(100dvh - var(--go-space-12));
+  min-height: 0;
+  border-inline-end: 1px solid var(--go-color-border-subtle);
+}
+
+.dark [data-sidebar="header"] {
+  padding: var(--go-space-3) var(--go-space-2) 0;
+}
+
+.dark [data-sidebar="content"] {
+  gap: 2px;
+  padding: 0 var(--go-space-2);
+}
+
+.dark [data-sidebar="footer"] {
+  padding: var(--go-space-2);
+  border-top: 1px solid var(--go-color-border-subtle);
+}
+
+.dark [data-sidebar="group"] {
+  padding: 0;
+}
+
+/* the area heading names where the staff member is, and is no link */
+.go-admin-area {
+  display: block;
+  padding: var(--go-space-1) var(--go-space-3) var(--go-space-2);
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-primary);
+}
+
+/* the group captions: small muted words between the items */
+.dark [data-sidebar="group-label"] {
+  height: auto;
+  padding: var(--go-space-3) var(--go-space-3) var(--go-space-1);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-muted);
+}
+
+.dark [data-sidebar="menu"] {
+  gap: 2px;
+}
+
+/* an item at rest has no fill and the secondary text, and a hover raises it to the surface */
+.dark [data-sidebar="menu-button"] {
+  position: relative;
+  gap: 10px;
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  border-radius: var(--go-radius-md);
+  background: transparent;
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-regular);
+}
+
+.dark [data-sidebar="menu-button"]:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+/* the current item: the raised fill, weight 600 and the tan bar inside its start edge */
+.dark [data-sidebar="menu-button"][data-active="true"],
+.dark [data-sidebar="menu-button"][data-active="true"]:hover {
+  background: var(--go-color-bg-raised);
+  box-shadow: none;
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.dark [data-sidebar="menu-button"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-accent-default);
+}
+
+/* a count of what waits for staff: open reports and unreviewed rows */
+.dark [data-sidebar="menu-badge"] {
+  top: 6px;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--go-radius-sm);
+  background: var(--go-color-accent-tint-14);
+  color: var(--go-color-accent-default);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+/* the page beside the sidebar may shrink below its widest row, so a phone never scrolls sideways. Its basis keeps it off
+   the line of the top bar when a phone hides the sidebar */
+.go-admin-inset {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+/* the breadcrumb: plain muted words over the page title */
+.go-admin-crumbs {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--go-space-4) var(--go-space-4) 0;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+}
+
+.go-admin-crumbs ol {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  height: 3.5rem;
-  padding: 0 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.go-admin-crumbs li + li::before {
+  content: "/";
+  margin-inline: 6px;
+}
+
+.dark .go-admin-crumbs a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dark .go-admin-crumbs a:hover {
+  color: var(--go-color-text-primary);
+}
+
+@media (min-width: 48rem) {
+  .go-admin-crumbs {
+    padding-inline: var(--go-space-8);
+  }
 }
 
 /* one width and padding for every page */
 .go-page {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--go-space-4);
   width: 100%;
   min-width: 0;
   max-width: 80rem;
   margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
+  padding: var(--go-space-4) var(--go-space-4) var(--go-space-12);
 }
 
 @media (min-width: 48rem) {
   .go-page {
-    gap: 2rem;
-    padding: 2rem 2rem 4rem;
+    padding: var(--go-space-4) var(--go-space-8) var(--go-space-12);
   }
 }
 
-/* GitLab's page header: title and description on the left, the actions on the right; stacked on a phone */
+/* the page header: the title and its description at the start, the page's actions at the end, stacked on a phone */
 .go-page-header {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border);
+  gap: var(--go-space-3);
 }
 
 @media (min-width: 48rem) {
@@ -810,12 +490,431 @@ aside[data-collapsible="icon"] .go-admin-user {
 }
 
 .go-page-title {
-  font-size: 1.75rem;
-  font-weight: 300;
-  line-height: 2.25rem;
-  letter-spacing: -0.02em;
+  margin: 0;
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-xl);
+  font-weight: var(--go-font-weight-bold);
+  line-height: 1.2;
+  color: var(--go-color-text-primary);
   text-wrap: balance;
   overflow-wrap: anywhere;
+}
+
+/* ----- The design's components on Blazor Blueprint: focus, buttons, chips, fields, badges, cards, tables, tabs ----- */
+
+/* the shared focus ring: 2px sand, 3px outside, for keyboard focus, and on any focus of a text field */
+.dark :focus-visible,
+.dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark textarea:focus,
+.dark select:focus {
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+.dark [data-sidebar="menu-button"]:focus-visible,
+.dark .go-admin-menu [role="menuitem"]:focus-visible,
+.dark table a:focus-visible {
+  outline-offset: -2px;
+}
+
+/* hover and pressed changes take about 120 ms */
+.dark button,
+.dark a,
+.dark input,
+.dark select,
+.dark textarea,
+.dark [data-sidebar="menu-button"] {
+  transition-duration: 120ms;
+}
+
+/* a button: Play, bold, uppercase with tracking, 4px corners, flat. Blueprint's sizes become the design's 32, 40 and 48px */
+.dark :where(button:not([role="switch"]), a)[class~="bb:inline-flex"][class~="bb:disabled:cursor-not-allowed"] {
+  gap: var(--go-space-2);
+  height: 40px;
+  padding: 0 var(--go-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--go-radius-md);
+  box-shadow: none;
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dark :where(button:not([role="switch"]), a)[class~="bb:h-9"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button:not([role="switch"]))[class~="bb:h-8"][class~="bb:disabled:cursor-not-allowed"] {
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  font-size: var(--go-font-size-xs);
+}
+
+.dark :where(button:not([role="switch"]))[class~="bb:h-11"][class~="bb:disabled:cursor-not-allowed"] {
+  height: var(--go-space-12);
+  padding: 0 var(--go-space-6);
+  font-size: var(--go-font-size-md);
+}
+
+.dark :where(button:not([role="switch"]))[class~="bb:w-10"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button:not([role="switch"]))[class~="bb:w-9"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button:not([role="switch"]))[class~="bb:w-8"][class~="bb:disabled:cursor-not-allowed"] {
+  width: var(--go-space-8);
+  height: var(--go-space-8);
+  padding: 0;
+}
+
+/* default: the one tan action of a region */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-primary"] {
+  background: var(--go-color-accent-default);
+  color: var(--go-color-text-on-accent);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-primary"]:hover {
+  background: var(--go-color-accent-hover);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-primary"]:active {
+  background: var(--go-color-accent-deep);
+}
+
+/* secondary: raised with a line */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-secondary"] {
+  background: var(--go-color-bg-raised);
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-secondary"]:hover {
+  border-color: var(--go-color-text-muted);
+}
+
+/* outline: a neutral line on the surface below */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:border-input"] {
+  background: transparent;
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:border-input"]:hover {
+  background: var(--go-color-bg-raised);
+}
+
+/* ghost: no fill and no line until a hover */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:hover:bg-accent"]:not([class~="bb:border-input"]) {
+  background: transparent;
+  color: var(--go-color-text-secondary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:hover:bg-accent"]:not([class~="bb:border-input"]):hover {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+}
+
+/* destructive: the alert red, a light ring inside on hover */
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-destructive"] {
+  background: var(--go-color-status-alert);
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-destructive"]:hover {
+  box-shadow: inset 0 0 0 1px var(--go-color-status-danger-text);
+}
+
+/* pressed moves 1px down, and the neutral variants press to the surface */
+.dark [class~="bb:disabled:cursor-not-allowed"]:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:border-input"]:active,
+.dark [class~="bb:disabled:cursor-not-allowed"][class~="bb:bg-secondary"]:active {
+  background: var(--go-color-bg-surface);
+}
+
+/* disabled in solid colours, never by opacity, the same for every variant */
+.dark button:disabled,
+.dark button[aria-disabled="true"],
+.dark input:disabled,
+.dark select:disabled,
+.dark textarea:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.dark button[class~="bb:disabled:cursor-not-allowed"]:disabled {
+  background: var(--go-color-bg-surface);
+  border-color: var(--go-color-border-subtle);
+  color: var(--go-color-text-disabled);
+  box-shadow: none;
+}
+
+.dark button[class~="bb:disabled:cursor-not-allowed"][class~="bb:hover:bg-accent"]:not([class~="bb:border-input"]):disabled {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* a toggle filter is a chip: body type, the pressed one raised, never tan */
+.dark button[aria-pressed][class~="bb:disabled:cursor-not-allowed"] {
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  background: transparent;
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-secondary);
+  font-family: var(--go-font-body);
+  font-weight: var(--go-font-weight-regular);
+  font-size: var(--go-font-size-sm);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.dark button[aria-pressed][class~="bb:disabled:cursor-not-allowed"]:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+.dark button[aria-pressed="true"][class~="bb:disabled:cursor-not-allowed"],
+.dark button[aria-pressed="true"][class~="bb:disabled:cursor-not-allowed"]:hover {
+  background: var(--go-color-bg-raised);
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-primary);
+}
+
+/* a field: the surface, the steel outline, 4px corners; 40px in forms and 32px in filter bars */
+.dark :where(input[class~="bb:border-input"]:not([type="checkbox"]):not([type="radio"]), textarea[class~="bb:border-input"], select) {
+  background: var(--go-color-bg-surface);
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-md);
+  box-shadow: none;
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+}
+
+.dark :where(input[class~="bb:border-input"]:not([type="checkbox"]):not([type="radio"]), select) {
+  height: 40px;
+  padding-block: 0;
+  padding-inline: var(--go-space-3);
+}
+
+.dark :where(.go-filterbar input[class~="bb:border-input"], .go-filterbar select, .go-audit-filters input[class~="bb:border-input"], .go-audit-filters select, input[class~="bb:h-8"]) {
+  height: var(--go-space-8);
+  padding-inline: var(--go-space-2);
+}
+
+.dark input[class~="bb:border-input"]:hover,
+.dark textarea[class~="bb:border-input"]:hover,
+.dark select:hover {
+  border-color: var(--go-color-text-muted);
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--go-color-text-muted);
+}
+
+.dark input[aria-invalid="true"],
+.dark textarea[aria-invalid="true"] {
+  border-color: var(--go-color-status-danger);
+}
+
+.dark input:disabled,
+.dark textarea:disabled,
+.dark select:disabled {
+  background: var(--go-color-bg-panel);
+  border-color: var(--go-color-border-subtle);
+  color: var(--go-color-text-disabled);
+}
+
+.dark label {
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-secondary);
+}
+
+/* a badge: Play 12px bold uppercase, 20px tall, 2px corners; Blueprint's Soft is the design's default */
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:font-semibold"] {
+  gap: var(--go-space-1);
+  height: 20px;
+  padding: 0 var(--go-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--go-radius-sm);
+  background: var(--go-color-accent-tint-14);
+  color: var(--go-color-accent-default);
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-xs);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-secondary"] {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-secondary);
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:text-foreground"] {
+  background: transparent;
+  border-color: var(--go-color-border-default);
+  color: var(--go-color-text-secondary);
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-destructive/10"],
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-destructive"] {
+  background: var(--go-color-status-danger-tint);
+  color: var(--go-color-status-danger-text);
+}
+
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"][class~="bb:bg-destructive/10"] svg {
+  color: var(--go-color-status-danger);
+}
+
+/* live: something happening now, the one round badge, green */
+.dark [class~="bb:px-2.5"][class~="bb:py-0.5"].go-badge-live {
+  padding: 0 var(--go-space-3);
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-status-live-tint);
+  color: var(--go-color-status-live);
+}
+
+.go-badge-live .go-dot {
+  width: var(--go-space-2);
+  height: var(--go-space-2);
+  margin: 0;
+  border-radius: var(--go-radius-pill);
+}
+
+/* a card: the panel, a 1px line, 4px corners, no shadow, a bold Play title */
+.dark [class~="bb:bg-card"][class~="bb:border"] {
+  background: var(--go-color-bg-panel);
+  border-color: var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  box-shadow: none;
+}
+
+.dark [class~="bb:text-2xl"][class~="bb:font-semibold"][class~="bb:tracking-tight"] {
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-lg);
+  font-weight: var(--go-font-weight-bold);
+  line-height: 1.2;
+  letter-spacing: normal;
+  color: var(--go-color-text-primary);
+}
+
+.dark [class~="bb:bg-card"] [class~="bb:text-muted-foreground"] {
+  color: var(--go-color-text-muted);
+}
+
+/* a table as the board draws it: Play headings, 12px by 16px cells, a surface row on hover, no line under the last row */
+.dark table {
+  border-collapse: collapse;
+}
+
+.dark table th {
+  height: auto;
+  padding: 10px var(--go-space-4);
+  border-bottom: 1px solid var(--go-color-border-default);
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: start;
+  white-space: nowrap;
+  color: var(--go-color-text-muted);
+}
+
+.dark table thead,
+.dark table thead tr,
+.dark table tbody tr {
+  background: transparent;
+}
+
+.dark table td {
+  padding: var(--go-space-3) var(--go-space-4);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+  color: var(--go-color-text-secondary);
+}
+
+.dark table tr {
+  border: 0;
+}
+
+.dark table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.dark table tbody tr:hover td {
+  background: var(--go-color-bg-surface);
+}
+
+/* tabs on a detail page: a ruled line of labels, the open one marked under in the primary text */
+.dark .go-page [role="tablist"] {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  gap: var(--go-space-2);
+  border-bottom: 1px solid var(--go-color-border-default);
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dark .go-page [role="tab"] {
+  position: relative;
+  padding: var(--go-space-3) var(--go-space-2);
+  border-radius: var(--go-radius-md) var(--go-radius-md) 0 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-regular);
+}
+
+.dark .go-page [role="tab"]:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+.dark .go-page [role="tab"][data-state="active"] {
+  background: transparent;
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.dark .go-page [role="tab"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--go-color-text-primary);
+}
+
+/* alerts and dialogs on the design's surfaces */
+.dark [role="dialog"],
+.dark [role="alertdialog"] {
+  background: var(--go-color-bg-panel);
+  border-color: var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+}
+
+.dark [role="dialog"] h2,
+.dark [role="alertdialog"] h2 {
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  color: var(--go-color-text-primary);
+}
+
+/* without motion when the visitor asks for less */
+@media (prefers-reduced-motion: reduce) {
+  .dark [class~="bb:disabled:cursor-not-allowed"]:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 /* body copy no wider than 60 characters */
@@ -836,12 +935,12 @@ aside[data-collapsible="icon"] .go-admin-user {
 
 @media (prefers-reduced-motion: no-preference) {
   .go-stat {
-    transition: border-color 150ms;
+    transition: border-color 120ms;
   }
 }
 
 .go-stat:has(.go-stat-link):hover {
-  border-color: var(--go-text-3);
+  border-color: var(--go-color-text-muted);
 }
 
 /* the whole card is the link to the page behind its number */
@@ -853,21 +952,19 @@ aside[data-collapsible="icon"] .go-admin-user {
 }
 
 .go-stat-link:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
 }
 
 .go-stat-label {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-2);
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-secondary);
 }
 
 .go-stat-value {
   font-size: 2rem;
-  font-weight: 300;
+  font-weight: var(--go-font-weight-bold);
   line-height: 2.5rem;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
@@ -875,7 +972,7 @@ aside[data-collapsible="icon"] .go-admin-user {
 
 /* a number that needs a staff member: open reports, unreviewed rows */
 .go-stat-value-attention {
-  color: var(--go-gold);
+  color: var(--go-color-accent-default);
 }
 
 .go-stat-icon {
@@ -887,7 +984,7 @@ aside[data-collapsible="icon"] .go-admin-user {
   height: 2rem;
   border-radius: var(--radius);
   background: var(--secondary);
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 /* the cards under the stats: two columns on a wide screen, one track that may shrink otherwise */
@@ -926,17 +1023,17 @@ aside[data-collapsible="icon"] .go-admin-user {
 @media (prefers-reduced-motion: no-preference) {
   .go-feed-item,
   a.go-list-item {
-    transition: background-color 150ms;
+    transition: background-color 120ms;
   }
 }
 
 .go-feed-item:hover {
-  background: rgb(250 250 249 / 0.04);
+  background: var(--go-color-bg-surface);
 }
 
 .go-feed-item:focus-visible,
 a.go-list-item:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--go-color-accent-hover);
   outline-offset: -2px;
 }
 
@@ -958,7 +1055,7 @@ a.go-list-item:focus-visible {
 }
 
 a.go-list-item:hover {
-  background: rgb(250 250 249 / 0.04);
+  background: var(--go-color-bg-surface);
 }
 
 /* GitLab's filtered search: the grid's search field takes the toolbar's width, its filters and column picker beside it */
@@ -976,87 +1073,34 @@ a.go-list-item:hover {
   }
 }
 
-/* compact tables: GitLab's row height, the header as Swiss labels */
-.dark table th {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-2);
-}
-
-/* card titles (BbCardTitle's text-2xl semibold) as the Swiss H3: smaller, normal weight */
-.dark [class~="bb:text-2xl"][class~="bb:font-semibold"][class~="bb:tracking-tight"] {
-  font-size: 1.125rem;
-  font-weight: 400;
-  line-height: 1.5rem;
-  letter-spacing: normal;
-}
-
-/* names in tables and lists (BbLink, inline) read as text until pointed at, so the gold stays for actions */
+/* names in tables and lists read as primary text without a line, and turn sand when pointed at, as the board draws them */
 .dark .go-page a[class~="bb:inline"],
 .dark table a {
-  color: var(--foreground);
-  text-decoration: underline;
-  text-decoration-color: var(--go-text-3);
-  text-underline-offset: 4px;
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+  text-decoration: none;
 }
 
 .dark .go-page a[class~="bb:inline"]:hover,
 .dark table a:hover {
-  text-decoration-color: var(--foreground);
+  color: var(--go-color-accent-hover);
+  text-decoration: none;
 }
 
-/* GitLab's tabs on a detail page: a ruled line of labels, the open one marked underneath in the accent */
-.dark .go-page [role="tablist"] {
-  display: flex;
-  justify-content: flex-start;
-  width: 100%;
-  height: auto;
-  padding: 0;
-  gap: 0.5rem;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  overflow-x: auto;
-  scrollbar-width: none;
+/* the tag after a player name, muted as on the board */
+.dark .go-name-tag {
+  font-weight: var(--go-font-weight-regular);
+  color: var(--go-color-text-muted);
 }
 
-.dark .go-page [role="tab"] {
-  position: relative;
-  padding: 1rem 0.5rem;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--go-text-2);
-}
-
-.dark .go-page [role="tab"][data-state="active"] {
-  background: transparent;
-  color: var(--foreground);
-}
-
-.dark .go-page [role="tab"][data-state="active"]::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--go-gold);
-}
-
-.dark .go-page [role="tab"]:hover {
-  color: var(--foreground);
-}
-
+/* a word as its first letter capital */
 .go-capitalize {
   text-transform: capitalize;
 }
 
 /* tertiary text: captions, metadata */
 .go-text-3 {
-  color: var(--go-text-3);
+  color: var(--go-color-text-muted);
 }
 
 /* a column header that screen readers read but that shows nothing: a th cannot be taken out of the table's flow */
@@ -1111,7 +1155,7 @@ a.go-list-item:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 .go-nowrap {
@@ -1151,7 +1195,7 @@ a.go-list-item:hover {
   align-items: center;
   gap: 0.375rem;
   font-size: 0.75rem;
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 .go-date > span {
@@ -1183,10 +1227,10 @@ a.go-list-item:hover {
 }
 
 .go-muted {
-  color: var(--go-text-3);
+  color: var(--go-color-text-muted);
 }
 
-/* counts and durations in tabular figures, on the left edge like their column title */
+/* counts and durations in tabular figures, at the start edge like their column title */
 .go-num {
   font-variant-numeric: tabular-nums;
 }
@@ -1195,7 +1239,7 @@ a.go-list-item:hover {
   display: inline-block;
   width: 0.375rem;
   height: 0.375rem;
-  margin-right: 0.375rem;
+  margin-inline-end: 0.375rem;
   background: currentColor;
 }
 
@@ -1206,14 +1250,14 @@ a.go-list-item:hover {
 
 .go-cell-players a.go-won {
   opacity: 1;
-  font-weight: 500;
+  font-weight: var(--go-font-weight-semibold);
 }
 
 .go-icon-inline {
   display: inline-block;
   vertical-align: -0.125rem;
-  margin-right: 0.25rem;
-  color: var(--go-text-2);
+  margin-inline-end: 0.25rem;
+  color: var(--go-color-text-secondary);
 }
 
 @media (max-width: 47.99rem) {
@@ -1231,11 +1275,11 @@ a.go-list-item:hover {
 
 /* the player page's Matches tab (T17g): a won match reads at full weight, as a winner does on the match list */
 .go-result-won {
-  font-weight: 500;
+  font-weight: var(--go-font-weight-semibold);
   white-space: nowrap;
 }
 
-/* a card header with its action on the right, as the page header has (the Matches tab's “All matches”) */
+/* a card header with its action at the end, as the page header has (the Matches tab's “All matches”) */
 .go-card-head {
   display: flex;
   flex-wrap: wrap;
@@ -1257,7 +1301,7 @@ a.go-list-item:hover {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  color: var(--go-text-2);
+  color: var(--go-color-text-secondary);
 }
 
 /* a match id: 48-bit snowflakes run to 13 digits, kept on one line in tabular figures */
@@ -1265,6 +1309,568 @@ a.go-list-item:hover {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* the game config as a settings page: the groups as a sub-menu with a search above it, the chosen group as a form */
+.go-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--go-space-6);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .go-settings {
+    grid-template-columns: 14rem minmax(0, 1fr);
+  }
+}
+
+.go-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-3);
+}
+
+@media (min-width: 64rem) {
+  .go-settings-nav {
+    position: sticky;
+    top: calc(var(--go-space-12) + var(--go-space-4));
+  }
+}
+
+.go-settings-nav ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 63.99rem) {
+  .go-settings-nav ul {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+.dark .go-settings-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+  width: 100%;
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  border: 0;
+  border-radius: var(--go-radius-md);
+  background: transparent;
+  color: var(--go-color-text-secondary);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 120ms, color 120ms;
+}
+
+.dark .go-settings-group:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+.dark .go-settings-group[aria-current="true"] {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.go-settings-group[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-accent-default);
+}
+
+.go-settings-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.go-settings-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--go-radius-sm);
+  background: var(--go-color-accent-tint-14);
+  color: var(--go-color-accent-default);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.go-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-6);
+  min-width: 0;
+}
+
+.go-settings-section {
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-panel);
+}
+
+.go-settings-title {
+  margin: 0;
+  padding: var(--go-space-4) var(--go-space-6);
+  border-bottom: 1px solid var(--go-color-border-default);
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-lg);
+  font-weight: var(--go-font-weight-bold);
+  color: var(--go-color-text-primary);
+}
+
+/* one row per field: the label, the key and the help at the start, the control at the end, stacked on a phone */
+.go-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--go-space-3);
+  padding: var(--go-space-4) var(--go-space-6);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+}
+
+.go-setting:last-child {
+  border-bottom: 0;
+}
+
+@media (min-width: 48rem) {
+  .go-setting {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
+    gap: var(--go-space-6);
+    align-items: start;
+  }
+}
+
+.go-setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+  min-width: 0;
+}
+
+.go-setting-label {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.dark .go-setting-label label {
+  color: var(--go-color-text-primary);
+  font-size: var(--go-font-size-sm);
+}
+
+/* a field that differs from live carries a tan dot before its label */
+.go-setting-dot {
+  flex: none;
+  width: var(--go-space-2);
+  height: var(--go-space-2);
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-accent-default);
+}
+
+.go-setting-key {
+  margin: 0;
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.go-setting-help {
+  max-width: 60ch;
+  margin: 0;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-setting-text .go-chips:empty {
+  display: none;
+}
+
+.dark .go-setting-revert {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--go-color-text-secondary);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.dark .go-setting-revert:hover {
+  color: var(--go-color-accent-hover);
+}
+
+.go-setting-error {
+  margin: 0;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-status-danger-text);
+}
+
+.go-setting-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--go-space-2);
+  min-width: 0;
+}
+
+@media (max-width: 47.99rem) {
+  .go-setting-control {
+    justify-content: space-between;
+  }
+}
+
+.go-setting-control > :not(:last-child) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.go-setting-control > button[role="switch"] {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+.go-setting-number {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-setting-unit {
+  flex: none;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-setting-custom {
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-setting-input {
+  width: 100%;
+}
+
+/* a switch: the raised track, tan when on, as the one accent of its row */
+.dark button[role="switch"] {
+  background: var(--go-color-bg-raised);
+  border-color: var(--go-color-border-control);
+}
+
+.dark button[role="switch"][aria-checked="true"] {
+  background: var(--go-color-accent-default);
+  border-color: var(--go-color-accent-default);
+}
+
+/* the bar that stays in view while the draft differs from live */
+.go-publish-bar {
+  position: sticky;
+  bottom: var(--go-space-4);
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--go-space-3);
+  padding: var(--go-space-3) var(--go-space-4);
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-raised);
+  box-shadow: var(--shadow-xl);
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+}
+
+.go-publish-bar strong {
+  color: var(--go-color-text-primary);
+}
+
+/* the side panels: targeting, review, history, export and import */
+.dark .go-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;
+  padding: 0;
+  background: var(--go-color-bg-panel);
+  border-inline-start: 1px solid var(--go-color-border-default);
+}
+
+.dark .go-panel-wide {
+  max-width: 52rem;
+}
+
+.go-panel > [class~="bb:flex-col"]:first-of-type {
+  padding: var(--go-space-6) var(--go-space-6) 0;
+}
+
+.go-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--go-space-4);
+  min-height: 0;
+  padding: var(--go-space-4) var(--go-space-6);
+  overflow-y: auto;
+}
+
+.dark .go-panel-footer {
+  gap: var(--go-space-2);
+  padding: var(--go-space-4) var(--go-space-6);
+  border-top: 1px solid var(--go-color-border-subtle);
+}
+
+.go-panel-rule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-2);
+  padding: var(--go-space-3);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.dark .go-panel-code {
+  min-height: 16rem;
+}
+
+.dark .go-panel-link {
+  align-self: center;
+  color: var(--go-color-text-primary);
+  font-size: var(--go-font-size-sm);
+}
+
+/* a table inside a frame, as the board draws one */
+.go-table-frame {
+  overflow-x: auto;
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-panel);
+}
+
+.go-table-frame table {
+  width: 100%;
+}
+
+.go-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: var(--go-space-1);
+}
+
+/* words for a screen reader only */
+.go-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* the message of the day: a full-width monospace editor with a colour swatch in the margin of every line */
+.go-motd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-3);
+}
+
+.go-motd-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+}
+
+.go-motd-title {
+  margin: 0;
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-lg);
+  font-weight: var(--go-font-weight-bold);
+  color: var(--go-color-text-primary);
+}
+
+.go-motd-hint,
+.go-motd-count {
+  max-width: 80ch;
+  margin: 0;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-motd-count {
+  font-size: var(--go-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the gutter and the text share one line height, so each swatch sits beside its line; the text never wraps */
+.go-motd-editor {
+  --motd-line: 20px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.go-motd-editor:focus-within {
+  outline: 2px solid var(--go-color-accent-hover);
+  outline-offset: 3px;
+}
+
+.go-motd-gutter {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: var(--go-space-8);
+  padding: var(--go-space-3) 0;
+  border-inline-end: 1px solid var(--go-color-border-default);
+}
+
+.dark .go-motd-gutter button.go-motd-swatch[class] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  min-width: 0;
+  margin-block: 3px;
+  padding: 0;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-sm);
+  background: var(--swatch);
+  cursor: pointer;
+}
+
+.dark .go-motd-gutter button.go-motd-swatch[class]:hover,
+.dark .go-motd-gutter button.go-motd-swatch[class][aria-expanded="true"] {
+  background: var(--swatch);
+  border-color: var(--go-color-text-primary);
+}
+
+.dark .go-motd-text {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: var(--go-space-3);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-sm);
+  line-height: var(--motd-line);
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+  resize: none;
+}
+
+.dark .go-motd-text:focus {
+  outline: 0;
+}
+
+.go-motd-chip {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-sm);
+  background: var(--swatch);
+}
+
+.go-motd-code {
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-xs);
+}
+
+.go-motd-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-3);
+}
+
+.dark .go-motd-picker {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 2px;
+  border: 1px solid var(--go-color-border-control);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.go-motd-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-status-danger-text);
+}
+
+.go-motd-warnings li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--go-space-2);
+}
+
+.go-motd-warnings svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--go-color-status-danger);
+}
+
+/* the game's welcome list box: 488 by 208 pixels at 800 by 600, Arial 10, a dark box with a thin frame */
+.go-motd-game {
+  width: 488px;
+  max-width: 100%;
+  height: 208px;
+  padding: var(--go-space-2) var(--go-space-3);
+  overflow-y: auto;
+  border: 1px solid var(--go-color-border-control);
+  background: var(--go-color-bg-topbar);
+  font-family: Arial, "Liberation Sans", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.go-motd-line {
+  min-height: 16px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.go-motd-empty {
+  margin: 0;
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
 }
 
 /* The agreement pages (S19): a rule card's items, and the Terms tick box */
@@ -1279,7 +1885,7 @@ a.go-list-item:hover {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  font-weight: 500;
+  font-weight: var(--go-font-weight-semibold);
   cursor: pointer;
 }
 
@@ -1291,10 +1897,10 @@ a.go-list-item:hover {
 }
 
 /* ===== The sign-in and account pages on the Generals Online design system (T19) =====
-   Everything below belongs to the gp-* classes of PortalLook's pages; the staff area never uses them, and the rules above
-   stay as they were. The values are the --go-* tokens of tokens.css (linked before this file): no colour is written
-   here, except the four provider brands, whose own guidelines fix theirs. Right to left works through logical properties
-   (inline-start, inline-end), never left and right. The fonts of these pages are in fonts.css, which only they link. */
+   Everything below belongs to the gp-* classes of PortalLook's pages; the staff area never uses them. The values are the
+   --go-* tokens of tokens.css (linked before this file): no colour is written here, except the four provider brands,
+   whose own guidelines fix theirs. Right to left works through logical properties (inline-start, inline-end), never left
+   and right. The fonts of these pages are in fonts.css, which every page links. */
 
 .gp { margin: 0; background: var(--go-color-bg-ground); color: var(--go-color-text-secondary); font-family: var(--go-font-body); font-size: var(--go-font-size-md); line-height: 1.5; -webkit-text-size-adjust: 100%; }
 .gp *, .gp *::before, .gp *::after { box-sizing: border-box; }
@@ -1523,3 +2129,40 @@ select.gp-input { width: auto; min-width: 240px; }
 .gp-break { overflow-wrap: anywhere; }
 .gp-key { padding: 2px 8px; border-radius: var(--go-radius-sm); background: var(--go-color-bg-surface); font-family: var(--go-font-mono); color: var(--go-color-text-primary); }
 .gp-codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--go-space-2); margin: 0; padding: var(--go-space-3); list-style: none; text-align: center; border-radius: var(--go-radius-md); background: var(--go-color-bg-surface); font-family: var(--go-font-mono); color: var(--go-color-text-primary); }
+
+/* friends and blocked players (the Friends and Blocked boards): the count on a sidebar link, the add form, the lists of players, the empty state and the menu of a row */
+.gp-count { margin-inline-start: auto; min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; display: inline-grid; place-items: center; border-radius: var(--go-radius-sm); background: var(--go-color-accent-tint-14); color: var(--go-color-accent-default); font-size: var(--go-font-size-xs); font-weight: var(--go-font-weight-semibold); }
+.gp-intro { margin: calc(var(--go-space-2) - var(--go-space-6)) 0 20px; color: var(--go-color-text-muted); }
+.gp-column > .gp-alert { margin-block-end: var(--go-space-4); }
+.gp-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--go-space-2); margin: 0 0 var(--go-space-6); }
+.gp-add .gp-field { flex: 1 1 260px; max-width: 360px; }
+.gp-add .gp-label { font-weight: var(--go-font-weight-semibold); }
+.gp-add .gp-hint { flex-basis: 100%; }
+.gp-inline { display: flex; margin: 0; }
+.gp-people { margin: 0; padding: 0; list-style: none; border: 1px solid var(--go-color-border-default); border-radius: var(--go-radius-md); background: var(--go-color-bg-panel); }
+.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: var(--go-space-3); padding: var(--go-space-3) var(--go-space-4); border-bottom: 1px solid var(--go-color-border-subtle); }
+.gp-person:last-child { border-bottom: 0; }
+.gp-who { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gp-who .gp-name { align-self: flex-start; overflow-wrap: anywhere; }
+.gp-meta { font-size: var(--go-font-size-xs); color: var(--go-color-text-muted); }
+.gp-presence { display: inline-flex; align-items: center; }
+.gp-presence-online { color: var(--go-color-status-live); }
+.gp-pip { width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--go-color-text-disabled); }
+.gp-presence-online .gp-pip { background: var(--go-color-status-live); }
+.gp-note { margin-top: var(--go-space-3); }
+.gp-empty { display: flex; flex-direction: column; align-items: center; gap: var(--go-space-2); padding: var(--go-space-12) var(--go-space-4); text-align: center; }
+.gp-empty-well { display: grid; place-items: center; width: 48px; height: 48px; margin-block-end: var(--go-space-1); border-radius: var(--go-radius-md); background: var(--go-color-bg-surface); color: var(--go-color-text-muted); }
+.gp-empty > svg { color: var(--go-color-text-muted); }
+.gp-empty-title { margin: 0; font-family: var(--go-font-display); font-weight: var(--go-font-weight-bold); font-size: var(--go-font-size-lg); color: var(--go-color-text-primary); }
+.gp-empty-text { margin: 0; max-width: 48ch; font-size: var(--go-font-size-sm); color: var(--go-color-text-secondary); }
+.gp-empty-sm { padding: var(--go-space-6) var(--go-space-4); }
+.gp-empty-sm .gp-empty-title { font-size: var(--go-font-size-md); }
+.gp-empty-sm > svg { width: 20px; height: 20px; }
+.gp-more { position: relative; }
+.gp-more summary { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; border-radius: var(--go-radius-md); color: var(--go-color-text-secondary); cursor: pointer; list-style: none; transition: background-color 120ms; }
+.gp-more summary::-webkit-details-marker { display: none; }
+.gp-more summary:hover, .gp-more[open] summary { background: var(--go-color-bg-raised); color: var(--go-color-text-primary); }
+.gp-more-menu { position: absolute; inset-block-start: 100%; inset-inline-end: 0; z-index: 10; min-width: 200px; padding: 6px; background: var(--go-color-bg-surface); border: 1px solid var(--go-color-border-default); border-radius: var(--go-radius-md); box-shadow: 0 12px 24px -4px rgb(0 0 0 / 0.55); }
+.gp-more-menu form { margin: 0; }
+.gp .gp-more-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: var(--go-radius-md); background: transparent; color: var(--go-color-text-secondary); font: inherit; text-align: start; cursor: pointer; }
+.gp .gp-more-menu button:hover { background: var(--go-color-bg-raised); color: var(--go-color-text-primary); }

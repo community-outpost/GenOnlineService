@@ -8,7 +8,7 @@
 
 <PageTitle>Players · Generals Online</PageTitle>
 
-<PageHeader Description="Every account, the most recently signed in first. Search by a part of a display name, Name#tag or a player id; filter and sort below.">
+<PageHeader Description="Every account, the most recently signed in first. Search by a part of a player name, Name#tag or a player id; filter and sort below.">
     <Title>Players</Title>
     <Actions>
         <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Refresh">
@@ -89,7 +89,10 @@
                 <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => p.FullName)" Title="Player" Hideable="false">
                     <CellTemplate>
                         <div class="go-cell-player">
-                            <BbLink Href="@PortalRoutes.PlayerPage(context.Id)" data-testid="player-link">@context.FullName</BbLink>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Id)" data-testid="player-link"><bdi>@context.Name@if (context.Tag != null)
+                                {
+                                    <span class="go-name-tag">#@context.Tag</span>
+                                }</bdi></BbLink>
                             @foreach (string role in context.Roles)
                             {
                                 <BbBadge Variant="BadgeVariant.Outline">@role</BbBadge>
@@ -107,7 +110,7 @@
                         <div class="go-cell-badges">
                             @if (player.Online)
                             {
-                                <BbBadge Variant="BadgeVariant.Secondary"><span class="go-dot" aria-hidden="true"></span>online</BbBadge>
+                                <BbBadge Variant="@PortalBadges.Live" Class="go-badge-live"><span class="go-dot" aria-hidden="true"></span>online</BbBadge>
                             }
                             @if (player.State != "active")
                             {

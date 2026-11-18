@@ -71,6 +71,9 @@ public class ChatMessage
 
 	// Set when staff delete the message, history then shows a tombstone
 	public DateTime? DeletedAt { get; set; }
+
+	// The mentioned user ids in order, comma separated (Database.Chat.EncodeMentions); null when the message mentions nobody
+	public string? Mentions { get; set; }
 }
 
 // A group chat, deleted when its last member leaves
@@ -166,6 +169,7 @@ public class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
 		builder.Property(e => e.Content).HasColumnName("content").HasMaxLength(Database.Chat.MaximumContentLength);
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 		builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+		builder.Property(e => e.Mentions).HasColumnName("mentions").HasMaxLength(Database.Chat.MaximumMentionsLength);
 	}
 }
 
@@ -283,6 +287,9 @@ namespace Database
 		public const int MaximumPageSize = 100;
 		public const int MaximumGroupNameLength = 32;
 
+		// Ten ids of up to 19 digits and their commas
+		public const int MaximumMentionsLength = 256;
+
 		// Every stored message and tombstone is kept 30 days, resolved reports 30 days after resolving
 		public static readonly TimeSpan MessageRetention = TimeSpan.FromDays(30);
 		public static readonly TimeSpan ResolvedReportRetention = TimeSpan.FromDays(30);
@@ -295,24 +302,39 @@ namespace Database
 		public static string ChannelConversationKey(long channelId) => ChannelConversationPrefix + channelId;
 		public static string GroupConversationKey(long groupId) => GroupConversationPrefix + groupId;
 
-		public static Task<ChatMessage> InsertChannelMessage(AppDbContext db, long channelId, long senderId, string type, string content, CancellationToken cancellationToken = default)
+		public static Task<ChatMessage> InsertChannelMessage(AppDbContext db, long channelId, long senderId, string type, string content, IReadOnlyList<long>? mentions = null, CancellationToken cancellationToken = default)
 		{
-			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Channel, ChannelID = channelId, SenderID = senderId, Type = type, Content = content }, cancellationToken);
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Channel, ChannelID = channelId, SenderID = senderId, Type = type, Content = content, Mentions = EncodeMentions(mentions) }, cancellationToken);
 		}
 
-		public static Task<ChatMessage> InsertLobbyMessage(AppDbContext db, long lobbyId, long? matchId, long senderId, string type, string content, CancellationToken cancellationToken = default)
+		public static Task<ChatMessage> InsertLobbyMessage(AppDbContext db, long lobbyId, long? matchId, long senderId, string type, string content, IReadOnlyList<long>? mentions = null, CancellationToken cancellationToken = default)
 		{
-			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Lobby, LobbyID = lobbyId, MatchID = matchId, SenderID = senderId, Type = type, Content = content }, cancellationToken);
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Lobby, LobbyID = lobbyId, MatchID = matchId, SenderID = senderId, Type = type, Content = content, Mentions = EncodeMentions(mentions) }, cancellationToken);
 		}
 
-		public static Task<ChatMessage> InsertDirectMessage(AppDbContext db, long senderId, long recipientId, string type, string content, CancellationToken cancellationToken = default)
+		public static Task<ChatMessage> InsertDirectMessage(AppDbContext db, long senderId, long recipientId, string type, string content, IReadOnlyList<long>? mentions = null, CancellationToken cancellationToken = default)
 		{
-			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Direct, SenderID = senderId, RecipientID = recipientId, Type = type, Content = content }, cancellationToken);
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Direct, SenderID = senderId, RecipientID = recipientId, Type = type, Content = content, Mentions = EncodeMentions(mentions) }, cancellationToken);
 		}
 
-		public static Task<ChatMessage> InsertGroupMessage(AppDbContext db, long groupId, long senderId, string type, string content, CancellationToken cancellationToken = default)
+		public static Task<ChatMessage> InsertGroupMessage(AppDbContext db, long groupId, long senderId, string type, string content, IReadOnlyList<long>? mentions = null, CancellationToken cancellationToken = default)
 		{
-			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Group, GroupID = groupId, SenderID = senderId, Type = type, Content = content }, cancellationToken);
+			return Insert(db, new ChatMessage { Kind = ChatMessageKinds.Group, GroupID = groupId, SenderID = senderId, Type = type, Content = content, Mentions = EncodeMentions(mentions) }, cancellationToken);
+		}
+
+		// "42,7" for the ids in order, null for none so a message without mentions is stored as before
+		public static string? EncodeMentions(IReadOnlyList<long>? mentions)
+		{
+			return mentions == null || mentions.Count == 0 ? null : String.Join(',', mentions.Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+		}
+
+		public static long[] DecodeMentions(string? mentions)
+		{
+			if (String.IsNullOrEmpty(mentions))
+			{
+				return [];
+			}
+			return mentions.Split(',').Select(id => Int64.Parse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 		}
 
 		// Returns the stored row with its id and created_at, failures throw so the caller can answer the sender

@@ -232,6 +232,7 @@ namespace GenOnlineService.Identity
 			services.TryAddTransient<Mail.IEmailSender, Mail.DisabledEmailSender>();
 			services.AddScoped<AccountMail>();
 			services.TryAddSingleton<AccountMailLimiter>();
+			services.TryAddSingleton<AccountSocialLimiter>();
 			// the choose-a-name page renames through the same rules as every other rename; the host may have added it already
 			services.TryAddSingleton<Names.PlayerNames>();
 
