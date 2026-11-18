@@ -87,6 +87,8 @@ public class AgreementPagesTests
 			Assert.Contains("Read the full rules", page.Body);
 			Assert.Contains(">Agree</button>", page.Body);
 			Assert.DoesNotContain("type=\"checkbox\"", page.Body);
+			// the first card's one primary action is a large (48px) button, not a small one
+			Assert.Matches("<button type=\"submit\" class=\"gp-btn gp-btn-primary gp-btn-lg gp-btn-fill\">Agree</button>", page.Body);
 			if (card == 0)
 			{
 				Assert.Contains("Treat every player with respect, whether they are your teammate, your opponent or new to the game.", page.Body);
