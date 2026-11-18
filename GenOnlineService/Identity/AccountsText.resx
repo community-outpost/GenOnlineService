@@ -43,7 +43,7 @@
     <value>Player name</value>
   </data>
   <data name="Field.DisplayName" xml:space="preserve">
-    <value>Display name</value>
+    <value>Player name</value>
   </data>
   <data name="Field.Code" xml:space="preserve">
     <value>Code</value>
@@ -64,10 +64,10 @@
     <value>Sign in with {0}</value>
   </data>
   <data name="SignIn.NoAccount" xml:space="preserve">
-    <value>Don’t have an account?</value>
+    <value>Don’t have an account yet?</value>
   </data>
   <data name="SignIn.SignUpLink" xml:space="preserve">
-    <value>Sign up</value>
+    <value>Register now</value>
   </data>
   <data name="SignIn.WrongCredentials" xml:space="preserve">
     <value>Wrong email or password.</value>
@@ -557,5 +557,74 @@
   </data>
   <data name="Account.Agreements.Agree" xml:space="preserve">
     <value>Agree now</value>
+  </data>
+  <data name="Footer.Rules" xml:space="preserve">
+    <value>Rules of Engagement</value>
+  </data>
+  <data name="Footer.Label" xml:space="preserve">
+    <value>Documents</value>
+  </data>
+  <data name="Steps.Label" xml:space="preserve">
+    <value>Steps</value>
+  </data>
+  <data name="Steps.Name" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="Steps.Rules" xml:space="preserve">
+    <value>Rules</value>
+  </data>
+  <data name="Steps.Ready" xml:space="preserve">
+    <value>Ready</value>
+  </data>
+  <data name="BackToSignIn" xml:space="preserve">
+    <value>Back to sign in</value>
+  </data>
+  <data name="Account.Back" xml:space="preserve">
+    <value>Back to your account</value>
+  </data>
+  <data name="Account.Area" xml:space="preserve">
+    <value>Your account</value>
+  </data>
+  <data name="Account.EditProfile" xml:space="preserve">
+    <value>Edit profile</value>
+  </data>
+  <data name="Account.MenuLabel" xml:space="preserve">
+    <value>Account menu, {0}</value>
+  </data>
+  <data name="TwoFactor.UseRecovery" xml:space="preserve">
+    <value>Use a recovery code instead</value>
+  </data>
+  <data name="TwoFactor.NoApp" xml:space="preserve">
+    <value>No access to your app?</value>
+  </data>
+  <data name="TwoFactor.UseApp" xml:space="preserve">
+    <value>Use your authenticator app instead</value>
+  </data>
+  <data name="TwoFactor.CodeHint" xml:space="preserve">
+    <value>The code changes every 30 seconds.</value>
+  </data>
+  <data name="TwoFactor.RecoveryHint" xml:space="preserve">
+    <value>Each recovery code works once.</value>
+  </data>
+  <data name="SignIn.Heading" xml:space="preserve">
+    <value>Sign in to Generals Online</value>
+  </data>
+  <data name="SignIn.Or" xml:space="preserve">
+    <value>or</value>
+  </data>
+  <data name="Name.TagLabel" xml:space="preserve">
+    <value>Your tag is {0}</value>
+  </data>
+  <data name="Name.Seen" xml:space="preserve">
+    <value>Others see you as {0}.</value>
+  </data>
+  <data name="Name.Range" xml:space="preserve">
+    <value>{0} to {1} characters.</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>Back</value>
+  </data>
+  <data name="Account.StaffTools" xml:space="preserve">
+    <value>Staff tools</value>
   </data>
 </root>

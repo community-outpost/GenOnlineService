@@ -149,9 +149,9 @@ public class AccountsLanguageTests
 		{
 			CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("ar");
 			string page = PortalLook.Document("Not allowed", "<p>b</p>");
-			Assert.Contains("<html lang=\"en\" dir=\"ltr\" class=\"dark\">", page);
+			Assert.Contains("<html lang=\"en\" dir=\"ltr\">", page);
 			Assert.Contains("<title>Not allowed · Generals Online</title>", page);
-			Assert.DoesNotContain("go-languages", page);
+			Assert.DoesNotContain("gp-lang", page);
 		}
 		finally
 		{
@@ -163,10 +163,10 @@ public class AccountsLanguageTests
 	[Fact]
 	public void TheSwitchNamesEachLanguageInItsOwnWordsAndMarksTheCurrentOne()
 	{
-		string nav = PortalLook.LanguageSwitch(new PortalLanguage(CultureInfo.GetCultureInfo("ru"), "/users/sign_in?ReturnUrl=%2Fprofile"));
+		string nav = PortalLook.LanguageMenu(new PortalLanguage(CultureInfo.GetCultureInfo("ru"), "/users/sign_in?ReturnUrl=%2Fprofile"));
 		Assert.Equal(["English", "Deutsch", "Русский", "العربية"], Regex.Matches(nav, ">([^<]+)</a>").Select(m => m.Groups[1].Value));
 		Assert.Single(Regex.Matches(nav, "aria-current=\"true\""));
-		Assert.Contains("lang=\"ru\" hreflang=\"ru\" class=\"go-language\" aria-current=\"true\"", nav);
+		Assert.Contains("lang=\"ru\" hreflang=\"ru\" aria-current=\"true\"", nav);
 		Assert.Contains("href=\"/users/language?culture=de&amp;ReturnUrl=%2Fusers%2Fsign_in%3FReturnUrl%3D%252Fprofile\"", nav);
 	}
 
@@ -199,7 +199,7 @@ public class AccountsLanguageTests
 		PageResponse page = await browser.Get("/users/sign_in");
 		Assert.Equal(200, page.Status);
 		Assert.Equal("en/ltr", Lang(page));
-		Assert.Contains("<nav class=\"go-languages\"", page.Body);
+		Assert.Contains("<details class=\"gp-lang\">", page.Body);
 	}
 
 	[ProbeTheory]
@@ -247,7 +247,7 @@ public class AccountsLanguageTests
 		PageResponse page = await browser.Get("/users/sign_up");
 		Assert.Equal("ar/rtl", Lang(page));
 		Assert.Contains("<title>إنشاء حساب · Generals Online</title>", page.Body);
-		Assert.Contains("lang=\"ar\" hreflang=\"ar\" class=\"go-language\" aria-current=\"true\"", page.Body);
+		Assert.Contains("lang=\"ar\" hreflang=\"ar\" aria-current=\"true\"", page.Body);
 
 		// a refused form comes back in the same language
 		PageResponse refused = await browser.Post("/users/sign_up", new()

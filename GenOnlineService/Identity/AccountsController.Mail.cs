@@ -49,12 +49,12 @@ namespace GenOnlineService.Identity
 			{
 				return Page(400, T("Link.Invalid.Title"),
 					PortalLook.Text(WebUtility.HtmlEncode(T("Confirm.Invalid")))
-					+ PortalLook.Link(ConfirmationPendingUrl(AccountPath), T("Link.SendNew")));
+					+ PortalLook.Link(ConfirmationPendingUrl(AccountPath), T("Link.SendNew")), icon: "circle-alert");
 			}
 
 			return Page(200, T("Confirm.Done.Title"),
 				PortalLook.Text(String.Format(Culture, WebUtility.HtmlEncode(T("Confirm.Done.Body")), $"<bdi>{WebUtility.HtmlEncode(user!.Email)}</bdi>"))
-				+ PortalLook.LinkButton(AccountPath, T("Continue"), outline: false, icon: "arrow-right"));
+				+ PortalLook.LinkButton(AccountPath, T("Continue"), outline: false, icon: "arrow-right", large: true), icon: "circle-check");
 		}
 
 		// "Check your email": where /oauth/authorize sends a password account whose address is not confirmed yet
@@ -82,10 +82,11 @@ namespace GenOnlineService.Identity
 		{
 			var body = new System.Text.StringBuilder(message == null ? String.Empty : PortalLook.Alert(message, success));
 			body.Append(PortalLook.Text(String.Format(Culture, WebUtility.HtmlEncode(T("Confirm.Pending.Body")), $"<strong><bdi>{WebUtility.HtmlEncode(user.Email)}</bdi></strong>")));
-			body.Append(PortalLook.LinkButton(target, T("Continue"), outline: false, icon: "arrow-right"));
+			// the design's CheckEmail: Continue and "Send the link again" side by side
 			body.Append(FormStart(AccountMail.ConfirmationPath, target));
-			body.Append(PortalLook.Submit(T("Confirm.Resend"), outline: true, icon: "mail")).Append("</form>");
-			return Page(status, T("CheckEmail.Title"), body.ToString(), T("Confirm.Pending.Description"));
+			body.Append("<div class=\"gp-actions\">").Append(PortalLook.LinkButton(target, T("Continue"), outline: false, large: true, fill: true));
+			body.Append(PortalLook.Submit(T("Confirm.Resend"), outline: true, large: true, fill: true)).Append("</div></form>");
+			return Page(status, T("CheckEmail.Title"), body.ToString(), T("Confirm.Pending.Description"), icon: "mail");
 		}
 
 		// Sends the confirmation link again, a few times per account and per client address
@@ -141,8 +142,8 @@ namespace GenOnlineService.Identity
 		{
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(FormStart(ResetRequestAction, AccountPath));
-			body.Append(PortalLook.Field("email", T("Field.Email"), "type=\"email\" name=\"email\" autocomplete=\"email\" required", icon: "mail"));
-			body.Append(PortalLook.Submit(T("Reset.Request.Submit"), icon: "mail")).Append("</form>");
+			body.Append(PortalLook.Field("email", T("Field.Email"), "type=\"email\" name=\"email\" autocomplete=\"email\" required"));
+			body.Append(PortalLook.Submit(T("Reset.Request.Submit"))).Append("</form>");
 			body.Append(PortalLook.Link("/users/sign_in", T("SignIn.Title"), T("Reset.Request.Remember")));
 			return Page(status, T("Reset.Request.Title"), body.ToString(), T("Reset.Request.Description"));
 		}
@@ -173,7 +174,7 @@ namespace GenOnlineService.Identity
 			{
 				await m_mail.SendPasswordReset(user, Culture);
 			}
-			return Page(200, T("CheckEmail.Title"), PortalLook.Alert(T("Reset.Sent"), success: true) + PortalLook.Link("/users/sign_in", T("SignIn.Title")));
+			return Page(200, T("CheckEmail.Title"), PortalLook.Alert(T("Reset.Sent"), success: true) + PortalLook.Way("/users/sign_in", T("BackToSignIn")), icon: "mail");
 		}
 
 		private const string ResetTokenField = AccountMail.ResetPasswordTokenField;
@@ -196,7 +197,7 @@ namespace GenOnlineService.Identity
 
 		private ContentResult ResetLinkInvalid() => Page(400, T("Link.Invalid.Title"),
 			PortalLook.Text(WebUtility.HtmlEncode(T("Reset.Invalid")))
-			+ PortalLook.Link(ResetRequestPath, T("Link.SendNew")));
+			+ PortalLook.Link(ResetRequestPath, T("Link.SendNew")), icon: "circle-alert");
 
 		[HttpGet("~" + AccountMail.ResetPasswordEditPath)]
 		public async Task<IActionResult> ResetPasswordPage([FromQuery(Name = ResetTokenField)] string? token)
@@ -213,8 +214,8 @@ namespace GenOnlineService.Identity
 		{
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(FormStart(AccountMail.ResetPasswordEditPath, AccountPath)).Append(Hidden(ResetTokenField, packed));
-			body.Append(PortalLook.Field("password", T("Field.NewPassword"), $"type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"{m_settings.Password.MinLength}\" maxlength=\"{PasswordSignInSettings.MaximumLength}\" required", icon: "lock-keyhole"));
-			body.Append(PortalLook.Submit(T("Reset.Submit"), icon: "lock-keyhole")).Append("</form>");
+			body.Append(PortalLook.Field("password", T("Field.NewPassword"), $"type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"{m_settings.Password.MinLength}\" maxlength=\"{PasswordSignInSettings.MaximumLength}\" required"));
+			body.Append(PortalLook.Submit(T("Reset.Submit"))).Append("</form>");
 			return Page(status, T("Reset.Title"), body.ToString(), T("Reset.Description"));
 		}
 
@@ -263,7 +264,7 @@ namespace GenOnlineService.Identity
 			AppMetrics.RecordAuthentication("password_reset", "password", "success");
 			return Page(200, T("Reset.Done.Title"),
 				PortalLook.Text(WebUtility.HtmlEncode(T("Reset.Done.Body")))
-				+ PortalLook.LinkButton("/users/sign_in", T("SignIn.Submit"), outline: false, icon: "log-in"));
+				+ PortalLook.LinkButton("/users/sign_in", T("SignIn.Submit"), outline: false, large: true), icon: "circle-check");
 		}
 	}
 }

@@ -611,4 +611,73 @@
     <value>Agree now</value>
     <comment>TODO translate</comment>
   </data>
+  <data name="Footer.Rules" xml:space="preserve">
+    <value>Einsatzregeln</value>
+  </data>
+  <data name="Footer.Label" xml:space="preserve">
+    <value>Dokumente</value>
+  </data>
+  <data name="Steps.Label" xml:space="preserve">
+    <value>Schritte</value>
+  </data>
+  <data name="Steps.Name" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="Steps.Rules" xml:space="preserve">
+    <value>Regeln</value>
+  </data>
+  <data name="Steps.Ready" xml:space="preserve">
+    <value>Fertig</value>
+  </data>
+  <data name="BackToSignIn" xml:space="preserve">
+    <value>Zurück zur Anmeldung</value>
+  </data>
+  <data name="Account.Back" xml:space="preserve">
+    <value>Zurück zu deinem Konto</value>
+  </data>
+  <data name="Account.Area" xml:space="preserve">
+    <value>Dein Konto</value>
+  </data>
+  <data name="Account.EditProfile" xml:space="preserve">
+    <value>Profil bearbeiten</value>
+  </data>
+  <data name="Account.MenuLabel" xml:space="preserve">
+    <value>Kontomenü, {0}</value>
+  </data>
+  <data name="TwoFactor.UseRecovery" xml:space="preserve">
+    <value>Stattdessen einen Wiederherstellungscode verwenden</value>
+  </data>
+  <data name="TwoFactor.NoApp" xml:space="preserve">
+    <value>Kein Zugriff auf deine App?</value>
+  </data>
+  <data name="TwoFactor.UseApp" xml:space="preserve">
+    <value>Stattdessen die Authenticator-App verwenden</value>
+  </data>
+  <data name="TwoFactor.CodeHint" xml:space="preserve">
+    <value>Der Code ändert sich alle 30 Sekunden.</value>
+  </data>
+  <data name="TwoFactor.RecoveryHint" xml:space="preserve">
+    <value>Jeder Wiederherstellungscode gilt nur einmal.</value>
+  </data>
+  <data name="SignIn.Heading" xml:space="preserve">
+    <value>Bei Generals Online anmelden</value>
+  </data>
+  <data name="SignIn.Or" xml:space="preserve">
+    <value>oder</value>
+  </data>
+  <data name="Name.TagLabel" xml:space="preserve">
+    <value>Dein Tag ist {0}</value>
+  </data>
+  <data name="Name.Seen" xml:space="preserve">
+    <value>Andere sehen dich als {0}.</value>
+  </data>
+  <data name="Name.Range" xml:space="preserve">
+    <value>{0} bis {1} Zeichen.</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>Zurück</value>
+  </data>
+  <data name="Account.StaffTools" xml:space="preserve">
+    <value>Team-Werkzeuge</value>
+  </data>
 </root>

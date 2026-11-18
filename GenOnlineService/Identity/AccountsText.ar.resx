@@ -611,4 +611,73 @@
     <value>Agree now</value>
     <comment>TODO translate</comment>
   </data>
+  <data name="Footer.Rules" xml:space="preserve">
+    <value>قواعد الاشتباك</value>
+  </data>
+  <data name="Footer.Label" xml:space="preserve">
+    <value>الوثائق</value>
+  </data>
+  <data name="Steps.Label" xml:space="preserve">
+    <value>الخطوات</value>
+  </data>
+  <data name="Steps.Name" xml:space="preserve">
+    <value>الاسم</value>
+  </data>
+  <data name="Steps.Rules" xml:space="preserve">
+    <value>القواعد</value>
+  </data>
+  <data name="Steps.Ready" xml:space="preserve">
+    <value>جاهز</value>
+  </data>
+  <data name="BackToSignIn" xml:space="preserve">
+    <value>العودة إلى تسجيل الدخول</value>
+  </data>
+  <data name="Account.Back" xml:space="preserve">
+    <value>العودة إلى حسابك</value>
+  </data>
+  <data name="Account.Area" xml:space="preserve">
+    <value>حسابك</value>
+  </data>
+  <data name="Account.EditProfile" xml:space="preserve">
+    <value>تعديل الملف الشخصي</value>
+  </data>
+  <data name="Account.MenuLabel" xml:space="preserve">
+    <value>قائمة الحساب، {0}</value>
+  </data>
+  <data name="TwoFactor.UseRecovery" xml:space="preserve">
+    <value>استخدم رمز الاسترداد بدلاً من ذلك</value>
+  </data>
+  <data name="TwoFactor.NoApp" xml:space="preserve">
+    <value>لا يمكنك الوصول إلى تطبيقك؟</value>
+  </data>
+  <data name="TwoFactor.UseApp" xml:space="preserve">
+    <value>استخدم تطبيق المصادقة بدلاً من ذلك</value>
+  </data>
+  <data name="TwoFactor.CodeHint" xml:space="preserve">
+    <value>يتغير الرمز كل 30 ثانية.</value>
+  </data>
+  <data name="TwoFactor.RecoveryHint" xml:space="preserve">
+    <value>يعمل كل رمز استرداد مرة واحدة فقط.</value>
+  </data>
+  <data name="SignIn.Heading" xml:space="preserve">
+    <value>تسجيل الدخول إلى Generals Online</value>
+  </data>
+  <data name="SignIn.Or" xml:space="preserve">
+    <value>أو</value>
+  </data>
+  <data name="Name.TagLabel" xml:space="preserve">
+    <value>وسمك هو {0}</value>
+  </data>
+  <data name="Name.Seen" xml:space="preserve">
+    <value>يراك الآخرون باسم {0}.</value>
+  </data>
+  <data name="Name.Range" xml:space="preserve">
+    <value>من {0} إلى {1} حرفًا.</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>رجوع</value>
+  </data>
+  <data name="Account.StaffTools" xml:space="preserve">
+    <value>أدوات الطاقم</value>
+  </data>
 </root>

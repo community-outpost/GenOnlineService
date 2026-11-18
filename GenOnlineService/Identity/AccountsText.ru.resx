@@ -611,4 +611,73 @@
     <value>Agree now</value>
     <comment>TODO translate</comment>
   </data>
+  <data name="Footer.Rules" xml:space="preserve">
+    <value>Правила поведения</value>
+  </data>
+  <data name="Footer.Label" xml:space="preserve">
+    <value>Документы</value>
+  </data>
+  <data name="Steps.Label" xml:space="preserve">
+    <value>Шаги</value>
+  </data>
+  <data name="Steps.Name" xml:space="preserve">
+    <value>Имя</value>
+  </data>
+  <data name="Steps.Rules" xml:space="preserve">
+    <value>Правила</value>
+  </data>
+  <data name="Steps.Ready" xml:space="preserve">
+    <value>Готово</value>
+  </data>
+  <data name="BackToSignIn" xml:space="preserve">
+    <value>Назад ко входу</value>
+  </data>
+  <data name="Account.Back" xml:space="preserve">
+    <value>Назад к аккаунту</value>
+  </data>
+  <data name="Account.Area" xml:space="preserve">
+    <value>Ваш аккаунт</value>
+  </data>
+  <data name="Account.EditProfile" xml:space="preserve">
+    <value>Изменить профиль</value>
+  </data>
+  <data name="Account.MenuLabel" xml:space="preserve">
+    <value>Меню аккаунта, {0}</value>
+  </data>
+  <data name="TwoFactor.UseRecovery" xml:space="preserve">
+    <value>Использовать код восстановления</value>
+  </data>
+  <data name="TwoFactor.NoApp" xml:space="preserve">
+    <value>Нет доступа к приложению?</value>
+  </data>
+  <data name="TwoFactor.UseApp" xml:space="preserve">
+    <value>Использовать приложение-аутентификатор</value>
+  </data>
+  <data name="TwoFactor.CodeHint" xml:space="preserve">
+    <value>Код меняется каждые 30 секунд.</value>
+  </data>
+  <data name="TwoFactor.RecoveryHint" xml:space="preserve">
+    <value>Каждый код восстановления действует один раз.</value>
+  </data>
+  <data name="SignIn.Heading" xml:space="preserve">
+    <value>Вход в Generals Online</value>
+  </data>
+  <data name="SignIn.Or" xml:space="preserve">
+    <value>или</value>
+  </data>
+  <data name="Name.TagLabel" xml:space="preserve">
+    <value>Ваш тег: {0}</value>
+  </data>
+  <data name="Name.Seen" xml:space="preserve">
+    <value>Другие игроки увидят вас как {0}.</value>
+  </data>
+  <data name="Name.Range" xml:space="preserve">
+    <value>От {0} до {1} символов.</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>Назад</value>
+  </data>
+  <data name="Account.StaffTools" xml:space="preserve">
+    <value>Инструменты персонала</value>
+  </data>
 </root>

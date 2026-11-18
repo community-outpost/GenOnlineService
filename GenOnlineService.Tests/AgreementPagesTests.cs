@@ -81,12 +81,12 @@ public class AgreementPagesTests
 		for (int card = 0; card < s_cardTitles.Length; card++)
 		{
 			Assert.Equal(200, page.Status);
-			Assert.Contains($"<h1 class=\"go-heading\">{WebUtility.HtmlEncode(s_cardTitles[card])}</h1>", page.Body);
+			Assert.Contains($"<h1 class=\"gp-title\">{WebUtility.HtmlEncode(s_cardTitles[card])}</h1>", page.Body);
 			Assert.Contains($"Rule {card + 1} of 6", page.Body);
 			Assert.Contains($"href=\"{AgreementsTests.RulesUrl}\"", page.Body);
 			Assert.Contains("Read the full rules", page.Body);
 			Assert.Contains(">Agree</button>", page.Body);
-			Assert.DoesNotContain("Terms of Service", page.Body);
+			Assert.DoesNotContain("type=\"checkbox\"", page.Body);
 			if (card == 0)
 			{
 				Assert.Contains("Treat every player with respect, whether they are your teammate, your opponent or new to the game.", page.Body);

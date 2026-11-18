@@ -1515,3 +1515,12 @@ select.gp-input { width: auto; min-width: 240px; }
   .gp *, .gp *::before, .gp *::after { transition: none !important; }
   .gp .gp-btn:active { transform: none; }
 }
+.gp-shell .gp-footer { padding: var(--go-space-4); }
+.gp-error { display: flex; align-items: center; gap: 6px; color: var(--go-color-status-danger-text); }
+.gp-error svg { color: var(--go-color-status-danger); }
+.gp-alert-info { background: var(--go-color-bg-surface); }
+.gp-alert-info svg { color: var(--go-color-text-muted); }
+.gp-list { margin: 0; padding-inline-start: 20px; }
+.gp-break { overflow-wrap: anywhere; }
+.gp-key { padding: 2px 8px; border-radius: var(--go-radius-sm); background: var(--go-color-bg-surface); font-family: var(--go-font-mono); color: var(--go-color-text-primary); }
+.gp-codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--go-space-2); margin: 0; padding: var(--go-space-3); list-style: none; text-align: center; border-radius: var(--go-radius-md); background: var(--go-color-bg-surface); font-family: var(--go-font-mono); color: var(--go-color-text-primary); }
