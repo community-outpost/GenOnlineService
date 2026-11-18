@@ -101,6 +101,7 @@ namespace GenOnlineService.Portal.Client
 		public const string ChatDeleteAny = "chat.delete_any";
 		public const string AnnouncementsSend = "announcements.send";
 		public const string SettingsManage = "settings.manage";
+		public const string AccountsSupport = "accounts.support";
 	}
 
 	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
@@ -411,6 +412,12 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalReasonRequest
 	{
 		public string? Reason { get; init; }
+	}
+
+	// The new password of a staff password reset, answered once
+	public sealed record PortalPasswordReset
+	{
+		public string Password { get; init; } = "";
 	}
 
 	public sealed record PortalRenameRequest

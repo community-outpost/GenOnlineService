@@ -179,6 +179,18 @@ namespace GenOnlineService.Portal.Client
 			return SendAsync(HttpMethod.Post, $"{PortalRoutes.Players}/{userID}/reset_name", new PortalReasonRequest { Reason = reason });
 		}
 
+		// A new random password that the answer carries once; the reason is required
+		public Task<PortalAnswer<PortalPasswordReset>> ResetPasswordAsync(long userID, string? reason)
+		{
+			return SendForAsync<PortalPasswordReset>(HttpMethod.Post, $"{PortalRoutes.Players}/{userID}/password_reset", new PortalReasonRequest { Reason = reason });
+		}
+
+		// Two-factor sign-in off, the authenticator and recovery codes removed; the reason is required
+		public Task<PortalOutcome> ResetTwoFactorAsync(long userID, string? reason)
+		{
+			return SendAsync(HttpMethod.Post, $"{PortalRoutes.Players}/{userID}/two_factor_reset", new PortalReasonRequest { Reason = reason });
+		}
+
 		// A reported message, the id as the report names it
 		public Task<PortalOutcome> DeleteMessageAsync(string messageID, string? reason)
 		{
