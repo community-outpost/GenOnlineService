@@ -57,13 +57,13 @@ The management routes need a web session (never a game session or a `gopat-` tok
 
 | Route | Auth | Answer |
 |---|---|---|
-| `GET /api/v1/personal_access_tokens`, `POST` | web session with a staff permission | the caller's tokens; create answers 201 with the `token` secret once |
+| `GET /api/v1/personal_access_tokens`, `POST` | web session with a staff permission | the caller's tokens with their `allowed_ips` (empty: any address); create answers 201 with the `token` secret once |
 | `GET /api/v1/personal_access_tokens/self` | `gopat-` token | the token making the request |
 | `POST /api/v1/personal_access_tokens/:id/rotate?overlap_minutes=&expires_at=` | web session with a staff permission | 201 with the new secret |
 | `DELETE /api/v1/personal_access_tokens/:id` | web session | 204 |
-| `GET /api/v1/service_accounts`, `POST` | web session, `tokens.manage`; cookie | list, create (201) |
+| `GET /api/v1/service_accounts`, `POST` | web session, `tokens.manage`; cookie | list, create (201); each account carries `active_tokens` (neither revoked nor expired, a rotated token inside its overlap included) and `last_token_used_at` |
 | `GET /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | one account with its permissions; `not_found {what: service_account}` |
-| `PATCH /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | `{grants?: {add?, remove?}, disabled?}`; privileged grants stay CLI only |
+| `PATCH /api/v1/service_accounts/:id` | web session, `tokens.manage`; cookie | `{description?, grants?: {add?, remove?}, disabled?}`; privileged grants stay CLI only; a changed description writes `sa_update {name, old_description, description}`, an empty one clears it |
 | `GET /api/v1/service_accounts/:id/personal_access_tokens`, `POST` | web session, `tokens.manage`; cookie | the account's tokens; mint (201) |
 | `POST /api/v1/service_accounts/:id/personal_access_tokens/:token_id/rotate?overlap_minutes=&expires_at=` | web session, `tokens.manage`; cookie | 201 with the new secret, as the personal token rotate; a token of another owner `not_found {what: token}` |
 | `DELETE /api/v1/service_accounts/:id/personal_access_tokens/:token_id` | web session, `tokens.manage`; cookie | 204, `token_revoke` in the audit log; a token of another owner `not_found {what: token}` |

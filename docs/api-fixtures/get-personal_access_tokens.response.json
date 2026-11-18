@@ -9,7 +9,8 @@
       "last_used_at": "2026-11-14T08:12:45Z",
       "last_used_ip": "203.0.113.4",
       "revoked_at": null,
-      "token_last4": "aaaa"
+      "token_last4": "aaaa",
+      "allowed_ips": ["203.0.113.4/32"]
     },
     {
       "id": 17,
@@ -20,7 +21,8 @@
       "last_used_at": null,
       "last_used_ip": null,
       "revoked_at": "2026-11-01T09:30:00Z",
-      "token_last4": "bbbb"
+      "token_last4": "bbbb",
+      "allowed_ips": []
     }
   ]
 }

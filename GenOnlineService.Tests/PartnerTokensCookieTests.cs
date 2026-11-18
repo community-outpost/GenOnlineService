@@ -260,6 +260,84 @@ public class PartnerTokensCookieTests
 		Assert.Equal(409, (await admin.SendJson("POST", $"/api/v1/service_accounts/{a}/personal_access_tokens/{tokenID}/rotate", s_empty, csrf)).Status);
 	}
 
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ADescriptionEditIsSavedAndAudited(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, User chief) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		Dictionary<string, string> csrf = await admin.Csrf();
+		long id = Json(await admin.SendJson("POST", "/api/v1/service_accounts", new { name = "partner", description = "Old text" }, csrf)).GetProperty("id").GetInt64();
+
+		PageResponse edited = await admin.Patch($"/api/v1/service_accounts/{id}", new { description = "  Replay archive of the partner  " }, csrf);
+		Assert.Equal(200, edited.Status);
+		Assert.Equal("Replay archive of the partner", Json(edited).GetProperty("description").GetString());
+		Assert.Equal("Replay archive of the partner", Json(await admin.Get($"/api/v1/service_accounts/{id}")).GetProperty("description").GetString());
+
+		// an empty description clears it, a long one changes nothing
+		Assert.Equal(JsonValueKind.Null, Json(await admin.Patch($"/api/v1/service_accounts/{id}", new { description = "" }, csrf)).GetProperty("description").ValueKind);
+		PageResponse tooLong = await admin.Patch($"/api/v1/service_accounts/{id}", new { description = new string('d', 257) }, csrf);
+		Assert.Equal(400, tooLong.Status);
+		Assert.Equal("description", Json(tooLong).GetProperty("params").GetProperty("field").GetString());
+		// a request without description leaves it as it is and writes no sa_update
+		Assert.Equal(200, (await admin.Patch($"/api/v1/service_accounts/{id}", new { disabled = false }, csrf)).Status);
+
+		await using (AppDbContext db = probe.Open())
+		{
+			Assert.Equal("", (await db.ServiceAccounts.AsNoTracking().SingleAsync(a => a.ID == id)).Description);
+		}
+		List<AuditLogEntry> updates = (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Where(e => e.Action == "sa_update").ToList();
+		Assert.Equal(2, updates.Count);
+		JsonElement first = JsonDocument.Parse(updates[0].Details!).RootElement;
+		Assert.Equal(("Old text", "Replay archive of the partner"), (first.GetProperty("old_description").GetString(), first.GetProperty("description").GetString()));
+		Assert.Equal((AuditActorKinds.User, (long?)chief.ID, ModerationSources.Api), (updates[0].ActorKind, updates[0].ActorID, updates[0].Source));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TokensShowTheirAllowedAddressesAndAccountsTheirActiveTokens(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		Dictionary<string, string> csrf = await admin.Csrf();
+		long id = Json(await admin.SendJson("POST", "/api/v1/service_accounts", new { name = "partner" }, csrf)).GetProperty("id").GetInt64();
+		Assert.Equal(200, (await admin.Patch($"/api/v1/service_accounts/{id}", new { grants = new { add = new[] { "lobbies.read" } } }, csrf)).Status);
+		string tokens = $"/api/v1/service_accounts/{id}/personal_access_tokens";
+
+		PageResponse minted = await admin.SendJson("POST", tokens, new { name = "fenced", scopes = new[] { "lobbies.read" }, expires_at = InDays(30), allowed_ips = new[] { "203.0.113.4/32", "2001:db8::/48" } }, csrf);
+		Assert.Equal(["203.0.113.4/32", "2001:db8::/48"], Json(minted).GetProperty("allowed_ips").EnumerateArray().Select(e => e.GetString()));
+		long fenced = Json(minted).GetProperty("id").GetInt64();
+		long open = Json(await admin.SendJson("POST", tokens, new { name = "open", scopes = new[] { "lobbies.read" }, expires_at = InDays(30) }, csrf)).GetProperty("id").GetInt64();
+		long gone = Json(await admin.SendJson("POST", tokens, new { name = "gone", scopes = new[] { "lobbies.read" }, expires_at = InDays(30) }, csrf)).GetProperty("id").GetInt64();
+		Assert.Equal(204, (await admin.SendJson("DELETE", $"{tokens}/{gone}", s_empty, csrf)).Status);
+
+		PageResponse rotated = await admin.SendJson("POST", $"{tokens}/{fenced}/rotate?overlap_minutes=60", s_empty, csrf);
+		Assert.Equal(201, rotated.Status);
+		Assert.Equal(["203.0.113.4/32", "2001:db8::/48"], Json(rotated).GetProperty("allowed_ips").EnumerateArray().Select(e => e.GetString()));
+
+		// the list carries the addresses, an empty list for a token any address may use, and never a secret
+		List<JsonElement> listed = Json(await admin.Get(tokens)).GetProperty("personal_access_tokens").EnumerateArray().ToList();
+		Assert.Equal(["203.0.113.4/32", "2001:db8::/48"], listed.Single(t => t.GetProperty("id").GetInt64() == fenced).GetProperty("allowed_ips").EnumerateArray().Select(e => e.GetString()));
+		Assert.Empty(listed.Single(t => t.GetProperty("id").GetInt64() == open).GetProperty("allowed_ips").EnumerateArray());
+		Assert.All(listed, t => Assert.False(t.TryGetProperty("token", out _)));
+
+		DateTime used = new DateTime(2026, 11, 17, 10, 30, 0, DateTimeKind.Utc);
+		await using (AppDbContext db = probe.Open())
+		{
+			await db.ApiTokens.Where(t => t.ID == open).ExecuteUpdateAsync(set => set.SetProperty(t => t.LastUsedAt, used));
+			await db.ApiTokens.Where(t => t.ID == gone).ExecuteUpdateAsync(set => set.SetProperty(t => t.LastUsedAt, used.AddDays(-1)));
+		}
+
+		// active: the rotated token inside its overlap, its replacement and the open one; the revoked one is left out
+		foreach (JsonElement account in new[] { Json(await admin.Get($"/api/v1/service_accounts/{id}")), Assert.Single(Json(await admin.Get("/api/v1/service_accounts")).GetProperty("service_accounts").EnumerateArray()) })
+		{
+			Assert.Equal(3, account.GetProperty("active_tokens").GetInt32());
+			Assert.Equal(used, account.GetProperty("last_token_used_at").GetDateTime().ToUniversalTime());
+		}
+	}
+
 	// previous behaviour: a gopat- token never manages tokens, even with tokens.manage, and the personal token routes
 	// stay bearer only
 	[ProbeTheory]
@@ -329,10 +407,17 @@ public class PartnerTokensCookieTests
 		AdminBrowser api = admin;
 		PageResponse created = await api.SendJson("POST", "/api/v1/service_accounts", new { name = "partner" }, bearer);
 		Assert.Equal(201, created.Status);
+		// the earlier fields keep their names and values; active_tokens and last_token_used_at are added
+		Assert.Equal(["id", "name", "description", "created_at", "disabled_at", "permissions", "active_tokens", "last_token_used_at"], Json(created).EnumerateObject().Select(p => p.Name));
+		Assert.Equal((JsonValueKind.Null, 0, JsonValueKind.Null), (Json(created).GetProperty("description").ValueKind, Json(created).GetProperty("active_tokens").GetInt32(), Json(created).GetProperty("last_token_used_at").ValueKind));
 		Assert.Equal(200, (await api.Get("/api/v1/service_accounts", bearer)).Status);
 		Assert.Equal(200, (await api.Get("/api/v1/personal_access_tokens", bearer)).Status);
 		PageResponse mine = await api.SendJson("POST", "/api/v1/personal_access_tokens", new { name = "mine", scopes = new[] { "moderation.kick" }, expires_at = InDays(30) }, bearer);
 		Assert.Equal(201, mine.Status);
+		Assert.Equal(["id", "name", "scopes", "created_at", "expires_at", "last_used_at", "last_used_ip", "revoked_at", "token_last4", "allowed_ips", "token"], Json(mine).EnumerateObject().Select(p => p.Name));
+		Assert.Empty(Json(mine).GetProperty("allowed_ips").EnumerateArray());
+		JsonElement listed = Assert.Single(Json(await api.Get("/api/v1/personal_access_tokens", bearer)).GetProperty("personal_access_tokens").EnumerateArray());
+		Assert.Equal(["id", "name", "scopes", "created_at", "expires_at", "last_used_at", "last_used_ip", "revoked_at", "token_last4", "allowed_ips"], listed.EnumerateObject().Select(p => p.Name));
 		Assert.Equal(204, (await api.SendJson("DELETE", $"/api/v1/personal_access_tokens/{Json(mine).GetProperty("id").GetInt64()}", s_empty, bearer)).Status);
 		Assert.Equal(AuditActorKinds.User, (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Single().ActorKind);
 		Assert.Equal(chief.ID, (await AuditOf(probe, AuditTargetKinds.ServiceAccount)).Single().ActorID);

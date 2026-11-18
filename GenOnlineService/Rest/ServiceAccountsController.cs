@@ -55,8 +55,10 @@ namespace GenOnlineService.Rest
 			ILookup<Int64, string> grants = (await db.ServiceAccountPermissions.AsNoTracking().Where(p => ids.Contains(p.ServiceAccountID)).ToListAsync())
 				.ToLookup(p => p.ServiceAccountID, p => p.Permission);
 
+			Dictionary<Int64, TokenSummary> summaries = await SummariesOf(db, ids);
+
 			Paging.WriteOffsetHeaders(HttpContext, page, total);
-			return RestResults.Ok(new ServiceAccountsResponse { ServiceAccounts = accounts.Select(a => InfoOf(a, grants[a.ID])).ToList() });
+			return RestResults.Ok(new ServiceAccountsResponse { ServiceAccounts = accounts.Select(a => InfoOf(a, grants[a.ID], summaries.GetValueOrDefault(a.ID))).ToList() });
 		}
 
 		[AllowSignInCookie]
@@ -76,7 +78,7 @@ namespace GenOnlineService.Rest
 			}
 
 			List<string> grants = await db.ServiceAccountPermissions.AsNoTracking().Where(p => p.ServiceAccountID == accountID).Select(p => p.Permission).ToListAsync();
-			return RestResults.Ok(InfoOf(account, grants));
+			return RestResults.Ok(InfoOf(account, grants, (await SummariesOf(db, [accountID])).GetValueOrDefault(accountID)));
 		}
 
 		[AllowSignInCookie]
@@ -100,7 +102,7 @@ namespace GenOnlineService.Rest
 				try
 				{
 					ServiceAccount account = await ApiTokenAdmin.CreateServiceAccount(db, Actor, body?.Name ?? String.Empty, (body?.Description ?? String.Empty).Trim());
-					return RestResults.Created(InfoOf(account, []));
+					return RestResults.Created(InfoOf(account, [], default));
 				}
 				catch (DbUpdateException)
 				{
@@ -110,7 +112,8 @@ namespace GenOnlineService.Rest
 			});
 		}
 
-		// Checks every change first, then writes the grants, removals, the disable or enable and their audit entries in one save
+		// Checks every change first, then writes the description, grants, removals, the disable or enable and their audit entries
+		// in one save
 		[AllowSignInCookie]
 		[HttpPatch("~/api/v1/service_accounts/{accountID:long}")]
 		public async Task<IActionResult> Update(long accountID)
@@ -135,6 +138,7 @@ namespace GenOnlineService.Rest
 
 			List<string> add = (body?.Grants?.Add ?? []).Distinct(StringComparer.Ordinal).ToList();
 			List<string> remove = (body?.Grants?.Remove ?? []).Distinct(StringComparer.Ordinal).ToList();
+			string? description = body?.Description?.Trim();
 
 			return await Answer(async () =>
 			{
@@ -144,6 +148,11 @@ namespace GenOnlineService.Rest
 				if (add.Intersect(remove, StringComparer.Ordinal).Any())
 				{
 					return RestResults.Invalid("grants");
+				}
+				// the description check is the last one, so nothing is staged before every change has passed
+				if (description != null)
+				{
+					ApiTokenAdmin.StageDescription(db, Actor, account, description);
 				}
 
 				foreach (string permission in add)
@@ -163,7 +172,7 @@ namespace GenOnlineService.Rest
 				// The change takes effect at once in this instance; other instances follow on the reconcile tick
 				await ApiTokenCache.Reload(db);
 				List<string> grants = await db.ServiceAccountPermissions.AsNoTracking().Where(p => p.ServiceAccountID == account.ID).Select(p => p.Permission).ToListAsync();
-				return RestResults.Ok(InfoOf(account, grants));
+				return RestResults.Ok(InfoOf(account, grants, (await SummariesOf(db, [account.ID])).GetValueOrDefault(account.ID)));
 			});
 		}
 
@@ -229,14 +238,31 @@ namespace GenOnlineService.Rest
 			return db.ApiTokens.AsTracking().FirstOrDefaultAsync(t => t.ID == tokenID && t.OwnerServiceID == accountID);
 		}
 
-		private static ServiceAccountInfo InfoOf(ServiceAccount account, IEnumerable<string> grants) => new ServiceAccountInfo
+		private readonly record struct TokenSummary(int Active, DateTime? LastUsedAt);
+
+		// The active tokens and the latest token use of each account, counted as the active token limit counts them
+		private static async Task<Dictionary<Int64, TokenSummary>> SummariesOf(AppDbContext db, List<Int64> accountIDs)
+		{
+			DateTime now = DateTime.UtcNow;
+			var rows = await db.ApiTokens.AsNoTracking()
+				.Where(t => t.OwnerServiceID != null && accountIDs.Contains(t.OwnerServiceID.Value))
+				.Select(t => new { Owner = t.OwnerServiceID!.Value, t.ExpiresAt, t.RevokedAt, t.LastUsedAt })
+				.ToListAsync();
+			return rows.GroupBy(r => r.Owner).ToDictionary(g => g.Key, g => new TokenSummary(
+				g.Count(r => r.ExpiresAt > now && (r.RevokedAt == null || r.RevokedAt > now)),
+				g.Max(r => r.LastUsedAt)));
+		}
+
+		private static ServiceAccountInfo InfoOf(ServiceAccount account, IEnumerable<string> grants, TokenSummary tokens) => new ServiceAccountInfo
 		{
 			Id = account.ID,
 			Name = account.Name,
 			Description = String.IsNullOrEmpty(account.Description) ? null : account.Description,
 			CreatedAt = account.CreatedAt,
 			DisabledAt = account.DisabledAt,
-			Permissions = grants.OrderBy(p => p, StringComparer.Ordinal).ToList()
+			Permissions = grants.OrderBy(p => p, StringComparer.Ordinal).ToList(),
+			ActiveTokens = tokens.Active,
+			LastTokenUsedAt = tokens.LastUsedAt
 		};
 	}
 }

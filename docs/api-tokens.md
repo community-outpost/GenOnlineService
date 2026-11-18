@@ -208,7 +208,7 @@ The CLI and the routes below share one implementation (`Rest/ApiTokenAdmin.cs`),
 | `POST /api/v1/personal_access_tokens/:id/rotate?overlap_minutes=&expires_at=` | staff web session | 201, the new token and its secret |
 | `DELETE /api/v1/personal_access_tokens/:id` | web session | 204 |
 | `GET/POST /api/v1/service_accounts` | web session with `tokens.manage` | list (paged); 201 with the new account |
-| `PATCH /api/v1/service_accounts/:id` | web session with `tokens.manage` | `{grants: {add, remove}, disabled}`, the updated account |
+| `PATCH /api/v1/service_accounts/:id` | web session with `tokens.manage` | `{description, grants: {add, remove}, disabled}`, the updated account; a changed description is audited as `sa_update` |
 | `GET /api/v1/service_accounts/:id` | web session with `tokens.manage` | the account and its permissions |
 | `GET/POST /api/v1/service_accounts/:id/personal_access_tokens` | web session with `tokens.manage` | the account's tokens; 201 with a new token and its secret |
 | `POST /api/v1/service_accounts/:id/personal_access_tokens/:token_id/rotate?overlap_minutes=&expires_at=` | web session with `tokens.manage` | 201, the new token and its secret |
@@ -227,8 +227,8 @@ The CLI and the routes below share one implementation (`Rest/ApiTokenAdmin.cs`),
 
 Staff with `tokens.manage` manage partners at `/admin/partners` (S1: partner API tokens "issued by staff from the portal"). The pages call the service account routes above with the sign-in cookie, so every rule and audit entry is the one of the HTTP API:
 
-- The partner list shows each service account's description, status, permissions, active tokens and last token use. "New partner" creates the account and grants the chosen machine permissions (`match_history.read`, `lobbies.read`).
-- A partner's page disables and enables it, grants and removes non-privileged machine permissions (privileged ones show as CLI only), and lists its tokens with scopes, status, creation, expiry and last use.
+- The partner list shows each service account's description, status, permissions, active tokens and last token use, as the host counts them (`active_tokens`, `last_token_used_at`). "New partner" creates the account and grants the chosen machine permissions (`match_history.read`, `lobbies.read`).
+- A partner's page edits its description, disables and enables it, grants and removes non-privileged machine permissions (privileged ones show as CLI only), and lists its tokens with scopes, status, allowed addresses (`allowed_ips`), creation, expiry and last use.
 - "New token" takes a name, scopes from the partner's non-privileged permissions, an expiry (90 days by default, at most `ApiTokens:max_lifetime_days`) and optional allowed addresses. The secret of a new or rotated token shows once, with a copy button and a warning; rotate (with an overlap of none, 1 hour or 24 hours) and revoke ask first.
 
 ### Rules for both

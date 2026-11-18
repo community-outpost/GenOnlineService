@@ -106,7 +106,8 @@ namespace GenOnlineService.Rest
 			LastUsedAt = token.LastUsedAt,
 			LastUsedIp = token.LastUsedIP,
 			RevokedAt = token.RevokedAt,
-			TokenLast4 = token.TokenLast4
+			TokenLast4 = token.TokenLast4,
+			AllowedIps = AllowedIPsOf(token)
 		};
 
 		// The only answer that carries the secret
@@ -121,8 +122,13 @@ namespace GenOnlineService.Rest
 			LastUsedIp = token.LastUsedIP,
 			RevokedAt = token.RevokedAt,
 			TokenLast4 = token.TokenLast4,
+			AllowedIps = AllowedIPsOf(token),
 			Token = secret
 		};
+
+		// The stored allow-list as its entries, as written at mint
+		private static IReadOnlyList<string> AllowedIPsOf(ApiToken token) =>
+			String.IsNullOrWhiteSpace(token.AllowedIPs) ? [] : token.AllowedIPs.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
 		// A paged list of an owner's tokens, newest first
 		protected async Task<IActionResult> ListTokens(AppDbContext db, ApiTokenOwner owner)

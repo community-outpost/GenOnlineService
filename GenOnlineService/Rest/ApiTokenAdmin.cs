@@ -440,6 +440,21 @@ namespace GenOnlineService.Rest
 			return true;
 		}
 
+		// Stages the new description and its sa_update entry for the caller's SaveChanges; false when it does not change
+		public static bool StageDescription(AppDbContext db, ApiTokenActor actor, ServiceAccount account, string description)
+		{
+			CheckDescription(description);
+			if (account.Description == description)
+			{
+				return false;
+			}
+
+			string old = account.Description;
+			account.Description = description;
+			db.AuditLog.Add(Audit(actor, "sa_update", AuditTargetKinds.ServiceAccount, account.ID, new { name = account.Name, old_description = old, description }));
+			return true;
+		}
+
 		// Stages the change and its sa_disable or sa_enable entry; the entry is written even when the state does not change, as the CLI does
 		public static void StageSetDisabled(AppDbContext db, ApiTokenActor actor, ServiceAccount account, bool bDisabled)
 		{
