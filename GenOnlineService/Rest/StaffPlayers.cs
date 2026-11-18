@@ -281,6 +281,8 @@ namespace GenOnlineService.Rest
 			User? user;
 			EloData elo;
 			List<UserRole> roleRows;
+			Dictionary<long, (string? Kind, long? By, string? Reason)> lifts;
+			Dictionary<long, (string Name, int Tag)> lifters;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken))
 			{
 				user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.ID == userID, cancellationToken);
@@ -290,6 +292,14 @@ namespace GenOnlineService.Rest
 				}
 				elo = (await Database.PlayerRatings.GetBulk(db, [userID])).GetValueOrDefault(userID) ?? new EloData(EloConfig.BaseRating, EloConfig.BaseRating, 0);
 				roleRows = await Database.Moderation.GetRoles(db, userID);
+
+				// who lifted a sanction and why, for the staff page only
+				lifts = (await db.Sanctions.AsNoTracking()
+					.Where(s => s.UserID == userID && s.LiftedAt != null)
+					.Select(s => new { s.ID, s.LiftedByKind, s.LiftedByID, s.LiftReason })
+					.ToListAsync(cancellationToken))
+					.ToDictionary(s => s.ID, s => (s.LiftedByKind, s.LiftedByID, String.IsNullOrEmpty(s.LiftReason) ? null : s.LiftReason));
+				lifters = await Database.DisplayNames.GetBulk(db, lifts.Values.Where(l => l.Kind == AuditActorKinds.User && l.By != null).Select(l => l.By!.Value).ToHashSet());
 			}
 
 			Result<SanctionsResponse> sanctions = await SanctionActions.ListAsync(dbFactory, userID, activeOnly: false);
@@ -333,6 +343,10 @@ namespace GenOnlineService.Rest
 					ExpiresAt = sanction.ExpiresAt,
 					LiftedAt = sanction.LiftedAt,
 					CreatedBy = sanction.CreatedBy is Member by ? new PortalMember { Id = by.Id, Name = by.Name, Tag = by.Tag } : null,
+					LiftedByKind = lifts.TryGetValue(sanction.Id, out var lift) ? lift.Kind : null,
+					LiftedBy = lift.Kind == AuditActorKinds.User && lift.By is long lifter && RealtimeMembers.Of(lifter, lifters) is Member liftedBy
+						? new PortalMember { Id = liftedBy.Id, Name = liftedBy.Name, Tag = liftedBy.Tag } : null,
+					LiftReason = lift.Reason,
 					Active = sanction.Type != SanctionType.Kick && sanction.LiftedAt == null && (sanction.ExpiresAt == null || sanction.ExpiresAt > now)
 				}).ToList(),
 				RoleGrants = roleRows.Select(r => new PortalRoleGrant { Role = r.Role, Source = r.Source }).ToList(),

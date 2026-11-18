@@ -31,6 +31,10 @@ namespace GenOnlineService.Migrations.MySql
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
 
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
@@ -84,6 +88,10 @@ namespace GenOnlineService.Migrations.MySql
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
 
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
@@ -116,6 +124,10 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("report_id");
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
 
                     b.Property<long>("MatchId")
                         .HasColumnType("bigint")

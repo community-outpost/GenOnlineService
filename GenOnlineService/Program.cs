@@ -1016,6 +1016,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("mail", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await GenOnlineService.Mail.MailCli.Run(args);
+				return;
+			}
+
 #if !DEBUG
 			AppDomain.CurrentDomain.UnhandledException += GlobalExceptionHandler;
 #endif
@@ -1227,6 +1233,9 @@ namespace GenOnlineService
 
 			// bearer tokens everywhere, and the sign-in cookie on the /api/v1 routes the staff pages call (T16), where accounts run
 			GenOnlineService.Api.ApiAuthentication.AddApiAuthentication(builder.Services, signInCookie: accountsSettings.Enabled);
+
+			// account mail (Mail:delivery_method); a misconfigured method stops the start, naming the key
+			GenOnlineService.Mail.MailSetup.AddMail(builder.Services, builder.Configuration);
 
 			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
 			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());

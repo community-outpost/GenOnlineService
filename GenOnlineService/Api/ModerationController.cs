@@ -185,13 +185,15 @@ namespace GenOnlineService.Api
 		}
 
 		// The staff queue of the staff pages: several statuses (comma separated) or all, a search, oldest (asc, default) or
-		// newest (desc) first, filtered and offset paged in the database; moderation.kick or higher
+		// newest (desc) first, the reports against (reported_id) or by (reporter_id) one player, filtered and offset paged in the
+		// database; moderation.kick or higher
 		[AllowSignInCookie]
 		[EndpointSummary("Searches the player report queue with paging.")]
 		[ProducesResponseType<ReportsResponse>(StatusCodes.Status200OK)]
 		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
 		[HttpGet("~/api/v1/reports/search")]
-		public async Task<IActionResult> SearchReports([FromQuery] string? status, [FromQuery] string? search, [FromQuery] string? sort)
+		public async Task<IActionResult> SearchReports([FromQuery] string? status, [FromQuery] string? search, [FromQuery] string? sort,
+			[FromQuery(Name = "reported_id")] string? reportedID, [FromQuery(Name = "reporter_id")] string? reporterID)
 		{
 			if (await RequireStaffAsync() is Failure denied)
 			{
@@ -207,6 +209,14 @@ namespace GenOnlineService.Api
 			{
 				return ApiResults.Fail(Result.Invalid("sort"));
 			}
+			if (!TryReadPlayerID(reportedID, out long? reported))
+			{
+				return ApiResults.Fail(Result.Invalid("reported_id"));
+			}
+			if (!TryReadPlayerID(reporterID, out long? reporter))
+			{
+				return ApiResults.Fail(Result.Invalid("reporter_id"));
+			}
 			(Rest.OffsetPage page, Failure? pageFailure) = Rest.Paging.ReadOffset(Request);
 			if (pageFailure != null)
 			{
@@ -214,8 +224,8 @@ namespace GenOnlineService.Api
 			}
 
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(HttpContext.RequestAborted);
-			(int total, List<PlayerReport> rows) = await Database.Chat.GetReportsPage(db, statuses.Contains("all") ? null : statuses, search, sort == "desc", page.Skip, page.PerPage, HttpContext.RequestAborted);
-			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, rows.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID }).ToHashSet());
+			(int total, List<PlayerReport> rows) = await Database.Chat.GetReportsPage(db, statuses.Contains("all") ? null : statuses, search, sort == "desc", page.Skip, page.PerPage, HttpContext.RequestAborted, reported, reporter);
+			Dictionary<long, (string Name, int Tag)> names = await Database.DisplayNames.GetBulk(db, rows.SelectMany(Rest.StaffOverview.ReportUserIDs).ToHashSet());
 
 			// the page leaves the evidence out, so it is read for the message reports of this page only
 			long[] messageReports = rows.Where(r => r.MessageID != null).Select(r => r.ID).ToArray();
@@ -264,6 +274,22 @@ namespace GenOnlineService.Api
 				return ApiResults.Fail(malformed.Value);
 			}
 			return ApiResults.NoContent(await MessageActions.ResolveReportAsync(m_dbFactory, Me, reportID, body ?? new ResolveReportRequest()));
+		}
+
+		// An absent argument, or a positive player id
+		private static bool TryReadPlayerID(string? text, out long? id)
+		{
+			id = null;
+			if (text == null)
+			{
+				return true;
+			}
+			if (long.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long parsed) && parsed > 0)
+			{
+				id = parsed;
+				return true;
+			}
+			return false;
 		}
 
 		// moderation.kick or higher

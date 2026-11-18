@@ -320,9 +320,25 @@ namespace Database
 		}
 
 		// Newest first, below afterID when set; every filter is optional
-		public static async Task<List<AuditLogEntry>> GetAuditEvents(AppDbContext db, Int64? actorID, Int64? targetID, string? action, Int64? afterID, int limit, string? targetKind = null)
+		public static async Task<List<AuditLogEntry>> GetAuditEvents(AppDbContext db, Int64? actorID, Int64? targetID, string? action, Int64? afterID, int limit, string? targetKind = null, AuditFilter? filter = null)
 		{
 			IQueryable<AuditLogEntry> query = db.AuditLog.AsNoTracking();
+			if (filter?.ActorIDs is IReadOnlyCollection<long> actors)
+			{
+				query = query.Where(e => e.ActorID != null && actors.Contains(e.ActorID.Value) && e.ActorKind == AuditActorKinds.User);
+			}
+			if (filter?.TargetUserIDs is IReadOnlyCollection<long> targets)
+			{
+				query = query.Where(e => e.TargetID != null && targets.Contains(e.TargetID.Value) && e.TargetKind == AuditTargetKinds.User);
+			}
+			if (filter?.From is DateTime from)
+			{
+				query = query.Where(e => e.CreatedAt >= from);
+			}
+			if (filter?.To is DateTime to)
+			{
+				query = query.Where(e => e.CreatedAt < to);
+			}
 			if (actorID != null)
 			{
 				// actor_id names a user; service account and token rows keep other ids in that column
@@ -346,6 +362,9 @@ namespace Database
 			}
 			return await query.OrderByDescending(e => e.ID).Take(limit).ToListAsync();
 		}
+
+		// The filters of the staff audit log beyond the single ids: players by name (users only), a time range [From, To)
+		public sealed record AuditFilter(IReadOnlyCollection<long>? ActorIDs, IReadOnlyCollection<long>? TargetUserIDs, DateTime? From, DateTime? To);
 
 		// The role row and its audit row are saved together, so the log never misses a change
 		public static async Task<bool> GrantRole(AppDbContext db, Int64 userID, string role, string source, string reason, ModerationActor actor)

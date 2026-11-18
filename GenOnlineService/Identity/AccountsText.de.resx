@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Page.Title" xml:space="preserve">
+    <value>{0} · Generals Online</value>
+  </data>
+  <data name="Skip" xml:space="preserve">
+    <value>Zum Inhalt springen</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>Sprache</value>
+  </data>
+  <data name="Expired.Title" xml:space="preserve">
+    <value>Anfrage abgelaufen</value>
+  </data>
+  <data name="Expired.Body" xml:space="preserve">
+    <value>Die Seite ist abgelaufen. Bitte geh zurück und versuche es noch einmal.</value>
+  </data>
+  <data name="Continue" xml:space="preserve">
+    <value>Weiter</value>
+  </data>
+  <data name="Field.Email" xml:space="preserve">
+    <value>E-Mail</value>
+  </data>
+  <data name="Field.Password" xml:space="preserve">
+    <value>Passwort</value>
+  </data>
+  <data name="Field.PlayerName" xml:space="preserve">
+    <value>Spielername</value>
+  </data>
+  <data name="Field.DisplayName" xml:space="preserve">
+    <value>Anzeigename</value>
+  </data>
+  <data name="Field.Code" xml:space="preserve">
+    <value>Code</value>
+  </data>
+  <data name="SignIn.Title" xml:space="preserve">
+    <value>Anmelden</value>
+  </data>
+  <data name="SignIn.Description" xml:space="preserve">
+    <value>Melde dich an, um Generals Online zu spielen.</value>
+  </data>
+  <data name="SignIn.Submit" xml:space="preserve">
+    <value>Anmelden</value>
+  </data>
+  <data name="SignIn.OrContinue" xml:space="preserve">
+    <value>Oder weiter mit</value>
+  </data>
+  <data name="SignIn.WithProvider" xml:space="preserve">
+    <value>Mit {0} anmelden</value>
+  </data>
+  <data name="SignIn.NoAccount" xml:space="preserve">
+    <value>Noch kein Konto?</value>
+  </data>
+  <data name="SignIn.SignUpLink" xml:space="preserve">
+    <value>Registrieren</value>
+  </data>
+  <data name="SignIn.WrongCredentials" xml:space="preserve">
+    <value>E-Mail oder Passwort ist falsch.</value>
+  </data>
+  <data name="SignIn.Unavailable.Title" xml:space="preserve">
+    <value>Anmeldung nicht verfügbar</value>
+  </data>
+  <data name="SignIn.Unavailable.Body" xml:space="preserve">
+    <value>Für diese Umgebung ist keine Anmeldemethode eingerichtet.</value>
+  </data>
+  <data name="Refused.Title" xml:space="preserve">
+    <value>Anmeldung abgelehnt</value>
+  </data>
+  <data name="Refused.Blocked" xml:space="preserve">
+    <value>Dieses Konto ist gesperrt.</value>
+  </data>
+  <data name="Refused.Deactivated" xml:space="preserve">
+    <value>Dieses Konto ist deaktiviert.</value>
+  </data>
+  <data name="TwoFactor.Title" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung</value>
+  </data>
+  <data name="TwoFactor.Description" xml:space="preserve">
+    <value>Gib den Code aus deiner Authenticator-App ein.</value>
+  </data>
+  <data name="TwoFactor.CodeLabel" xml:space="preserve">
+    <value>Code aus deiner Authenticator-App</value>
+  </data>
+  <data name="TwoFactor.RecoveryLabel" xml:space="preserve">
+    <value>Oder ein Wiederherstellungscode</value>
+  </data>
+  <data name="TwoFactor.WrongCode" xml:space="preserve">
+    <value>Falscher Code.</value>
+  </data>
+  <data name="TwoFactor.PasswordOnly" xml:space="preserve">
+    <value>Die Zwei-Faktor-Anmeldung gibt es für Konten, die sich mit E-Mail-Adresse und Passwort anmelden.</value>
+  </data>
+  <data name="TwoFactor.IsOn" xml:space="preserve">
+    <value>Die Zwei-Faktor-Anmeldung ist an.</value>
+  </data>
+  <data name="TwoFactor.IsOff" xml:space="preserve">
+    <value>Die Zwei-Faktor-Anmeldung ist aus.</value>
+  </data>
+  <data name="TwoFactor.OnTitle" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung ist an</value>
+  </data>
+  <data name="TwoFactor.OffTitle" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung ist aus</value>
+  </data>
+  <data name="TwoFactor.TurnOn" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung einschalten</value>
+  </data>
+  <data name="TwoFactor.TurnOff" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung ausschalten</value>
+  </data>
+  <data name="TwoFactor.StaffKeeps" xml:space="preserve">
+    <value>Team-Konten behalten die Zwei-Faktor-Anmeldung.</value>
+  </data>
+  <data name="TwoFactor.Setup.Title" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung einrichten</value>
+  </data>
+  <data name="TwoFactor.Setup.Intro" xml:space="preserve">
+    <value>Füge dieses Konto mit dem Link oder dem Schlüssel zu deiner Authenticator-App hinzu und gib dann den angezeigten Code ein.</value>
+  </data>
+  <data name="TwoFactor.Setup.Key" xml:space="preserve">
+    <value>Schlüssel: {0}</value>
+  </data>
+  <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
+    <value>Bewahre diese Wiederherstellungscodes sicher auf. Jeder meldet dich einmal ohne die App an; sie werden nicht noch einmal angezeigt.</value>
+  </data>
+  <data name="TwoFactor.Manage" xml:space="preserve">
+    <value>Zwei-Faktor-Anmeldung verwalten</value>
+  </data>
+  <data name="SignUp.Title" xml:space="preserve">
+    <value>Konto erstellen</value>
+  </data>
+  <data name="SignUp.Description" xml:space="preserve">
+    <value>Registriere dich mit einer E-Mail-Adresse und einem Passwort.</value>
+  </data>
+  <data name="SignUp.Submit" xml:space="preserve">
+    <value>Konto erstellen</value>
+  </data>
+  <data name="SignUp.HaveAccount" xml:space="preserve">
+    <value>Du hast schon ein Konto?</value>
+  </data>
+  <data name="SignUp.InvalidEmail" xml:space="preserve">
+    <value>Gib eine gültige E-Mail-Adresse ein.</value>
+  </data>
+  <data name="SignUp.EmailDenied" xml:space="preserve">
+    <value>Diese E-Mail-Adresse kann nicht verwendet werden.</value>
+  </data>
+  <data name="SignUp.EmailTaken" xml:space="preserve">
+    <value>Es gibt bereits ein Konto mit dieser E-Mail-Adresse.</value>
+  </data>
+  <data name="SignUp.PasswordTooShort" xml:space="preserve">
+    <value>Passwörter müssen mindestens {0} Zeichen lang sein.</value>
+  </data>
+  <data name="SignUp.PasswordTooLong" xml:space="preserve">
+    <value>Passwörter dürfen höchstens {0} Zeichen lang sein.</value>
+  </data>
+  <data name="SignUp.Failed" xml:space="preserve">
+    <value>Die Registrierung ist fehlgeschlagen.</value>
+  </data>
+  <data name="Name.Invalid" xml:space="preserve">
+    <value>Dieser Name enthält Zeichen, die nicht erlaubt sind.</value>
+  </data>
+  <data name="Name.Length" xml:space="preserve">
+    <value>Namen müssen {0} bis {1} Zeichen lang sein.</value>
+  </data>
+  <data name="Name.Whitespace" xml:space="preserve">
+    <value>Namen dürfen nicht mit einem Leerzeichen beginnen oder enden.</value>
+  </data>
+  <data name="Name.Reserved" xml:space="preserve">
+    <value>Dieser Name enthält ein reserviertes Wort.</value>
+  </data>
+  <data name="Name.Taken" xml:space="preserve">
+    <value>Dieser Name ist vergeben. Bitte wähle einen anderen.</value>
+  </data>
+  <data name="Welcome.Title" xml:space="preserve">
+    <value>Wähle deinen Spielernamen</value>
+  </data>
+  <data name="Welcome.Description" xml:space="preserve">
+    <value>Diesen Namen sehen die anderen Spieler.</value>
+  </data>
+  <data name="Welcome.Intro" xml:space="preserve">
+    <value>Diesen Namen sehen die anderen Spieler. Wähle deinen eigenen; du kannst ihn später ändern.</value>
+  </data>
+  <data name="Upstream.Failed.Title" xml:space="preserve">
+    <value>Anmeldung fehlgeschlagen</value>
+  </data>
+  <data name="Upstream.Failed.Body" xml:space="preserve">
+    <value>Die Anmeldung konnte nicht abgeschlossen werden. Bitte versuche es noch einmal.</value>
+  </data>
+  <data name="Upstream.NoSignUp" xml:space="preserve">
+    <value>Mit dieser Anmeldung ist kein Konto verknüpft, und die Registrierung ist geschlossen.</value>
+  </data>
+  <data name="Upstream.Conflict" xml:space="preserve">
+    <value>Mit dem Konto ist bereits eine andere Anmeldung dieses Anbieters verknüpft. Bitte wende dich an den Support.</value>
+  </data>
+  <data name="Upstream.Other" xml:space="preserve">
+    <value>Die Anmeldung konnte nicht abgeschlossen werden.</value>
+  </data>
+  <data name="SignedOut.Title" xml:space="preserve">
+    <value>Abgemeldet</value>
+  </data>
+  <data name="SignedOut.Body" xml:space="preserve">
+    <value>Du bist abgemeldet.</value>
+  </data>
+  <data name="SignOut" xml:space="preserve">
+    <value>Abmelden</value>
+  </data>
+  <data name="Consent.Title" xml:space="preserve">
+    <value>{0} erlauben?</value>
+  </data>
+  <data name="Consent.Expired" xml:space="preserve">
+    <value>Die Seite ist abgelaufen. Bitte starte die Anmeldung in der Anwendung noch einmal.</value>
+  </data>
+  <data name="Consent.Asks" xml:space="preserve">
+    <value>{0} stammt nicht von Generals Online. Die Anwendung möchte:</value>
+  </data>
+  <data name="Consent.SignedInAs" xml:space="preserve">
+    <value>Angemeldet als {0}.</value>
+  </data>
+  <data name="Consent.Allow" xml:space="preserve">
+    <value>Erlauben</value>
+  </data>
+  <data name="Consent.Deny" xml:space="preserve">
+    <value>Ablehnen</value>
+  </data>
+  <data name="Scope.OpenId" xml:space="preserve">
+    <value>Wissen, wer du bist</value>
+  </data>
+  <data name="Scope.Profile" xml:space="preserve">
+    <value>Deinen Spielernamen sehen</value>
+  </data>
+  <data name="Scope.OfflineAccess" xml:space="preserve">
+    <value>Angemeldet bleiben, bis du dich abmeldest</value>
+  </data>
+  <data name="Scope.Game" xml:space="preserve">
+    <value>Als du online spielen: Lobbys, Matchmaking und Chat</value>
+  </data>
+  <data name="Account.Title" xml:space="preserve">
+    <value>Konto</value>
+  </data>
+  <data name="Account.Admin" xml:space="preserve">
+    <value>Verwaltung</value>
+  </data>
+  <data name="Account.Renamed" xml:space="preserve">
+    <value>Dein Name ist jetzt {0}.</value>
+  </data>
+  <data name="Account.RolePlayer" xml:space="preserve">
+    <value>Spieler</value>
+  </data>
+  <data name="Account.PlayerId" xml:space="preserve">
+    <value>Spieler-ID {0}</value>
+  </data>
+  <data name="Account.TagHint" xml:space="preserve">
+    <value>Dein Tag gehört zum Namen: Wechselst du zu einem früheren Namen zurück, bekommst du auch seinen Tag zurück.</value>
+  </data>
+  <data name="Account.Save" xml:space="preserve">
+    <value>Änderungen speichern</value>
+  </data>
+  <data name="Account.Profile.Title" xml:space="preserve">
+    <value>Profil</value>
+  </data>
+  <data name="Account.Profile.Description" xml:space="preserve">
+    <value>Der Name, den die anderen Spieler sehen. Das Tag nach dem # macht ihn eindeutig.</value>
+  </data>
+  <data name="Account.Email.Confirmed" xml:space="preserve">
+    <value>bestätigt</value>
+  </data>
+  <data name="Account.Email.NotConfirmed" xml:space="preserve">
+    <value>nicht bestätigt</value>
+  </data>
+  <data name="Account.Security.Title" xml:space="preserve">
+    <value>Anmeldung und Sicherheit</value>
+  </data>
+  <data name="Account.Security.Description" xml:space="preserve">
+    <value>Wie du dich in dieser Umgebung bei Generals Online anmeldest.</value>
+  </data>
+  <data name="Account.Security.LinkedOnly" xml:space="preserve">
+    <value>Du meldest dich mit den unten verknüpften Konten an.</value>
+  </data>
+  <data name="Account.Linked.Title" xml:space="preserve">
+    <value>Verknüpfte Anmeldungen</value>
+  </data>
+  <data name="Account.Linked.Description" xml:space="preserve">
+    <value>Die Konten, mit denen du dich anmelden kannst.</value>
+  </data>
+  <data name="Account.Linked.None" xml:space="preserve">
+    <value>Keine weitere Anmeldung ist verknüpft.</value>
+  </data>
+  <data name="Account.Linked.When" xml:space="preserve">
+    <value>verknüpft am {0}</value>
+  </data>
+  <data name="Account.Linked.WhenUsed" xml:space="preserve">
+    <value>verknüpft am {0}, zuletzt genutzt am {1}</value>
+  </data>
+  <data name="Mail.Confirmation.Subject" xml:space="preserve">
+    <value>Bestätige deine E-Mail-Adresse</value>
+  </data>
+  <data name="Mail.PasswordReset.Subject" xml:space="preserve">
+    <value>Setze dein Generals-Online-Passwort zurück</value>
+  </data>
+  <data name="SignIn.Forgot" xml:space="preserve">
+    <value>Passwort vergessen?</value>
+  </data>
+  <data name="Link.Invalid.Title" xml:space="preserve">
+    <value>Link ungültig</value>
+  </data>
+  <data name="Link.SendNew" xml:space="preserve">
+    <value>Neuen Link senden</value>
+  </data>
+  <data name="Mail.TooMany" xml:space="preserve">
+    <value>Es wurden zu viele E-Mails angefordert. Bitte versuche es in ein paar Minuten noch einmal.</value>
+  </data>
+  <data name="Mail.SendFailed" xml:space="preserve">
+    <value>Die E-Mail konnte nicht gesendet werden. Bitte versuche es später noch einmal.</value>
+  </data>
+  <data name="CheckEmail.Title" xml:space="preserve">
+    <value>Sieh in deine E-Mails</value>
+  </data>
+  <data name="Confirm.Invalid" xml:space="preserve">
+    <value>Dieser Bestätigungslink ist ungültig oder abgelaufen.</value>
+  </data>
+  <data name="Confirm.Done.Title" xml:space="preserve">
+    <value>E-Mail-Adresse bestätigt</value>
+  </data>
+  <data name="Confirm.Done.Body" xml:space="preserve">
+    <value>Danke, {0} ist bestätigt.</value>
+  </data>
+  <data name="Confirm.Pending.Body" xml:space="preserve">
+    <value>Wir haben einen Link an {0} geschickt. Öffne ihn, um deine Adresse zu bestätigen, und mach dann hier weiter.</value>
+  </data>
+  <data name="Confirm.Pending.Description" xml:space="preserve">
+    <value>Bestätige deine E-Mail-Adresse, um zu spielen.</value>
+  </data>
+  <data name="Confirm.Resend" xml:space="preserve">
+    <value>Link erneut senden</value>
+  </data>
+  <data name="Confirm.Resent" xml:space="preserve">
+    <value>Ein neuer Link ist unterwegs.</value>
+  </data>
+  <data name="Reset.Request.Title" xml:space="preserve">
+    <value>Passwort zurücksetzen</value>
+  </data>
+  <data name="Reset.Request.Description" xml:space="preserve">
+    <value>Wir schicken dir einen Link, mit dem du ein neues Passwort wählst.</value>
+  </data>
+  <data name="Reset.Request.Submit" xml:space="preserve">
+    <value>Link senden</value>
+  </data>
+  <data name="Reset.Request.Remember" xml:space="preserve">
+    <value>Doch wieder eingefallen?</value>
+  </data>
+  <data name="Reset.Sent" xml:space="preserve">
+    <value>Wenn ein Konto diese Adresse nutzt, haben wir ihm einen Link zum Wählen eines neuen Passworts geschickt.</value>
+  </data>
+  <data name="Reset.Invalid" xml:space="preserve">
+    <value>Dieser Link zum Zurücksetzen ist ungültig oder abgelaufen. Jeder Link funktioniert einmal, eine Stunde lang.</value>
+  </data>
+  <data name="Reset.Title" xml:space="preserve">
+    <value>Neues Passwort wählen</value>
+  </data>
+  <data name="Reset.Description" xml:space="preserve">
+    <value>Alle anderen Anmeldungen des Kontos werden beendet.</value>
+  </data>
+  <data name="Field.NewPassword" xml:space="preserve">
+    <value>Neues Passwort</value>
+  </data>
+  <data name="Reset.Submit" xml:space="preserve">
+    <value>Passwort ändern</value>
+  </data>
+  <data name="Reset.Failed" xml:space="preserve">
+    <value>Das Passwort konnte nicht geändert werden.</value>
+  </data>
+  <data name="Reset.Done.Title" xml:space="preserve">
+    <value>Dein Passwort ist geändert</value>
+  </data>
+  <data name="Reset.Done.Body" xml:space="preserve">
+    <value>Melde dich mit deinem neuen Passwort an. Alle anderen Anmeldungen dieses Kontos wurden beendet.</value>
+  </data>
+</root>

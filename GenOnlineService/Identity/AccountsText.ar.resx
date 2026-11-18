@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Page.Title" xml:space="preserve">
+    <value>{0} · Generals Online</value>
+  </data>
+  <data name="Skip" xml:space="preserve">
+    <value>انتقل إلى المحتوى</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>اللغة</value>
+  </data>
+  <data name="Expired.Title" xml:space="preserve">
+    <value>انتهت صلاحية الطلب</value>
+  </data>
+  <data name="Expired.Body" xml:space="preserve">
+    <value>انتهت صلاحية الصفحة. يُرجى الرجوع والمحاولة مرة أخرى.</value>
+  </data>
+  <data name="Continue" xml:space="preserve">
+    <value>متابعة</value>
+  </data>
+  <data name="Field.Email" xml:space="preserve">
+    <value>البريد الإلكتروني</value>
+  </data>
+  <data name="Field.Password" xml:space="preserve">
+    <value>كلمة المرور</value>
+  </data>
+  <data name="Field.PlayerName" xml:space="preserve">
+    <value>اسم اللاعب</value>
+  </data>
+  <data name="Field.DisplayName" xml:space="preserve">
+    <value>الاسم المعروض</value>
+  </data>
+  <data name="Field.Code" xml:space="preserve">
+    <value>الرمز</value>
+  </data>
+  <data name="SignIn.Title" xml:space="preserve">
+    <value>تسجيل الدخول</value>
+  </data>
+  <data name="SignIn.Description" xml:space="preserve">
+    <value>سجّل الدخول للعب Generals Online.</value>
+  </data>
+  <data name="SignIn.Submit" xml:space="preserve">
+    <value>تسجيل الدخول</value>
+  </data>
+  <data name="SignIn.OrContinue" xml:space="preserve">
+    <value>أو تابع باستخدام</value>
+  </data>
+  <data name="SignIn.WithProvider" xml:space="preserve">
+    <value>تسجيل الدخول باستخدام {0}</value>
+  </data>
+  <data name="SignIn.NoAccount" xml:space="preserve">
+    <value>ليس لديك حساب؟</value>
+  </data>
+  <data name="SignIn.SignUpLink" xml:space="preserve">
+    <value>إنشاء حساب</value>
+  </data>
+  <data name="SignIn.WrongCredentials" xml:space="preserve">
+    <value>البريد الإلكتروني أو كلمة المرور غير صحيحة.</value>
+  </data>
+  <data name="SignIn.Unavailable.Title" xml:space="preserve">
+    <value>تسجيل الدخول غير متاح</value>
+  </data>
+  <data name="SignIn.Unavailable.Body" xml:space="preserve">
+    <value>لم يتم إعداد أي طريقة لتسجيل الدخول في هذه البيئة.</value>
+  </data>
+  <data name="Refused.Title" xml:space="preserve">
+    <value>تم رفض تسجيل الدخول</value>
+  </data>
+  <data name="Refused.Blocked" xml:space="preserve">
+    <value>هذا الحساب محظور.</value>
+  </data>
+  <data name="Refused.Deactivated" xml:space="preserve">
+    <value>هذا الحساب معطّل.</value>
+  </data>
+  <data name="TwoFactor.Title" xml:space="preserve">
+    <value>تسجيل الدخول بخطوتين</value>
+  </data>
+  <data name="TwoFactor.Description" xml:space="preserve">
+    <value>أدخل الرمز من تطبيق المصادقة.</value>
+  </data>
+  <data name="TwoFactor.CodeLabel" xml:space="preserve">
+    <value>الرمز من تطبيق المصادقة</value>
+  </data>
+  <data name="TwoFactor.RecoveryLabel" xml:space="preserve">
+    <value>أو رمز استرداد</value>
+  </data>
+  <data name="TwoFactor.WrongCode" xml:space="preserve">
+    <value>الرمز غير صحيح.</value>
+  </data>
+  <data name="TwoFactor.PasswordOnly" xml:space="preserve">
+    <value>تسجيل الدخول بخطوتين متاح للحسابات التي تسجّل الدخول بعنوان بريد إلكتروني وكلمة مرور.</value>
+  </data>
+  <data name="TwoFactor.IsOn" xml:space="preserve">
+    <value>تسجيل الدخول بخطوتين مفعّل.</value>
+  </data>
+  <data name="TwoFactor.IsOff" xml:space="preserve">
+    <value>تسجيل الدخول بخطوتين غير مفعّل.</value>
+  </data>
+  <data name="TwoFactor.OnTitle" xml:space="preserve">
+    <value>تسجيل الدخول بخطوتين مفعّل</value>
+  </data>
+  <data name="TwoFactor.OffTitle" xml:space="preserve">
+    <value>تسجيل الدخول بخطوتين غير مفعّل</value>
+  </data>
+  <data name="TwoFactor.TurnOn" xml:space="preserve">
+    <value>تفعيل تسجيل الدخول بخطوتين</value>
+  </data>
+  <data name="TwoFactor.TurnOff" xml:space="preserve">
+    <value>إيقاف تسجيل الدخول بخطوتين</value>
+  </data>
+  <data name="TwoFactor.StaffKeeps" xml:space="preserve">
+    <value>تحتفظ حسابات فريق العمل بتسجيل الدخول بخطوتين.</value>
+  </data>
+  <data name="TwoFactor.Setup.Title" xml:space="preserve">
+    <value>إعداد تسجيل الدخول بخطوتين</value>
+  </data>
+  <data name="TwoFactor.Setup.Intro" xml:space="preserve">
+    <value>أضف هذا الحساب إلى تطبيق المصادقة باستخدام الرابط أو المفتاح، ثم أدخل الرمز الذي يظهر.</value>
+  </data>
+  <data name="TwoFactor.Setup.Key" xml:space="preserve">
+    <value>المفتاح: {0}</value>
+  </data>
+  <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
+    <value>احتفظ برموز الاسترداد هذه في مكان آمن. يتيح كل رمز تسجيل الدخول مرة واحدة دون التطبيق، ولن تُعرض مرة أخرى.</value>
+  </data>
+  <data name="TwoFactor.Manage" xml:space="preserve">
+    <value>إدارة تسجيل الدخول بخطوتين</value>
+  </data>
+  <data name="SignUp.Title" xml:space="preserve">
+    <value>إنشاء حساب</value>
+  </data>
+  <data name="SignUp.Description" xml:space="preserve">
+    <value>أنشئ حسابًا بعنوان بريد إلكتروني وكلمة مرور.</value>
+  </data>
+  <data name="SignUp.Submit" xml:space="preserve">
+    <value>إنشاء الحساب</value>
+  </data>
+  <data name="SignUp.HaveAccount" xml:space="preserve">
+    <value>لديك حساب بالفعل؟</value>
+  </data>
+  <data name="SignUp.InvalidEmail" xml:space="preserve">
+    <value>أدخل عنوان بريد إلكتروني صالحًا.</value>
+  </data>
+  <data name="SignUp.EmailDenied" xml:space="preserve">
+    <value>لا يمكن استخدام عنوان البريد الإلكتروني هذا.</value>
+  </data>
+  <data name="SignUp.EmailTaken" xml:space="preserve">
+    <value>يوجد حساب بهذا العنوان بالفعل.</value>
+  </data>
+  <data name="SignUp.PasswordTooShort" xml:space="preserve">
+    <value>يجب ألا تقل كلمة المرور عن {0} حرفًا.</value>
+  </data>
+  <data name="SignUp.PasswordTooLong" xml:space="preserve">
+    <value>يجب ألا تزيد كلمة المرور على {0} حرفًا.</value>
+  </data>
+  <data name="SignUp.Failed" xml:space="preserve">
+    <value>تعذّر إنشاء الحساب.</value>
+  </data>
+  <data name="Name.Invalid" xml:space="preserve">
+    <value>يحتوي هذا الاسم على أحرف غير مسموح بها.</value>
+  </data>
+  <data name="Name.Length" xml:space="preserve">
+    <value>يجب أن يتكون الاسم من {0} إلى {1} حرفًا.</value>
+  </data>
+  <data name="Name.Whitespace" xml:space="preserve">
+    <value>لا يمكن أن يبدأ الاسم أو ينتهي بمسافة.</value>
+  </data>
+  <data name="Name.Reserved" xml:space="preserve">
+    <value>يحتوي هذا الاسم على كلمة محجوزة.</value>
+  </data>
+  <data name="Name.Taken" xml:space="preserve">
+    <value>هذا الاسم مستخدم. يُرجى اختيار اسم آخر.</value>
+  </data>
+  <data name="Welcome.Title" xml:space="preserve">
+    <value>اختر اسم اللاعب</value>
+  </data>
+  <data name="Welcome.Description" xml:space="preserve">
+    <value>هذا هو الاسم الذي يراه اللاعبون الآخرون.</value>
+  </data>
+  <data name="Welcome.Intro" xml:space="preserve">
+    <value>هذا هو الاسم الذي يراه اللاعبون الآخرون. اختر اسمك، ويمكنك تغييره لاحقًا.</value>
+  </data>
+  <data name="Upstream.Failed.Title" xml:space="preserve">
+    <value>فشل تسجيل الدخول</value>
+  </data>
+  <data name="Upstream.Failed.Body" xml:space="preserve">
+    <value>تعذّر إكمال تسجيل الدخول. يُرجى المحاولة مرة أخرى.</value>
+  </data>
+  <data name="Upstream.NoSignUp" xml:space="preserve">
+    <value>لا يوجد حساب مرتبط بتسجيل الدخول هذا، وإنشاء الحسابات مغلق.</value>
+  </data>
+  <data name="Upstream.Conflict" xml:space="preserve">
+    <value>يرتبط بالحساب بالفعل تسجيل دخول آخر من هذا المزوّد. يُرجى التواصل مع الدعم.</value>
+  </data>
+  <data name="Upstream.Other" xml:space="preserve">
+    <value>تعذّر إكمال تسجيل الدخول.</value>
+  </data>
+  <data name="SignedOut.Title" xml:space="preserve">
+    <value>تم تسجيل الخروج</value>
+  </data>
+  <data name="SignedOut.Body" xml:space="preserve">
+    <value>لقد سجّلت الخروج.</value>
+  </data>
+  <data name="SignOut" xml:space="preserve">
+    <value>تسجيل الخروج</value>
+  </data>
+  <data name="Consent.Title" xml:space="preserve">
+    <value>السماح لـ {0}؟</value>
+  </data>
+  <data name="Consent.Expired" xml:space="preserve">
+    <value>انتهت صلاحية الصفحة. يُرجى بدء تسجيل الدخول من التطبيق مرة أخرى.</value>
+  </data>
+  <data name="Consent.Asks" xml:space="preserve">
+    <value>{0} ليس من إنتاج Generals Online. ويطلب ما يلي:</value>
+  </data>
+  <data name="Consent.SignedInAs" xml:space="preserve">
+    <value>تم تسجيل الدخول باسم {0}.</value>
+  </data>
+  <data name="Consent.Allow" xml:space="preserve">
+    <value>سماح</value>
+  </data>
+  <data name="Consent.Deny" xml:space="preserve">
+    <value>رفض</value>
+  </data>
+  <data name="Scope.OpenId" xml:space="preserve">
+    <value>معرفة هويتك</value>
+  </data>
+  <data name="Scope.Profile" xml:space="preserve">
+    <value>رؤية اسم اللاعب الخاص بك</value>
+  </data>
+  <data name="Scope.OfflineAccess" xml:space="preserve">
+    <value>البقاء مسجّلًا للدخول حتى تسجّل الخروج</value>
+  </data>
+  <data name="Scope.Game" xml:space="preserve">
+    <value>اللعب عبر الإنترنت باسمك: الردهات والمطابقة والدردشة</value>
+  </data>
+  <data name="Account.Title" xml:space="preserve">
+    <value>الحساب</value>
+  </data>
+  <data name="Account.Admin" xml:space="preserve">
+    <value>الإدارة</value>
+  </data>
+  <data name="Account.Renamed" xml:space="preserve">
+    <value>اسمك الآن {0}.</value>
+  </data>
+  <data name="Account.RolePlayer" xml:space="preserve">
+    <value>لاعب</value>
+  </data>
+  <data name="Account.PlayerId" xml:space="preserve">
+    <value>معرّف اللاعب {0}</value>
+  </data>
+  <data name="Account.TagHint" xml:space="preserve">
+    <value>الوسم مرتبط بالاسم: عند العودة إلى اسم سابق يعود وسمه أيضًا.</value>
+  </data>
+  <data name="Account.Save" xml:space="preserve">
+    <value>حفظ التغييرات</value>
+  </data>
+  <data name="Account.Profile.Title" xml:space="preserve">
+    <value>الملف الشخصي</value>
+  </data>
+  <data name="Account.Profile.Description" xml:space="preserve">
+    <value>الاسم الذي يراه اللاعبون الآخرون. الوسم بعد علامة # يجعله فريدًا.</value>
+  </data>
+  <data name="Account.Email.Confirmed" xml:space="preserve">
+    <value>مؤكَّد</value>
+  </data>
+  <data name="Account.Email.NotConfirmed" xml:space="preserve">
+    <value>غير مؤكَّد</value>
+  </data>
+  <data name="Account.Security.Title" xml:space="preserve">
+    <value>تسجيل الدخول والأمان</value>
+  </data>
+  <data name="Account.Security.Description" xml:space="preserve">
+    <value>كيف تسجّل الدخول إلى Generals Online في هذه البيئة.</value>
+  </data>
+  <data name="Account.Security.LinkedOnly" xml:space="preserve">
+    <value>تسجّل الدخول باستخدام الحسابات المرتبطة أدناه.</value>
+  </data>
+  <data name="Account.Linked.Title" xml:space="preserve">
+    <value>طرق تسجيل الدخول المرتبطة</value>
+  </data>
+  <data name="Account.Linked.Description" xml:space="preserve">
+    <value>الحسابات التي يمكنك تسجيل الدخول بها.</value>
+  </data>
+  <data name="Account.Linked.None" xml:space="preserve">
+    <value>لا توجد طريقة تسجيل دخول أخرى مرتبطة.</value>
+  </data>
+  <data name="Account.Linked.When" xml:space="preserve">
+    <value>مرتبط في {0}</value>
+  </data>
+  <data name="Account.Linked.WhenUsed" xml:space="preserve">
+    <value>مرتبط في {0}، آخر استخدام في {1}</value>
+  </data>
+  <data name="Mail.Confirmation.Subject" xml:space="preserve">
+    <value>أكّد عنوان بريدك الإلكتروني</value>
+  </data>
+  <data name="Mail.PasswordReset.Subject" xml:space="preserve">
+    <value>إعادة تعيين كلمة مرور Generals Online</value>
+  </data>
+  <data name="SignIn.Forgot" xml:space="preserve">
+    <value>نسيت كلمة المرور؟</value>
+  </data>
+  <data name="Link.Invalid.Title" xml:space="preserve">
+    <value>الرابط غير صالح</value>
+  </data>
+  <data name="Link.SendNew" xml:space="preserve">
+    <value>إرسال رابط جديد</value>
+  </data>
+  <data name="Mail.TooMany" xml:space="preserve">
+    <value>طُلب عدد كبير جدًا من الرسائل. يُرجى المحاولة مرة أخرى بعد بضع دقائق.</value>
+  </data>
+  <data name="Mail.SendFailed" xml:space="preserve">
+    <value>تعذّر إرسال الرسالة. يُرجى المحاولة لاحقًا.</value>
+  </data>
+  <data name="CheckEmail.Title" xml:space="preserve">
+    <value>تحقق من بريدك الإلكتروني</value>
+  </data>
+  <data name="Confirm.Invalid" xml:space="preserve">
+    <value>رابط التأكيد هذا غير صالح أو منتهي الصلاحية.</value>
+  </data>
+  <data name="Confirm.Done.Title" xml:space="preserve">
+    <value>تم تأكيد عنوان البريد الإلكتروني</value>
+  </data>
+  <data name="Confirm.Done.Body" xml:space="preserve">
+    <value>شكرًا، تم تأكيد {0}.</value>
+  </data>
+  <data name="Confirm.Pending.Body" xml:space="preserve">
+    <value>أرسلنا رابطًا إلى {0}. افتحه لتأكيد عنوانك، ثم تابع من هنا.</value>
+  </data>
+  <data name="Confirm.Pending.Description" xml:space="preserve">
+    <value>أكّد عنوان بريدك الإلكتروني لكي تلعب.</value>
+  </data>
+  <data name="Confirm.Resend" xml:space="preserve">
+    <value>إرسال الرابط مرة أخرى</value>
+  </data>
+  <data name="Confirm.Resent" xml:space="preserve">
+    <value>رابط جديد في الطريق إليك.</value>
+  </data>
+  <data name="Reset.Request.Title" xml:space="preserve">
+    <value>إعادة تعيين كلمة المرور</value>
+  </data>
+  <data name="Reset.Request.Description" xml:space="preserve">
+    <value>نرسل إليك رابطًا لاختيار كلمة مرور جديدة.</value>
+  </data>
+  <data name="Reset.Request.Submit" xml:space="preserve">
+    <value>إرسال الرابط</value>
+  </data>
+  <data name="Reset.Request.Remember" xml:space="preserve">
+    <value>تذكّرتها؟</value>
+  </data>
+  <data name="Reset.Sent" xml:space="preserve">
+    <value>إذا كان هناك حساب يستخدم هذا العنوان، فقد أرسلنا إليه رابطًا لاختيار كلمة مرور جديدة.</value>
+  </data>
+  <data name="Reset.Invalid" xml:space="preserve">
+    <value>رابط إعادة تعيين كلمة المرور هذا غير صالح أو منتهي الصلاحية. يعمل كل رابط مرة واحدة ولمدة ساعة.</value>
+  </data>
+  <data name="Reset.Title" xml:space="preserve">
+    <value>اختر كلمة مرور جديدة</value>
+  </data>
+  <data name="Reset.Description" xml:space="preserve">
+    <value>تنتهي جميع جلسات تسجيل الدخول الأخرى للحساب.</value>
+  </data>
+  <data name="Field.NewPassword" xml:space="preserve">
+    <value>كلمة المرور الجديدة</value>
+  </data>
+  <data name="Reset.Submit" xml:space="preserve">
+    <value>تغيير كلمة المرور</value>
+  </data>
+  <data name="Reset.Failed" xml:space="preserve">
+    <value>تعذّر تغيير كلمة المرور.</value>
+  </data>
+  <data name="Reset.Done.Title" xml:space="preserve">
+    <value>تم تغيير كلمة المرور</value>
+  </data>
+  <data name="Reset.Done.Body" xml:space="preserve">
+    <value>سجّل الدخول بكلمة المرور الجديدة. انتهت جميع جلسات تسجيل الدخول الأخرى لهذا الحساب.</value>
+  </data>
+</root>

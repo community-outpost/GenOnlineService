@@ -167,6 +167,10 @@ namespace GenOnlineService.Api
 		public string Status { get; init; } = "";
 		public DateTime CreatedAt { get; init; }
 		public DateTime? ResolvedAt { get; init; }
+
+		// Who closed the report: user, service_account or cli, and the player when a staff member did
+		public string? ResolvedByKind { get; init; }
+		public Member? ResolvedBy { get; init; }
 		public string? ResolutionNote { get; init; }
 		// The text of the reported message as the report stored it, in GET /api/v1/reports/search only
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

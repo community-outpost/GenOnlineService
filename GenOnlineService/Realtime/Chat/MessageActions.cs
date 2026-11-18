@@ -223,24 +223,8 @@ namespace GenOnlineService.Realtime
 		{
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync();
 			List<PlayerReport> rows = await Database.Chat.GetReports(db, status, ReportListLimit);
-			Dictionary<long, (string Name, int Tag)> names = await RealtimeHub.NamesAsync(db, rows.SelectMany(r => new[] { r.ReporterID, r.ReportedUserID }));
-			Member MemberOf(long id) => RealtimeMembers.Of(id, names);
-
-			return new ReportsResponse
-			{
-				Reports = rows.Select(r => new ReportInfo
-				{
-					Id = r.ID,
-					Reporter = MemberOf(r.ReporterID),
-					Reported = MemberOf(r.ReportedUserID),
-					MessageId = r.MessageID?.ToString(CultureInfo.InvariantCulture),
-					Reason = r.Reason,
-					Status = r.Status,
-					CreatedAt = r.CreatedAt,
-					ResolvedAt = r.ResolvedAt,
-					ResolutionNote = r.ResolutionNote
-				}).ToArray()
-			};
+			Dictionary<long, (string Name, int Tag)> names = await RealtimeHub.NamesAsync(db, rows.SelectMany(Rest.StaffOverview.ReportUserIDs));
+			return new ReportsResponse { Reports = rows.Select(r => Rest.StaffOverview.ReportOf(r, names)).ToArray() };
 		}
 
 		// Resolves an open report as actioned or dismissed with an audit row, a report resolved before stays as it is

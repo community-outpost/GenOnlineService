@@ -53,7 +53,7 @@ users
   name_key                varchar(255)           -- the plugin's look-alike key (NameKey); unique (name_key, name_tag), utf8mb4_bin on MySQL
   email                   varchar(254) null
   email_normalized        varchar(254) null unique
-  email_confirmed_at      timestamp null
+  email_confirmed_at      timestamp null         -- the address is confirmed (mail link); password accounts that existed before T4c got created_at (PasswordAccountsConfirmed)
   password_hash           varchar(255) null      -- null without local passwords
   security_stamp          varchar(64)
   authenticator_key       varchar(512) null      -- TOTP key, encrypted with Data Protection; null without an authenticator app
@@ -228,6 +228,7 @@ faction_stats_daily       day date, side smallint, matches int, wins int     pk 
 ```
 anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
   report_id pk (kept), user_id, match_id, ... (columns as today, snake_case)
+  created_at null                     -- when the row was raised; null for rows stored before the column (no backfill)
   reviewed_at null, reviewed_by null (users.id)   -- set once by a staff review, the row is kept
   index (reviewed_at)
 ```

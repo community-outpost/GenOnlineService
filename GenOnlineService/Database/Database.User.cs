@@ -241,20 +241,6 @@ namespace Database
 
 		private const int FavoriteMapMaxLength = 128;
 
-		private static readonly Func<AppDbContext, long, Task<string?>> _getDisplayNameQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.Users
-				  .AsNoTracking()
-				  .Where(u => u.ID == userId)
-				  .Select(u => u.Username)
-				  .FirstOrDefault());
-
-		private static readonly Func<AppDbContext, long, Task<PlayerPreference?>> _getPreferencesQuery =
-			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
-				db.PlayerPreferences
-				  .AsNoTracking()
-				  .FirstOrDefault(p => p.UserID == userId));
-
 		public static async Task<Dictionary<long, EloData>> GetBulkELOData(AppDbContext db, List<long> userIds)
 		{
 			Dictionary<long, EloData> results = new();
@@ -363,7 +349,7 @@ namespace Database
 		{
 			try
 			{
-				return await _getDisplayNameQuery(db, userId) ?? string.Empty;
+				return await db.Users.AsNoTracking().Where(u => u.ID == userId).Select(u => u.Username).FirstOrDefaultAsync() ?? string.Empty;
 			}
 			catch (Exception ex)
 			{
@@ -377,7 +363,7 @@ namespace Database
 		{
 			try
 			{
-				PlayerPreference? row = await _getPreferencesQuery(db, userId);
+				PlayerPreference? row = await db.PlayerPreferences.AsNoTracking().FirstOrDefaultAsync(p => p.UserID == userId);
 				if (row == null)
 				{
 					return new UserLobbyPreferences();

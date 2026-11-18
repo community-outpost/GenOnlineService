@@ -114,7 +114,7 @@ else
             return;
         }
 
-        PortalAnswer<PortalAuditPage> answer = await Api.GetAuditAsync(null, null, "announcement", null, RecentCount, CancellationToken.None);
+        PortalAnswer<PortalAuditPage> answer = await Api.GetAuditAsync(new PortalAuditQuery { Action = "announcement" }, null, RecentCount, CancellationToken.None);
         m_recent = answer.Value?.AuditEvents;
         m_recentError = answer.Ok ? null : answer.Error;
     }

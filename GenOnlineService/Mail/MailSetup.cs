@@ -27,10 +27,27 @@ namespace GenOnlineService.Mail
 		public static MailSettings AddMail(this IServiceCollection services, IConfiguration config)
 		{
 			MailSettings settings = MailSettings.Read(config);
+			if (settings.Enabled)
+			{
+				PublicOrigin(config["Accounts:issuer"]);
+			}
 			services.AddSingleton(settings);
 			services.AddHttpClient(HttpClientName);
 			services.AddTransient<IEmailSender>(sp => EmailSenders.Create(settings, sp.GetRequiredService<IHttpClientFactory>().CreateClient(HttpClientName)));
 			return settings;
+		}
+
+		// The origin of account mail links: Accounts:issuer, never the request's Host header (which any client sets, and
+		// AllowedHosts is "*"), so a forged Host cannot send a victim a link to another site. Required with mail.
+		public static string PublicOrigin(string? issuer)
+		{
+			string value = (issuer ?? String.Empty).Trim();
+			if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? parsed) || (parsed.Scheme != Uri.UriSchemeHttps && parsed.Scheme != Uri.UriSchemeHttp)
+				|| !String.IsNullOrEmpty(parsed.Query) || !String.IsNullOrEmpty(parsed.Fragment))
+			{
+				throw new InvalidOperationException("Accounts:issuer is required when Mail:delivery_method is not none: account mail links use this public address of the sign-in pages (for example https://login.generals.online/), never the request's Host header.");
+			}
+			return value.TrimEnd('/');
 		}
 	}
 }

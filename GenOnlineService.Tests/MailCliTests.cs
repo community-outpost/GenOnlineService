@@ -45,6 +45,9 @@ public class MailCliTests
 
 	private static readonly (string, string)[] s_resend = [("Mail:delivery_method", "resend"), ("Mail:from", "noreply@generals.online"), ("Mail:resend:api_key", "k")];
 
+	// the service also needs the public origin of its mail links
+	private static readonly (string, string)[] s_resendService = [.. s_resend, ("Accounts:issuer", "https://login.generals.online/")];
+
 	[Theory]
 	[InlineData("mail")]
 	[InlineData("mail", "test")]
@@ -97,7 +100,7 @@ public class MailCliTests
 	public void AddMailRegistersTheConfiguredSender()
 	{
 		var services = new ServiceCollection();
-		services.AddMail(Config(s_resend));
+		services.AddMail(Config(s_resendService));
 		using ServiceProvider provider = services.BuildServiceProvider();
 		Assert.IsType<ResendEmailSender>(provider.GetRequiredService<IEmailSender>());
 		Assert.Equal(DeliveryMethod.Resend, provider.GetRequiredService<MailSettings>().DeliveryMethod);
@@ -108,6 +111,29 @@ public class MailCliTests
 		Assert.False(noneProvider.GetRequiredService<IEmailSender>().Enabled);
 	}
 
+	// with mail, links are built from the configured public origin only (never the request's Host), so the service
+	// refuses to start without one; mail none needs none
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	[InlineData("not a url")]
+	[InlineData("ftp://login.generals.online/")]
+	public void AddMailRequiresThePublicOriginOfItsLinks(string? issuer)
+	{
+		var values = issuer == null ? s_resend : [.. s_resend, ("Accounts:issuer", issuer)];
+		var refused = Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddMail(Config(values)));
+		Assert.Contains("Accounts:issuer", refused.Message);
+	}
+
+	[Fact]
+	public void AddMailWithoutAMethodNeedsNoOrigin()
+	{
+		var services = new ServiceCollection();
+		services.AddMail(Config());
+		using ServiceProvider provider = services.BuildServiceProvider();
+		Assert.False(provider.GetRequiredService<IEmailSender>().Enabled);
+	}
+
 	// a misconfigured method stops the start, naming the key
 	[Fact]
 	public void AddMailRefusesAMisconfiguredMethod()
@@ -115,5 +141,42 @@ public class MailCliTests
 		var services = new ServiceCollection();
 		var refused = Assert.Throws<InvalidOperationException>(() => services.AddMail(Config(("Mail:delivery_method", "resend"), ("Mail:from", "a@b.org"))));
 		Assert.Contains("Mail:resend:api_key", refused.Message);
+	}
+
+	// the service binary dispatches "mail" to the CLI instead of starting the web host (exit 1: no method configured)
+	[Fact]
+	public async Task TheServiceRunsTheMailCommand()
+	{
+		string exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "GenOnlineService.exe" : "GenOnlineService");
+		string folder = Directory.CreateTempSubdirectory("go-mail-cli-").FullName;
+		try
+		{
+			var start = new System.Diagnostics.ProcessStartInfo(exe, ["mail", "test", "ops@example.org"])
+			{
+				WorkingDirectory = folder,
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+				UseShellExecute = false
+			};
+			start.Environment["Mail__delivery_method"] = "none";
+			using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)!;
+			Task<string> output = process.StandardOutput.ReadToEndAsync();
+			using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+			try
+			{
+				await process.WaitForExitAsync(timeout.Token);
+			}
+			catch (OperationCanceledException)
+			{
+				process.Kill(entireProcessTree: true);
+				Assert.Fail("\"mail test\" did not exit; the service started instead");
+			}
+			Assert.Equal(1, process.ExitCode);
+			Assert.Contains("Mail:delivery_method is none", await output);
+		}
+		finally
+		{
+			Directory.Delete(folder, recursive: true);
+		}
 	}
 }
