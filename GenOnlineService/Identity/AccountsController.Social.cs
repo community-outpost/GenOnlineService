@@ -171,9 +171,11 @@ namespace GenOnlineService.Identity
 		[HttpPost("~" + FriendsPath + "/remove")]
 		public Task<IActionResult> FriendsRemove([FromForm(Name = UserField)] string? id) => SocialPost(FriendsPath, user => SocialRow(id, target => SocialActions.RemoveFriendAsync(Db, user.ID, target), "removed"));
 
-		// The block in a friend's menu, by the id its form posts; what SocialActions refuses (an admin) is the neutral answer
+		// The block in a friend's menu, by the id its form posts; what SocialActions refuses (an admin) is the neutral answer.
+		// It takes any id, so it shares the add limit: otherwise it would answer "is there a player with this id" without one.
 		[HttpPost("~" + FriendsPath + "/block")]
-		public Task<IActionResult> FriendsBlock([FromForm(Name = UserField)] string? id) => SocialPost(FriendsPath, user => SocialRow(id, target => SocialActions.BlockAsync(Db, user.ID, target), "blocked", refused: "neutral"));
+		public Task<IActionResult> FriendsBlock([FromForm(Name = UserField)] string? id) => SocialPost(FriendsPath, user =>
+			SocialTryConsume(user) ? SocialRow(id, target => SocialActions.BlockAsync(Db, user.ID, target), "blocked", refused: "neutral") : Task.FromResult("toomany"));
 
 		private string PresenceOf(FriendMember friend)
 		{

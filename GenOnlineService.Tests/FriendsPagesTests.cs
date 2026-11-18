@@ -596,6 +596,12 @@ public class FriendsPagesTests
 		Assert.Contains("class=\"gp-side\"", limited.Body);
 		Assert.False(await HasRequest(probe, me.ID, target));
 
+		// the block in a friend's menu takes any id, so it shares the limit too
+		PageResponse limitedBlock = await browser.Post("/profile/friends/block", new() { ["__go_consent_token"] = token, ["user_id"] = target.ToString() });
+		Assert.Equal(429, limitedBlock.Status);
+		Assert.Contains("Too many tries.", limitedBlock.Body);
+		Assert.False(await HasBlock(probe, me.ID, target));
+
 		// the limit is the account's: another account still adds, and the limited one still accepts and removes
 		Assert.Equal("/profile/friends?r=sent", (await Post(fresh, Friends, "/profile/friends/add", ("player", target.ToString()))).Location);
 		Assert.True(await HasRequest(probe, other.ID, target));
