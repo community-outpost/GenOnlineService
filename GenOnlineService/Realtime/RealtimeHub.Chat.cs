@@ -276,12 +276,38 @@ namespace GenOnlineService.Realtime
 			};
 			await deliver(message);
 
+			if (kind == "channel" && mentions.Length > 0)
+			{
+				await NotifyMentionedAsync(author, targetID, message, mentions);
+			}
+
 			if (kind == "channel" && Program.g_Discord != null)
 			{
 				RealtimeOut.Fire(Program.g_Discord.SendNetworkRoomChat((int)targetID, author, authorData.m_strDisplayName, content));
 			}
 
 			return Result.Success(new SendMessageData { MessageId = messageID });
+		}
+
+		// MentionCreate for the mentioned users outside the channel; the message is already stored and delivered, so a failure loses only the notice
+		private async Task NotifyMentionedAsync(Int64 author, Int64 channelID, Message message, long[] mentions)
+		{
+			try
+			{
+				// the block read is spent only when someone could be notified
+				if (!mentions.Any(id => id != author && MentionNotices.PresenceOf(id, channelID) == MentionPresence.Outside))
+				{
+					return;
+				}
+
+				HashSet<long> blocked = (await BlockedEitherWayOfAsync(author)).ToHashSet();
+				long[] recipients = MentionNotices.Recipients(author, channelID, mentions, id => MentionNotices.PresenceOf(id, channelID), blocked, MentionNotices.Throttle);
+				await MentionNotices.SendAsync(message, recipients, RealtimeOut.User);
+			}
+			catch (Exception ex)
+			{
+				m_log.LogWarning(ex, "MentionCreate for message {MessageId} failed", message.Id);
+			}
 		}
 
 		private partial async Task RestoreChannelAsync(UserSession session)

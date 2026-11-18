@@ -554,6 +554,13 @@ namespace GenOnlineService.Realtime
 		public bool HasMore { get; init; }
 	}
 
+	// MentionCreate: a channel message mentioned the user while none of their connections was in the channel
+	public sealed record MentionCreateEvent
+	{
+		public string ChannelId { get; init; } = "";
+		public Message Message { get; init; } = new Message();
+	}
+
 	// MessageDelete
 	public sealed record MessageRefEvent
 	{
