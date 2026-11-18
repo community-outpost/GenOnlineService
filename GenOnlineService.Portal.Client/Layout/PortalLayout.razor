@@ -1,28 +1,68 @@
-@* The staff dashboard shell from Blazor Blueprint's sidebar blueprints: groups with icons (sidebar-03) that collapse to an
-   icon rail (sidebar-07), a player search in the header (sidebar-06), the user menu in the footer (sidebar-08), and a sticky
-   top bar with the breadcrumb (nav-02). Dark only, in generals.css's stone palette with the logo's gold as the one
-   accent *@
+@* The staff shell of the design's Admin board: one top bar over the whole area with the logo, the player search in the
+   middle and the account menu on the right, and the Staff sidebar beside the page. Blueprint's sidebar keeps the groups
+   and turns into a sheet on a phone, opened from the menu button of the top bar *@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject PortalApi Api
 @inject NavigationManager Navigation
 
 <a href="#content" class="go-skip">Skip to content</a>
-<BbSidebarProvider>
-    <BbSidebar>
-        <BbSidebarHeader>
-            <BbSidebarHeaderContent>
-                <a href="@PortalRoutes.OverviewPage" class="go-admin-logo" aria-label="Generals Online staff area">
-                    <img src="@PortalRoutes.LogoPath" alt="Generals Online" width="190" height="69" />
-                </a>
-            </BbSidebarHeaderContent>
+<BbSidebarProvider Class="go-admin-shell">
+    <header class="go-admin-top">
+        <BbSidebarTrigger Class="go-admin-trigger" />
+        <a href="@PortalRoutes.OverviewPage" class="go-admin-logo" aria-label="Generals Online staff area">
+            <img src="@PortalRoutes.LogoPath" alt="Generals Online" width="74" height="28" />
+        </a>
+        <div class="go-admin-search-slot">
             @if (Api.Session?.Staff == true)
             {
                 <form class="go-admin-search" role="search" @onsubmit="Search">
-                    <LucideIcon Name="search" Class="go-admin-search-icon bb:h-4 bb:w-4 bb:text-muted-foreground" />
-                    <BbInput Type="InputType.Search" @bind-Value="m_search" UpdateTiming="UpdateTiming.Immediate" Placeholder="Find a player…" AriaLabel="Find a player by name or id" Class="go-admin-search-input bb:h-8" autocomplete="off" spellcheck="false" />
+                    <LucideIcon Name="search" Class="go-admin-search-icon bb:h-4 bb:w-4" />
+                    <BbInput Type="InputType.Search" @bind-Value="m_search" UpdateTiming="UpdateTiming.Immediate" Placeholder="Find a player by name or id…" AriaLabel="Find a player by name or id" Class="go-admin-search-input" autocomplete="off" spellcheck="false" />
                 </form>
             }
+        </div>
+        @if (Api.Session is PortalSessionInfo session)
+        {
+            <BbDropdownMenu>
+                <BbDropdownMenuTrigger>
+                    <BbButton Variant="ButtonVariant.Ghost" Class="go-admin-me" AriaLabel="@($"Account menu, {session.FullName}")" data-testid="user-menu">
+                        <span class="go-admin-avatar" aria-hidden="true">@PortalText.Initials(session.DisplayName)</span>
+                        <bdi class="go-admin-name">@session.DisplayName@if (session.Tag != null)
+                            {
+                                <span class="go-admin-tag">#@session.Tag</span>
+                            }</bdi>
+                        <LucideIcon Name="chevron-down" Class="go-admin-me-chevron bb:h-4 bb:w-4" />
+                    </BbButton>
+                </BbDropdownMenuTrigger>
+                <BbDropdownMenuContent Side="PopoverSide.Bottom" Align="PopoverAlign.End" Class="go-admin-menu">
+                    <div class="go-admin-menu-head">
+                        <span class="go-admin-avatar go-admin-avatar-lg" aria-hidden="true">@PortalText.Initials(session.DisplayName)</span>
+                        <div class="go-admin-menu-who">
+                            <bdi class="go-admin-name">@session.DisplayName@if (session.Tag != null)
+                                {
+                                    <span class="go-admin-tag">#@session.Tag</span>
+                                }</bdi>
+                            <span class="go-admin-role">@RoleText(session)</span>
+                        </div>
+                    </div>
+                    <BbDropdownMenuSeparator />
+                    <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.AccountPage, forceLoad: true))" data-testid="edit-profile">
+                        <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:me-2" />
+                        Edit profile
+                    </BbDropdownMenuItem>
+                    <BbDropdownMenuSeparator />
+                    <BbDropdownMenuItem OnClick="@(_ => Api.SignOutAsync())" data-testid="sign-out">
+                        <LucideIcon Name="log-out" Class="bb:h-4 bb:w-4 bb:me-2" />
+                        Sign out
+                    </BbDropdownMenuItem>
+                </BbDropdownMenuContent>
+            </BbDropdownMenu>
+        }
+    </header>
+    <BbSidebar>
+        <BbSidebarHeader>
+            <span class="go-admin-area">Staff</span>
         </BbSidebarHeader>
         <BbSidebarContent>
             @if (Api.Session?.Staff == true)
@@ -164,12 +204,6 @@
                                         <span>Partners</span>
                                     </BbSidebarMenuButton>
                                 </BbSidebarMenuItem>
-                                <BbSidebarMenuItem>
-                                    <BbSidebarMenuButton Href="@PortalRoutes.ApiDocs" Tooltip="API docs">
-                                        <LucideIcon Name="book-open" Class="bb:h-4 bb:w-4" />
-                                        <span>API docs</span>
-                                    </BbSidebarMenuButton>
-                                </BbSidebarMenuItem>
                             }
                             @if (staff.Can(PortalPermissions.AuditRead))
                             {
@@ -186,73 +220,38 @@
             }
         </BbSidebarContent>
         <BbSidebarFooter>
-            @if (Api.Session is PortalSessionInfo session)
+            @if (Api.Session?.Staff == true)
             {
-                <BbDropdownMenu>
-                    <BbDropdownMenuTrigger>
-                        <BbButton Variant="ButtonVariant.Ghost" Class="go-admin-user bb:w-full bb:justify-start bb:gap-2 bb:px-2 bb:h-12 bb:overflow-hidden" AriaLabel="User menu" data-testid="user-menu">
-                            <BbAvatar Size="AvatarSize.Small">
-                                <BbAvatarFallback>@PortalText.Initials(session.DisplayName)</BbAvatarFallback>
-                            </BbAvatar>
-                            <div class="go-admin-user-text bb:flex bb:flex-col bb:items-start bb:text-start bb:flex-1 bb:min-w-0">
-                                <span class="bb:text-sm bb:font-medium bb:truncate">@session.FullName</span>
-                                <span class="bb:text-xs bb:text-muted-foreground bb:truncate">@RoleText(session)</span>
-                            </div>
-                            <LucideIcon Name="chevrons-up-down" Class="go-admin-user-text bb:h-4 bb:w-4 bb:text-muted-foreground" />
-                        </BbButton>
-                    </BbDropdownMenuTrigger>
-                    <BbDropdownMenuContent Side="PopoverSide.Top" Align="PopoverAlign.Start" Class="go-admin-user-menu">
-                        <div class="bb:flex bb:items-center bb:gap-2 bb:p-2">
-                            <BbAvatar Size="AvatarSize.Small">
-                                <BbAvatarFallback>@PortalText.Initials(session.DisplayName)</BbAvatarFallback>
-                            </BbAvatar>
-                            <div class="bb:flex bb:flex-col bb:min-w-0">
-                                <span class="bb:text-sm bb:font-medium bb:truncate">@session.FullName</span>
-                                <span class="bb:text-xs bb:text-muted-foreground bb:truncate">@RoleText(session)</span>
-                            </div>
-                        </div>
-                        <BbDropdownMenuSeparator />
-                        <BbDropdownMenuItem OnClick="@(_ => Navigation.NavigateTo(PortalRoutes.AccountPage, forceLoad: true))" data-testid="back-to-profile">
-                            <LucideIcon Name="user" Class="bb:h-4 bb:w-4 bb:me-2" />
-                            Back to profile
-                        </BbDropdownMenuItem>
-                        <BbDropdownMenuSeparator />
-                        <BbDropdownMenuItem Class="bb:text-destructive" OnClick="@(_ => Api.SignOutAsync())" data-testid="sign-out">
-                            <LucideIcon Name="log-out" Class="bb:h-4 bb:w-4 bb:me-2" />
-                            Sign out
-                        </BbDropdownMenuItem>
-                    </BbDropdownMenuContent>
-                </BbDropdownMenu>
+                <BbSidebarMenu>
+                    <BbSidebarMenuItem>
+                        <BbSidebarMenuButton Href="@PortalRoutes.ApiDocs" Tooltip="Help: the API docs">
+                            <LucideIcon Name="life-buoy" Class="bb:h-4 bb:w-4" />
+                            <span>Help</span>
+                        </BbSidebarMenuButton>
+                    </BbSidebarMenuItem>
+                </BbSidebarMenu>
             }
         </BbSidebarFooter>
-        <BbSidebarRail />
     </BbSidebar>
     <BbSidebarInset Class="go-admin-inset">
-        <header class="go-admin-topbar">
-            <BbSidebarTrigger />
-            <BbSeparator Orientation="SeparatorOrientation.Vertical" Class="bb:h-4" />
-            <BbBreadcrumb>
-                <BbBreadcrumbList>
-                    <BbBreadcrumbItem>
-                        <BbBreadcrumbLink Href="@PortalRoutes.OverviewPage">Staff</BbBreadcrumbLink>
-                    </BbBreadcrumbItem>
-                    @foreach ((string text, string? href) in Trail())
-                    {
-                        <BbBreadcrumbSeparator />
-                        <BbBreadcrumbItem>
-                            @if (href == null)
-                            {
-                                <BbBreadcrumbPage>@text</BbBreadcrumbPage>
-                            }
-                            else
-                            {
-                                <BbBreadcrumbLink Href="@href">@text</BbBreadcrumbLink>
-                            }
-                        </BbBreadcrumbItem>
-                    }
-                </BbBreadcrumbList>
-            </BbBreadcrumb>
-        </header>
+        <nav class="go-admin-crumbs" aria-label="Breadcrumb">
+            <ol>
+                <li><a href="@PortalRoutes.OverviewPage">Staff</a></li>
+                @foreach ((string text, string? href) in Trail())
+                {
+                    <li>
+                        @if (href == null)
+                        {
+                            <span aria-current="page">@text</span>
+                        }
+                        else
+                        {
+                            <a href="@href">@text</a>
+                        }
+                    </li>
+                }
+            </ol>
+        </nav>
         <div class="go-page" id="content" tabindex="-1">
             @if (m_failed)
             {

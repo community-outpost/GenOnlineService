@@ -59,8 +59,8 @@ namespace GenOnlineService.Portal.Client
 		public const string SignOut = "users/sign_out";
 
 		public const string AccountPage = "/profile";
-		// the logo of the sign-in pages (PortalLook.LogoPath on the host)
-		public const string LogoPath = "/portal/logo.png";
+		// the radar-van logo of every portal page, PortalLook.LogoPath on the host
+		public const string LogoPath = "/portal/logo.svg";
 		public const string AdminPages = "/admin";
 		// the dashboard is the start page of the staff area
 		public const string OverviewPage = AdminPages;

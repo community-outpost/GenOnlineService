@@ -22,6 +22,8 @@
   --sidebar-badge-color: var(--go-color-accent-default);
   --bb-card-shadow: none;
   --bb-default-font-family: var(--go-font-body);
+  --sidebar: var(--go-color-bg-panel);
+  --sidebar-accent: var(--go-color-bg-surface);
 }
 
 .dark body {
@@ -32,7 +34,7 @@
 /* no double-tap zoom delay; anchors land below the sticky top bar of the staff pages */
 html.dark {
   touch-action: manipulation;
-  scroll-padding-top: 4.5rem;
+  scroll-padding-top: 4rem;
 }
 
 /* the round pieces of the components (avatars, skeletons, timeline marks) square like everything else */
@@ -554,151 +556,368 @@ html.dark {
   color: var(--go-text-2);
 }
 
-/* ===== The staff pages (/admin): GitLab's shell ===== */
+/* ===== The staff pages (/admin): the shell of the design's Admin board =====
+   From here to the sign-in pages every value is a --go-* token, and every rule places things by the start and end of a
+   line, never by left and right. */
 
-/* the logo heads the sidebar, and shrinks to the shield when the sidebar collapses to its icon rail (sidebar-07) */
-.go-admin-logo {
+/* one top bar over the whole area, then the sidebar and the page side by side */
+.go-admin-shell {
+  --sidebar-width: 15rem;
   display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--go-color-bg-ground);
+}
+
+.go-admin-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex: 0 0 100%;
   align-items: center;
-  height: 2.5rem;
-  overflow: hidden;
+  gap: var(--go-space-4);
+  height: var(--go-space-12);
+  padding: 0 var(--go-space-4);
+  background: var(--go-color-bg-topbar);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+}
+
+.go-admin-logo {
+  display: block;
+  flex: none;
 }
 
 .go-admin-logo > img {
   display: block;
-  height: 2rem;
   width: auto;
-  max-width: 100%;
-  object-fit: contain;
-  object-position: left center;
+  height: 28px;
 }
 
-aside[data-collapsible="icon"] .go-admin-logo {
-  width: 2rem;
+/* the menu button opens the sidebar sheet on a phone, and a wide screen always shows the sidebar */
+@media (min-width: 48rem) {
+  .go-admin-trigger {
+    display: none;
+  }
 }
 
-aside[data-collapsible="icon"] .go-admin-logo > img {
-  max-width: none;
+/* the player search in the middle of the top bar, a magnifier inside its start edge */
+.go-admin-search-slot {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
 }
 
-/* the group captions as Swiss labels */
-.dark [data-sidebar="group-label"] {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--go-text-3);
-}
-
-/* a menu item: square, no fill; hover raises the label from 70% to full opacity */
-.dark [data-sidebar="menu-button"] {
-  position: relative;
-  border-radius: 0;
-  background: transparent;
-  color: var(--go-text-2);
-}
-
-.dark [data-sidebar="menu-button"]:hover {
-  background: transparent;
-  color: var(--foreground);
-}
-
-/* the active item, GitLab's marker as one cue: a straight full-height bar flush with its left edge, drawn as a box so it
-   cannot curve, and the label at full opacity and medium weight; the same in the collapsed icon rail */
-.dark [data-sidebar="menu-button"][data-active="true"] {
-  background: transparent;
-  box-shadow: none;
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.dark [data-sidebar="menu-button"][data-active="true"]::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  background: var(--go-gold);
-}
-
-/* sidebar-06's search field, a magnifier inside its left edge; the rail has no room for it */
 .go-admin-search {
   position: relative;
+  width: 100%;
+  max-width: 460px;
   margin: 0;
 }
 
 .go-admin-search-icon {
   position: absolute;
   top: 50%;
-  left: 0.5rem;
+  inset-inline-start: 10px;
   transform: translateY(-50%);
+  color: var(--go-color-text-muted);
   pointer-events: none;
 }
 
-.go-admin-search .go-admin-search-input {
-  padding-left: 2rem;
+.dark .go-admin-search .go-admin-search-input {
+  height: var(--go-space-8);
+  padding-inline: 34px var(--go-space-3);
+  background: var(--go-color-bg-surface);
+  font-size: var(--go-font-size-sm);
 }
 
-aside[data-collapsible="icon"] .go-admin-search,
-aside[data-collapsible="icon"] .go-admin-user-text {
-  display: none;
+/* the account menu at the end of the top bar: the avatar, the name and its tag */
+.dark .go-admin-me {
+  gap: var(--go-space-2);
+  height: 36px;
+  padding: 0 var(--go-space-2);
+  color: var(--go-color-text-muted);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
-aside[data-collapsible="icon"] .go-admin-user {
-  justify-content: center;
-  padding: 0;
+.dark .go-admin-me:hover,
+.dark .go-admin-me[aria-expanded="true"] {
+  background: var(--go-color-bg-raised);
 }
 
-.go-admin-user-menu {
-  width: 14rem;
+.go-admin-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-xs);
 }
 
-/* the content column beside the sidebar may shrink below its widest row, so a phone never scrolls sideways */
-.go-admin-inset {
+.go-admin-me:hover .go-admin-avatar,
+.go-admin-me[aria-expanded="true"] .go-admin-avatar {
+  background: var(--go-color-bg-surface);
+}
+
+.go-admin-avatar-lg {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.go-admin-name {
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-primary);
+  white-space: nowrap;
+}
+
+.go-admin-tag {
+  font-weight: var(--go-font-weight-regular);
+  color: var(--go-color-text-muted);
+}
+
+@media (max-width: 39.99rem) {
+  .go-admin-me .go-admin-name,
+  .go-admin-me-chevron {
+    display: none;
+  }
+}
+
+.dark .go-admin-menu {
+  width: 260px;
+  padding: 6px;
+  background: var(--go-color-bg-surface);
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  box-shadow: var(--shadow-xl);
+}
+
+.go-admin-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--go-space-2) 10px 10px;
+}
+
+.go-admin-menu-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-/* the top bar over every page: the sidebar toggle and the breadcrumb, kept in view while the page scrolls */
-.go-admin-topbar {
+.go-admin-role {
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+}
+
+.dark .go-admin-menu [role="menuitem"] {
+  gap: 10px;
+  height: var(--go-space-8);
+  min-height: 0;
+  padding: 0 10px;
+  border-radius: var(--go-radius-md);
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+}
+
+.dark .go-admin-menu [role="menuitem"]:hover,
+.dark .go-admin-menu [role="menuitem"]:focus {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+}
+
+.dark .go-admin-menu [role="menuitem"] svg {
+  margin: 0;
+}
+
+.dark .go-admin-menu [role="separator"] {
+  margin: 6px 0;
+  background: var(--go-color-border-subtle);
+}
+
+/* the Staff sidebar: the panel beside the page and below the top bar */
+.go-admin-shell > aside {
   position: sticky;
-  top: 0;
-  z-index: 10;
+  top: var(--go-space-12);
+  align-self: flex-start;
+  height: calc(100vh - var(--go-space-12));
+  height: calc(100dvh - var(--go-space-12));
+  min-height: 0;
+  border-inline-end: 1px solid var(--go-color-border-subtle);
+}
+
+.dark [data-sidebar="header"] {
+  padding: var(--go-space-3) var(--go-space-2) 0;
+}
+
+.dark [data-sidebar="content"] {
+  gap: 2px;
+  padding: 0 var(--go-space-2);
+}
+
+.dark [data-sidebar="footer"] {
+  padding: var(--go-space-2);
+  border-top: 1px solid var(--go-color-border-subtle);
+}
+
+.dark [data-sidebar="group"] {
+  padding: 0;
+}
+
+/* the area heading names where the staff member is, and is no link */
+.go-admin-area {
+  display: block;
+  padding: var(--go-space-1) var(--go-space-3) var(--go-space-2);
+  font-family: var(--go-font-display);
+  font-weight: var(--go-font-weight-bold);
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-primary);
+}
+
+/* the group captions: small muted words between the items */
+.dark [data-sidebar="group-label"] {
+  height: auto;
+  padding: var(--go-space-3) var(--go-space-3) var(--go-space-1);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+  color: var(--go-color-text-muted);
+}
+
+.dark [data-sidebar="menu"] {
+  gap: 2px;
+}
+
+/* an item at rest has no fill and the secondary text, and a hover raises it to the surface */
+.dark [data-sidebar="menu-button"] {
+  position: relative;
+  gap: 10px;
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  border-radius: var(--go-radius-md);
+  background: transparent;
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+  font-weight: var(--go-font-weight-regular);
+}
+
+.dark [data-sidebar="menu-button"]:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+/* the current item: the raised fill, weight 600 and the tan bar inside its start edge */
+.dark [data-sidebar="menu-button"][data-active="true"],
+.dark [data-sidebar="menu-button"][data-active="true"]:hover {
+  background: var(--go-color-bg-raised);
+  box-shadow: none;
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.dark [data-sidebar="menu-button"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-accent-default);
+}
+
+/* a count of what waits for staff: open reports and unreviewed rows */
+.dark [data-sidebar="menu-badge"] {
+  top: 6px;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--go-radius-sm);
+  background: var(--go-color-accent-tint-14);
+  color: var(--go-color-accent-default);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+/* the page beside the sidebar may shrink below its widest row, so a phone never scrolls sideways. Its basis keeps it off
+   the line of the top bar when a phone hides the sidebar */
+.go-admin-inset {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+/* the breadcrumb: plain muted words over the page title */
+.go-admin-crumbs {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--go-space-4) var(--go-space-4) 0;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+}
+
+.go-admin-crumbs ol {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  height: 3.5rem;
-  padding: 0 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.go-admin-crumbs li + li::before {
+  content: "/";
+  margin-inline: 6px;
+}
+
+.dark .go-admin-crumbs a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dark .go-admin-crumbs a:hover {
+  color: var(--go-color-text-primary);
+}
+
+@media (min-width: 48rem) {
+  .go-admin-crumbs {
+    padding-inline: var(--go-space-8);
+  }
 }
 
 /* one width and padding for every page */
 .go-page {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--go-space-4);
   width: 100%;
   min-width: 0;
   max-width: 80rem;
   margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
+  padding: var(--go-space-4) var(--go-space-4) var(--go-space-12);
 }
 
 @media (min-width: 48rem) {
   .go-page {
-    gap: 2rem;
-    padding: 2rem 2rem 4rem;
+    padding: var(--go-space-4) var(--go-space-8) var(--go-space-12);
   }
 }
 
-/* GitLab's page header: title and description on the left, the actions on the right; stacked on a phone */
+/* the page header: the title and its description at the start, the page's actions at the end, stacked on a phone */
 .go-page-header {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border);
+  gap: var(--go-space-3);
 }
 
 @media (min-width: 48rem) {
@@ -710,10 +929,12 @@ aside[data-collapsible="icon"] .go-admin-user {
 }
 
 .go-page-title {
-  font-size: 1.75rem;
-  font-weight: 300;
-  line-height: 2.25rem;
-  letter-spacing: -0.02em;
+  margin: 0;
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-xl);
+  font-weight: var(--go-font-weight-bold);
+  line-height: 1.2;
+  color: var(--go-color-text-primary);
   text-wrap: balance;
   overflow-wrap: anywhere;
 }
