@@ -31,6 +31,12 @@ The deploy is greenfield: no client of the old routes is served. The game client
 
 New operator routes: personal access tokens, service accounts, player roles, audit events, application settings and announcements (see `docs/api.md`). New permissions `audit.read` and `settings.manage` are held by admins.
 
+### Tags follow the name
+
+Renames no longer keep the tag. A player's tag for a name comes from a keyed hash (`Names:tag_key`) of the player id and the look-alike key of the name, so switching back to a name always brings back the same tag; a tag another player holds or has reserved moves on to the player's next one, so a rename, a chosen name and a staff rename no longer fail with `name.taken` unless every tag of the name is held or reserved. Every `name#tag` a player has held stays reserved for them. Existing players keep their current name and tag.
+
+The migration `NameReservations` adds the `name_reservations` table, and `GenOnlineService migrate` reserves the current and past pairs of existing players. Every environment outside Development needs `Names:tag_key`, a base64 secret of at least 32 bytes, or the service stops at startup. Keep it stable: a new key changes the tags of names players have never held.
+
 ### Match ids are snowflakes
 
 New matches get 48 bit snowflake ids made by the service: 32 bits of seconds since 2026-01-01 UTC, 5 bits of worker slot, 11 bits of sequence (`docs/schema.md`, Match ids). They are JSON numbers below 2^53 like before, never 0, and larger than every older match id, so ordering by id and `GET /api/v1/matches?after_id=` keep working. Older matches keep their ids. Player and lobby ids do not change.

@@ -66,6 +66,9 @@ users
   index (last_sign_in_at desc, id desc), (created_at, id)   -- the staff player list's sorts (StaffListIndexes, built online)
 
 user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
+name_reservations         id, user_id (fk users, cascade), name varchar(32), name_key varchar(255), name_tag int, held_at
+                          every name#tag a user holds or held, kept for them; unique (name_key, name_tag), utf8mb4_bin on MySQL;
+                          filled and rekeyed by "GenOnlineService migrate" (NameReservationBackfill)
 identities                id, user_id, provider varchar(32), extern_uid varchar(128), created_at, last_used_at
                           the provider's id only, never its username (extern_username dropped by IdentitiesKeepIdsOnly)
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
