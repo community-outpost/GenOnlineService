@@ -47,6 +47,9 @@ namespace GenOnlineService.Identity
 		public const string ThemePath = "/portal/theme.css";
 		public const string StylesheetPath = "/_content/BlazorBlueprint.Components/blazorblueprint.css";
 		public const string GeneralsPath = "/portal/generals.css";
+
+		// The node canvas of the automated rules editor, which generals.css themes after it
+		public const string BlowPath = "/_content/Bit.Blow/bit-blow.css";
 		// The design system's tokens (--go-*), linked first on every page, the staff pages included
 		public const string TokensPath = "/portal/tokens.css";
 		// Their self-hosted fonts, linked after the tokens on every page; generals.css declares no font of its own

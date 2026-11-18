@@ -1,0 +1,275 @@
+@* The matches of the automated rules and their review queue, for anticheat.review as the other review lists: newest first,
+   filtered in the address by review state, rule, trigger and outcome, each with the version that fired and the facts
+   that decided it. A pending match is marked reviewed or dismissed *@
+@page "/admin/rules/matches"
+@inject PortalApi Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>Rule matches · Generals Online</PageTitle>
+
+@if (!Api.Session!.Can(PortalPermissions.AnticheatReview))
+{
+    <Refusal Title="Administrators only" Description="Your account does not hold the anticheat.review permission." Icon="shield-x" />
+}
+else
+{
+    <PageHeader Description="Every time an automated rule matched a player. Flag matches, and Enforce matches with a flag action, wait here for review.">
+        <Title>
+            <span class="bb:flex bb:items-center bb:gap-4">
+                <LucideIcon Name="workflow" Class="bb:h-6 bb:w-6 bb:text-muted-foreground" />
+                Rule matches
+            </span>
+        </Title>
+        <Actions>
+            @if (Api.Session.Can(PortalPermissions.RulesManage))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.RulesPage">
+                    <LucideIcon Name="git-fork" Class="bb:h-4 bb:w-4" />
+                    Rules
+                </BbButton>
+            }
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Refresh">
+                <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+                Refresh
+            </BbButton>
+        </Actions>
+    </PageHeader>
+
+    @if (m_error != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>The matches could not load</BbAlertTitle>
+                <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    <BbCard Class="go-filtered">
+        <BbCardContent Class="bb:pt-6">
+            <BbDataGrid @ref="m_grid" @key="m_viewKey" TData="PortalRuleMatch" ItemsProvider="@LoadAsync" ItemKey="@(m => m.Id)" InitialPageSize="20" AriaLabel="Rule matches" data-testid="rule-matches">
+                <Toolbar>
+                    <div class="go-filterbar-selects">
+                        <BbNativeSelect TValue="string" Value="@m_query.Review" ValueChanged="@((string v) => Show(m_query with { Review = v }))" AriaLabel="Review state" Class="bb:w-40" data-testid="match-review">
+                            @foreach (string state in PortalRuleMatchQuery.ReviewStates)
+                            {
+                                <option value="@state">@PortalRuleMatchQuery.ReviewLabel(state)</option>
+                            }
+                        </BbNativeSelect>
+                        @if (m_rules.Count > 0)
+                        {
+                            <BbNativeSelect TValue="string" Value="@(m_query.RuleId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")" ValueChanged="@((string v) => Show(m_query with { RuleId = Int64.TryParse(v, out long id) ? id : null }))" AriaLabel="Rule" Class="bb:w-40">
+                                <option value="">Every rule</option>
+                                @foreach (PortalRule rule in m_rules)
+                                {
+                                    <option value="@rule.Id">@rule.Name</option>
+                                }
+                            </BbNativeSelect>
+                        }
+                        <BbNativeSelect TValue="string" Value="@(m_query.Trigger ?? "")" ValueChanged="@((string v) => Show(m_query with { Trigger = v.Length == 0 ? null : v }))" AriaLabel="Trigger" Class="bb:w-40">
+                            <option value="">Every trigger</option>
+                            @foreach (string trigger in PortalRuleWords.Triggers)
+                            {
+                                <option value="@trigger">@PortalRuleWords.TriggerLabel(trigger)</option>
+                            }
+                        </BbNativeSelect>
+                        <BbNativeSelect TValue="string" Value="@(m_query.Outcome ?? "")" ValueChanged="@((string v) => Show(m_query with { Outcome = v.Length == 0 ? null : v }))" AriaLabel="Outcome" Class="bb:w-40">
+                            <option value="">Every outcome</option>
+                            @foreach (string outcome in PortalRuleMatchQuery.Outcomes)
+                            {
+                                <option value="@outcome">@PortalRuleWords.OutcomeLabel(outcome)</option>
+                            }
+                        </BbNativeSelect>
+                        @if (m_query.RuleId is long ruleID && m_rules.Count == 0)
+                        {
+                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => Show(m_query with { RuleId = null }))">
+                                <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+                                Rule #@ruleID only
+                            </BbButton>
+                        }
+                    </div>
+                </Toolbar>
+                <Columns>
+                    <BbDataGridTemplateColumn TData="PortalRuleMatch" Title="Matched" Width="130px">
+                        <ChildContent Context="match">
+                            <When Value="@match.MatchedAt" />
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    <BbDataGridTemplateColumn TData="PortalRuleMatch" Title="Rule">
+                        <ChildContent Context="match">
+                            @if (Api.Session.Can(PortalPermissions.RulesManage))
+                            {
+                                <BbLink Href="@PortalRoutes.RulePage(match.RuleId)">@(match.RuleName.Length > 0 ? match.RuleName : "Rule #" + match.RuleId)</BbLink>
+                            }
+                            else
+                            {
+                                <span>@(match.RuleName.Length > 0 ? match.RuleName : "Rule #" + match.RuleId)</span>
+                            }
+                            <div class="bb:text-xs bb:text-muted-foreground">version @match.RuleVersion · @PortalRuleWords.TriggerLabel(match.Trigger)</div>
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    <BbDataGridTemplateColumn TData="PortalRuleMatch" Title="Player">
+                        <ChildContent Context="match">
+                            <BbLink Href="@PortalRoutes.PlayerPage(match.Player.Id)">@(match.Player.Name.Length > 0 ? match.Player.FullName : "Player " + match.Player.Id)</BbLink>
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    <BbDataGridTemplateColumn TData="PortalRuleMatch" Title="Outcome" Width="170px">
+                        <ChildContent Context="match">
+                            <div class="go-rule-facts-line">
+                                <BbBadge Variant="@PortalBadges.OfRuleMode(match.Mode)">@PortalRuleWords.ModeLabel(match.Mode)</BbBadge>
+                                <span class="bb:text-sm">@PortalRuleWords.OutcomeLabel(match.Outcome)</span>
+                            </div>
+                            @if (match.Actions.Count > 0)
+                            {
+                                <div class="bb:text-xs bb:text-muted-foreground">@String.Join(", ", match.Actions.Select(PortalRuleWords.ActionLabel))</div>
+                            }
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    <BbDataGridTemplateColumn TData="PortalRuleMatch" Title="Facts">
+                        <ChildContent Context="match">
+                            <RuleFactsList Facts="match.Facts" Catalog="m_catalog" />
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                    <BbDataGridTemplateColumn TData="PortalRuleMatch" Title="Review" Width="210px" Hideable="false">
+                        <ChildContent Context="match">
+                            @if (match.ReviewState == "pending")
+                            {
+                                <div class="go-row-actions">
+                                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => ReviewAsync(match, "reviewed"))" Disabled="@m_busy" data-testid="mark-reviewed">
+                                        <LucideIcon Name="check" Class="bb:h-4 bb:w-4" />
+                                        Reviewed
+                                    </BbButton>
+                                    <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => ReviewAsync(match, "dismissed"))" Disabled="@m_busy" data-testid="dismiss">
+                                        Dismiss
+                                    </BbButton>
+                                </div>
+                            }
+                            else if (match.ReviewState == "none")
+                            {
+                                <span class="go-muted bb:text-sm">not queued</span>
+                            }
+                            else
+                            {
+                                <div class="bb:space-y-1 bb:text-xs">
+                                    <BbBadge Variant="BadgeVariant.Secondary">@match.ReviewState</BbBadge>
+                                    <div class="bb:text-muted-foreground"><When Value="@match.ReviewedAt" /></div>
+                                </div>
+                            }
+                        </ChildContent>
+                    </BbDataGridTemplateColumn>
+                </Columns>
+                <EmptyTemplate>
+                    <BbEmpty Size="EmptySize.Small" Title="@(m_query.Review == "pending" ? "Nothing to review" : "No matches")"
+                             Description="@(m_query.Review == "pending" ? "Every flagged match has been reviewed." : "No match fits these filters.")">
+                        <Icon>
+                            <LucideIcon Name="shield-check" />
+                        </Icon>
+                    </BbEmpty>
+                </EmptyTemplate>
+                <LoadingTemplate>
+                    <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+                </LoadingTemplate>
+            </BbDataGrid>
+        </BbCardContent>
+    </BbCard>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "review")]
+    public string? Review { get; set; }
+
+    [SupplyParameterFromQuery(Name = "rule")]
+    public long? Rule { get; set; }
+
+    [SupplyParameterFromQuery(Name = "trigger")]
+    public string? Trigger { get; set; }
+
+    [SupplyParameterFromQuery(Name = "outcome")]
+    public string? Outcome { get; set; }
+
+    private BbDataGrid<PortalRuleMatch>? m_grid;
+    private PortalRuleMatchQuery m_query = new PortalRuleMatchQuery();
+    private string m_viewKey = "";
+    private string? m_error;
+    private bool m_busy;
+    private PortalRuleCatalog? m_catalog;
+    private List<PortalRule> m_rules = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Api.Session!.Can(PortalPermissions.AnticheatReview))
+        {
+            return;
+        }
+        // the rule names and field labels need rules.manage, without it the rows carry their own names
+        if (Api.Session.Can(PortalPermissions.RulesManage))
+        {
+            m_catalog = (await Api.GetRuleCatalogAsync()).Value;
+            m_rules = (await Api.ListRulesAsync(false)).Value?.Rules.ToList() ?? [];
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        m_query = new PortalRuleMatchQuery
+        {
+            Review = PortalRuleMatchQuery.ReviewStates.Contains(Review ?? "") ? Review! : "pending",
+            RuleId = Rule,
+            Trigger = PortalRuleWords.Triggers.Contains(Trigger ?? "") ? Trigger : null,
+            Outcome = PortalRuleMatchQuery.Outcomes.Contains(Outcome ?? "") ? Outcome : null
+        };
+        m_error = null;
+        m_viewKey = m_query.ToString();
+    }
+
+    // The filters go into the address, so a reload or a shared link keeps them
+    private void Show(PortalRuleMatchQuery query)
+    {
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["review"] = query.Review == "pending" ? null : query.Review,
+            ["rule"] = query.RuleId,
+            ["trigger"] = query.Trigger,
+            ["outcome"] = query.Outcome
+        }), replace: true);
+    }
+
+    private void Refresh() => m_viewKey = m_query + "#" + DateTime.UtcNow.Ticks;
+
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalRuleMatch>> LoadAsync(DataGridRequest request)
+    {
+        PortalAnswer<PortalRuleMatchPage> answer = await Api.ListRuleMatchesAsync(m_query, request.StartIndex, request.Count ?? 20, request.CancellationToken);
+        string? error = answer.Ok ? null : answer.Error;
+        if (error != m_error)
+        {
+            m_error = error;
+            StateHasChanged();
+        }
+        PortalRuleMatchPage page = answer.Value ?? new PortalRuleMatchPage();
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalRuleMatch> { Items = page.Matches.ToList(), TotalItemCount = page.Total };
+    }
+
+    private async Task ReviewAsync(PortalRuleMatch match, string review)
+    {
+        m_busy = true;
+        PortalRuleOutcome<PortalRuleMatch> changed = await Api.ReviewRuleMatchAsync(match.Id, review);
+        m_busy = false;
+        if (changed.Ok)
+        {
+            Toasts.Success($"The match of {match.Player.FullName} is {review}.", review == "reviewed" ? "Marked reviewed" : "Dismissed");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(changed.Error), "Not changed");
+        }
+        if (m_grid != null)
+        {
+            await m_grid.RefreshDataAsync();
+        }
+    }
+}

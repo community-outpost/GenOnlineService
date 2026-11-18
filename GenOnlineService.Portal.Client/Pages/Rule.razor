@@ -1,0 +1,899 @@
+@* The editor of one automated rule: the node canvas with the outline beside it on request and the panel of the selected
+   node, the mode and the switch, saving a new version against the version the editor started from, the preview of the
+   current document, the sweep of the saved version and the versions with the difference of their outlines *@
+@page "/admin/rules/{Id:long}"
+@implements IDisposable
+@inject PortalApi Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>@(m_detail?.Rule.Name ?? "Rule") · Generals Online</PageTitle>
+
+@if (!Api.Session!.Can(PortalPermissions.RulesManage))
+{
+    <Refusal Title="Administrators only" Description="Your account does not hold the rules.manage permission." Icon="shield-x" />
+}
+else if (m_loadError != null)
+{
+    <Refusal Title="@(m_loadError == "not_found" ? "No such rule" : "The rule could not load")" Description="@PortalText.Error(m_loadError)" Icon="search-x" />
+}
+else if (m_detail == null)
+{
+    <div class="bb:space-y-4">
+        <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
+        <BbSkeleton Class="go-skeleton-panel" />
+    </div>
+}
+else
+{
+    PortalRule rule = m_detail.Rule;
+    bool dirty = Dirty;
+    <PageHeader Description="@rule.Description">
+        <Title>@rule.Name</Title>
+        <Below>
+            <div class="go-rule-facts-line">
+                <BbBadge Variant="@PortalBadges.OfRuleMode(rule.Mode)" title="@PortalRuleWords.ModeDescription(rule.Mode)">@PortalRuleWords.ModeLabel(rule.Mode)</BbBadge>
+                <BbBadge Variant="@(rule.Enabled ? BadgeVariant.Secondary : BadgeVariant.Outline)">@(rule.Enabled ? "on" : "off")</BbBadge>
+                <span class="go-muted bb:text-sm">@PortalRuleWords.TriggerLabel(rule.Trigger) · version @m_baseVersion · changed <When Value="@rule.UpdatedAt" />@(rule.UpdatedByPlayer is PortalMember by ? " by " + by.FullName : "")</span>
+                @if (dirty)
+                {
+                    <BbBadge Variant="BadgeVariant.Soft" data-testid="unsaved">unsaved changes</BbBadge>
+                }
+            </div>
+        </Below>
+        <Actions>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="OpenVersionsAsync" data-testid="versions">
+                <LucideIcon Name="history" Class="bb:h-4 bb:w-4" />
+                Versions
+            </BbButton>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="PreviewAsync" Loading="@m_previewBusy" data-testid="preview">
+                <LucideIcon Name="eye" Class="bb:h-4 bb:w-4" />
+                Preview
+            </BbButton>
+            <BbButton Size="ButtonSize.Small" OnClick="OpenSave" Disabled="@(!dirty)" data-testid="save">
+                <LucideIcon Name="save" Class="bb:h-4 bb:w-4" />
+                Save version
+            </BbButton>
+        </Actions>
+    </PageHeader>
+
+    <div class="go-rule-controls">
+        <div class="go-rule-control">
+            <BbLabel For="rule-mode">Mode</BbLabel>
+            <BbNativeSelect @key="m_controlsKey" TValue="string" Id="rule-mode" Value="@rule.Mode" ValueChanged="@((string v) => ChangeModeAsync(v))" Disabled="@m_busy" Class="bb:w-40" data-testid="rule-mode">
+                @foreach (string mode in PortalRuleWords.Modes)
+                {
+                    <option value="@mode">@PortalRuleWords.ModeLabel(mode)</option>
+                }
+            </BbNativeSelect>
+            <span class="go-rule-hint">@PortalRuleWords.ModeDescription(rule.Mode)</span>
+        </div>
+        <div class="go-rule-control">
+            <BbLabel For="rule-enabled">Enabled</BbLabel>
+            <BbSwitch @key="m_controlsKey" Id="rule-enabled" Checked="@rule.Enabled" CheckedChanged="@((bool on) => ChangeEnabledAsync(on))" Disabled="@m_busy" />
+            <span class="go-rule-hint">@(rule.Enabled ? "Runs on every " + PortalRuleWords.TriggerLabel(rule.Trigger).ToLowerInvariant() + "." : "Runs only in a preview or a sweep.")</span>
+        </div>
+    </div>
+
+    @if (rule.BreakerTrippedAt is DateTime tripped)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <Icon>
+                <LucideIcon Name="zap-off" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>The circuit breaker switched this rule to Flag</BbAlertTitle>
+                <BbAlertDescription>At @PortalText.Date(tripped) UTC it acted more often in an hour than the limit allows. Its matches wait in the review queue until you set its mode again.</BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    @if (m_conflict is int current)
+    {
+        <BbAlert Variant="AlertVariant.Danger" data-testid="conflict">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>Someone saved version @current while you edited version @m_baseVersion</BbAlertTitle>
+                <BbAlertDescription>
+                    Your changes were not saved and are still on the canvas. Compare the versions, then load version @current to edit from it; loading it replaces the canvas.
+                    <div class="bb:mt-2">
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="ReloadAsync">Load version @current</BbButton>
+                    </div>
+                </BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    @if (m_problems.Count > 0)
+    {
+        <BbAlert Variant="AlertVariant.Danger" data-testid="problems">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>The service found @m_problems.Count @(m_problems.Count == 1 ? "problem" : "problems")</BbAlertTitle>
+                <BbAlertDescription>
+                    <ul class="go-rule-problem-list">
+                        @foreach (RuleNodeProblem problem in m_problems)
+                        {
+                            <li>
+                                @if (problem.NodeId is string nodeID && m_nodes.Any(n => n.Id == nodeID))
+                                {
+                                    <button type="button" class="go-rule-outline-node" @onclick="@(() => SelectAsync(nodeID))">@NodeName(nodeID)</button>
+                                    <span>: @RuleProblems.Where(problem.Path), @problem.Reason</span>
+                                }
+                                else
+                                {
+                                    <span>@problem.Path: @problem.Reason</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    <div class="go-rule-toolbar" role="toolbar" aria-label="Canvas">
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => AddNodeAsync(PortalRuleWords.Condition))" data-testid="add-condition-node">
+            <LucideIcon Name="split" Class="bb:h-4 bb:w-4" />
+            Add condition
+        </BbButton>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => AddNodeAsync(PortalRuleWords.Action))" data-testid="add-action-node">
+            <LucideIcon Name="flag" Class="bb:h-4 bb:w-4" />
+            Add action
+        </BbButton>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="FitAsync">
+            <LucideIcon Name="scan" Class="bb:h-4 bb:w-4" />
+            Fit
+        </BbButton>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => m_outline = !m_outline)" aria-pressed="@(m_outline ? "true" : "false")" data-testid="toggle-outline">
+            <LucideIcon Name="list-tree" Class="bb:h-4 bb:w-4" />
+            Outline
+        </BbButton>
+        <span class="go-rule-toolbar-hint">Drag from a handle to connect, or use the panel. Delete removes the selection.</span>
+    </div>
+
+    <div class="@WorkspaceClass" data-testid="rule-workspace">
+        <div class="go-rule-canvas">
+            <BlowCanvas @ref="m_canvas" Nodes="m_nodes" Edges="m_edges" FitViewOnInit="true" FitViewOptions="s_fit" ColorMode="BlowColorMode.Dark" Class="go-rule-flow" AriaLabel="Rule graph"
+                        IsValidConnection="IsValidConnection" PreventCycles="true" PreventDuplicateEdges="true" Validation="m_validation"
+                        NodesChanged="OnGraphChanged" EdgesChanged="OnGraphChanged" OnNodesInitialized="FitAsync" OnSelectionChange="OnSelectionChange" OnNodesDelete="OnNodesDeleted">
+                <NodeTemplate Context="node">
+                    <RuleNodeCard Node="node" Catalog="m_catalog" />
+                </NodeTemplate>
+                <ChildContent>
+                    <BlowBackground />
+                    <BlowControls />
+                </ChildContent>
+            </BlowCanvas>
+        </div>
+        @if (m_outline)
+        {
+            <RuleOutlineView Document="Current()" Catalog="m_catalog" SelectedId="@m_selected" OnSelect="SelectAsync" />
+        }
+        @if (Selected is BlowNode selected)
+        {
+            <RuleNodePanel @key="selected.Id" Node="selected" Nodes="m_nodes" Edges="m_edges" Trigger="@Current().Trigger" Catalog="m_catalog" Problems="m_problems"
+                           OnChanged="OnPanelChanged" OnConnect="ConnectAsync" OnDisconnect="DisconnectAsync" OnRemove="RemoveAsync" OnClose="@(() => m_selected = null)" />
+        }
+    </div>
+
+    @if (m_previewError != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>The preview did not run</BbAlertTitle>
+                <BbAlertDescription>@m_previewError</BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    @if (m_preview is PortalRulePreview preview)
+    {
+        <BbCard data-testid="preview-result">
+            <BbCardHeader>
+                <BbCardTitle>Preview: @PortalText.Count(preview.Matched) of @PortalText.Count(preview.Scanned) players read would match</BbCardTitle>
+                <BbCardDescription>
+                    @if (preview.Complete)
+                    {
+                        <span>Every player was read, as the @PortalRuleWords.TriggerLabel(m_previewTrigger).ToLowerInvariant() trigger without its event. Nothing was acted on or recorded.</span>
+                    }
+                    else if (preview.TimedOut)
+                    {
+                        <span>The preview stopped at its time limit after @PortalText.Count(preview.Scanned) players, so more players may match. Nothing was acted on or recorded.</span>
+                    }
+                    else
+                    {
+                        <span>The preview stopped at its limit of @PortalText.Count(preview.Scanned) players, so more players may match. Nothing was acted on or recorded.</span>
+                    }
+                </BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                @if (preview.Players.Count == 0)
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="Nobody matches" Description="No player read would match this document now.">
+                        <Icon>
+                            <LucideIcon Name="users" />
+                        </Icon>
+                    </BbEmpty>
+                }
+                else
+                {
+                    <p class="go-rule-hint bb:mb-2">The first @preview.Players.Count matching players, with the facts that decided each match.</p>
+                    <BbDataTable TData="PortalRulePreviewPlayer" Data="@preview.Players.ToList()" ShowToolbar="false" ShowPagination="false" InitialPageSize="25" AriaLabel="Matching players">
+                        <Columns>
+                        <BbDataTableColumn TData="PortalRulePreviewPlayer" TValue="string" Property="@(p => p.Player.FullName)" Header="Player">
+                            <CellTemplate Context="row">
+                                <BbLink Href="@PortalRoutes.PlayerPage(row.Player.Id)">@(row.Player.Name.Length > 0 ? row.Player.FullName : "Player " + row.Player.Id)</BbLink>
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        <BbDataTableColumn TData="PortalRulePreviewPlayer" TValue="string" Property="@(p => String.Join(",", p.Actions))" Header="Would">
+                            <CellTemplate Context="row">
+                                <div class="go-rule-facts-line">
+                                    @foreach (string action in row.Actions)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline">@PortalRuleWords.ActionLabel(action)</BbBadge>
+                                    }
+                                    @if (row.Actions.Count == 0)
+                                    {
+                                        <span class="go-muted">nothing</span>
+                                    }
+                                </div>
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        <BbDataTableColumn TData="PortalRulePreviewPlayer" TValue="string" Property="@(p => p.Player.Name)" Header="Facts" Sortable="false">
+                            <CellTemplate Context="row">
+                                <RuleFactsList Facts="row.Facts" Catalog="m_catalog" />
+                            </CellTemplate>
+                        </BbDataTableColumn>
+                        </Columns>
+                    </BbDataTable>
+                }
+            </BbCardContent>
+        </BbCard>
+    }
+
+    <BbCard data-testid="sweep">
+        <BbCardHeader>
+            <BbCardTitle>Sweep every player</BbCardTitle>
+            <BbCardDescription>Runs the saved version @rule.CurrentVersion over every player now, in its @PortalRuleWords.ModeLabel(rule.Mode) mode, with every safety rule of a normal match.</BbCardDescription>
+        </BbCardHeader>
+        <BbCardContent Class="bb:space-y-3">
+            @if (m_sweep is PortalRuleSweep sweep)
+            {
+                <div class="go-rule-sweep" role="status" aria-live="polite">
+                    <div class="go-rule-facts-line">
+                        <BbBadge Variant="@(sweep.Running ? BadgeVariant.Soft : BadgeVariant.Outline)">@PortalRuleWords.SweepStateLabel(sweep.State)</BbBadge>
+                        <span class="bb:text-sm">@PortalText.Count(sweep.Scanned) of @PortalText.Count(sweep.Total) players read, @PortalText.Count(sweep.Matched) matched · version @sweep.RuleVersion · started by @sweep.StartedBy <When Value="@sweep.StartedAt" /></span>
+                    </div>
+                    <progress class="go-rule-progress" max="@Math.Max(1, sweep.Total)" value="@sweep.Scanned" aria-label="Sweep progress"></progress>
+                </div>
+            }
+            @if (m_sweepError != null)
+            {
+                <p class="go-rule-problem" role="alert">@m_sweepError</p>
+            }
+            <div class="go-row-actions">
+                @if (m_sweep?.Running == true)
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="CancelSweepAsync" Disabled="@m_busy" data-testid="cancel-sweep">
+                        <LucideIcon Name="circle-stop" Class="bb:h-4 bb:w-4" />
+                        Cancel the sweep
+                    </BbButton>
+                }
+                else
+                {
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => m_sweepOpen = true)" Disabled="@m_busy" data-testid="start-sweep">
+                        <LucideIcon Name="radar" Class="bb:h-4 bb:w-4" />
+                        Start a sweep
+                    </BbButton>
+                }
+            </div>
+        </BbCardContent>
+    </BbCard>
+
+    <BbDialog @bind-Open="m_saveOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Save version @(m_baseVersion + 1)</BbDialogTitle>
+                <BbDialogDescription>The service checks the document first. The new version becomes the current one at once on every copy; version @m_baseVersion stays as it was.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-2">
+                <BbLabel For="rule-comment">What changed (optional)</BbLabel>
+                <BbTextarea Id="rule-comment" @bind-Value="m_comment" MaxLength="500" />
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_saveOpen = false)" Disabled="@m_busy">Cancel</BbButton>
+                <BbButton OnClick="SaveAsync" Loading="@m_busy" data-testid="confirm-save">Save</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_enforceOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>@(m_enforceEnables ? "Switch on an Enforce rule?" : "Switch to Enforce?")</BbDialogTitle>
+                <BbDialogDescription>@EnforceConsequence()</BbDialogDescription>
+            </BbDialogHeader>
+            <ul class="go-rule-consequences">
+                <li>Staff are never acted on.</li>
+                <li>A second match of the same player within the duplicate window does nothing.</li>
+                <li>If the rule acts too often in an hour, the circuit breaker switches it back to Flag.</li>
+                @if (Dirty)
+                {
+                    <li>Your unsaved changes do not run until you save them.</li>
+                }
+            </ul>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_enforceOpen = false)" Disabled="@m_busy">Cancel</BbButton>
+                <BbButton OnClick="ConfirmEnforceAsync" Loading="@m_busy" data-testid="confirm-enforce">@(m_enforceEnables ? "Switch on" : "Enforce")</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_sweepOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Sweep every player with version @rule.CurrentVersion?</BbDialogTitle>
+                <BbDialogDescription>@SweepConsequence(rule)</BbDialogDescription>
+            </BbDialogHeader>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_sweepOpen = false)" Disabled="@m_busy">Cancel</BbButton>
+                <BbButton OnClick="StartSweepAsync" Loading="@m_busy" data-testid="confirm-sweep">Start the sweep</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbSheet @bind-Open="m_versionsOpen">
+        <BbSheetContent Class="go-panel go-panel-wide">
+            <BbSheetHeader>
+                <BbSheetTitle>Versions</BbSheetTitle>
+                <BbSheetDescription>Every saved version stays as it was. Compare two by their outlines.</BbSheetDescription>
+            </BbSheetHeader>
+            <div class="go-panel-body">
+                <ul class="go-list" data-testid="version-list">
+                    @foreach (PortalRuleVersion version in m_detail.Versions)
+                    {
+                        <li class="go-list-item">
+                            <div class="bb:min-w-0">
+                                <span class="go-num">v@(version.Number)</span>
+                                <span class="bb:text-sm">@(version.Comment ?? "No comment")</span>
+                                <div class="bb:text-xs bb:text-muted-foreground">@(version.CreatedByPlayer?.FullName ?? version.CreatedBy) · <When Value="@version.CreatedAt" Exact="true" /></div>
+                            </div>
+                            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => ShowVersionAsync(version.Number))" aria-pressed="@(m_shownVersion == version.Number ? "true" : "false")">View</BbButton>
+                        </li>
+                    }
+                </ul>
+                @if (m_shownVersion is int shown && m_versionDocs.TryGetValue(shown, out PortalRuleDocument? shownDocument))
+                {
+                    <h3 class="go-rule-links-title">Version @shown</h3>
+                    <RuleOutlineView Document="shownDocument" Catalog="m_catalog" />
+                }
+                @if (m_detail.Versions.Count > 1)
+                {
+                    <div class="go-rule-version-compare">
+                        <BbNativeSelect TValue="int" Value="@m_diffFrom" ValueChanged="@((int v) => DiffAsync(v, m_diffTo))" AriaLabel="Older version" Class="go-rule-operator">
+                            @foreach (PortalRuleVersion version in m_detail.Versions)
+                            {
+                                <option value="@version.Number">v@(version.Number)</option>
+                            }
+                        </BbNativeSelect>
+                        <span class="go-muted bb:text-sm">to</span>
+                        <BbNativeSelect TValue="int" Value="@m_diffTo" ValueChanged="@((int v) => DiffAsync(m_diffFrom, v))" AriaLabel="Newer version" Class="go-rule-operator">
+                            @foreach (PortalRuleVersion version in m_detail.Versions)
+                            {
+                                <option value="@version.Number">v@(version.Number)</option>
+                            }
+                        </BbNativeSelect>
+                    </div>
+                    @if (m_diff != null)
+                    {
+                        <pre class="go-rule-diff" aria-label="@($"Difference of version {m_diffFrom} to version {m_diffTo}")" data-testid="version-diff">@foreach (RuleOutlineChange change in m_diff)
+                        {<span class="@DiffClass(change.Kind)"><span aria-hidden="true">@(change.Kind == ' ' ? "  " : change.Kind + " ")@change.Line</span><span class="go-sr-only">@(change.Spoken ?? change.Line)@DiffWord(change.Kind)</span>
+</span>}</pre>
+                    }
+                }
+            </div>
+        </BbSheetContent>
+    </BbSheet>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private PortalRuleDetail? m_detail;
+    private PortalRuleCatalog? m_catalog;
+    private string? m_loadError;
+    private BlowCanvas? m_canvas;
+    private List<BlowNode> m_nodes = [];
+    private List<BlowEdge> m_edges = [];
+    private string m_savedJson = "";
+    private int m_baseVersion;
+    private string? m_selected;
+    private bool m_outline;
+
+    // the layout of the workspace the canvas was last fitted in
+    private string? m_shownWorkspace;
+    private bool m_busy;
+
+    private List<RuleNodeProblem> m_problems = [];
+    private BlowValidationResult? m_validation;
+    private int? m_conflict;
+
+    private bool m_saveOpen;
+    private string? m_comment;
+
+    private bool m_enforceOpen;
+
+    // a new key draws the mode and the switch again from the saved rule, as after a change that waits for confirmation
+    private int m_controlsKey;
+    private bool m_enforceEnables;
+
+    private PortalRulePreview? m_preview;
+    private string m_previewTrigger = "";
+    private string? m_previewError;
+    private bool m_previewBusy;
+
+    private PortalRuleSweep? m_sweep;
+    private string? m_sweepError;
+    private bool m_sweepOpen;
+    private CancellationTokenSource? m_polling;
+
+    private bool m_versionsOpen;
+    private int? m_shownVersion;
+    private int m_diffFrom;
+    private int m_diffTo;
+    private List<RuleOutlineChange>? m_diff;
+    private readonly Dictionary<int, PortalRuleDocument> m_versionDocs = new();
+
+    private BlowNode? Selected => m_selected == null ? null : m_nodes.FirstOrDefault(n => n.Id == m_selected);
+
+    private bool Dirty => m_detail != null && Current().ToJson() != m_savedJson;
+
+    private string WorkspaceClass => "go-rule-workspace" + (m_outline ? " go-rule-with-outline" : "") + (Selected != null ? " go-rule-with-panel" : "");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Api.Session!.Can(PortalPermissions.RulesManage))
+        {
+            return;
+        }
+        m_catalog ??= (await Api.GetRuleCatalogAsync()).Value;
+        await ReloadAsync();
+        PortalAnswer<PortalRuleSweep> sweep = await Api.GetSweepAsync(Id);
+        m_sweep = sweep.Value;
+        if (m_sweep?.Running == true)
+        {
+            Poll();
+        }
+    }
+
+    // The rule as saved, which replaces the canvas and whatever was not saved
+    private async Task ReloadAsync()
+    {
+        PortalAnswer<PortalRuleDetail> answer = await Api.GetRuleAsync(Id);
+        m_loadError = answer.Ok ? null : answer.Error;
+        if (answer.Value is PortalRuleDetail detail)
+        {
+            Show(detail);
+        }
+    }
+
+    private void Show(PortalRuleDetail detail)
+    {
+        m_detail = detail;
+        m_baseVersion = detail.Rule.CurrentVersion;
+        (m_nodes, m_edges) = RuleGraph.ToGraph(detail.Document);
+        m_savedJson = Current().ToJson();
+        m_selected = null;
+        m_conflict = null;
+        SetProblems([], null);
+        m_versionDocs[detail.Rule.CurrentVersion] = detail.Document.Clone();
+    }
+
+    private PortalRuleDocument Current() => RuleGraph.ToDocument(m_nodes, m_edges);
+
+    private string NodeName(string id) => m_nodes.FirstOrDefault(n => n.Id == id) is BlowNode node
+        ? RuleNodeCard.KindText(RuleGraph.RuleOf(node)) + " " + RuleGraph.RuleOf(node).Kind + " " + id
+        : id;
+
+    private bool IsValidConnection(BlowConnection connection) => RuleGraph.IsAllowed(m_nodes, connection);
+
+    // Problems of the host go on the nodes their paths name, and the canvas marks those nodes
+    private void SetProblems(IReadOnlyList<PortalRuleProblem> problems, PortalRuleDocument? sent)
+    {
+        m_problems = sent == null ? [] : RuleProblems.Place(problems, sent);
+        List<BlowValidationIssue> issues = m_problems.Where(p => p.NodeId != null)
+            .Select(p => new BlowValidationIssue("rule.problem", BlowValidationSeverity.Error, RuleProblems.Where(p.Path) + ": " + p.Reason) { NodeId = p.NodeId })
+            .ToList();
+        m_validation = issues.Count == 0 ? null : new BlowValidationResult(issues, false);
+    }
+
+    // Every edge the canvas or the panel made reads its output, and a false branch is drawn dashed
+    private void OnGraphChanged()
+    {
+        foreach (BlowEdge edge in m_edges)
+        {
+            edge.Label = edge.SourceHandle;
+            edge.Class = edge.SourceHandle == PortalRuleWords.OutputFalse ? "go-rule-edge-false" : null;
+            edge.MarkerEnd = true;
+        }
+        StateHasChanged();
+    }
+
+    private void OnSelectionChange(BlowSelectionChange change)
+    {
+        if (change.Nodes.Count == 1)
+        {
+            m_selected = change.Nodes[0].Id;
+        }
+        else if (change.Nodes.Count == 0 && change.Edges.Count == 0)
+        {
+            m_selected = null;
+        }
+    }
+
+    private void OnNodesDeleted(IReadOnlyList<BlowNode> nodes)
+    {
+        if (nodes.Any(n => n.Id == m_selected))
+        {
+            m_selected = null;
+        }
+        StateHasChanged();
+    }
+
+    private void OnPanelChanged() => StateHasChanged();
+
+    private async Task SelectAsync(string id)
+    {
+        m_selected = id;
+        if (m_canvas != null && m_nodes.FirstOrDefault(n => n.Id == id) is BlowNode node)
+        {
+            await m_canvas.SelectAsync([node], [], false);
+        }
+    }
+
+    // A fit never zooms out below a size where the node text reads, a wide graph is panned instead
+    private static readonly BlowFitViewOptions s_fit = new BlowFitViewOptions { Padding = 0.1, MinZoom = 0.85, MaxZoom = 1.25 };
+
+    private async Task FitAsync()
+    {
+        if (m_canvas != null)
+        {
+            await m_canvas.FitViewAsync(s_fit);
+        }
+    }
+
+    // A new node goes a column after the selected node, else after the rightmost, and opens in the panel
+    private async Task AddNodeAsync(string kind)
+    {
+        string? trigger = Current().Trigger;
+        PortalRuleField? field = m_catalog?.Fields.FirstOrDefault(f => trigger == null || f.Triggers.Contains(trigger));
+        string op = field?.Operators.FirstOrDefault() ?? "equals";
+        var rule = new PortalRuleNode
+        {
+            Id = RuleGraph.NewId(m_nodes.Select(n => n.Id), kind),
+            Kind = kind,
+            Query = kind == PortalRuleWords.Condition ? PortalRuleQuery.Group(PortalRuleWords.All, new PortalRuleQuery { Field = field?.Key, Operator = op, Value = field == null ? null : RuleValues.Default(field.Type, op) }) : null,
+            Action = kind == PortalRuleWords.Action ? PortalRuleWords.Flag : null,
+            Reason = kind == PortalRuleWords.Action ? "Matched an automated rule" : null
+        };
+        BlowNode? anchor = Selected ?? m_nodes.OrderByDescending(n => n.Position.X).FirstOrDefault();
+        double x = anchor == null ? 0 : anchor.Position.X + RuleGraph.ColumnWidth;
+        double y = anchor == null ? 0 : anchor.Position.Y + (m_nodes.Any(n => Math.Abs(n.Position.X - x) < 1 && Math.Abs(n.Position.Y - anchor.Position.Y) < 1) ? RuleGraph.RowHeight : 0);
+        BlowNode node = RuleGraph.NodeOf(rule, new BlowXYPosition(x, y));
+        if (m_canvas != null)
+        {
+            m_canvas.AddNodes(node);
+        }
+        else
+        {
+            m_nodes.Add(node);
+        }
+        await SelectAsync(node.Id);
+    }
+
+    private Task ConnectAsync((string From, string? Output, string To) link)
+    {
+        if (RuleGraph.Check(m_nodes, m_edges, link.From, link.Output, link.To).IsValid)
+        {
+            BlowEdge edge = RuleGraph.EdgeOf(new PortalRuleEdge { From = link.From, To = link.To, Output = link.Output });
+            if (m_canvas != null)
+            {
+                m_canvas.AddEdges(edge);
+            }
+            else
+            {
+                m_edges.Add(edge);
+            }
+        }
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task DisconnectAsync(BlowEdge edge)
+    {
+        if (m_canvas != null)
+        {
+            await m_canvas.DeleteElementsAsync([], [edge]);
+        }
+        StateHasChanged();
+    }
+
+    private async Task RemoveAsync(BlowNode node)
+    {
+        m_selected = null;
+        if (m_canvas != null)
+        {
+            await m_canvas.DeleteElementsAsync([node], []);
+        }
+        StateHasChanged();
+    }
+
+    private void OpenSave()
+    {
+        m_comment = null;
+        m_saveOpen = true;
+    }
+
+    // A new version from the one the editor started from, and a save meanwhile is a conflict that keeps the canvas as it is
+    private async Task SaveAsync()
+    {
+        m_busy = true;
+        PortalRuleDocument document = Current();
+        PortalRuleOutcome<PortalRuleDetail> saved = await Api.SaveRuleVersionAsync(Id, document, String.IsNullOrWhiteSpace(m_comment) ? null : m_comment.Trim(), m_baseVersion);
+        m_busy = false;
+        m_saveOpen = false;
+        if (saved.Ok)
+        {
+            m_detail = saved.Value!;
+            m_baseVersion = saved.Value!.Rule.CurrentVersion;
+            m_savedJson = document.ToJson();
+            m_conflict = null;
+            SetProblems([], null);
+            m_versionDocs[m_baseVersion] = document.Clone();
+            Toasts.Success($"Version {m_baseVersion} is the current one.", "Saved");
+            return;
+        }
+        if (saved.ConflictWhat == "version")
+        {
+            m_conflict = saved.CurrentVersion ?? m_baseVersion + 1;
+            return;
+        }
+        SetProblems(saved.Problems, document);
+        Toasts.Error(saved.Problems.Count > 0 ? "Fix the marked nodes and save again." : saved.Failure?.Field == "comment" ? "The comment is too long." : PortalText.Error(saved.Error), "Not saved");
+    }
+
+    private async Task ChangeModeAsync(string mode)
+    {
+        if (mode == PortalRuleWords.Enforce && m_detail!.Rule.Mode != mode)
+        {
+            m_enforceEnables = false;
+            m_enforceOpen = true;
+            m_controlsKey++;
+            return;
+        }
+        await UpdateAsync(mode: mode);
+    }
+
+    private async Task ChangeEnabledAsync(bool on)
+    {
+        if (on && m_detail!.Rule.Mode == PortalRuleWords.Enforce)
+        {
+            m_enforceEnables = true;
+            m_enforceOpen = true;
+            m_controlsKey++;
+            return;
+        }
+        await UpdateAsync(enabled: on);
+    }
+
+    private async Task ConfirmEnforceAsync()
+    {
+        if (m_enforceEnables)
+        {
+            await UpdateAsync(enabled: true);
+        }
+        else
+        {
+            await UpdateAsync(mode: PortalRuleWords.Enforce);
+        }
+        m_enforceOpen = false;
+    }
+
+    private async Task UpdateAsync(string? mode = null, bool? enabled = null)
+    {
+        m_busy = true;
+        PortalRuleOutcome<PortalRule> changed = await Api.UpdateRuleAsync(Id, mode: mode, enabled: enabled);
+        m_busy = false;
+        if (changed.Ok)
+        {
+            m_detail = m_detail! with { Rule = changed.Value! };
+            Toasts.Success(mode != null ? $"The rule is in {PortalRuleWords.ModeLabel(mode)} mode." : enabled == true ? "The rule is on." : "The rule is off.", "Changed");
+        }
+        else
+        {
+            m_controlsKey++;
+            Toasts.Error(PortalText.Error(changed.Error), "Not changed");
+        }
+    }
+
+    // What switching to Enforce does, with the actions the graph can reach
+    private string EnforceConsequence()
+    {
+        PortalRule rule = m_detail!.Rule;
+        List<string> actions = m_nodes.Select(RuleGraph.RuleOf).Where(n => n.Kind == PortalRuleWords.Action).Select(RuleOutline.Action).Distinct().ToList();
+        string what = actions.Count == 0 ? "the actions of the rule" : String.Join("; ", actions);
+        string when = rule.Enabled || m_enforceEnables ? "from the next " + PortalRuleWords.TriggerLabel(rule.Trigger).ToLowerInvariant() + " on" : "once you switch the rule on";
+        return $"Players who match version {rule.CurrentVersion} {when} get: {what}.";
+    }
+
+    private static string SweepConsequence(PortalRule rule) => rule.Mode switch
+    {
+        PortalRuleWords.Enforce => $"Every player version {rule.CurrentVersion} matches gets its actions now, as in Enforce mode. Staff are never acted on.",
+        PortalRuleWords.Flag => $"Every player version {rule.CurrentVersion} matches goes to the review queue.",
+        _ => $"Every player version {rule.CurrentVersion} matches is recorded, nothing else happens."
+    };
+
+    private async Task PreviewAsync()
+    {
+        m_previewBusy = true;
+        m_previewError = null;
+        PortalRuleDocument document = Current();
+        PortalRuleOutcome<PortalRulePreview> preview = await Api.PreviewRuleAsync(document);
+        m_previewBusy = false;
+        if (preview.Ok)
+        {
+            m_preview = preview.Value;
+            m_previewTrigger = document.Trigger ?? "";
+            SetProblems([], null);
+            return;
+        }
+        m_preview = null;
+        SetProblems(preview.Problems, document);
+        m_previewError = preview.Problems.Count > 0 ? "The document has problems, they are marked on the canvas." : preview.Error == "service.unavailable" ? "The rules engine is not running on this copy of the service." : PortalText.Error(preview.Error);
+    }
+
+    private async Task StartSweepAsync()
+    {
+        m_busy = true;
+        PortalRuleOutcome<PortalRuleSweep> started = await Api.StartSweepAsync(Id);
+        m_busy = false;
+        m_sweepOpen = false;
+        m_sweepError = null;
+        if (started.Ok)
+        {
+            m_sweep = started.Value;
+            Poll();
+            return;
+        }
+        m_sweepError = started.ConflictWhat == "sweep" ? "A sweep of this rule is running already."
+            : started.Error == "service.unavailable" ? "This copy of the service does not hold the realtime lease, so it runs no sweep. Try again in a moment."
+            : PortalText.Error(started.Error);
+    }
+
+    private async Task CancelSweepAsync()
+    {
+        m_busy = true;
+        PortalRuleOutcome<PortalRuleSweep> cancelled = await Api.CancelSweepAsync(Id);
+        m_busy = false;
+        if (cancelled.Ok)
+        {
+            m_sweep = cancelled.Value;
+        }
+        else
+        {
+            m_sweepError = PortalText.Error(cancelled.Error);
+        }
+    }
+
+    // The progress of a running sweep, read every second until it ends
+    private void Poll()
+    {
+        m_polling?.Cancel();
+        m_polling = new CancellationTokenSource();
+        CancellationToken token = m_polling.Token;
+        _ = InvokeAsync(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    PortalAnswer<PortalRuleSweep> progress = await Api.GetSweepAsync(Id, token);
+                    if (progress.Value is PortalRuleSweep sweep)
+                    {
+                        m_sweep = sweep;
+                        StateHasChanged();
+                        if (!sweep.Running)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // the page closed or another sweep took over the reading
+            }
+        });
+    }
+
+    private async Task OpenVersionsAsync()
+    {
+        m_versionsOpen = true;
+        m_shownVersion = null;
+        if (m_detail!.Versions.Count > 1)
+        {
+            await DiffAsync(m_detail.Versions[1].Number, m_detail.Versions[0].Number);
+        }
+    }
+
+    private async Task<PortalRuleDocument?> VersionAsync(int number)
+    {
+        if (!m_versionDocs.TryGetValue(number, out PortalRuleDocument? document))
+        {
+            document = (await Api.GetRuleVersionAsync(Id, number)).Value?.Document;
+            if (document != null)
+            {
+                m_versionDocs[number] = document;
+            }
+        }
+        return document;
+    }
+
+    private async Task ShowVersionAsync(int number)
+    {
+        m_shownVersion = await VersionAsync(number) != null ? number : null;
+    }
+
+    private async Task DiffAsync(int from, int to)
+    {
+        m_diffFrom = from;
+        m_diffTo = to;
+        PortalRuleDocument? older = await VersionAsync(from);
+        PortalRuleDocument? newer = await VersionAsync(to);
+        m_diff = older == null || newer == null ? null : RuleOutline.Diff(older, newer, m_catalog);
+    }
+
+    private static string DiffClass(char kind) => kind switch
+    {
+        '+' => "go-rule-diff-added",
+        '-' => "go-rule-diff-removed",
+        _ => "go-rule-diff-same"
+    };
+
+    private static string DiffWord(char kind) => kind switch
+    {
+        '+' => ", added",
+        '-' => ", removed",
+        _ => ""
+    };
+
+    // The canvas narrows or widens when the panel or the outline opens or closes, so the graph is fitted to it again
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        string workspace = WorkspaceClass;
+        if (m_canvas != null && m_shownWorkspace != null && workspace != m_shownWorkspace)
+        {
+            m_shownWorkspace = workspace;
+            await Task.Delay(100);
+            await m_canvas.FitViewAsync(s_fit);
+            return;
+        }
+        m_shownWorkspace = workspace;
+    }
+
+    public void Dispose()
+    {
+        m_polling?.Cancel();
+        m_polling?.Dispose();
+    }
+}

@@ -1,0 +1,306 @@
+# Automated rules
+
+Staff write rules over player data that flag, kick, mute or ban players. A rule is data, not code: a versioned graph
+document that the service validates on save and compiles into delegates, so an evaluation runs no parsing, reflection
+or expression text. Text rules for names, lobby names and chat stay on their own engine for now (`docs/api.md`,
+`/api/v1/staff/text_rules`).
+
+## The rule document
+
+A rule document is a graph of nodes and edges, in JSON with snake case keys:
+
+```json
+{
+  "nodes": [
+    { "id": "t", "kind": "trigger", "event": { "action": "sign_in" } },
+    { "id": "c", "kind": "condition", "query": {
+        "match": "all",
+        "rules": [
+          { "field": "host.id", "operator": "in_list", "value": ["AB12-CD34-YY"] },
+          { "match": "any", "rules": [
+            { "field": "user.age_days", "operator": "less_than", "value": 7 },
+            { "field": "source.ip", "operator": "cidr", "value": "203.0.113.0/24" }
+          ] }
+        ] } },
+    { "id": "a", "kind": "action", "action": "ban", "duration_s": null, "reason": "Ban evasion" }
+  ],
+  "edges": [
+    { "from": "t", "to": "c" },
+    { "from": "c", "to": "a", "output": "true" }
+  ]
+}
+```
+
+- `trigger`: exactly one, with the event the rule is checked on as `event.action` (see Triggers). A document saved
+  before the rename names it `"trigger": "sign_in"`; that form is still read, and is never written.
+- `condition`: a query tree. A group is `{match: all | any, rules: [...]}`, a condition is `{field, operator, value}`;
+  groups nest. The node has two outputs, `true` and `false`.
+- `action`: `flag`, `kick`, `mute` or `ban` with a `reason` (1 to 512 characters, written to the audit log). A mute
+  needs `duration_s`, a ban without one is permanent; lengths are whole minutes from one minute up to ten years, as for
+  staff sanctions. A kick and a flag take no length.
+- Edges go from the trigger, from a condition with `output` `true` or `false`, and never out of an action. Several
+  edges from one output run every node they reach.
+- Each node may carry `position {x, y}` for the editor; the service keeps it as given.
+- `step` is reserved for later step nodes and is refused for now.
+- A property the document does not know, such as a misspelt `duration` for `duration_s`, is refused with its path.
+
+### Validation on save
+
+A document is checked before it is stored, and every problem comes back with its path inside the document, as
+`invalid_argument {field: document, problems: [{path, reason}]}`:
+
+- exactly one trigger, known node kinds and unique ids of 1 to 64 characters;
+- at most 100 nodes, 300 edges and 64 KB of JSON; at most 50 conditions in one node, groups at most 6 deep, lists
+  of at most 100 values;
+- edges that name existing nodes, with the outputs above, no loop, every node reached from the trigger and at least
+  one action reached;
+- known fields that the rule's trigger provides, an operator of the field's type, and a value of that type.
+
+`POST /api/v1/staff/rules/validate` runs the same checks without saving.
+
+## Fields
+
+Every field reads as a list of values: a player has several devices and sign-in providers, and an unknown fact is an
+empty list. `GET /api/v1/staff/rules/fields` lists the catalogue with each field's type, label, triggers and operators,
+the two states of each yes or no field as `true_label` and `false_label` (such as `Email is confirmed` and
+`Email is not confirmed`), and the keys before the rename as `renamed [{from, to}]`.
+
+Field keys follow the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html): `host` for the
+devices, `source` for the address and its GeoIP, `user` for the account, `event` for the event and `game` for the match
+and lobby of the event. Fields ECS does not define, such as `host.mac_virtual` and every `user` field but `user.name`,
+are custom fields in the same style.
+
+| Field | Type | Source |
+|---|---|---|
+| `host.id`, `host.mac`, `host.volume_serial` | device | every machine GUID, MAC address and volume serial the player signed in with (`devices`) |
+| `host.mac_vendor` | text | the IEEE OUI vendor of each MAC address, or `locally administered / virtual` |
+| `host.mac_virtual` | bool | true when any MAC address of the player is locally administered |
+| `source.ip` | ip | the address of the event, else of the last session event |
+| `source.geo.country_iso_code`, `source.geo.city_name`, `source.as.number`, `source.as.organization.name` | text, number | GeoIP of that address; the country falls back to the one the sign-in stored |
+| `user.age_days` | number | whole days since the account was created |
+| `user.email_domain`, `user.email_confirmed` | text, bool | the email address |
+| `user.providers` | text | `password` and every linked sign-in provider |
+| `user.name`, `user.name_key` | text | the display name and its look-alike key |
+| `user.two_factor` | bool | two-factor sign-in on |
+| `user.sanctions.count`, `user.sanctions.active_ban`, `user.sanctions.active_mute` | number, bool | every sanction ever, and the active ban and mute |
+| `user.anticheat.new_accounts`, `user.anticheat.modules`, `user.anticheat.probes`, `user.anticheat.devices`, `user.anticheat.quickmatch_rules` | number | unreviewed rows of each anti-cheat review list |
+| `user.reports.open` | number | open player reports against the player |
+| `user.stats.elo`, `user.stats.games_played` | number | the all time rating once rated, and the matches played |
+| `event.action` | text | the trigger of the event, one of the trigger values below |
+
+Event fields come only with the triggers whose event carries them: `event.sign_in_provider` (sign_in),
+`game.client.id` (game_session), `game.lobby.id` (lobby_join), `game.match.id` (match_result, anticheat_report),
+`game.match.won`, `game.match.desynced` and `game.match.duration_s` (match_result), `game.anticheat.kind`
+(anticheat_report).
+
+### Keys before the rename
+
+Rules saved before the rename to the Elastic Common Schema still use the keys on the left. The service reads every one
+of them as its current key, so such a rule compiles, evaluates and shows the same, and it writes only the current keys
+when a rule is saved. A match recorded under an earlier key reads under the current key. The stored documents are not
+rewritten by a migration: each one moves to the current keys on its next save.
+
+| Before | Now |
+|---|---|
+| `device.machine_guid` | `host.id` |
+| `device.mac` | `host.mac` |
+| `device.volume_serial` | `host.volume_serial` |
+| `mac.vendor` | `host.mac_vendor` |
+| `mac.locally_administered` | `host.mac_virtual` |
+| `network.ip` | `source.ip` |
+| `network.country` | `source.geo.country_iso_code` |
+| `network.city` | `source.geo.city_name` |
+| `network.asn` | `source.as.number` |
+| `network.owner` | `source.as.organization.name` |
+| `account.age_days` | `user.age_days` |
+| `account.email_domain` | `user.email_domain` |
+| `account.email_confirmed` | `user.email_confirmed` |
+| `account.providers` | `user.providers` |
+| `account.name` | `user.name` |
+| `account.name_key` | `user.name_key` |
+| `account.two_factor` | `user.two_factor` |
+| `sanctions.count` | `user.sanctions.count` |
+| `sanctions.active_ban` | `user.sanctions.active_ban` |
+| `sanctions.active_mute` | `user.sanctions.active_mute` |
+| `reports.open` | `user.reports.open` |
+| `stats.elo` | `user.stats.elo` |
+| `stats.games_played` | `user.stats.games_played` |
+| `anticheat.<list>` | `user.anticheat.<list>` |
+| `event.provider` | `event.sign_in_provider` |
+| `event.client` | `game.client.id` |
+| `event.lobby_id` | `game.lobby.id` |
+| `event.match_id` | `game.match.id` |
+| `event.won` | `game.match.won` |
+| `event.desynced` | `game.match.desynced` |
+| `event.duration_s` | `game.match.duration_s` |
+| `event.anticheat_kind` | `game.anticheat.kind` |
+| `"trigger": "<value>"` on the trigger node | `"event": {"action": "<value>"}` |
+
+The operators keep their names.
+
+Operators by type, text compared without case:
+
+| Type | Operators |
+|---|---|
+| text | `equals`, `not_equals`, `in_list`, `contains`, `starts_with`, `is_empty` |
+| number | `equals`, `not_equals`, `in_list`, `greater_than`, `less_than`, `between` (two numbers, both ends included), `is_empty` |
+| bool | `equals`, `is_empty` |
+| ip | `equals`, `not_equals`, `in_list`, `starts_with`, `cidr`, `is_empty`; an IPv4 address mapped into IPv6 compares as IPv4 |
+| device | `equals`, `not_equals`, `in_list`, `is_empty` |
+
+`equals`, `in_list`, `contains`, `starts_with`, `greater_than`, `less_than` and `between` hold when any value of the
+field does; `not_equals` holds when none does. Device ids are stored only as keyed hashes, so staff enter the raw value
+the client sends (as the player page shows it, in any case) or the whole device key of the investigation page, and the
+service compares their hashes.
+
+Facts load lazily: a field loads on its first read in an evaluation and is kept for the rest of it, so every rule of
+the event shares one read and a field no rule reads is never loaded.
+
+## Triggers
+
+The rules run after the event, on a queue of the copy that saw it, so the event never waits for them and never fails
+because of them; a failed evaluation is logged and dropped, and one rule that fails leaves the others running. A
+trigger without an enabled rule queues nothing.
+
+| Trigger | When |
+|---|---|
+| `sign_in` | a password sign-in, a sign-in after the two-factor code, a sign-up, and a sign-in through a provider |
+| `game_session` | `POST /api/v1/auth/session` registered a game session, after the device ids are stored |
+| `lobby_join` | the player joined a lobby |
+| `match_result` | the player reported a match result |
+| `anticheat_report` | a new row of an anti-cheat review list for the player |
+| `sweep` | a manual sweep over every player (see Preview and sweep) |
+
+## Modes and actions
+
+Mode and enabled live on the rule, not in its versions:
+
+- **Watch** records the match only.
+- **Flag** records it in the review queue.
+- **Enforce** takes the actions and records what it did.
+
+Safety rules hold in every mode:
+
+- Rules never act on staff: a player whose roles in the database carry a staff rank gets a match with outcome
+  `staff_exempt` and nothing else.
+- A second match of the same rule, player and trigger inside the duplicate window (`AutomatedRules:duplicate_window_s`,
+  600 by default) records nothing and acts on nothing.
+- A player already banned is not banned again, one already muted is not muted again. The check and the new sanction
+  run under a row lock on the player in the database, so two evaluations at once, on one copy or two, add one at most. A ban goes first, so a kick after
+  it is not needed; a kick of a player who is offline does nothing.
+- The circuit breaker: an Enforce rule that already acted `AutomatedRules:breaker_actions_per_hour` times in the last
+  hour (20 by default) switches itself to Flag, with a `rule_breaker` audit row, and the match that tripped it goes to
+  the review queue.
+
+Sanctions go through the staff sanction code (`SanctionActions.ApplyAsync`): the same reason and length rules, the same
+`sanctions` and `audit_log` rows, a ban that disconnects the player on every copy, and a mute the player is told about.
+The actor is the rule: actor kind `automation`, actor `rule:<id>@v<version>`, source `automated_rules`, no actor id.
+
+## Matches and the review queue
+
+Every match is a row of `automated_rule_matches` with the rule id and the version that fired, the trigger, the mode it
+ran in, the actions taken, the outcome (`watched`, `flagged`, `enforced`, `staff_exempt` or `nothing_to_do`) and the
+facts that decided it: every field the rule read with its values, device ids as the fingerprint of their hash. A Flag
+match, and an Enforce match with a flag action, waits in the review queue (`review_state` `pending`) until staff with
+`anticheat.review` mark it `reviewed` or `dismissed` (audited as `rule_match_review`). A player with a pending match is
+in the staff player list's Flagged filter for reviewers, as one with an unreviewed anti-cheat row is.
+
+## Preview and sweep
+
+A preview shows who a rule would match now, before staff switch it on: `POST /api/v1/staff/rules/preview` with a saved
+`rule_id` or an unsaved `document` reads players in id order as the rule's trigger, with no event fields, and answers
+the count and the first 25 matching players with the actions the rule would reach and the facts that decided it. It
+stops after 5000 players or 10 seconds (`complete` false, `timed_out` true for the time limit), takes no action and
+writes no match; only a `rule_preview` audit row with the trigger and the counts.
+
+Preview and sweep have no event, so the event fields (`event.*`) read as empty there: `not_equals` and `is_empty` on an
+event field match every player, and every other operator on one matches nobody.
+
+A sweep runs one rule's current version over every player as trigger `sweep`, in its mode, with every safety rule of a
+normal match: `POST /api/v1/staff/rules/:id/sweep` starts it, `GET` reads its progress `{rule_id, rule_version, state,
+total, scanned, matched, started_by, started_at, finished_at}` and `DELETE` cancels it. It runs only on the copy that
+holds the realtime lease (a standby answers 503 `service.unavailable`), in batches of 100 players, stops as
+`interrupted` when the copy loses the lease, and one rule runs one sweep at a time (409 `conflict {what: sweep}`). The
+progress lives on that copy; `state` is `running`, `completed`, `cancelled`, `interrupted` or `failed`. Starting and
+cancelling are audited as `rule_sweep_start` and `rule_sweep_cancel`. A rule whose trigger is `sweep` runs only this
+way.
+
+## Storage and versions
+
+`automated_rules` holds the rule with its mode and enabled flag, `automated_rule_versions` every saved document.
+Each save is the next immutable version and becomes the current one; an old version is never changed. Mode, enabled,
+name and description change on the rule without a new version. A save that sends `base_version` is refused with 409
+`conflict` when another save came first. Archiving takes a rule out of the list and out of every copy, restoring
+brings it back as it was. Every change is audited (`rule_create`, `rule_version`, `rule_update`, `rule_archive`,
+`rule_restore`, target kind `automated_rule`).
+
+Every copy keeps the current versions of the enabled rules compiled in memory. The copy that saved reloads at once and
+tells the others through `CatalogSignals` (resource `rules`); the reconcile tick reloads a copy that missed it. A copy
+compiles again only when a rule's version, mode or enabled state changed.
+
+## Staff pages
+
+`/admin/rules` lists the rules for staff with `rules.manage`, in the Administration group of the sidebar: trigger, mode,
+switch, current version, last match and circuit breaker, with create, archive and restore. A new rule starts in Watch
+mode and switched off. `/admin/rules/:id` is the editor: a node canvas (Bit.Blow, pinned to one version) of the trigger,
+condition and action nodes, whose handles allow only the connections the service accepts, the panel of the selected
+node with the AND/OR query builder from the field catalogue, and an outline of the same graph beside the canvas for
+keyboard and screen reader use. The query builder reads as a sentence: each group opens with "Match all or any of the
+following", nested groups sit indented inside it, and each condition is one row of field, operator and value with a
+remove button. A yes or no field is one choice that names its state, such as "Email is not confirmed" or "MAC is
+virtual", in place of an operator and a true or false value. Operators show as short symbols where they are
+universal: `=`, `≠`, `<`, `>`, `in`, `contains`, `starts with`, `between`; screen readers hear the words, such as "is
+less than". On a narrow screen the field takes its own line with the operator and value under it. Saving sends `base_version` and shows a conflict, problems land on the node and field
+their path names, switching to Enforce asks first and names what the rule does, and the preview runs the document on
+the canvas, saved or not. The versions show any version and the difference of two outlines. The persisted format is
+the rule document above, mapped to the canvas in `GenOnlineService.Portal.Client/Rules/RuleGraph.cs` alone.
+
+The outline writes the graph from the trigger, branch by branch, with each condition node as one CEL style
+expression over the field keys: `&&`, `||` and `!`, parentheses around a nested group, quoted texts and lists in
+brackets. The example above reads:
+
+```
+on event.action == "sign_in"
+  if host.id in ["AB12-CD34-YY"] && (user.age_days < 7 || cidr("203.0.113.0/24").containsIP(source.ip))
+    then ban permanently, reason "Ban evasion"
+  else
+    nothing
+```
+
+A yes or no field reads as itself or negated, such as `!user.email_confirmed`; `between` reads as
+`(3 <= user.age_days && user.age_days <= 10)`, `is_empty` as `size(field) == 0`, `contains` and `starts_with` as
+`.contains("x")` and `.startsWith("x")`, and an action as `then ban for 7d, reason "..."`. A node reached a second time
+reads `see above:` and a node the trigger never reaches is listed under `unreached:`. Every line also carries the
+same in words for screen readers, such as "If Account age in days is less than 7 and either Email is not confirmed or
+MAC is virtual", and the difference of two versions compares the expressions line by line.
+
+`/admin/rules/matches`, linked under Anti-cheat for `anticheat.review`, is the review queue. Audit rows written by a
+rule read "Automated rule", its name and version, and so does the By column of a sanction a rule made on the player
+page, which `staff_view` gives as `created_by_kind` `automation` and `created_by_name` `rule:<id>@v<version>`. The editor
+opens the canvas fitted to the graph but never below a zoom of 0.85, so node text reads and a wide graph is panned. The
+versions and the editor name the player who saved them.
+
+## API
+
+Every route takes the staff sign-in cookie and needs `rules.manage` (admins and owners); `docs/api.md` lists them.
+
+| Route | Answer |
+|---|---|
+| `GET /api/v1/staff/rules?archived=` | `{rules: [{id, name, description, mode, enabled, current_version, archived, trigger, created_by, created_at, updated_by, updated_at, last_match_at, breaker_tripped_at, created_by_player, updated_by_player}]}`; the players are Members, null for an actor that is no player; `breaker_tripped_at` is set while the circuit breaker holds the rule in Flag, until staff change the rule |
+| `POST /api/v1/staff/rules` | body `{name, description?, mode?, enabled?, document, comment?}` (mode `watch` and enabled false when omitted); 201 `{rule, document, versions}` |
+| `GET /api/v1/staff/rules/:id` | `{rule, document, versions: [{number, created_by, created_by_player, comment, created_at}]}`, the document of the current version |
+| `GET /api/v1/staff/rules/:id/versions/:number` | `{number, created_by, created_by_player, comment, created_at, document}` |
+| `POST /api/v1/staff/rules/:id/versions` | body `{document, comment?, base_version?}`; 201 as the read of the rule |
+| `PATCH /api/v1/staff/rules/:id` | body `{name?, description?, mode?, enabled?}`; the rule |
+| `POST /api/v1/staff/rules/:id/archive`, `POST /api/v1/staff/rules/:id/restore` | the rule |
+| `POST /api/v1/staff/rules/validate` | body `{document}`; `{valid, problems: [{path, reason}]}` |
+| `GET /api/v1/staff/rules/fields` | `{fields: [{key, type, label, description, triggers, operators, true_label, false_label}], triggers, actions, modes, renamed: [{from, to}]}` |
+| `POST /api/v1/staff/rules/preview` | body `{rule_id}` or `{document}`; `{scanned, matched, complete, timed_out, players: [{player, actions, facts}]}` |
+| `POST /api/v1/staff/rules/:id/sweep`, `GET`, `DELETE` | 201, 200 and 200 `{rule_id, rule_version, state, total, scanned, matched, started_by, started_at, finished_at}` |
+
+The matches need `anticheat.review`, as the other review lists:
+
+| Route | Answer |
+|---|---|
+| `GET /api/v1/staff/rules/matches?review=&rule_id=&user_id=&trigger=&outcome=` | `{matches: [{id, rule_id, rule_name, rule_version, player, trigger, matched_at, mode, actions, outcome, facts, review_state, reviewed_by, reviewed_at}]}`, newest first, offset paged; `review` is `pending` (the default), `none`, `reviewed`, `dismissed` or `all` |
+| `PATCH /api/v1/staff/rules/matches/:id` | body `{review: reviewed or dismissed}`; the match. Only a pending match changes, one reviewed before answers as it is |

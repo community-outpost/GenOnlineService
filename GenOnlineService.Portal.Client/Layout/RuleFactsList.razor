@@ -1,0 +1,41 @@
+@using System.Text.Json
+@* The facts that decided a match: every field the rule read with its values, device ids as the fingerprint of their hash *@
+
+@if (Facts.ValueKind == JsonValueKind.Object && Facts.EnumerateObject().Any())
+{
+    <dl class="go-rule-facts">
+        @foreach (JsonProperty fact in Facts.EnumerateObject())
+        {
+            <div class="go-rule-fact">
+                <dt>@(Catalog?.Find(fact.Name)?.Label ?? fact.Name)</dt>
+                <dd>@ValuesOf(fact.Value)</dd>
+            </div>
+        }
+    </dl>
+}
+else
+{
+    <span class="go-muted">—</span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public JsonElement Facts { get; set; }
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    private static string ValuesOf(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Array when value.GetArrayLength() == 0 => "none",
+        JsonValueKind.Array => String.Join(", ", value.EnumerateArray().Select(Scalar)),
+        _ => Scalar(value)
+    };
+
+    private static string Scalar(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() ?? "",
+        JsonValueKind.Null => "none",
+        _ => value.GetRawText()
+    };
+}

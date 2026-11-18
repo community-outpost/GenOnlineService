@@ -95,6 +95,18 @@ else
                                 {
                                     <BbLink Href="@PortalRoutes.PlayerPage(actor.Id)">@(actor.DisplayName ?? "Player " + actor.Id)</BbLink>
                                 }
+                                else if (entry.ActorKind == "automation" && PortalText.RuleActor(entry.ActorName) is (long ruleID, _))
+                                {
+                                    @* the rule page is for rules.manage, everyone else reads the rule by its number *@
+                                    @if (Session.Can(PortalPermissions.RulesManage))
+                                    {
+                                        <BbLink Href="@PortalRoutes.RulePage(ruleID)" title="@entry.ActorName">@PortalText.RuleActorText(entry.ActorName, m_ruleNames.GetValueOrDefault(ruleID))</BbLink>
+                                    }
+                                    else
+                                    {
+                                        <span class="bb:text-muted-foreground" title="@entry.ActorName">@PortalText.RuleActorText(entry.ActorName, null)</span>
+                                    }
+                                }
                                 else
                                 {
                                     <span class="bb:text-muted-foreground" title="@entry.ActorName">@PortalText.ActorKind(entry.ActorKind)</span>
@@ -172,6 +184,9 @@ else
     private string? m_error;
     private List<PortalAuditEvent>? m_events;
 
+    // The names of the rules for the rows an automated rule wrote, archived ones included
+    private Dictionary<long, string> m_ruleNames = new();
+
     // The after_id of each page before the open one; empty on the newest page
     private readonly Stack<long?> m_pages = new();
     private long? m_after;
@@ -201,6 +216,16 @@ else
         PortalAnswer<PortalAuditPage> answer = await Api.GetAuditAsync(m_query, m_after, PerPage, CancellationToken.None);
         m_error = answer.Ok ? null : answer.Error;
         m_events = answer.Value?.AuditEvents.ToList() ?? [];
+        if (m_ruleNames.Count == 0 && Session.Can(PortalPermissions.RulesManage) && m_events.Any(e => e.ActorKind == "automation"))
+        {
+            foreach (bool archived in new[] { false, true })
+            {
+                foreach (PortalRule rule in (await Api.ListRulesAsync(archived)).Value?.Rules ?? [])
+                {
+                    m_ruleNames[rule.Id] = rule.Name;
+                }
+            }
+        }
     }
 
     // The filters go into the address, so a reload or a shared link keeps them

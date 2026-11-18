@@ -94,15 +94,33 @@ namespace GenOnlineService.Portal.Client
 		// A slot's side: -1 is the random army; the service keeps the game's side index only, not the army's name
 		public static string Side(int side) => side < 0 ? "random" : "side " + side.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-		// Who acted, for an actor kind without a player: the CLI, a service account or a sign-in provider
+		// Who acted, for an actor kind without a player: the CLI, a service account, a sign-in provider or an automated rule
 		public static string ActorKind(string? kind) => kind switch
 		{
 			"cli" => "the CLI",
 			"service_account" => "a service account",
 			"upstream" => "a sign-in provider",
+			"automation" => "Automated rule",
 			null => "the service",
 			_ => kind
 		};
+
+		// The rule and version of an automation actor, whose name reads rule:<id>@v<version>
+		public static (long Id, int Version)? RuleActor(string? name)
+		{
+			System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(name ?? "", @"^rule:(\d+)@v(\d+)$");
+			return match.Success && Int64.TryParse(match.Groups[1].Value, out long id) && Int32.TryParse(match.Groups[2].Value, out int version) ? (id, version) : null;
+		}
+
+		// An automation actor in words: the rule name when it is known, else its number, and the version that acted
+		public static string RuleActorText(string? name, string? ruleName)
+		{
+			if (RuleActor(name) is not (long id, int version))
+			{
+				return ActorKind("automation");
+			}
+			return "Automated rule " + (String.IsNullOrEmpty(ruleName) ? "#" + id.ToString(System.Globalization.CultureInfo.InvariantCulture) : ruleName) + ", version " + version.ToString(System.Globalization.CultureInfo.InvariantCulture);
+		}
 
 		public static string Error(string? code) => code switch
 		{

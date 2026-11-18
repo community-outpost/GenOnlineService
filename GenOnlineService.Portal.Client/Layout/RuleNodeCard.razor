@@ -1,0 +1,65 @@
+@* One node of the rule canvas, kept small: its kind, a one-line summary and its handles. The trigger starts the flow on
+   its end side, a condition takes it on its start side and splits it into true and false, an action ends its branch *@
+
+@{
+    PortalRuleNode rule = RuleGraph.RuleOf(Node);
+}
+<div class="go-rule-node go-rule-node-@rule.Kind" data-testid="rule-node">
+    <span class="go-rule-node-kind">
+        <LucideIcon Name="@IconOf(rule)" Class="bb:h-3.5 bb:w-3.5" />
+        @KindText(rule)
+    </span>
+    <span class="go-rule-node-text" title="@SummaryOf(rule)">@SummaryOf(rule)</span>
+    @if (rule.Kind != PortalRuleWords.Trigger)
+    {
+        <BlowHandle Type="BlowHandleType.Target" Position="BlowPosition.Left" />
+    }
+    @if (rule.Kind == PortalRuleWords.Trigger)
+    {
+        <BlowHandle Type="BlowHandleType.Source" Position="BlowPosition.Right" />
+    }
+    else if (rule.Kind == PortalRuleWords.Condition)
+    {
+        <BlowHandle Type="BlowHandleType.Source" Position="BlowPosition.Right" Id="@PortalRuleWords.OutputTrue" Class="go-rule-handle-true" />
+        <span class="go-rule-port go-rule-port-true" aria-hidden="true">true</span>
+        <BlowHandle Type="BlowHandleType.Source" Position="BlowPosition.Right" Id="@PortalRuleWords.OutputFalse" Class="go-rule-handle-false" />
+        <span class="go-rule-port go-rule-port-false" aria-hidden="true">false</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public BlowNode Node { get; set; } = default!;
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    public static string KindText(PortalRuleNode rule) => rule.Kind switch
+    {
+        PortalRuleWords.Trigger => "When",
+        PortalRuleWords.Condition => "Check",
+        PortalRuleWords.Action => "Then",
+        _ => rule.Kind
+    };
+
+    public static string IconOf(PortalRuleNode rule) => rule.Kind switch
+    {
+        PortalRuleWords.Trigger => "zap",
+        PortalRuleWords.Condition => "split",
+        _ => rule.Action switch
+        {
+            PortalRuleWords.Ban => "gavel",
+            PortalRuleWords.Mute => "mic-off",
+            PortalRuleWords.Kick => "log-out",
+            _ => "flag"
+        }
+    };
+
+    private string SummaryOf(PortalRuleNode rule) => rule.Kind switch
+    {
+        PortalRuleWords.Trigger => PortalRuleWords.TriggerLabel(rule.Trigger),
+        PortalRuleWords.Condition => RuleOutline.Summary(rule.Query, Catalog),
+        PortalRuleWords.Action => RuleOutline.Action(rule),
+        _ => rule.Id
+    };
+}

@@ -40,6 +40,14 @@ namespace GenOnlineService.Portal.Client
 
 		public static BadgeVariant OfSanction(bool active) => active ? BadgeVariant.SoftDestructive : BadgeVariant.Outline;
 
+		// Watch only records, Flag waits for staff, Enforce restricts players
+		public static BadgeVariant OfRuleMode(string mode) => mode switch
+		{
+			"enforce" => BadgeVariant.SoftDestructive,
+			"flag" => BadgeVariant.Soft,
+			_ => BadgeVariant.Outline
+		};
+
 		public static string IconOfSanction(string type) => type switch
 		{
 			"ban" => "gavel",

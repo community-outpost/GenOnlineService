@@ -17,6 +17,8 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.15" />
     <PackageReference Include="BlazorBlueprint.Components" Version="4.2.0" />
     <PackageReference Include="BlazorBlueprint.Icons.Lucide" Version="2.0.2" />
+    <!-- The node canvas of the automated rules editor, pinned to one version because the library is young -->
+    <PackageReference Include="Bit.Blow" Version="[10.7.0]" />
   </ItemGroup>
 
 </Project>

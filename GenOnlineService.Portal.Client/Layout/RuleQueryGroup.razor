@@ -1,0 +1,127 @@
+@* One AND/OR group of the query builder under the header Match all or any of the following: its rules, each a
+   condition row or a nested group indented inside it, with the buttons that add a condition or a group and the problems
+   the host found at this group *@
+
+<div class="go-rule-group" role="group" aria-label="@(Depth == 0 ? "Query" : "Nested group")" data-testid="rule-group">
+    <div class="go-rule-group-head">
+        <span class="go-rule-group-word" aria-hidden="true">Match</span>
+        <BbNativeSelect TValue="string" Value="@(Group.Match ?? PortalRuleWords.All)" ValueChanged="@((string v) => SetMatchAsync(v))"
+                        AriaLabel="@(Depth == 0 ? "Match all or any of the following" : "Match all or any of the following, nested group")" Class="go-rule-match">
+            <option value="@PortalRuleWords.All">all</option>
+            <option value="@PortalRuleWords.Any">any</option>
+        </BbNativeSelect>
+        <span class="go-rule-group-word" aria-hidden="true">of the following</span>
+        @if (OnRemove.HasDelegate)
+        {
+            <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => OnRemove.InvokeAsync())" AriaLabel="Remove this group">
+                <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4" />
+            </BbButton>
+        }
+    </div>
+    @foreach (string problem in GroupProblems())
+    {
+        <p class="go-rule-problem" role="alert">@problem</p>
+    }
+    <ul class="go-rule-rules">
+        @for (int i = 0; i < Rules.Count; i++)
+        {
+            int index = i;
+            PortalRuleQuery rule = Rules[i];
+            <li @key="rule">
+                @if (rule.IsGroup)
+                {
+                    <RuleQueryGroup Group="rule" Path="@($"{Path}.rules[{index}]")" NodeId="@NodeId" Trigger="@Trigger" Catalog="Catalog" Problems="Problems" Depth="Depth + 1"
+                                    OnChanged="OnChanged" OnRemove="@(() => RemoveAsync(index))" />
+                }
+                else
+                {
+                    <RuleQueryCondition Condition="rule" Path="@($"{Path}.rules[{index}]")" NodeId="@NodeId" Trigger="@Trigger" Catalog="Catalog" Problems="Problems"
+                                        OnChanged="OnChanged" OnRemove="@(() => RemoveAsync(index))" />
+                }
+            </li>
+        }
+    </ul>
+    <div class="go-rule-group-actions">
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="AddConditionAsync" data-testid="add-condition">
+            <LucideIcon Name="plus" Class="bb:h-4 bb:w-4" />
+            Condition
+        </BbButton>
+        @if (Depth + 1 < MaximumDepth)
+        {
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="AddGroupAsync">
+                <LucideIcon Name="list-tree" Class="bb:h-4 bb:w-4" />
+                Group
+            </BbButton>
+        }
+    </div>
+</div>
+
+@code {
+    // the host nests groups at most six deep
+    private const int MaximumDepth = 6;
+
+    [Parameter, EditorRequired]
+    public PortalRuleQuery Group { get; set; } = default!;
+
+    // where the group sits in its node, query for the top group
+    [Parameter, EditorRequired]
+    public string Path { get; set; } = "query";
+
+    [Parameter, EditorRequired]
+    public string NodeId { get; set; } = "";
+
+    [Parameter]
+    public string? Trigger { get; set; }
+
+    [Parameter]
+    public PortalRuleCatalog? Catalog { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<RuleNodeProblem> Problems { get; set; } = [];
+
+    [Parameter]
+    public int Depth { get; set; }
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    private List<PortalRuleQuery> Rules => Group.Rules ??= [];
+
+    private IEnumerable<string> GroupProblems() =>
+        Problems.Where(p => p.NodeId == NodeId && (p.Path == Path || p.Path == Path + ".match" || p.Path == Path + ".rules")).Select(p => p.Reason);
+
+    private Task SetMatchAsync(string match)
+    {
+        Group.Match = match;
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task AddConditionAsync()
+    {
+        Rules.Add(NewCondition());
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task AddGroupAsync()
+    {
+        Rules.Add(PortalRuleQuery.Group(PortalRuleWords.Any, NewCondition()));
+        return OnChanged.InvokeAsync();
+    }
+
+    // A new condition starts on the first field the trigger provides, with its first operator
+    private PortalRuleQuery NewCondition()
+    {
+        PortalRuleField? field = Catalog?.Fields.FirstOrDefault(f => Trigger == null || f.Triggers.Contains(Trigger));
+        string op = field?.Operators.FirstOrDefault() ?? "equals";
+        return new PortalRuleQuery { Field = field?.Key ?? "", Operator = op, Value = field == null ? null : RuleValues.Default(field.Type, op) };
+    }
+
+    private Task RemoveAsync(int index)
+    {
+        Rules.RemoveAt(index);
+        return OnChanged.InvokeAsync();
+    }
+}

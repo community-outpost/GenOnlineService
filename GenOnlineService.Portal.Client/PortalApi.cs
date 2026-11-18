@@ -323,6 +323,57 @@ namespace GenOnlineService.Portal.Client
 		public Task<PortalAnswer<PortalTextTest>> TestTextAsync(string kind, string text) =>
 			SendForAsync<PortalTextTest>(HttpMethod.Post, $"{PortalRoutes.TextRules}/test", new { kind, text });
 
+		// The automated rules, rules.manage: the list, one rule with its versions, and the changes, each refused with its details
+		public Task<PortalAnswer<PortalRuleList>> ListRulesAsync(bool archived, CancellationToken cancellationToken = default) =>
+			GetAsync<PortalRuleList>(PortalRoutes.Rules + (archived ? "?archived=true" : ""), cancellationToken);
+
+		public Task<PortalAnswer<PortalRuleDetail>> GetRuleAsync(long id, CancellationToken cancellationToken = default) => GetAsync<PortalRuleDetail>($"{PortalRoutes.Rules}/{id}", cancellationToken);
+
+		public Task<PortalAnswer<PortalRuleVersion>> GetRuleVersionAsync(long id, int number) => GetAsync<PortalRuleVersion>($"{PortalRoutes.Rules}/{id}/versions/{number}");
+
+		public Task<PortalAnswer<PortalRuleCatalog>> GetRuleCatalogAsync() => GetAsync<PortalRuleCatalog>($"{PortalRoutes.Rules}/fields");
+
+		public Task<PortalRuleOutcome<PortalRuleDetail>> CreateRuleAsync(string name, string? description, PortalRuleDocument document, string? comment) =>
+			SendRuleAsync<PortalRuleDetail>(HttpMethod.Post, PortalRoutes.Rules, new { name, description, document, comment });
+
+		// A new version from the version the editor started from, so another save meanwhile answers conflict {what: version}
+		public Task<PortalRuleOutcome<PortalRuleDetail>> SaveRuleVersionAsync(long id, PortalRuleDocument document, string? comment, int baseVersion) =>
+			SendRuleAsync<PortalRuleDetail>(HttpMethod.Post, $"{PortalRoutes.Rules}/{id}/versions", new { document, comment, base_version = baseVersion });
+
+		// Name, description, mode or enabled, without a new version
+		public Task<PortalRuleOutcome<PortalRule>> UpdateRuleAsync(long id, string? name = null, string? description = null, string? mode = null, bool? enabled = null) =>
+			SendRuleAsync<PortalRule>(HttpMethod.Patch, $"{PortalRoutes.Rules}/{id}", new { name, description, mode, enabled });
+
+		public Task<PortalRuleOutcome<PortalRule>> ArchiveRuleAsync(long id, bool archive) =>
+			SendRuleAsync<PortalRule>(HttpMethod.Post, $"{PortalRoutes.Rules}/{id}/{(archive ? "archive" : "restore")}", new { });
+
+		public Task<PortalRuleOutcome<PortalRuleValidation>> ValidateRuleAsync(PortalRuleDocument document) =>
+			SendRuleAsync<PortalRuleValidation>(HttpMethod.Post, $"{PortalRoutes.Rules}/validate", new { document });
+
+		// Who the document would match now, saved or not, within the host's row and time limits
+		public Task<PortalRuleOutcome<PortalRulePreview>> PreviewRuleAsync(PortalRuleDocument document) =>
+			SendRuleAsync<PortalRulePreview>(HttpMethod.Post, $"{PortalRoutes.Rules}/preview", new { document });
+
+		public Task<PortalRuleOutcome<PortalRuleSweep>> StartSweepAsync(long id) => SendRuleAsync<PortalRuleSweep>(HttpMethod.Post, $"{PortalRoutes.Rules}/{id}/sweep", new { });
+
+		public Task<PortalAnswer<PortalRuleSweep>> GetSweepAsync(long id, CancellationToken cancellationToken = default) => GetAsync<PortalRuleSweep>($"{PortalRoutes.Rules}/{id}/sweep", cancellationToken);
+
+		public Task<PortalRuleOutcome<PortalRuleSweep>> CancelSweepAsync(long id) => SendRuleAsync<PortalRuleSweep>(HttpMethod.Delete, $"{PortalRoutes.Rules}/{id}/sweep", new { });
+
+		// The matches of the rules, anticheat.review, newest first
+		public async Task<PortalAnswer<PortalRuleMatchPage>> ListRuleMatchesAsync(PortalRuleMatchQuery query, int start, int count, CancellationToken cancellationToken)
+		{
+			string path = $"{PortalRoutes.RuleMatches}?{PageOf(start, count)}&review={Uri.EscapeDataString(query.Review)}"
+				+ (query.RuleId is long rule ? "&rule_id=" + rule.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
+				+ (query.Trigger != null ? "&trigger=" + Uri.EscapeDataString(query.Trigger) : "")
+				+ (query.Outcome != null ? "&outcome=" + Uri.EscapeDataString(query.Outcome) : "");
+			(PortalAnswer<PortalRuleMatchList> answer, int total) = await GetPageAsync<PortalRuleMatchList>(path, cancellationToken);
+			return answer.Ok ? new PortalAnswer<PortalRuleMatchPage>(new PortalRuleMatchPage { Matches = answer.Value!.Matches, Total = total }, null) : new PortalAnswer<PortalRuleMatchPage>(null, answer.Error);
+		}
+
+		public Task<PortalRuleOutcome<PortalRuleMatch>> ReviewRuleMatchAsync(long id, string review) =>
+			SendRuleAsync<PortalRuleMatch>(HttpMethod.Patch, $"{PortalRoutes.RuleMatches}/{id}", new { review });
+
 		// One local role, under the host's rank rule; each change is in the audit log
 		public Task<PortalOutcome> GrantRoleAsync(long userID, string role) => SendAsync(HttpMethod.Put, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
 
@@ -546,6 +597,16 @@ namespace GenOnlineService.Portal.Client
 			using (response)
 			{
 				return failure != null ? new PortalFlagOutcome<TResult>(null, failure.Error, failure.Field) : new PortalFlagOutcome<TResult>(await response!.Content.ReadFromJsonAsync<TResult>(PortalJson.Options), null, null);
+			}
+		}
+
+		// A rule change: the answer, or the whole refusal with its details
+		private async Task<PortalRuleOutcome<TResult>> SendRuleAsync<TResult>(HttpMethod method, string path, object body) where TResult : class
+		{
+			(HttpResponseMessage? response, PortalError? failure) = await SendRawAsync(method, path, body, null);
+			using (response)
+			{
+				return failure != null ? new PortalRuleOutcome<TResult>(null, failure) : new PortalRuleOutcome<TResult>(await response!.Content.ReadFromJsonAsync<TResult>(PortalJson.Options), null);
 			}
 		}
 

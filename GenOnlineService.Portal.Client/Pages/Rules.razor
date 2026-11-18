@@ -1,0 +1,268 @@
+@* The automated rules for rules.manage: each rule with its trigger, mode, switch, current version, last match and circuit
+   breaker, the archived ones behind a toggle, and a dialog that creates a rule in Watch mode and switched off *@
+@page "/admin/rules"
+@inject PortalApi Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>Automated rules · Generals Online</PageTitle>
+
+@if (!Api.Session!.Can(PortalPermissions.RulesManage))
+{
+    <Refusal Title="Administrators only" Description="Your account does not hold the rules.manage permission." Icon="shield-x" />
+}
+else
+{
+    <PageHeader Description="Rules over player data that flag, kick, mute or ban. A new rule starts in Watch mode and switched off; preview it before you turn it on.">
+        <Title>Automated rules</Title>
+        <Actions>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.RuleMatchesPage">
+                <LucideIcon Name="workflow" Class="bb:h-4 bb:w-4" />
+                Matches
+            </BbButton>
+            <BbButton Size="ButtonSize.Small" OnClick="OpenCreate" data-testid="new-rule">
+                <LucideIcon Name="plus" Class="bb:h-4 bb:w-4" />
+                New rule
+            </BbButton>
+        </Actions>
+    </PageHeader>
+
+    @if (m_error != null)
+    {
+        <BbAlert Variant="AlertVariant.Danger">
+            <Icon>
+                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+            </Icon>
+            <ChildContent>
+                <BbAlertTitle>The rules could not load</BbAlertTitle>
+                <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+            </ChildContent>
+        </BbAlert>
+    }
+
+    <BbCard>
+        <BbCardContent Class="bb:pt-6 bb:space-y-4">
+            <div class="go-filterbar">
+                <BbNativeSelect TValue="string" Value="@(m_archived ? "archived" : "active")" ValueChanged="@((string v) => ShowAsync(v == "archived"))" AriaLabel="Which rules" Class="bb:w-40" data-testid="rules-archived">
+                    <option value="active">Active rules</option>
+                    <option value="archived">Archived rules</option>
+                </BbNativeSelect>
+            </div>
+            @if (m_rules == null)
+            {
+                <BbSkeleton Class="go-skeleton-panel" />
+            }
+            else if (m_rules.Count == 0)
+            {
+                <BbEmpty Size="EmptySize.Small" Title="@(m_archived ? "No archived rules" : "No rules yet")" Description="@(m_archived ? "Archived rules show here." : "Create a rule to start matching players.")">
+                    <Icon>
+                        <LucideIcon Name="git-fork" />
+                    </Icon>
+                </BbEmpty>
+            }
+            else
+            {
+                <BbDataTable TData="PortalRule" Data="@m_rules" ShowToolbar="false" ShowPagination="@(m_rules.Count > 20)" InitialPageSize="20" AriaLabel="Automated rules" data-testid="rules">
+                    <Columns>
+                    <BbDataTableColumn TData="PortalRule" TValue="string" Property="@(r => r.Name)" Header="Name">
+                        <CellTemplate Context="rule">
+                            <BbLink Href="@PortalRoutes.RulePage(rule.Id)" data-testid="rule-row">@rule.Name</BbLink>
+                            @if (rule.Description != null)
+                            {
+                                <div class="go-clamp bb:text-xs bb:text-muted-foreground">@rule.Description</div>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalRule" TValue="string" Property="@(r => PortalRuleWords.TriggerLabel(r.Trigger))" Header="Trigger" />
+                    <BbDataTableColumn TData="PortalRule" TValue="string" Property="@(r => r.Mode)" Header="Mode">
+                        <CellTemplate Context="rule">
+                            <BbBadge Variant="@PortalBadges.OfRuleMode(rule.Mode)" title="@PortalRuleWords.ModeDescription(rule.Mode)">@PortalRuleWords.ModeLabel(rule.Mode)</BbBadge>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalRule" TValue="bool" Property="@(r => r.Enabled)" Header="Enabled">
+                        <CellTemplate Context="rule">
+                            @if (rule.Enabled)
+                            {
+                                <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="check" />on</BbBadge>
+                            }
+                            else
+                            {
+                                <BbBadge Variant="BadgeVariant.Outline">off</BbBadge>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalRule" TValue="int" Property="@(r => r.CurrentVersion)" Header="Version">
+                        <CellTemplate Context="rule">
+                            <span class="go-num">v@(rule.CurrentVersion)</span>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalRule" TValue="DateTime?" Property="@(r => r.LastMatchAt)" Header="Last match">
+                        <CellTemplate Context="rule">
+                            @if (rule.LastMatchAt is DateTime last)
+                            {
+                                <BbLink Href="@PortalRoutes.RuleMatchesOf(rule.Id)"><When Value="@last" /></BbLink>
+                            }
+                            else
+                            {
+                                <span class="go-muted">never</span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalRule" TValue="DateTime?" Property="@(r => r.BreakerTrippedAt)" Header="Breaker">
+                        <CellTemplate Context="rule">
+                            @if (rule.BreakerTrippedAt is DateTime tripped)
+                            {
+                                <BbBadge Variant="BadgeVariant.SoftDestructive" title="@($"The rule acted too often and fell back to Flag at {PortalText.Date(tripped)} UTC")"><BbBadgeIcon Name="zap-off" />tripped</BbBadge>
+                            }
+                            else
+                            {
+                                <span class="go-muted">closed</span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalRule" TValue="string" Property="@(r => r.Name)" Header="" Sortable="false">
+                        <CellTemplate Context="rule">
+                            <div class="go-row-actions">
+                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => ArchiveAsync(rule))" Disabled="@m_busy" data-testid="archive-rule">
+                                    <LucideIcon Name="@(rule.Archived ? "archive-restore" : "archive")" Class="bb:h-4 bb:w-4" />
+                                    @(rule.Archived ? "Restore" : "Archive")
+                                </BbButton>
+                            </div>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    </Columns>
+                </BbDataTable>
+            }
+        </BbCardContent>
+    </BbCard>
+
+    <BbDialog @bind-Open="m_createOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>New rule</BbDialogTitle>
+                <BbDialogDescription>The rule starts in Watch mode and switched off, with one condition and a flag for review to edit on the canvas.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <div class="bb:space-y-2">
+                    <BbLabel For="rule-name">Name</BbLabel>
+                    <BbInput Id="rule-name" @bind-Value="m_name" MaxLength="100" autocomplete="off" />
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="rule-description">Description (optional)</BbLabel>
+                    <BbTextarea Id="rule-description" @bind-Value="m_description" MaxLength="1000" />
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="rule-new-trigger">Checked on</BbLabel>
+                    <BbNativeSelect TValue="string" Id="rule-new-trigger" @bind-Value="m_trigger" Class="bb:w-full">
+                        @foreach (string trigger in PortalRuleWords.Triggers)
+                        {
+                            <option value="@trigger">@PortalRuleWords.TriggerLabel(trigger)</option>
+                        }
+                    </BbNativeSelect>
+                </div>
+                @if (m_createError != null)
+                {
+                    <p class="go-rule-problem" role="alert">@m_createError</p>
+                }
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_createOpen = false)" Disabled="@m_busy">Cancel</BbButton>
+                <BbButton OnClick="CreateAsync" Loading="@m_busy" Disabled="@String.IsNullOrWhiteSpace(m_name)" data-testid="create-rule">Create</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    private List<PortalRule>? m_rules;
+    private bool m_archived;
+    private string? m_error;
+    private bool m_busy;
+    private bool m_createOpen;
+    private string? m_name;
+    private string? m_description;
+    private string m_trigger = "sign_in";
+    private string? m_createError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Api.Session!.Can(PortalPermissions.RulesManage))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        PortalAnswer<PortalRuleList> answer = await Api.ListRulesAsync(m_archived);
+        m_error = answer.Ok ? null : answer.Error;
+        m_rules = answer.Value?.Rules.ToList() ?? [];
+    }
+
+    private async Task ShowAsync(bool archived)
+    {
+        m_archived = archived;
+        m_rules = null;
+        await LoadAsync();
+    }
+
+    private void OpenCreate()
+    {
+        m_name = null;
+        m_description = null;
+        m_trigger = "sign_in";
+        m_createError = null;
+        m_createOpen = true;
+    }
+
+    private async Task CreateAsync()
+    {
+        m_busy = true;
+        PortalRuleOutcome<PortalRuleDetail> created = await Api.CreateRuleAsync(m_name!.Trim(), String.IsNullOrWhiteSpace(m_description) ? null : m_description.Trim(), Starter(m_trigger), "First version");
+        m_busy = false;
+        if (!created.Ok)
+        {
+            m_createError = created.Failure?.Field == "name" ? "Type a name of at most 100 characters." : PortalText.Error(created.Error);
+            return;
+        }
+        m_createOpen = false;
+        Navigation.NavigateTo(PortalRoutes.RulePage(created.Value!.Rule.Id));
+    }
+
+    // The first version of a new rule: the trigger, a condition on the account age and a flag on its true output, which
+    // the host accepts for every trigger
+    public static PortalRuleDocument Starter(string trigger) => new PortalRuleDocument
+    {
+        Nodes =
+        [
+            new PortalRuleNode { Id = "trigger", Kind = PortalRuleWords.Trigger, Trigger = trigger, Position = new PortalRulePosition { X = 0, Y = 0 } },
+            new PortalRuleNode
+            {
+                Id = "condition-1", Kind = PortalRuleWords.Condition, Position = new PortalRulePosition { X = RuleGraph.ColumnWidth, Y = 0 },
+                Query = PortalRuleQuery.Group(PortalRuleWords.All, new PortalRuleQuery { Field = "account.age_days", Operator = "less_than", Value = System.Text.Json.JsonSerializer.SerializeToElement(7) })
+            },
+            new PortalRuleNode { Id = "action-1", Kind = PortalRuleWords.Action, Action = PortalRuleWords.Flag, Reason = "Matched an automated rule", Position = new PortalRulePosition { X = 2 * RuleGraph.ColumnWidth, Y = 0 } }
+        ],
+        Edges =
+        [
+            new PortalRuleEdge { From = "trigger", To = "condition-1" },
+            new PortalRuleEdge { From = "condition-1", To = "action-1", Output = PortalRuleWords.OutputTrue }
+        ]
+    };
+
+    private async Task ArchiveAsync(PortalRule rule)
+    {
+        m_busy = true;
+        PortalRuleOutcome<PortalRule> changed = await Api.ArchiveRuleAsync(rule.Id, !rule.Archived);
+        m_busy = false;
+        if (changed.Ok)
+        {
+            Toasts.Success($"{rule.Name} is {(rule.Archived ? "restored" : "archived")}.", rule.Archived ? "Restored" : "Archived");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(changed.Error), "Not changed");
+        }
+        await LoadAsync();
+    }
+}

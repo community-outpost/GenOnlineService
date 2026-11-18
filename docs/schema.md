@@ -1,14 +1,14 @@
 # Database schema v1
 
-Status: **draft, reviewed by the release session, topology decided** (one database per environment). Greenfield: the new schema starts clean, and `GenOnlineService import` converts the old production database into the prod environment. Nothing is built. Target location once agreed: `docs/schema.md`.
+Status: **draft, reviewed by the release session, topology decided** (one database per environment). Greenfield: the new schema starts clean, and `GenOnlineService import` converts the legacy database into the live environment. Nothing is built. Target location once agreed: `docs/schema.md`.
 
 Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1-gitlab-model.md`.
 
 ## 0. Decisions
 
 - **Both providers stay:** MySQL/MariaDB and PostgreSQL, one EF model, one migration set per provider.
-- **One database per environment**, holding account tables and game tables. Environments share nothing but the sign-in: test signs in through prod, and its copy of prod's players follows prod (`docs/identity.md`).
-- **Ids kept** on import into prod: `users.id` is today's `user_id`, match ids are kept.
+- **One database per environment**, holding account tables and game tables. Environments share nothing but the sign-in: test signs in through live, and its copy of live's players follows live (`docs/identity.md`).
+- **Ids kept** on import into live: `users.id` is today's `user_id`, match ids are kept.
 - **The old schema is only read**, by the import tool. No compatibility views, no `_v2` tables.
 
 ## 1. Conventions
@@ -274,6 +274,23 @@ text_rule_workflows       -- the rules of one input kind as JSON ({rules: [{name
 
 `application_settings` `text_rules.revision` changes with every change of these tables; each copy rebuilds its matcher when it differs. `text_rules.seed_version` holds the seed version written (no row on a database seeded by version 1); a start with a newer version adds only the seed words and exceptions of the versions after it and replaces a workflow only while it still equals an earlier default, so words staff removed stay removed and rules staff changed stay.
 
+### Automated rules
+
+```
+automated_rules           -- the automated rules (docs/automated-rules.md); mode and enabled live here, the logic in the versions
+  id bigint pk, name varchar(100), description varchar(1000) null, mode varchar(16) ('watch' | 'flag' | 'enforce'), enabled bool,
+  current_version int, archived_at null, created_by varchar(64), created_at, updated_by varchar(64), updated_at
+automated_rule_versions   -- every saved document, never changed after it is written
+  rule_id bigint, number int, document json, created_by varchar(64), comment varchar(500) null, created_at, pk (rule_id, number)
+automated_rule_matches    -- every time a rule matched a player, with the version that fired and the facts that decided it
+  id bigint pk, rule_id bigint, rule_version int, user_id bigint, trigger varchar(32), matched_at, mode varchar(16),
+  actions varchar(64) null (the actions taken, comma separated), outcome varchar(32), facts json,
+  review_state varchar(16) ('none' | 'pending' | 'reviewed' | 'dismissed'), reviewed_by bigint null, reviewed_at null,
+  index (rule_id, user_id, trigger, matched_at), index (rule_id, matched_at), index (review_state, user_id), index (user_id)
+```
+
+The tables are add-only. Each copy compiles the current versions of the enabled rules and reloads them through `CatalogSignals` (resource `rules`) when a rule changes.
+
 ### OAuth clients
 
 ```
@@ -288,7 +305,7 @@ Dropped with no successor: `web_sessions` (OpenIddict), `user_token_state` (Open
 
 Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) and `daily_stats` (derived from matches). They were keyed by day or hour of the year without the year, so every year overwrote the previous one.
 
-## 3. Old → new mapping (import into prod)
+## 3. Old → new mapping (import into live)
 
 | Old | New |
 |---|---|
@@ -320,8 +337,8 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 
 ## 4. Import tool
 
-- **Source:** the old production MariaDB, read only, schema version detected as today.
-- **Target:** the prod environment database (must be empty). Test and dev start empty.
+- **Source:** the legacy MariaDB, read only, schema version detected as today.
+- **Target:** the live environment database (must be empty). Test and dev start empty.
 - **Phase 1, validate (no writes):** duplicate identities (one `steam_id`, `discord_id`, `google_id` or `gamereplays_id` on two users), display names that collide after normalization, orphaned rows, and the staff remap report (every user with `admin` or `permissionslevel` set). It also counts the `Ghost` and `DevAccount` users that will be dropped.
 - **Dropped users (`account_type` Ghost or DevAccount):** their `users`, identities, devices, ratings, stats, preferences, network, friendships, friend requests, blocks, leaderboard and anti-cheat rows are not imported. Matches they took part in are kept: their `match_players` rows keep the slot with `user_id = null`, and a match they owned gets `owner_user_id = null`. Their ids are never reused. Exits non-zero until findings are resolved or waived in an import config file.
 - **Phase 2, convert:** table by table in dependency order, batched, through the EF models of both sides.
