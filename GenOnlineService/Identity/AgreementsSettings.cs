@@ -60,12 +60,12 @@ namespace GenOnlineService.Identity
 
 		public static AgreementsSettings Read(IConfigurationSection section)
 		{
-			string? privacy = section.GetSection("privacy").GetValue<string>("url");
+			string? privacy = Url(section.GetSection("privacy"), "Agreements:privacy:url");
 			return new AgreementsSettings
 			{
 				RulesDocument = ReadDocument(section, Rules),
 				TermsDocument = ReadDocument(section, Terms),
-				PrivacyUrl = String.IsNullOrWhiteSpace(privacy) ? null : privacy.Trim()
+				PrivacyUrl = privacy
 			};
 		}
 
@@ -73,7 +73,7 @@ namespace GenOnlineService.Identity
 		{
 			IConfigurationSection document = section.GetSection(name);
 			string? version = Blank(document.GetValue<string>("version"));
-			string? url = Blank(document.GetValue<string>("url"));
+			string? url = Url(document, $"Agreements:{name}:url");
 			string? dateText = Blank(document.GetValue<string>("date"));
 
 			DateOnly? date = null;
@@ -98,6 +98,18 @@ namespace GenOnlineService.Identity
 			}
 
 			return new AgreementDocument { Name = name, Version = version, Date = date, Url = url };
+		}
+
+		// A document's address, which every page's footer links: an absolute http or https URL, without whitespace or quotes
+		private static string? Url(IConfigurationSection section, string key)
+		{
+			string? url = Blank(section.GetValue<string>("url"));
+			if (url != null && (!Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed) || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
+				|| String.IsNullOrEmpty(parsed.Host) || url.Any(c => Char.IsWhiteSpace(c) || c == '"' || c == '\'')))
+			{
+				throw new InvalidOperationException($"{key} must be an absolute http or https URL without spaces or quotes, such as https://example.org/rules.");
+			}
+			return url;
 		}
 
 		private static string? Blank(string? value) => String.IsNullOrWhiteSpace(value) ? null : value.Trim();
