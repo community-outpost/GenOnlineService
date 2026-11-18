@@ -73,18 +73,18 @@ namespace GenOnlineService.Identity
 		// a page reached without a return address (or with a foreign one) goes on to the account page, since nothing serves /
 		private string SafeReturnUrl(string? returnUrl) => !String.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : AccountPath;
 
-		private ContentResult Page(int status, string title, string body, string? description = null, string? icon = null, int? step = null, string? below = null, string? heading = null)
+		private ContentResult Page(int status, string title, string body, string? description = null, string? icon = null, int? step = null, string? below = null, string? heading = null, bool wide = false)
 		{
 			return new ContentResult
 			{
 				StatusCode = status,
 				ContentType = "text/html; charset=utf-8",
 				// the portal look (PortalLook): the Generals Online design system's centred card, dark only
-				Content = PortalLook.Document(title, body, description, Language, Site, icon, step, below, heading)
+				Content = PortalLook.Document(title, body, description, Language, Site, icon, step, below, heading, wide)
 			};
 		}
 
-		// The cover images and the document links of the footer, from the settings
+		// The cover images and the document links of the footer, from the settings (a configured address or the built-in page)
 		private PortalSite Site => new(m_settings.CoverImages, m_settings.Agreements.TermsDocument.Url, m_settings.Agreements.PrivacyUrl, m_settings.Agreements.RulesDocument.Url);
 
 		// A page that ends the flow (refused, expired, failed, signed out): an icon, the reason, and the way back to sign in or

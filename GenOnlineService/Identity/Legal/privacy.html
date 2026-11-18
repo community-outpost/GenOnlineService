@@ -1,0 +1,173 @@
+<!-- The Privacy Policy, served at /legal/privacy. Every fact below comes from the code, docs/schema.md or the
+     infrastructure configuration; keep it that way when the code changes. Open facts are marked TODO(operator) in comments,
+     which are never served. -->
+<section id="controller">
+<h2>1. Who is responsible</h2>
+<p>The Generals Online team, in the Netherlands, is responsible for the personal data described here (the controller under the
+General Data Protection Regulation, GDPR). For any question about your data or to use your rights, email
+<a href="mailto:support@generals.online">support@generals.online</a>.</p>
+</section>
+
+<section id="data">
+<h2>2. What we store and why</h2>
+
+<h3>Your account</h3>
+<ul>
+<li>Your email address and whether you confirmed it, to sign you in, to confirm your address and to reset your password.</li>
+<li>Your display name and tag, and the names you used before, so that others can find you and so that staff can recognise
+renamed players.</li>
+<li>Your password, only as a one-way hash, never the password itself. Accounts made with a sign-in provider have no password.</li>
+<li>Two-factor sign-in, when you turn it on: the authenticator key, stored encrypted, and your recovery codes, stored only as
+hashes.</li>
+<li>The state of your account (active or blocked), failed sign-in attempts and temporary lockouts, when the account was
+created and when you last signed in.</li>
+<li>Your settings, friends, friend requests and blocked players.</li>
+</ul>
+
+<h3>Sign-in providers</h3>
+<p>When you sign in with Discord, Steam, Google or GameReplays, we store which provider it is, the provider's id for your
+account (your Discord user id, SteamID64, Google account id or GameReplays member id), when you linked it and when you last
+used it. We do not store your name, picture or email address from the provider. The name a provider gives us is only offered
+as a suggestion when you choose your display name. When a provider shares your email address, we only compare it with
+existing accounts to link your account, and do not keep it.</p>
+
+<h3>Connection and device data</h3>
+<ul>
+<li>Your IP address. From it we work out your country with a GeoLite2 database (MaxMind) that runs on our own server, so your
+address is not sent anywhere for this.</li>
+<li>Each time the game connects, we record the IP address, the country, the game client and the time. We keep these records
+for 90 days.</li>
+<li>The game also sends identifiers of your computer: the Windows machine id, the network adapter's MAC address and the disk's
+volume serial number. We store them with the last IP address they were seen from, and keep each one for 180 days after it was
+last seen.</li>
+<li>Your continent and approximate coordinates, also worked out from your IP address, are used by lobbies and matchmaking. They
+are kept in memory while you are online and are not stored in the database.</li>
+</ul>
+<p>We use this data to keep the service secure, to enforce bans and to find accounts used to evade them. Staff can see it when
+they investigate a player, and every such view is recorded.</p>
+
+<h3>Chat</h3>
+<p>We store the chat messages you send in channels, lobbies, direct messages and groups, with who sent them, to whom and when,
+so that they can be delivered and so that reports can be dealt with. Messages are deleted 30 days after they were sent; a job
+removes them every hour.</p>
+
+<h3>Reports, sanctions and the staff log</h3>
+<ul>
+<li>A report stores who reported whom, why, and the evidence: the reported message with up to 10 messages before and after it,
+or the reported player's last 10 messages that the reporter could see, including direct messages to the reporter. A report is
+kept until staff close it, and deleted 30 days after that.</li>
+<li>Sanctions (kicks, mutes and bans) store the reason, who gave them, when, and when they end or were lifted.</li>
+<li>Every staff action, such as a sanction, a name reset, viewing a report or looking up a message, is recorded in a staff log
+with its reason.</li>
+</ul>
+<p>We keep sanctions and the staff log without a fixed end, so that repeated abuse can be recognised and staff are
+accountable for what they do.</p>
+
+<h3>Agreements</h3>
+<p>We record which version of the Rules of Engagement and the Terms of Service you agreed to, and when.</p>
+
+<h3>Matches and statistics</h3>
+<p>We store your matches: the lobby settings, the map, the players with their teams, sides, colours and results, your rating
+and your statistics, and the leaderboards. The game uploads replays and screenshots of matches, which we store with our
+storage provider. Match data is part of the public record of the game and is kept without a fixed end.</p>
+<!-- TODO(operator): no purge exists for matches, statistics, replays or screenshots, and a lifecycle rule on the replay
+     bucket is not determinable from the code or the infrastructure. State a retention if one is decided. -->
+
+<h3>Logs and error reports</h3>
+<ul>
+<li>Our web server logs each request with the IP address, the address requested, the time, the browser's user agent and the
+referring page. These logs are kept for 14 days and are checked automatically for attacks.</li>
+<li>The service writes its own logs of what it does and of errors.</li>
+<li>When an error happens, an error report is sent to Sentry so that we can fix it. We do not turn on Sentry's sending of
+personal data.</li>
+</ul>
+<!-- TODO(operator): the retention of the service's own logs (the systemd journal on the server) is not configured in the
+     infrastructure, so it cannot be stated. Set one and state it here. -->
+<!-- TODO(operator): the Sentry data region (EU or US) is not determinable from the code or the configuration. -->
+
+<h3>Backups</h3>
+<p>We back up the database, encrypted, every day. Backups are kept for about four weeks and then replaced.</p>
+<!-- TODO(operator): pgBackRest keeps 4 weekly full and 7 differential backups in a Cloudflare R2 bucket, but its endpoint is
+     still a placeholder (CHANGE_ME), so the location and jurisdiction of the backups cannot be stated. -->
+</section>
+
+<section id="bases">
+<h2>3. Our legal grounds</h2>
+<ul>
+<li><strong>Contract:</strong> to run your account and the service you signed up for: signing in, chat, lobbies, matches,
+ratings, and the emails that confirm your address or reset your password.</li>
+<li><strong>Legitimate interest:</strong> to keep the service secure and fair: connection and device data, logs, error reports,
+backups, reports, sanctions and the staff log. We keep this to what is needed and for the times stated above.</li>
+<li><strong>Consent:</strong> when you choose to sign in with a provider such as Discord, Steam, Google or GameReplays. You can
+stop using it at any time.</li>
+</ul>
+</section>
+
+<section id="recipients">
+<h2>4. Who else receives data</h2>
+<p>We do not sell your data and we do not show advertising. Some data reaches these services, which work for us or which you
+choose to use:</p>
+<ul>
+<li><strong>Brevo</strong> sends our emails (address confirmation and password reset) from the generals.online domain. It
+receives your email address and the email.</li>
+<li><strong>Discord, Steam, Google and GameReplays</strong>, when you choose to sign in with them. They learn that you signed in
+to Generals Online.</li>
+<li><strong>Discord</strong>, when the team turns on the copy of public channel chat: a message from a chat channel is posted to a
+Discord channel of the Generals Online team, with the room number, your display name, your user id and the text. Lobby, direct
+and group messages are never copied.</li>
+<li><strong>GameReplays</strong> (Strata leaderboards): the results of matches, with your user id, display name, side,
+team, colour and match statistics, so that they appear on its leaderboards.</li>
+<li><strong>Epic Online Services</strong>: the game receives a short-lived token naming your player id, which Epic checks to
+connect the game to its online services.</li>
+<li><strong>Cloudflare</strong> relays the game's network traffic between players when a direct connection is not possible. It
+then sees your IP address.</li>
+<li><strong>Backblaze</strong> stores the replays and screenshots of matches, in its EU (Amsterdam) region.</li>
+<li><strong>Sentry</strong> receives error reports.</li>
+<li>Our <strong>hosting provider</strong> runs the server that holds the data.</li>
+</ul>
+<!-- TODO(operator): the hosting provider and region are not determinable (infra/config/hosts.yaml has "site: placeholder";
+     infra/docs/new-host.md mentions an OVH VPS). Name the provider and the country here. -->
+<!-- TODO(operator): Some recipients (Discord, Google, Cloudflare, Sentry, Epic) may process data outside the European
+     Economic Area. State the safeguards relied on (for example the EU-US Data Privacy Framework or standard contractual
+     clauses) once confirmed with each provider. -->
+</section>
+
+<section id="cookies">
+<h2>5. Cookies</h2>
+<p>The account pages use only the cookies they need to work:</p>
+<ul>
+<li><strong>go_session</strong> keeps you signed in, for up to 14 days.</li>
+<li><strong>go_two_factor</strong> remembers, for 5 minutes, that you still have to enter your two-factor code.</li>
+<li><strong>go_antiforgery</strong> protects the forms against requests forged by other sites.</li>
+<li><strong>go_culture</strong> remembers the language you chose, for 1 year.</li>
+<li>While you sign in with Discord, Steam, Google or GameReplays, a short-lived cookie links the provider's answer to your
+sign-in.</li>
+</ul>
+<p>We use no analytics, tracking or advertising cookies, and the pages load nothing from other sites.</p>
+</section>
+
+<section id="rights">
+<h2>6. Your rights</h2>
+<p>Under the GDPR you have the right to:</p>
+<ul>
+<li><strong>access</strong> the personal data we hold about you;</li>
+<li><strong>rectification</strong> of data that is wrong (you can change your display name yourself on your account page);</li>
+<li><strong>erasure</strong> of your data, unless we must keep it, for example to enforce a ban;</li>
+<li><strong>restriction</strong> of how we use your data;</li>
+<li><strong>portability</strong>: a copy of the data you gave us, in a common format;</li>
+<li><strong>objection</strong> to the use of your data based on our legitimate interest.</li>
+</ul>
+<p>Email <a href="mailto:support@generals.online">support@generals.online</a> from the email address of your account, or tell
+us which sign-in provider you use, so that we can check it is you. We answer within one month.</p>
+<!-- TODO(operator): there is no self-service export or deletion: requests for access, portability and erasure are handled by
+     hand until tooling exists (see the TODO in terms.html). -->
+<p>You also have the right to complain to the Dutch Data Protection Authority, the
+<a href="https://autoriteitpersoonsgegevens.nl/" rel="noopener noreferrer">Autoriteit Persoonsgegevens</a>, or to the data
+protection authority of the country where you live.</p>
+</section>
+
+<section id="changes">
+<h2>7. Changes</h2>
+<p>When we change what we store or why, we update this policy. When the change affects the Terms of Service, you are asked to
+agree to the new Terms at your next sign-in.</p>
+</section>

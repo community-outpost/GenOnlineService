@@ -27,7 +27,8 @@ namespace GenOnlineService.Identity
 	public sealed record PortalLanguage(CultureInfo Culture, string ReturnUrl);
 
 	// What the pages need to know about this service beyond the language: the cover images (Accounts:cover_images) and the
-	// addresses of the documents the footer links (Agreements:*:url). A document without an address is left out.
+	// addresses of the documents the footer links: Agreements:*:url, or this service's own page of the document. A document
+	// without an address is left out.
 	public sealed record PortalSite(IReadOnlyList<string> CoverImages, string? TermsUrl, string? PrivacyUrl, string? RulesUrl);
 
 	// Who is signed in, for the account shell's top bar and menu: the name and tag are shown apart, the sign-out form is the
@@ -97,8 +98,8 @@ namespace GenOnlineService.Identity
 		//   step: the account wizard's card (1 Name, 2 Rules, 3 Ready), with the title and description inside
 		//   neither: the title over a card that holds the body (sign in, sign up, password reset)
 		// body is already encoded. Without a language (the staff pages' refusals) there is no language menu, and without a
-		// site there is no cover and no document links.
-		public static string Document(string title, string body, string? description = null, PortalLanguage? language = null, PortalSite? site = null, string? icon = null, int? step = null, string? below = null, string? heading = null)
+		// site there is no cover and no document links. wide: the wider column of the built-in documents (/legal/*).
+		public static string Document(string title, string body, string? description = null, PortalLanguage? language = null, PortalSite? site = null, string? icon = null, int? step = null, string? below = null, string? heading = null, bool wide = false)
 		{
 			CultureInfo culture = AccountsText.Resolve(language?.Culture);
 			var page = new StringBuilder(Head(title, culture));
@@ -125,7 +126,7 @@ namespace GenOnlineService.Identity
 			}
 			else
 			{
-				page.Append($"<div class=\"gp-stack\">{h1}{(description == null ? String.Empty : $"<p class=\"gp-lead gp-title-centre\">{E(description)}</p>")}<div class=\"gp-card\">{body}</div>{below}</div>");
+				page.Append($"<div class=\"gp-stack{(wide ? " gp-stack-doc" : String.Empty)}\">{h1}{(description == null ? String.Empty : $"<p class=\"gp-lead gp-title-centre\">{E(description)}</p>")}<div class=\"gp-card\">{body}</div>{below}</div>");
 			}
 			page.Append(Footer(language, site, culture)).Append("</main></div></body></html>");
 			return page.ToString();

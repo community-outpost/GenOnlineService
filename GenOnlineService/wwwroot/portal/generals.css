@@ -1925,6 +1925,18 @@ a.go-list-item:hover {
 .gp-title { margin: 0; font-family: var(--go-font-display); font-weight: var(--go-font-weight-bold); font-size: var(--go-font-size-xl); line-height: 1.2; color: var(--go-color-text-primary); }
 .gp-title-centre { text-align: center; }
 .gp-stack { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 20px; }
+/* the built-in Rules, Terms and Privacy pages (/legal/*): a wider column of plain prose, each section an anchor */
+.gp-stack-doc { max-width: 720px; }
+.gp-doc { display: flex; flex-direction: column; gap: var(--go-space-3); line-height: 1.55; color: var(--go-color-text-secondary); }
+.gp-doc section { display: flex; flex-direction: column; gap: var(--go-space-2); scroll-margin-block-start: var(--go-space-6); }
+.gp-doc section + section { padding-block-start: var(--go-space-4); border-block-start: 1px solid var(--go-color-border-subtle); }
+.gp-doc h2 { margin: 0; font-family: var(--go-font-display); font-weight: var(--go-font-weight-bold); font-size: var(--go-font-size-lg); line-height: 1.25; color: var(--go-color-text-primary); }
+.gp-doc h3 { margin: var(--go-space-2) 0 0; font-size: var(--go-font-size-md); font-weight: var(--go-font-weight-bold); color: var(--go-color-text-primary); }
+.gp-doc p, .gp-doc ul { margin: 0; }
+.gp-doc ul { padding-inline-start: 20px; display: flex; flex-direction: column; gap: var(--go-space-1); }
+.gp-doc strong { color: var(--go-color-text-primary); }
+.gp-doc a { text-decoration: underline; text-underline-offset: 2px; }
+.gp-doc-meta { font-size: var(--go-font-size-sm); color: var(--go-color-text-muted); }
 
 .gp-card { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: var(--go-space-6); background: var(--go-color-bg-panel); border: 1px solid var(--go-color-border-default); border-radius: var(--go-radius-md); }
 .gp-card-icon { max-width: 440px; gap: var(--go-space-6); padding: var(--go-space-8); }

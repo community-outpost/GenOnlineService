@@ -195,7 +195,8 @@ namespace GenOnlineService.Identity
 				body.Append($"<li>{PortalLook.Icon("check")}<span>{WebUtility.HtmlEncode(T($"Rules.{id}.{item.ToString(CultureInfo.InvariantCulture)}"))}</span></li>");
 			}
 			body.Append("</ul>");
-			body.Append(PortalLook.Muted(ExternalLink(rules.Url!, T("Agreements.ReadRules"))));
+			// the built-in rules have a section per card, under the card's id
+			body.Append(PortalLook.Muted(ExternalLink(rules.BuiltIn ? $"{rules.Url}#{id}" : rules.Url!, T("Agreements.ReadRules"))));
 			body.Append(FormStart(AgreementsPath, target));
 			body.Append(Hidden(AgreementStepField, CardStep)).Append(Hidden(AgreementCardField, index.ToString(CultureInfo.InvariantCulture))).Append(Hidden(AgreementRulesField, rules.Version));
 			string? back = index == 0 ? null : PortalLook.GhostLink(AgreementsUrl(target, index - 1), T("Back"));

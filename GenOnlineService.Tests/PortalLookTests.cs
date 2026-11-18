@@ -61,7 +61,7 @@ public class PortalLookTests
 		Regex.Matches(html, "class=\"([^\"]*)\"").SelectMany(m => m.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)).Where(c => c.StartsWith(prefix, StringComparison.Ordinal)).Distinct();
 
 	// every gp-* class a page uses has a rule in generals.css
-	private static void AssertGpClassesDefined(string page)
+	internal static void AssertGpClassesDefined(string page)
 	{
 		string generals = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
 		string[] missing = ClassesOf(page, "gp").Where(c => !Regex.IsMatch(generals, Regex.Escape("." + c) + @"[ :{,>\[.]")).ToArray();
@@ -69,7 +69,7 @@ public class PortalLookTests
 	}
 
 	// a page reaches no other host: no absolute address in a src, href or action, and no font host
-	private static void AssertSelfContained(string page)
+	internal static void AssertSelfContained(string page)
 	{
 		Assert.DoesNotMatch("(src|href|action)=\"(https?:)?//", Regex.Replace(page, "<a [^>]*rel=\"noopener noreferrer\"[^>]*>", String.Empty));
 		Assert.DoesNotContain("googleapis", page);
@@ -397,7 +397,8 @@ public class PortalLookTests
 			Assert.Contains("class=\"gp-lang\"", page.Body);
 			Assert.Contains(">Terms of Service</a>", page.Body);
 			Assert.Contains(">Privacy Policy</a>", page.Body);
-			Assert.DoesNotContain("Rules of Engagement", page.Body);
+			// the rules have no address configured: the footer links the built-in page
+			Assert.Contains("<a href=\"/legal/rules\" target=\"_blank\" rel=\"noopener noreferrer\">Rules of Engagement</a>", page.Body);
 			AssertGpClassesDefined(page.Body);
 			AssertSelfContained(page.Body);
 		}
