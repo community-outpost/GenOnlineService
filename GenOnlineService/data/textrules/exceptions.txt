@@ -1,0 +1,24 @@
+# Words that contain a listed word and stay allowed (the Scunthorpe problem), loaded into text_rule_exceptions once,
+# on the first start. Written for this service (no third-party list), under the service's license.
+# term	language
+scunthorpe	en
+penistone	en
+cockpit	en
+cocktail	en
+peacock	en
+hancock	en
+cockroach	en
+shuttlecock	en
+woodcock	en
+cockatoo	en
+cockburn	en
+cockney	en
+therapist	en
+shitake	en
+shiitake	en
+retardant	en
+snigger	en
+niggardly	en
+swank	en
+swanky	en
+classic	en

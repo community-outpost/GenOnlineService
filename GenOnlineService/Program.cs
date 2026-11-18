@@ -1753,6 +1753,15 @@ namespace GenOnlineService
 							await ApiTokenCache.Housekeeping(db, ApiTokenSettings.Read(builder.Configuration));
 						});
 
+						// a change of the word lists or rules made on another copy is picked up here
+						await RunObservedBackgroundJobAsync("text_rules_reload", app.Logger, async () =>
+						{
+							using var scope = app.Services.CreateScope();
+							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+							await using var db = await factory.CreateDbContextAsync();
+							await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
+						});
+
 						await RunObservedBackgroundJobAsync("oauth_prune", app.Logger, () => OAuthMaintenance.PruneDaily(app.Services));
 					}
 					finally
@@ -1782,6 +1791,10 @@ namespace GenOnlineService
 				StaffRoles.ValidateRoleDefinitions();
 				await ApiTokenCache.Reload(db);
 				await ClientRegistry.Reload(db);
+
+				// the word lists and rules of the text checks: the seed lists once, on the first start
+				await GenOnlineService.TextRules.TextChecks.SeedAsync(db);
+				await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
 			}
 
 			if (accountsSettings.Enabled)

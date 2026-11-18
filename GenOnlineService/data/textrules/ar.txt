@@ -1,0 +1,53 @@
+# Arabic seed words of the text rules (TextRules), loaded into text_rule_terms once, on the first start.
+# Written for this service (no third-party list), under the service's license. Staff change them on /admin/text-rules.
+# Arabic script words also match Arabizi with digits (3ars, m3ras) through the consonant skeleton reading; Arabizi
+# without digits is listed in Latin script below. Latin entries never hold digits, as leetspeak would read them.
+# term	category	severity	match
+كس	sexual	block	word
+كسك	sexual	block	word
+كسمك	sexual	block	anywhere
+كس امك	sexual	block	word
+كس اختك	sexual	block	word
+زب	sexual	block	word
+زبي	sexual	block	word
+طيز	sexual	block	word
+نيك	sexual	block	word
+نيج	sexual	block	word
+انيكك	sexual	block	anywhere
+ينيك	sexual	block	anywhere
+منيوك	sexual	block	anywhere
+متناك	sexual	block	anywhere
+نياك	sexual	block	anywhere
+سكس	sexual	block	word
+بزاز	sexual	block	word
+شرموطة	sexual	block	anywhere
+شرموط	sexual	block	anywhere
+قحبة	sexual	block	anywhere
+عاهرة	sexual	block	anywhere
+عاهر	sexual	block	word
+زانية	sexual	block	anywhere
+لوطي	slur	block	anywhere
+خول	slur	block	word
+معرص	profanity	block	anywhere
+عرص	profanity	block	word
+ديوث	profanity	block	anywhere
+خرا	profanity	flag	word
+يلعن ابوك	profanity	flag	word
+ابن الكلب	insult	flag	word
+يا كلب	insult	flag	word
+يا حمار	insult	flag	word
+تفو	insult	flag	word
+sharmoota	sexual	block	anywhere
+sharmota	sexual	block	anywhere
+sharmouta	sexual	block	anywhere
+charmouta	sexual	block	anywhere
+kosomak	sexual	block	anywhere
+kos omak	sexual	block	word
+kuss	sexual	block	word
+manyak	sexual	block	anywhere
+manyok	sexual	block	anywhere
+metnak	sexual	block	anywhere
+zebi	sexual	block	word
+khawal	slur	block	anywhere
+teez	sexual	flag	word
+ibn el kalb	insult	flag	word
