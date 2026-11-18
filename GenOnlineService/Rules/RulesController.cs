@@ -93,11 +93,25 @@ namespace GenOnlineService.Rules
 		public string UpdatedBy { get; init; } = "";
 		public DateTime UpdatedAt { get; init; }
 
-		public static RuleView Of(AutomatedRule r, string trigger) => new RuleView
+		// when the rule last matched a player, null before its first match
+		public DateTime? LastMatchAt { get; init; }
+
+		// when the circuit breaker switched the rule from Enforce to Flag, until staff change the rule again
+		public DateTime? BreakerTrippedAt { get; init; }
+
+		public static RuleView Of(AutomatedRule r, string trigger, DateTime? lastMatchAt = null) => new RuleView
 		{
 			Id = r.ID, Name = r.Name, Description = r.Description, Mode = r.Mode, Enabled = r.Enabled, CurrentVersion = r.CurrentVersion, Archived = r.ArchivedAt != null,
-			Trigger = trigger, CreatedBy = r.CreatedBy, CreatedAt = r.CreatedAt, UpdatedBy = r.UpdatedBy, UpdatedAt = r.UpdatedAt
+			Trigger = trigger, CreatedBy = r.CreatedBy, CreatedAt = r.CreatedAt, UpdatedBy = r.UpdatedBy, UpdatedAt = r.UpdatedAt, LastMatchAt = lastMatchAt,
+			// the breaker is the only change the rule makes to itself, and the next staff change writes a staff name
+			BreakerTrippedAt = r.Mode == RuleModes.Flag && r.UpdatedBy.StartsWith(RuleBreakerActors.Prefix, StringComparison.Ordinal) ? r.UpdatedAt : null
 		};
+	}
+
+	// The actor names of the rules, rule:<id>@v<version>, which only the breaker writes on a rule row
+	public static class RuleBreakerActors
+	{
+		public const string Prefix = "rule:";
 	}
 
 	public sealed record RuleListResponse
@@ -214,7 +228,8 @@ namespace GenOnlineService.Rules
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 			List<AutomatedRule> rules = await RuleStore.ListAsync(db, archived);
 			Dictionary<long, string> triggers = await TriggersOf(db, rules);
-			return RestResults.Ok(new RuleListResponse { Rules = rules.Select(r => RuleView.Of(r, triggers.GetValueOrDefault(r.ID, ""))).ToList() });
+			Dictionary<long, DateTime> lastMatches = await LastMatchesOf(db, rules.Select(r => r.ID).ToList());
+			return RestResults.Ok(new RuleListResponse { Rules = rules.Select(r => RuleView.Of(r, triggers.GetValueOrDefault(r.ID, ""), lastMatches.TryGetValue(r.ID, out DateTime last) ? last : null)).ToList() });
 		}
 
 		[EndpointSummary("Reads a rule with the document of its current version and every version.")]
@@ -274,7 +289,7 @@ namespace GenOnlineService.Rules
 		{
 			body ??= new RuleUpdateRequest();
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-			return ViewResult(db, await RuleStore.UpdateAsync(db, CallerActors.Of(User), id, body.Name, body.Description, body.Mode, body.Enabled));
+			return await ViewResultAsync(db, await RuleStore.UpdateAsync(db, CallerActors.Of(User), id, body.Name, body.Description, body.Mode, body.Enabled));
 		}
 
 		[EndpointSummary("Archives a rule, so it never runs and leaves the list.")]
@@ -283,7 +298,7 @@ namespace GenOnlineService.Rules
 		public async Task<IActionResult> Archive(long id)
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-			return ViewResult(db, await RuleStore.ArchiveAsync(db, CallerActors.Of(User), id, archive: true));
+			return await ViewResultAsync(db, await RuleStore.ArchiveAsync(db, CallerActors.Of(User), id, archive: true));
 		}
 
 		[EndpointSummary("Restores an archived rule as it was.")]
@@ -292,7 +307,7 @@ namespace GenOnlineService.Rules
 		public async Task<IActionResult> Restore(long id)
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-			return ViewResult(db, await RuleStore.ArchiveAsync(db, CallerActors.Of(User), id, archive: false));
+			return await ViewResultAsync(db, await RuleStore.ArchiveAsync(db, CallerActors.Of(User), id, archive: false));
 		}
 
 		[EndpointSummary("Checks a rule document without saving it and lists every problem.")]
@@ -393,13 +408,22 @@ namespace GenOnlineService.Rules
 			return cancelled.Ok ? RestResults.Ok(RuleSweepView.Of(cancelled.Data!)) : RestResults.Fail(new Failure(cancelled.Code!, cancelled.Params!));
 		}
 
-		private IActionResult ViewResult(AppDbContext db, Result<AutomatedRule> result)
+		private static async Task<IActionResult> ViewResultAsync(AppDbContext db, Result<AutomatedRule> result)
 		{
 			if (!result.Ok)
 			{
 				return RestResults.Fail(new Failure(result.Code!, result.Params!));
 			}
-			return RestResults.Ok(RuleView.Of(result.Data!, TriggerOfVersion(db, result.Data!)));
+			Dictionary<long, DateTime> lastMatches = await LastMatchesOf(db, [result.Data!.ID]);
+			return RestResults.Ok(RuleView.Of(result.Data!, TriggerOfVersion(db, result.Data!), lastMatches.TryGetValue(result.Data!.ID, out DateTime last) ? last : null));
+		}
+
+		// The newest match of each rule, from the index on rule and match time
+		private static async Task<Dictionary<long, DateTime>> LastMatchesOf(AppDbContext db, List<long> ids)
+		{
+			var rows = await db.AutomatedRuleMatches.AsNoTracking().Where(m => ids.Contains(m.RuleID))
+				.GroupBy(m => m.RuleID).Select(g => new { RuleID = g.Key, Last = g.Max(m => m.MatchedAt) }).ToListAsync();
+			return rows.ToDictionary(r => r.RuleID, r => r.Last);
 		}
 
 		private static string TriggerOfVersion(AppDbContext db, AutomatedRule rule)
@@ -429,7 +453,7 @@ namespace GenOnlineService.Rules
 			RuleDocument document = RuleDocuments.Deserialize(current.Document);
 			return new RuleDetailResponse
 			{
-				Rule = RuleView.Of(rule, RuleDocuments.TriggerOf(document)),
+				Rule = RuleView.Of(rule, RuleDocuments.TriggerOf(document), (await LastMatchesOf(db, [id])).TryGetValue(id, out DateTime last) ? last : null),
 				Document = document,
 				Versions = (await RuleStore.VersionsAsync(db, id)).Select(v => RuleVersionView.Of(v, document: false)).ToList()
 			};

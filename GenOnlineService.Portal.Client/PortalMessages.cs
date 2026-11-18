@@ -55,6 +55,8 @@ namespace GenOnlineService.Portal.Client
 		public const string StaffInvestigate = "api/v1/staff/investigate";
 		public const string Flags = "api/v1/flags";
 		public const string FlagRevisions = "api/v1/flags/revisions";
+		public const string Rules = "api/v1/staff/rules";
+		public const string RuleMatches = "api/v1/staff/rules/matches";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -79,8 +81,15 @@ namespace GenOnlineService.Portal.Client
 		public const string TextRulesPage = "/admin/text-rules";
 		public const string InvestigatePage = "/admin/investigate";
 		public const string ConfigPage = "/admin/config";
+		public const string RulesPage = "/admin/rules";
+		public const string RuleMatchesPage = "/admin/rules/matches";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
+
+		public static string RulePage(long id) => RulesPage + "/" + id;
+
+		// the matches of one rule
+		public static string RuleMatchesOf(long id) => RuleMatchesPage + "?rule=" + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
 		// one tab of the player page: activity, sanctions, reports, anticheat, roles, matches, signins, duplicates
 		public static string PlayerTab(long id, string tab) => PlayerPage(id) + "?tab=" + tab;
@@ -131,6 +140,7 @@ namespace GenOnlineService.Portal.Client
 		public const string AccountsSupport = "accounts.support";
 		public const string TextRulesManage = "textrules.manage";
 		public const string FlagsManage = "flags.manage";
+		public const string RulesManage = "rules.manage";
 	}
 
 	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones

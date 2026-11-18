@@ -200,6 +200,14 @@ public class AutomatedRulesActionTests
 			AuditLogEntry breaker = Assert.Single(await AuditOf(probe, RuleAudit.Breaker));
 			Assert.Equal((AuditActorKinds.Automation, $"rule:{id}@v1", (long?)id), (breaker.ActorKind, breaker.Actor, breaker.TargetID));
 			Assert.Equal(RuleModes.Flag, Assert.Single(RuleEngine.Current.Rules).Mode);
+
+			// the list shows the trip and the last match until staff change the mode again
+			JsonElement listed = Assert.Single(Json(await admin.Get(RulesPath)).GetProperty("rules").EnumerateArray());
+			Assert.Equal(tripped.MatchedAt, listed.GetProperty("last_match_at").GetDateTime(), TimeSpan.FromSeconds(1));
+			Assert.Equal(JsonValueKind.String, listed.GetProperty("breaker_tripped_at").ValueKind);
+			JsonElement back = Json(await admin.Patch($"{RulesPath}/{id}", new { mode = RuleModes.Enforce }, await admin.Csrf()));
+			Assert.False(back.TryGetProperty("breaker_tripped_at", out JsonElement cleared) && cleared.ValueKind != JsonValueKind.Null);
+			Assert.Equal(JsonValueKind.String, back.GetProperty("last_match_at").ValueKind);
 		}
 		finally
 		{

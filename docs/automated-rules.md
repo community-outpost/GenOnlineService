@@ -189,7 +189,7 @@ Every route takes the staff sign-in cookie and needs `rules.manage` (admins and 
 
 | Route | Answer |
 |---|---|
-| `GET /api/v1/staff/rules?archived=` | `{rules: [{id, name, description, mode, enabled, current_version, archived, trigger, created_by, created_at, updated_by, updated_at}]}` |
+| `GET /api/v1/staff/rules?archived=` | `{rules: [{id, name, description, mode, enabled, current_version, archived, trigger, created_by, created_at, updated_by, updated_at, last_match_at, breaker_tripped_at}]}`; `breaker_tripped_at` is set while the circuit breaker holds the rule in Flag, until staff change the rule |
 | `POST /api/v1/staff/rules` | body `{name, description?, mode?, enabled?, document, comment?}` (mode `watch` and enabled false when omitted); 201 `{rule, document, versions}` |
 | `GET /api/v1/staff/rules/:id` | `{rule, document, versions: [{number, created_by, comment, created_at}]}`, the document of the current version |
 | `GET /api/v1/staff/rules/:id/versions/:number` | `{number, created_by, comment, created_at, document}` |
