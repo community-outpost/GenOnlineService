@@ -284,6 +284,7 @@ namespace GenOnlineService.Rest
 			Dictionary<long, (string? Kind, long? By, string? Reason)> lifts;
 			Dictionary<long, (string Name, int Tag)> lifters;
 			Dictionary<string, UserAgreement> agreed;
+			Dictionary<long, (string Kind, string? Name)> makers;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken))
 			{
 				user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.ID == userID, cancellationToken);
@@ -302,6 +303,7 @@ namespace GenOnlineService.Rest
 					.ToDictionary(s => s.ID, s => (s.LiftedByKind, s.LiftedByID, String.IsNullOrEmpty(s.LiftReason) ? null : s.LiftReason));
 				lifters = await Database.DisplayNames.GetBulk(db, lifts.Values.Where(l => l.Kind == AuditActorKinds.User && l.By != null).Select(l => l.By!.Value).ToHashSet());
 				agreed = await Agreements.LatestAsync(db, userID, cancellationToken);
+				makers = await SanctionMakersAsync(db, userID, cancellationToken);
 			}
 
 			Result<SanctionsResponse> sanctions = await SanctionActions.ListAsync(dbFactory, userID, activeOnly: false);
@@ -353,6 +355,8 @@ namespace GenOnlineService.Rest
 					ExpiresAt = sanction.ExpiresAt,
 					LiftedAt = sanction.LiftedAt,
 					CreatedBy = sanction.CreatedBy is Member by ? new PortalMember { Id = by.Id, Name = by.Name, Tag = by.Tag } : null,
+					CreatedByKind = makers.TryGetValue(sanction.Id, out var maker) ? maker.Kind : null,
+					CreatedByName = maker.Name,
 					LiftedByKind = lifts.TryGetValue(sanction.Id, out var lift) ? lift.Kind : null,
 					LiftedBy = lift.Kind == AuditActorKinds.User && lift.By is long lifter && RealtimeMembers.Of(lifter, lifters) is Member liftedBy
 						? new PortalMember { Id = liftedBy.Id, Name = liftedBy.Name, Tag = liftedBy.Tag } : null,
@@ -363,6 +367,27 @@ namespace GenOnlineService.Rest
 				// each environment owns its names since the identity hub, so staff can always rename here
 				CanRename = true
 			});
+		}
+
+		// The kind of actor that made each sanction of a player, and for an automated rule its actor name rule:<id>@v<version>,
+		// which only the audit row the sanction was written with keeps
+		private static async Task<Dictionary<long, (string Kind, string? Name)>> SanctionMakersAsync(AppDbContext db, long userID, CancellationToken cancellationToken)
+		{
+			var made = await db.Sanctions.AsNoTracking().Where(s => s.UserID == userID)
+				.Select(s => new { s.ID, s.Type, s.CreatedAt, s.CreatedByKind }).ToListAsync(cancellationToken);
+			var automated = made.Where(s => s.CreatedByKind == AuditActorKinds.Automation).ToList();
+			var rows = new List<(DateTime At, string Action, string Actor)>();
+			if (automated.Count > 0)
+			{
+				List<DateTime> times = automated.Select(s => s.CreatedAt).Distinct().ToList();
+				rows = (await db.AuditLog.AsNoTracking()
+					.Where(e => e.TargetKind == AuditTargetKinds.User && e.TargetID == userID && e.ActorKind == AuditActorKinds.Automation && times.Contains(e.CreatedAt))
+					.Select(e => new { e.CreatedAt, e.Action, e.Actor })
+					.ToListAsync(cancellationToken))
+					.Select(e => (e.CreatedAt, e.Action, e.Actor)).ToList();
+			}
+			return made.ToDictionary(s => s.ID, s => (s.CreatedByKind,
+				s.CreatedByKind == AuditActorKinds.Automation ? rows.Where(r => r.At == s.CreatedAt && r.Action == s.Type).Select(r => r.Actor).FirstOrDefault() : (string?)null));
 		}
 
 		// Sign-ins, devices, addresses and possible duplicates, after one audit row an hour per staff member and player;

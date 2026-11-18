@@ -241,6 +241,10 @@ namespace GenOnlineService.Portal.Client
 
 		// set while the circuit breaker holds an Enforce rule in Flag, until staff change its mode
 		public DateTime? BreakerTrippedAt { get; init; }
+
+		// the players behind created_by and updated_by, null when the actor is no player
+		public PortalMember? CreatedByPlayer { get; init; }
+		public PortalMember? UpdatedByPlayer { get; init; }
 	}
 
 	public sealed record PortalRuleList
@@ -255,6 +259,9 @@ namespace GenOnlineService.Portal.Client
 		public string? Comment { get; init; }
 		public DateTime CreatedAt { get; init; }
 		public PortalRuleDocument? Document { get; init; }
+
+		// the player behind created_by, null when the actor is no player
+		public PortalMember? CreatedByPlayer { get; init; }
 	}
 
 	public sealed record PortalRuleDetail

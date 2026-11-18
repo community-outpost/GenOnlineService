@@ -284,11 +284,27 @@ else
                                     }
                                 </CellTemplate>
                             </BbDataTableColumn>
-                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.CreatedBy != null ? s.CreatedBy.FullName : "the service")" Header="By">
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => MakerOf(s))" Header="By">
                                 <CellTemplate Context="sanction">
                                     @if (sanction.CreatedBy is PortalMember by)
                                     {
                                         <BbLink Href="@PortalRoutes.PlayerPage(by.Id)">@by.FullName</BbLink>
+                                    }
+                                    else if (sanction.CreatedByKind == "automation" && PortalText.RuleActor(sanction.CreatedByName) is (long ruleID, _))
+                                    {
+                                        @* the rule page is for rules.manage, everyone else reads the rule by its number *@
+                                        @if (Session.Can(PortalPermissions.RulesManage))
+                                        {
+                                            <BbLink Href="@PortalRoutes.RulePage(ruleID)" title="@sanction.CreatedByName">@PortalText.RuleActorText(sanction.CreatedByName, m_ruleNames.GetValueOrDefault(ruleID))</BbLink>
+                                        }
+                                        else
+                                        {
+                                            <span title="@sanction.CreatedByName">@PortalText.RuleActorText(sanction.CreatedByName, null)</span>
+                                        }
+                                    }
+                                    else if (sanction.CreatedByKind is string kind && kind != "user")
+                                    {
+                                        <span class="go-muted">@PortalText.ActorKind(kind)</span>
                                     }
                                     else
                                     {
@@ -1116,7 +1132,30 @@ else
         PortalAnswer<PortalPlayer> answer = await Api.GetPlayerAsync(Id);
         m_player = answer.Value;
         m_error = answer.Ok ? null : answer.Error;
+
+        // a sanction an automated rule made names the rule, which staff with rules.manage read by its name
+        if (m_ruleNames.Count == 0 && Session.Can(PortalPermissions.RulesManage) && m_player?.Sanctions.Any(s => s.CreatedByKind == "automation") == true)
+        {
+            foreach (bool archived in new[] { false, true })
+            {
+                foreach (PortalRule rule in (await Api.ListRulesAsync(archived)).Value?.Rules ?? [])
+                {
+                    m_ruleNames[rule.Id] = rule.Name;
+                }
+            }
+        }
     }
+
+    private Dictionary<long, string> m_ruleNames = new();
+
+    // Who made a sanction in words, for sorting and the column text
+    private string MakerOf(PortalSanction sanction) => sanction switch
+    {
+        { CreatedBy: PortalMember by } => by.FullName,
+        { CreatedByKind: "automation" } => PortalText.RuleActorText(sanction.CreatedByName, PortalText.RuleActor(sanction.CreatedByName) is (long id, _) ? m_ruleNames.GetValueOrDefault(id) : null),
+        { CreatedByKind: string kind } when kind != "user" => PortalText.ActorKind(kind),
+        _ => "the service"
+    };
 
     // The player's matches, a page at a time; a failed page shows the alert above the grid
     private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalMatchRow>> LoadMatchesAsync(BlazorBlueprint.Primitives.DataGrid.DataGridRequest request)

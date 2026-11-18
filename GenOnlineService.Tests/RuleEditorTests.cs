@@ -163,7 +163,7 @@ public class RuleEditorTests
 			  see above: then mute for 1d, reason "Cool down"
 			unreached:
 			  then flag, reason "Look"
-			""".Replace("\t", "").Trim(), RuleOutline.Text(lines));
+			""".Replace("\t", "").Trim().ReplaceLineEndings("\n"), RuleOutline.Text(lines));
 		// a line that starts a node names it, so the outline view selects that node on the canvas
 		Assert.Equal(["t", "c", "a", "m", "m", "lost"], lines.Where(l => l.NodeId != null).Select(l => l.NodeId));
 		Assert.Equal("nothing", RuleOutline.Lines(Parse("""{"nodes":[{"id":"t","kind":"trigger","event":{"action":"sweep"}}],"edges":[]}"""))[1].Text);

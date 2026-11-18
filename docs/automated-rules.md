@@ -275,7 +275,10 @@ same in words for screen readers, such as "If Account age in days is less than 7
 MAC is virtual", and the difference of two versions compares the expressions line by line.
 
 `/admin/rules/matches`, linked under Anti-cheat for `anticheat.review`, is the review queue. Audit rows written by a
-rule read "Automated rule", its name and version.
+rule read "Automated rule", its name and version, and so does the By column of a sanction a rule made on the player
+page, which `staff_view` gives as `created_by_kind` `automation` and `created_by_name` `rule:<id>@v<version>`. The editor
+opens the canvas fitted to the graph but never below a zoom of 0.85, so node text reads and a wide graph is panned. The
+versions and the editor name the player who saved them.
 
 ## API
 
@@ -283,10 +286,10 @@ Every route takes the staff sign-in cookie and needs `rules.manage` (admins and 
 
 | Route | Answer |
 |---|---|
-| `GET /api/v1/staff/rules?archived=` | `{rules: [{id, name, description, mode, enabled, current_version, archived, trigger, created_by, created_at, updated_by, updated_at, last_match_at, breaker_tripped_at}]}`; `breaker_tripped_at` is set while the circuit breaker holds the rule in Flag, until staff change the rule |
+| `GET /api/v1/staff/rules?archived=` | `{rules: [{id, name, description, mode, enabled, current_version, archived, trigger, created_by, created_at, updated_by, updated_at, last_match_at, breaker_tripped_at, created_by_player, updated_by_player}]}`; the players are Members, null for an actor that is no player; `breaker_tripped_at` is set while the circuit breaker holds the rule in Flag, until staff change the rule |
 | `POST /api/v1/staff/rules` | body `{name, description?, mode?, enabled?, document, comment?}` (mode `watch` and enabled false when omitted); 201 `{rule, document, versions}` |
-| `GET /api/v1/staff/rules/:id` | `{rule, document, versions: [{number, created_by, comment, created_at}]}`, the document of the current version |
-| `GET /api/v1/staff/rules/:id/versions/:number` | `{number, created_by, comment, created_at, document}` |
+| `GET /api/v1/staff/rules/:id` | `{rule, document, versions: [{number, created_by, created_by_player, comment, created_at}]}`, the document of the current version |
+| `GET /api/v1/staff/rules/:id/versions/:number` | `{number, created_by, created_by_player, comment, created_at, document}` |
 | `POST /api/v1/staff/rules/:id/versions` | body `{document, comment?, base_version?}`; 201 as the read of the rule |
 | `PATCH /api/v1/staff/rules/:id` | body `{name?, description?, mode?, enabled?}`; the rule |
 | `POST /api/v1/staff/rules/:id/archive`, `POST /api/v1/staff/rules/:id/restore` | the rule |
