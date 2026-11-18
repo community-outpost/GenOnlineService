@@ -89,7 +89,10 @@
                 <BbDataGridPropertyColumn TData="PortalPlayerRow" TProp="string" Property="@(p => p.FullName)" Title="Player" Hideable="false">
                     <CellTemplate>
                         <div class="go-cell-player">
-                            <BbLink Href="@PortalRoutes.PlayerPage(context.Id)" data-testid="player-link">@context.FullName</BbLink>
+                            <BbLink Href="@PortalRoutes.PlayerPage(context.Id)" data-testid="player-link"><bdi>@context.Name@if (context.Tag != null)
+                                {
+                                    <span class="go-name-tag">#@context.Tag</span>
+                                }</bdi></BbLink>
                             @foreach (string role in context.Roles)
                             {
                                 <BbBadge Variant="BadgeVariant.Outline">@role</BbBadge>

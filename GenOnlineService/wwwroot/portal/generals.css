@@ -1087,6 +1087,12 @@ a.go-list-item:hover {
   text-decoration: none;
 }
 
+/* the tag after a player name, muted as on the board */
+.dark .go-name-tag {
+  font-weight: var(--go-font-weight-regular);
+  color: var(--go-color-text-muted);
+}
+
 /* a word as its first letter capital */
 .go-capitalize {
   text-transform: capitalize;
