@@ -60,6 +60,8 @@ public class EmailConfirmationTests
 
 	internal static Dictionary<string, string?> WithGameClient(params (string Key, string Value)[] extra) => PasswordPagesTests.Enabled(new[]
 	{
+		// the public origin of mail links, required with mail (AddMail refuses to start without it)
+		("Accounts:issuer", "http://accounts.test/"),
 		("Accounts:clients:0:client_id", "genonline_zerohour"),
 		("Accounts:clients:0:display_name", "Generals Online (Zero Hour)"),
 		("Accounts:clients:0:kind", "game"),

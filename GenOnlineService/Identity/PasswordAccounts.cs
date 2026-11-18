@@ -173,14 +173,27 @@ namespace GenOnlineService.Identity
 			user.LastSignInAt = now;
 		}
 
-		// After a self-service password reset (the new password and stamp are saved by Identity): the lockout ends and the
-		// reset is audited with the player as the actor, as the operator's reset is with the CLI (UserResets). Only these
-		// columns are written, never the caller's copy of the row.
-		public async Task RecordSelfReset(Int64 userID)
+		// Redeems a self-service reset link: the new password, a new security stamp and the end of the lockout, written only
+		// while the stamp is still the one the link was issued against. That makes the link single-use even when several
+		// requests (on several copies) redeem it at once: exactly one update matches. The reset is audited with the player
+		// as the actor, as the operator's reset is with the CLI (UserResets). Only these columns are written.
+		public async Task<bool> RedeemReset(User user, string passwordHash)
 		{
+			Int64 userID = user.ID;
+			string? stamp = user.SecurityStamp;
+			DateTime now = DateTime.UtcNow;
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 			await using var transaction = await db.Database.BeginTransactionAsync();
-			await db.Users.Where(u => u.ID == userID).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.LockoutEndAt, (DateTime?)null).SetProperty(u => u.FailedSignInCount, 0));
+			int updated = await db.Users.Where(u => u.ID == userID && u.SecurityStamp == stamp).ExecuteUpdateAsync(setters => setters
+				.SetProperty(u => u.PasswordHash, passwordHash)
+				.SetProperty(u => u.SecurityStamp, Guid.NewGuid().ToString("N"))
+				.SetProperty(u => u.LockoutEndAt, (DateTime?)null)
+				.SetProperty(u => u.FailedSignInCount, 0)
+				.SetProperty(u => u.UpdatedAt, now));
+			if (updated == 0)
+			{
+				return false;
+			}
 			db.AuditLog.Add(new AuditLogEntry
 			{
 				CreatedAt = DateTime.UtcNow,
@@ -195,6 +208,7 @@ namespace GenOnlineService.Identity
 			});
 			await db.SaveChangesAsync();
 			await transaction.CommitAsync();
+			return true;
 		}
 
 		// The address as typed (trimmed) when it is one plain address with a dotted domain, else null

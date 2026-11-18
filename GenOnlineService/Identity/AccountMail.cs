@@ -154,16 +154,16 @@ namespace GenOnlineService.Identity
 		// A password account waits for its address to be confirmed before any token; provider accounts never do
 		public bool MustConfirm(User user) => Enabled && user.PasswordHash != null && user.Email != null && user.EmailConfirmedAt == null;
 
-		public async Task<bool> SendConfirmation(User user, HttpRequest request)
+		public async Task<bool> SendConfirmation(User user)
 		{
 			string token = await m_users.GenerateEmailConfirmationTokenAsync(user);
-			return await Send(EmailTemplates.Confirmation, user, Link(request, ConfirmationPath, ConfirmationTokenField, Pack(user.ID, token)));
+			return await Send(EmailTemplates.Confirmation, user, Link(m_settings.Issuer, ConfirmationPath, ConfirmationTokenField, Pack(user.ID, token)));
 		}
 
-		public async Task<bool> SendPasswordReset(User user, HttpRequest request)
+		public async Task<bool> SendPasswordReset(User user)
 		{
 			string token = await m_users.GeneratePasswordResetTokenAsync(user);
-			return await Send(EmailTemplates.PasswordReset, user, Link(request, ResetPasswordEditPath, ResetPasswordTokenField, Pack(user.ID, token)));
+			return await Send(EmailTemplates.PasswordReset, user, Link(m_settings.Issuer, ResetPasswordEditPath, ResetPasswordTokenField, Pack(user.ID, token)));
 		}
 
 		private async Task<bool> Send(string template, User user, string link)
@@ -184,14 +184,10 @@ namespace GenOnlineService.Identity
 			}
 		}
 
-		// Absolute on the host the request came in on, or on Accounts:issuer when the operator set the public address
-		private string Link(HttpRequest request, string path, string field, string token)
-		{
-			string origin = !String.IsNullOrWhiteSpace(m_settings.Issuer)
-				? m_settings.Issuer.Trim().TrimEnd('/')
-				: $"{request.Scheme}://{request.Host}{request.PathBase}";
-			return $"{origin}{path}?{field}={Uri.EscapeDataString(token)}";
-		}
+		// Absolute on Accounts:issuer, the configured public address; never on the request's Host header, which a client
+		// forges at will. AddMail refuses to start with mail and without it; here a missing one throws before any mail.
+		private static string Link(string? issuer, string path, string field, string token)
+			=> $"{MailSetup.PublicOrigin(issuer)}{path}?{field}={Uri.EscapeDataString(token)}";
 
 		// The link carries one opaque value, as GitLab's: the account id and Identity's token together
 		public static string Pack(Int64 userID, string token)

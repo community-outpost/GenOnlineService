@@ -485,7 +485,7 @@ namespace GenOnlineService.Identity
 			// with mail, the new address is confirmed by a link before the first token (S4); a failed send is retried from the waiting page
 			if (m_mail.Enabled)
 			{
-				await m_mail.SendConfirmation(result.User!, Request);
+				await m_mail.SendConfirmation(result.User!);
 			}
 
 			await m_passwords.RecordSignIn(result.User!);

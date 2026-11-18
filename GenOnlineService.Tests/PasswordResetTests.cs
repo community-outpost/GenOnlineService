@@ -237,6 +237,72 @@ public class PasswordResetTests
 		Assert.Equal(429, (await RequestReset(browser.Fork(), "someone-else@example.org")).Status);
 	}
 
+	// a mail link never takes its host from the request: a forged Host header still gets the configured origin
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task MailLinksUseTheConfiguredOriginNotTheRequestHost(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var mail = new RecordingEmailSender();
+		AccountsBrowser browser = await EmailConfirmationTests.Browser(probe, mail, null, ("Accounts:issuer", "https://login.example/"));
+		browser.Host = "evil.example";
+
+		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Hosted", "hosted@example.org", Password)).Status);
+		Assert.Equal(200, (await RequestReset(browser.Fork(), "hosted@example.org")).Status);
+
+		Assert.Equal(2, mail.Sent.Count);
+		Assert.StartsWith("/users/confirmation?confirmation_token=", RecordingEmailSender.LinkIn(mail.Sent[0], "https://login.example"));
+		Assert.StartsWith("/users/password/edit?reset_password_token=", RecordingEmailSender.LinkIn(mail.Sent[1], "https://login.example"));
+		Assert.DoesNotContain(mail.Sent, m => m.Text.Contains("evil.example") || m.Html.Contains("evil.example"));
+	}
+
+	// without a configured origin no link is built at all, so nothing goes out with the request's host
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task NoMailLinkIsBuiltWithoutAConfiguredOrigin(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser known, _, _) = await Account(probe, "origin@example.org");
+		var mail = new RecordingEmailSender();
+		AccountsBrowser browser = await EmailConfirmationTests.Browser(probe, mail, null, ("Accounts:issuer", ""));
+		browser.Host = "evil.example";
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() => RequestReset(browser, "origin@example.org"));
+		Assert.Empty(mail.Sent);
+	}
+
+	// one reset link redeemed by several requests at once sets the password once: one 200, one audit row
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ConcurrentRedemptionsOfOneLinkSucceedOnce(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser browser, RecordingEmailSender mail, User user) = await Account(probe, "racer@example.org");
+		Assert.Equal(200, (await RequestReset(browser.Fork(), "racer@example.org")).Status);
+		string link = RecordingEmailSender.LinkIn(Assert.Single(mail.Sent));
+
+		AccountsBrowser tab = browser.Fork();
+		PageResponse page = await tab.Get(link);
+		Assert.Equal(200, page.Status);
+		string token = WebUtility.HtmlDecode(Regex.Match(page.Body, "name=\"reset_password_token\" value=\"([^\"]+)\"").Groups[1].Value);
+		string antiforgery = AccountsBrowser.Token(page);
+
+		PageResponse[] answers = await Task.WhenAll(Enumerable.Range(0, 4).Select(i => Task.Run(() => tab.Fork(keepCookies: true).Post("/users/password/edit", new()
+		{
+			["__go_consent_token"] = antiforgery,
+			["reset_password_token"] = token,
+			["password"] = NewPassword + i
+		}))));
+
+		Assert.Single(answers, a => a.Status == 200);
+		Assert.Equal(3, answers.Count(a => a.Status == 400));
+		await using AppDbContext db = probe.Open();
+		Assert.Equal(1, await db.AuditLog.CountAsync(a => a.Action == "password_reset" && a.TargetID == user.ID));
+	}
+
 	// the code flow with offline_access, as a game client signs in
 	private static async Task<string> RefreshToken(AccountsBrowser browser)
 	{

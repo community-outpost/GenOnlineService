@@ -90,8 +90,23 @@ internal sealed class AccountsBrowser
 		Settings = settings;
 	}
 
-	// Another browser on the same host: the same services (and in-memory limits), its own cookie jar
-	public AccountsBrowser Fork() => new(m_pipeline, m_services, Settings);
+	// Another browser on the same host: the same services (and in-memory limits), its own cookie jar (a copy of this
+	// one's with keepCookies, as a second tab of the same browser)
+	public AccountsBrowser Fork(bool keepCookies = false)
+	{
+		var fork = new AccountsBrowser(m_pipeline, m_services, Settings) { Host = Host };
+		if (keepCookies)
+		{
+			foreach ((string name, string value) in m_cookies)
+			{
+				fork.m_cookies[name] = value;
+			}
+		}
+		return fork;
+	}
+
+	// The Host header the browser sends, as a client may set any
+	public string Host { get; set; } = "accounts.test";
 
 	public IServiceProvider Services => m_services;
 
@@ -108,7 +123,7 @@ internal sealed class AccountsBrowser
 		scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext = context;
 		context.Request.Method = method;
 		context.Request.Scheme = "http";
-		context.Request.Host = new HostString("accounts.test");
+		context.Request.Host = new HostString(Host);
 		int query = pathAndQuery.IndexOf('?');
 		context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery.Substring(0, query);
 		context.Request.QueryString = query < 0 ? QueryString.Empty : new QueryString(pathAndQuery.Substring(query));

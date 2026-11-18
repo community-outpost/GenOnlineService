@@ -45,6 +45,9 @@ public class MailCliTests
 
 	private static readonly (string, string)[] s_resend = [("Mail:delivery_method", "resend"), ("Mail:from", "noreply@generals.online"), ("Mail:resend:api_key", "k")];
 
+	// the service also needs the public origin of its mail links
+	private static readonly (string, string)[] s_resendService = [.. s_resend, ("Accounts:issuer", "https://login.generals.online/")];
+
 	[Theory]
 	[InlineData("mail")]
 	[InlineData("mail", "test")]
@@ -97,7 +100,7 @@ public class MailCliTests
 	public void AddMailRegistersTheConfiguredSender()
 	{
 		var services = new ServiceCollection();
-		services.AddMail(Config(s_resend));
+		services.AddMail(Config(s_resendService));
 		using ServiceProvider provider = services.BuildServiceProvider();
 		Assert.IsType<ResendEmailSender>(provider.GetRequiredService<IEmailSender>());
 		Assert.Equal(DeliveryMethod.Resend, provider.GetRequiredService<MailSettings>().DeliveryMethod);
@@ -106,6 +109,29 @@ public class MailCliTests
 		none.AddMail(Config());
 		using ServiceProvider noneProvider = none.BuildServiceProvider();
 		Assert.False(noneProvider.GetRequiredService<IEmailSender>().Enabled);
+	}
+
+	// with mail, links are built from the configured public origin only (never the request's Host), so the service
+	// refuses to start without one; mail none needs none
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	[InlineData("not a url")]
+	[InlineData("ftp://login.generals.online/")]
+	public void AddMailRequiresThePublicOriginOfItsLinks(string? issuer)
+	{
+		var values = issuer == null ? s_resend : [.. s_resend, ("Accounts:issuer", issuer)];
+		var refused = Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddMail(Config(values)));
+		Assert.Contains("Accounts:issuer", refused.Message);
+	}
+
+	[Fact]
+	public void AddMailWithoutAMethodNeedsNoOrigin()
+	{
+		var services = new ServiceCollection();
+		services.AddMail(Config());
+		using ServiceProvider provider = services.BuildServiceProvider();
+		Assert.False(provider.GetRequiredService<IEmailSender>().Enabled);
 	}
 
 	// a misconfigured method stops the start, naming the key

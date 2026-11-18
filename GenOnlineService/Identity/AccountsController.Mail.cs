@@ -117,7 +117,7 @@ namespace GenOnlineService.Identity
 			{
 				return ConfirmationPendingForm(429, user, target, TooManyMails, success: false);
 			}
-			return await m_mail.SendConfirmation(user, Request)
+			return await m_mail.SendConfirmation(user)
 				? ConfirmationPendingForm(200, user, target, "A new link is on its way.", success: true)
 				: ConfirmationPendingForm(503, user, target, "The mail could not be sent. Please try again later.", success: false);
 		}
@@ -173,7 +173,7 @@ namespace GenOnlineService.Identity
 			// only an active account that signs in with a password; a failed send is logged and answered the same
 			if (user != null && user.PasswordHash != null && user.State == UserStates.Active)
 			{
-				await m_mail.SendPasswordReset(user, Request);
+				await m_mail.SendPasswordReset(user);
 			}
 			return Page(200, "Check your email", PortalLook.Alert(ResetSent, success: true) + PortalLook.Link("/users/sign_in", "Sign in"));
 		}
@@ -240,19 +240,27 @@ namespace GenOnlineService.Identity
 				return ResetLinkInvalid();
 			}
 
-			IdentityResult reset = await m_users.ResetPasswordAsync(user, raw, password ?? String.Empty);
-			if (!reset.Succeeded)
+			// sign-up's password rules (the same validators UserManager runs)
+			string chosen = password ?? String.Empty;
+			foreach (IPasswordValidator<User> validator in m_users.PasswordValidators)
 			{
-				return reset.Errors.First().Code switch
+				IdentityResult valid = await validator.ValidateAsync(m_users, user, chosen);
+				if (!valid.Succeeded)
 				{
-					nameof(IdentityErrorDescriber.PasswordTooShort) => ResetPasswordForm(400, token!, $"Passwords must be at least {m_settings.Password.MinLength} characters."),
-					MaximumLengthPasswordValidator.ErrorCode => ResetPasswordForm(400, token!, $"Passwords must be at most {PasswordSignInSettings.MaximumLength} characters."),
-					nameof(IdentityErrorDescriber.InvalidToken) => ResetLinkInvalid(),
-					_ => ResetPasswordForm(400, token!, "The password could not be changed.")
-				};
+					return valid.Errors.First().Code switch
+					{
+						nameof(IdentityErrorDescriber.PasswordTooShort) => ResetPasswordForm(400, token!, $"Passwords must be at least {m_settings.Password.MinLength} characters."),
+						MaximumLengthPasswordValidator.ErrorCode => ResetPasswordForm(400, token!, $"Passwords must be at most {PasswordSignInSettings.MaximumLength} characters."),
+						_ => ResetPasswordForm(400, token!, "The password could not be changed.")
+					};
+				}
 			}
 
-			await m_passwords.RecordSelfReset(user.ID);
+			// written only while the stamp the link was checked against is current: one of several racing requests wins
+			if (!await m_passwords.RedeemReset(user, m_users.PasswordHasher.HashPassword(user, chosen)))
+			{
+				return ResetLinkInvalid();
+			}
 			await SessionRevocation.RevokeUser(HttpContext.RequestServices, user.ID, false, "password reset");
 			AppMetrics.RecordAuthentication("password_reset", "password", "success");
 			return Page(200, "Your password is changed",
