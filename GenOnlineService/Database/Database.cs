@@ -67,7 +67,7 @@ public static class DbHelpers
 
 // One model for both providers; provider differences live in Database.Providers.cs.
 // Every model change needs a migration for BOTH contexts.
-public abstract class AppDbContext : DbContext
+public abstract partial class AppDbContext : DbContext
 {
 	// Accounts
 	public DbSet<User> Users => Set<User>();
@@ -78,6 +78,10 @@ public abstract class AppDbContext : DbContext
 	public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
 	public DbSet<Client> Clients => Set<Client>();
 	public DbSet<ClientBuild> ClientBuilds => Set<ClientBuild>();
+
+	// Client configuration: draft flags and their published revisions
+	public DbSet<FlagRow> Flags => Set<FlagRow>();
+	public DbSet<FlagRevision> FlagRevisions => Set<FlagRevision>();
 
 	// Moderation and audit
 	public DbSet<UserRole> UserRoles => Set<UserRole>();
@@ -193,6 +197,11 @@ public abstract class AppDbContext : DbContext
 		configure(modelBuilder.Entity<AuditLogEntry>().Property(e => e.Details));
 		configure(modelBuilder.Entity<ApplicationSetting>().Property(e => e.Value));
 		configure(modelBuilder.Entity<PlayerReport>().Property(e => e.Evidence));
+		configure(modelBuilder.Entity<FlagRow>().Property(e => e.Definition));
+		configure(modelBuilder.Entity<FlagRevision>().Property(e => e.Document));
+		ConfigurePlaylistJson(modelBuilder, configure);
+		ConfigureChannelJson(modelBuilder, configure);
+		ConfigureBroadcastJson(modelBuilder, configure);
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -253,6 +262,22 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleTermConfiguration());
 		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleExceptionConfiguration());
 		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleWorkflowConfiguration());
+		modelBuilder.ApplyConfiguration(new FlagRowConfiguration());
+		modelBuilder.ApplyConfiguration(new FlagRevisionConfiguration());
+		ConfigurePlaylists(modelBuilder);
+		ConfigureChannels(modelBuilder);
+		ConfigureBroadcasts(modelBuilder);
 		OpenIddictModel.Configure(modelBuilder);
 	}
+}
+
+// Each catalog area (Catalog/*) implements its own hooks in its own file
+public abstract partial class AppDbContext
+{
+	partial void ConfigurePlaylists(ModelBuilder modelBuilder);
+	partial void ConfigureChannels(ModelBuilder modelBuilder);
+	partial void ConfigureBroadcasts(ModelBuilder modelBuilder);
+	static partial void ConfigurePlaylistJson(ModelBuilder modelBuilder, Action<PropertyBuilder> configure);
+	static partial void ConfigureChannelJson(ModelBuilder modelBuilder, Action<PropertyBuilder> configure);
+	static partial void ConfigureBroadcastJson(ModelBuilder modelBuilder, Action<PropertyBuilder> configure);
 }

@@ -1763,6 +1763,15 @@ namespace GenOnlineService
 							await StaffRoles.Reload(db);
 						});
 
+						// a copy that missed a catalog change on the backplane picks it up here
+						await RunObservedBackgroundJobAsync("catalog_reload", app.Logger, async () =>
+						{
+							using var scope = app.Services.CreateScope();
+							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+							await using var db = await factory.CreateDbContextAsync();
+							await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);
+						});
+
 						await RunObservedBackgroundJobAsync("api_tokens_reload", app.Logger, async () =>
 						{
 							using var scope = app.Services.CreateScope();
@@ -1815,6 +1824,12 @@ namespace GenOnlineService
 				// the word lists and rules of the text checks: the seed lists once, on the first start
 				await GenOnlineService.TextRules.TextChecks.SeedAsync(db);
 				await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
+
+				// the live flags revision; later revisions arrive through CatalogSignals and the reconcile tick
+				GenOnlineService.Catalog.CatalogSignals.Register(GenOnlineService.Catalog.CatalogResources.Flags, GenOnlineService.Flags.FlagCatalog.Reload);
+				await GenOnlineService.Flags.FlagSeed.EnsureAsync(db);
+				await GenOnlineService.Catalog.CatalogStartup.RunAsync(db);
+				await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);
 			}
 
 			if (accountsSettings.Enabled)

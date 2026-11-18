@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace GenOnlineService.Rest
 {
@@ -29,25 +30,30 @@ namespace GenOnlineService.Rest
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 
-		public ConfigController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization) : base(authorization)
+		private readonly IHostEnvironment m_environment;
+
+		public ConfigController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization, IHostEnvironment environment) : base(authorization)
 		{
 			m_dbFactory = dbFactory;
+			m_environment = environment;
 		}
 
+		// service_config is the client.* flags of the live revision, evaluated for the caller and grouped by key
 		[EndpointSummary("Reads the service configuration a game client needs.")]
 		[ProducesResponseType<ConfigResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/config")]
 		public async Task<IActionResult> Get()
 		{
-			JsonElement? serviceConfig = await ConfigSources.ReadServiceConfigAsync();
-			if (serviceConfig == null)
+			GenOnlineService.Flags.FlagSnapshot flags = GenOnlineService.Flags.FlagCatalog.Current;
+			if (flags.Revision == 0)
 			{
 				return RestResults.Fail(RestCodes.ServiceUnavailable, new { What = "config" });
 			}
 
+			JsonObject grouped = flags.ServiceConfigFor(GenOnlineService.Flags.OfrepController.ContextOf(HttpContext, m_environment));
 			return RestResults.Ok(new ConfigResponse
 			{
-				ServiceConfig = serviceConfig.Value,
+				ServiceConfig = GenOnlineService.Flags.Flagd.Element(grouped),
 				Motd = await ConfigSources.ReadMotdAsync(m_dbFactory)
 			});
 		}

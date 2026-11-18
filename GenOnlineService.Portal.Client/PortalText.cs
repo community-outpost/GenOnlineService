@@ -16,6 +16,9 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using System.Globalization;
+using System.Text.Json;
+
 namespace GenOnlineService.Portal.Client
 {
 	// Words for the error codes the portal can meet, any other code shows as it is
@@ -87,7 +90,159 @@ namespace GenOnlineService.Portal.Client
 			"token.limit_reached" => "This owner already holds the most active tokens allowed.",
 			"account.no_password" => "This account signs in with a provider only and has no password.",
 			"account.no_two_factor" => "Two-factor sign-in is not on for this account.",
+			"conflict.stale" => "Someone changed this meanwhile. Reload the page and try again.",
+			"flag.no_changes" => "The draft holds no change to publish.",
+			"flag.in_use" => "The service itself reads this field, so it cannot be archived or moved out of the service.",
+			"flag.exists" => "A field with this key exists already.",
 			_ => "The service answered: " + code
 		};
+
+		// A refused game config change: invalid_argument names the field of the definition the host found wrong
+		public static string FlagError(string? code, string? field) => code != "invalid_argument" || field == null ? Error(code) : field switch
+		{
+			"value" => "The value does not fit the type, the limits or the choices of this field.",
+			"rules" => "A targeting rule is not valid: roles must be known roles, countries two-letter codes, a percentage from 1 to 99 and the last rule, and every rule value must fit the field.",
+			"custom" => "The custom flagd targeting is not valid.",
+			"comment" => "The note is too long.",
+			"If-Match" => "The page expired. Reload it and try again.",
+			_ => "This is not valid: " + field + "."
+		};
+	}
+
+	// The game config fields in words, and the values the edit form types
+	public static class PortalFlagText
+	{
+		// The type, the limits and the unit, as the edit form takes them
+		public static string TypeText(PortalFlag flag)
+		{
+			string text = flag.Type switch
+			{
+				"bool" => "on or off",
+				"int" => "whole number",
+				"number" => "number",
+				"choice" => "one of " + String.Join(", ", (flag.Choices ?? []).Select(c => c.Label)),
+				_ => "text"
+			};
+			if (flag.Type == "string")
+			{
+				return flag.Max is double longest ? $"{text}, at most {Number(longest)} characters" : text;
+			}
+			if (flag.Min is double min && flag.Max is double max)
+			{
+				text += $" from {Number(min)} to {Number(max)}";
+			}
+			else if (flag.Min is double low)
+			{
+				text += $", at least {Number(low)}";
+			}
+			else if (flag.Max is double high)
+			{
+				text += $", at most {Number(high)}";
+			}
+			return flag.Unit == null ? text : $"{text}, in {flag.Unit}";
+		}
+
+		private static string Number(double value) => value.ToString("0.########", CultureInfo.InvariantCulture);
+
+		// A value in words: on or off, the label of a choice, a number with its unit
+		public static string Display(PortalFlag flag, JsonElement value)
+		{
+			switch (value.ValueKind)
+			{
+				case JsonValueKind.True:
+					return "on";
+				case JsonValueKind.False:
+					return "off";
+				case JsonValueKind.Undefined:
+				case JsonValueKind.Null:
+					return "none";
+			}
+			if (flag.Type == "choice" && flag.Choices?.FirstOrDefault(c => c.Value.GetRawText() == value.GetRawText()) is PortalFlagChoice choice)
+			{
+				return choice.Label;
+			}
+			if (value.ValueKind == JsonValueKind.String)
+			{
+				return "\u201c" + value.GetString() + "\u201d";
+			}
+			return flag.Unit == null ? value.GetRawText() : value.GetRawText() + " " + flag.Unit;
+		}
+
+		public static string RuleText(PortalFlag flag, PortalFlagRule rule)
+		{
+			string who = rule.Kind switch
+			{
+				"role" => "role " + String.Join(", ", rule.Values ?? []),
+				"client" => "client " + String.Join(", ", rule.Values ?? []),
+				"country" => "from " + String.Join(", ", rule.Values ?? []),
+				"percentage" => rule.Percent + "% of players",
+				_ => rule.Kind
+			};
+			return who + " \u2192 " + Display(flag, rule.Value);
+		}
+
+		// The value as the input holds it: true or false, the number, the text, or the JSON of a choice
+		public static string TextOf(PortalFlag flag, JsonElement value) => value.ValueKind switch
+		{
+			JsonValueKind.True => "true",
+			JsonValueKind.False => "false",
+			JsonValueKind.String when flag.Type != "choice" => value.GetString() ?? "",
+			JsonValueKind.Undefined => "",
+			_ => value.GetRawText()
+		};
+
+		// The typed value as JSON of the field's type; the host checks the limits and the choices again
+		public static bool TryParse(PortalFlag flag, string text, out JsonElement value, out string? problem)
+		{
+			problem = null;
+			string json;
+			switch (flag.Type)
+			{
+				case "bool":
+					json = text == "true" ? "true" : "false";
+					break;
+				case "int":
+					if (!long.TryParse(text.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long whole))
+					{
+						problem = "Enter a whole number.";
+						value = default;
+						return false;
+					}
+					json = whole.ToString(CultureInfo.InvariantCulture);
+					break;
+				case "number":
+					if (!double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double number) || !double.IsFinite(number))
+					{
+						problem = "Enter a number, with a dot for decimals.";
+						value = default;
+						return false;
+					}
+					json = number.ToString("R", CultureInfo.InvariantCulture);
+					break;
+				case "choice":
+					json = text;
+					break;
+				default:
+					json = JsonSerializer.Serialize(text);
+					break;
+			}
+			try
+			{
+				using JsonDocument document = JsonDocument.Parse(json);
+				value = document.RootElement.Clone();
+			}
+			catch (JsonException)
+			{
+				problem = "Pick one of the choices.";
+				value = default;
+				return false;
+			}
+			if ((flag.Type == "int" || flag.Type == "number") && ((flag.Min is double min && value.GetDouble() < min) || (flag.Max is double max && value.GetDouble() > max)))
+			{
+				problem = "The value is outside its limits: " + TypeText(flag) + ".";
+				return false;
+			}
+			return true;
+		}
 	}
 }
