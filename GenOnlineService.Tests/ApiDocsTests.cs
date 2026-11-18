@@ -53,7 +53,7 @@ public class ApiDocsTests
 	public async Task DocumentIsOpenApi3AndListsEveryApiRoute()
 	{
 		var docs = new DocsHost();
-		(int status, string body, string? type) = await docs.Get("/openapi/v1.json");
+		(int status, string body, string? type) = await docs.Get("/api/openapi/v1.json");
 		Assert.Equal(200, status);
 		Assert.StartsWith("application/json", type);
 		JsonNode document = JsonNode.Parse(body)!;
@@ -70,7 +70,7 @@ public class ApiDocsTests
 	public async Task EveryOperationHasSummaryBodyAnswerAndSecurity()
 	{
 		var docs = new DocsHost();
-		JsonNode document = JsonNode.Parse((await docs.Get("/openapi/v1.json")).Body)!;
+		JsonNode document = JsonNode.Parse((await docs.Get("/api/openapi/v1.json")).Body)!;
 		List<string> problems = new();
 
 		foreach ((string method, string path, ControllerActionDescriptor action) in docs.ApiRoutes())
@@ -128,7 +128,7 @@ public class ApiDocsTests
 	public async Task SecuritySchemesNameTheThreeWaysIn()
 	{
 		var docs = new DocsHost();
-		JsonNode document = JsonNode.Parse((await docs.Get("/openapi/v1.json")).Body)!;
+		JsonNode document = JsonNode.Parse((await docs.Get("/api/openapi/v1.json")).Body)!;
 		JsonNode schemes = document["components"]!["securitySchemes"]!;
 		Assert.Equal("bearer", (string)schemes["access_token"]!["scheme"]!);
 		Assert.Equal("bearer", (string)schemes["personal_access_token"]!["scheme"]!);
@@ -157,7 +157,7 @@ public class ApiDocsTests
 	public async Task SchemaNamesMatchTheFixture(string fixture)
 	{
 		var docs = new DocsHost();
-		JsonNode document = JsonNode.Parse((await docs.Get("/openapi/v1.json")).Body)!;
+		JsonNode document = JsonNode.Parse((await docs.Get("/api/openapi/v1.json")).Body)!;
 		Type type = typeof(ApiError).Assembly.GetTypes().Single(t => t.GetCustomAttributes<ApiFixtureAttribute>().Any(a => a.Name == fixture));
 		JsonObject expected = JsonNode.Parse(File.ReadAllText(Path.Combine(s_fixtureDir, fixture + ".json")))!.AsObject();
 
@@ -170,7 +170,7 @@ public class ApiDocsTests
 	public async Task EveryPropertyNameIsSnakeCase()
 	{
 		var docs = new DocsHost();
-		JsonNode document = JsonNode.Parse((await docs.Get("/openapi/v1.json")).Body)!;
+		JsonNode document = JsonNode.Parse((await docs.Get("/api/openapi/v1.json")).Body)!;
 		List<string> wrong = document["components"]!["schemas"]!.AsObject()
 			.SelectMany(schema => (schema.Value?["properties"]?.AsObject() ?? new JsonObject()).Select(p => $"{schema.Key}.{p.Key}"))
 			.Where(name => !Regex.IsMatch(name.Substring(name.IndexOf('.') + 1), "^[a-z][a-z0-9_]*$"))
@@ -182,14 +182,14 @@ public class ApiDocsTests
 	public async Task DocumentTakesItsBaseUrlFromTheRequestAndHoldsNoSecrets()
 	{
 		var docs = new DocsHost();
-		string body = (await docs.Get("/openapi/v1.json")).Body;
+		string body = (await docs.Get("/api/openapi/v1.json")).Body;
 		JsonNode document = JsonNode.Parse(body)!;
 		Assert.Equal("http://" + Host + "/", ((string)document["servers"]![0]!["url"]!).TrimEnd('/') + "/");
 		Assert.DoesNotContain(ProbeSecret, body);
 		Assert.DoesNotContain("localhost", body);
 		Assert.DoesNotContain(Environment.MachineName, body, StringComparison.OrdinalIgnoreCase);
 
-		string other = (await docs.Get("/openapi/v1.json", "other.example")).Body;
+		string other = (await docs.Get("/api/openapi/v1.json", "other.example")).Body;
 		Assert.Contains("http://other.example", other);
 		Assert.DoesNotContain(Host, other);
 	}
@@ -197,7 +197,7 @@ public class ApiDocsTests
 	[Fact]
 	public async Task YamlDocumentIsServedToo()
 	{
-		(int status, string body, _) = await new DocsHost().Get("/openapi/v1.yaml");
+		(int status, string body, _) = await new DocsHost().Get("/api/openapi/v1.yaml");
 		Assert.Equal(200, status);
 		Assert.Contains("openapi: ", body);
 	}
@@ -207,20 +207,20 @@ public class ApiDocsTests
 	{
 		var docs = new DocsHost();
 		// the viewer lives under its trailing slash, so its relative asset links resolve
-		(int redirect, _, _, string? location) = await docs.Send("/docs/api");
+		(int redirect, _, _, string? location) = await docs.Send("/api/docs");
 		Assert.Equal(302, redirect);
-		Assert.Equal("/docs/api/", new Uri(new Uri("http://" + Host + "/docs/api"), location).AbsolutePath);
+		Assert.Equal("/api/docs/", new Uri(new Uri("http://" + Host + "/api/docs"), location).AbsolutePath);
 
-		(int status, string body, string? type) = await docs.Get("/docs/api/");
+		(int status, string body, string? type) = await docs.Get("/api/docs/");
 		Assert.Equal(200, status);
 		Assert.StartsWith("text/html", type);
-		// the document path is relative to the site root the page finds above /docs/api/
-		Assert.Contains("\"url\":\"openapi/v1.json\"", body);
+		// the document path is relative to the site root the page finds above /api/docs/
+		Assert.Contains("\"url\":\"api/openapi/v1.json\"", body);
 		Assert.Contains("<script src=\"scalar.js\">", body);
 		Assert.DoesNotContain("https://", body);
 
 		// its script comes from this service, not from a CDN
-		(int scriptStatus, string script, string? scriptType) = await docs.Get("/docs/api/scalar.js");
+		(int scriptStatus, string script, string? scriptType) = await docs.Get("/api/docs/scalar.js");
 		Assert.Equal(200, scriptStatus);
 		Assert.Contains("javascript", scriptType);
 		Assert.True(script.Length > 100_000);
@@ -230,10 +230,19 @@ public class ApiDocsTests
 	public async Task SwitchedOffBothAnswer404()
 	{
 		var docs = new DocsHost(("OpenApi:enabled", "false"));
-		Assert.Equal(404, (await docs.Get("/openapi/v1.json")).Status);
-		Assert.Equal(404, (await docs.Get("/openapi/v1.yaml")).Status);
-		Assert.Equal(404, (await docs.Get("/docs/api")).Status);
-		Assert.Equal(404, (await docs.Get("/docs/api/")).Status);
+		Assert.Equal(404, (await docs.Get("/api/openapi/v1.json")).Status);
+		Assert.Equal(404, (await docs.Get("/api/openapi/v1.yaml")).Status);
+		Assert.Equal(404, (await docs.Get("/api/docs")).Status);
+		Assert.Equal(404, (await docs.Get("/api/docs/")).Status);
+		Assert.Equal(404, (await docs.Get("/api")).Status);
+	}
+
+	[Fact]
+	public async Task ApiAloneLeadsToTheViewer()
+	{
+		(int status, _, _, string? location) = await new DocsHost().Send("/api");
+		Assert.Equal(302, status);
+		Assert.Equal("/api/docs/", new Uri(new Uri("http://" + Host + "/api"), location).AbsolutePath);
 	}
 
 	// A body read through ReadBodyAsync, JsonSerializer or [FromBody], in the action or a helper of its controller

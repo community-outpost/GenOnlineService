@@ -94,7 +94,7 @@
     <PackageReference Include="BlazorBlueprint.Icons.Lucide" Version="2.0.2" />
     <!-- Serves the WebAssembly staff pages under /admin; no Blazor Server circuit is registered -->
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.15" />
-    <!-- The OpenAPI document of /api/v1 (/openapi/v1.json) and its viewer at /docs/api, which serves its own assets -->
+    <!-- The OpenAPI document of /api/v1 (/api/openapi/v1.json) and its viewer at /api/docs, which serves its own assets -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.18.7" />
   </ItemGroup>

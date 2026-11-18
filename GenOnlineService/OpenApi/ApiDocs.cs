@@ -20,18 +20,18 @@ using Scalar.AspNetCore;
 
 namespace GenOnlineService.OpenApi
 {
-	// The OpenAPI document of /api/v1 at /openapi/v1.json (and .yaml) and its interactive viewer at /docs/api.
+	// The OpenAPI document of /api/v1 at /api/openapi/v1.json (and .yaml) and its interactive viewer at /api/docs, which /api leads to.
 	// Both are read-only metadata: they need no sign-in and grant nothing, every call made from the viewer
 	// goes through the same authentication and permission checks as any other call
 	public static class ApiDocs
 	{
 		public const string DocumentName = "v1";
-		public const string DocumentPath = "/openapi/v1.json";
-		public const string DocumentYamlPath = "/openapi/v1.yaml";
-		public const string ViewerPath = "/docs/api";
+		public const string DocumentPath = "/api/openapi/v1.json";
+		public const string DocumentYamlPath = "/api/openapi/v1.yaml";
+		public const string ViewerPath = "/api/docs";
 
-		private const string DocumentRoutePattern = "/openapi/{documentName}.json";
-		private const string DocumentYamlRoutePattern = "/openapi/{documentName}.yaml";
+		private const string DocumentRoutePattern = "/api/openapi/{documentName}.json";
+		private const string DocumentYamlRoutePattern = "/api/openapi/{documentName}.yaml";
 
 		// OpenApi:enabled, on unless an environment turns the document and the viewer off
 		public static bool Enabled(IConfiguration configuration) => configuration.GetValue("OpenApi:enabled", true);
@@ -74,6 +74,8 @@ namespace GenOnlineService.OpenApi
 					.DisableAgent()
 					.DisableMcp();
 			});
+			// /api alone serves nothing else, so it leads to the docs
+			endpoints.MapGet("/api", () => Results.Redirect(ViewerPath + "/")).ExcludeFromDescription();
 			return endpoints;
 		}
 	}
