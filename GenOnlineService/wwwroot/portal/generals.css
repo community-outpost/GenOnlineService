@@ -75,7 +75,7 @@ html.dark {
 
 /* touch targets of at least 44px on a phone or any coarse pointer */
 @media (pointer: coarse), (max-width: 47.99rem) {
-  .dark button,
+  .dark button:not([role="switch"]),
   .dark [role="tab"],
   .dark [role="menuitem"],
   .dark [data-sidebar="menu-button"],
@@ -529,7 +529,7 @@ html.dark {
 }
 
 /* a button: Play, bold, uppercase with tracking, 4px corners, flat. Blueprint's sizes become the design's 32, 40 and 48px */
-.dark :where(button, a)[class~="bb:inline-flex"][class~="bb:disabled:cursor-not-allowed"] {
+.dark :where(button:not([role="switch"]), a)[class~="bb:inline-flex"][class~="bb:disabled:cursor-not-allowed"] {
   gap: var(--go-space-2);
   height: 40px;
   padding: 0 var(--go-space-4);
@@ -544,22 +544,22 @@ html.dark {
   white-space: nowrap;
 }
 
-.dark :where(button, a)[class~="bb:h-9"][class~="bb:disabled:cursor-not-allowed"],
-.dark :where(button)[class~="bb:h-8"][class~="bb:disabled:cursor-not-allowed"] {
+.dark :where(button:not([role="switch"]), a)[class~="bb:h-9"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button:not([role="switch"]))[class~="bb:h-8"][class~="bb:disabled:cursor-not-allowed"] {
   height: var(--go-space-8);
   padding: 0 var(--go-space-3);
   font-size: var(--go-font-size-xs);
 }
 
-.dark :where(button)[class~="bb:h-11"][class~="bb:disabled:cursor-not-allowed"] {
+.dark :where(button:not([role="switch"]))[class~="bb:h-11"][class~="bb:disabled:cursor-not-allowed"] {
   height: var(--go-space-12);
   padding: 0 var(--go-space-6);
   font-size: var(--go-font-size-md);
 }
 
-.dark :where(button)[class~="bb:w-10"][class~="bb:disabled:cursor-not-allowed"],
-.dark :where(button)[class~="bb:w-9"][class~="bb:disabled:cursor-not-allowed"],
-.dark :where(button)[class~="bb:w-8"][class~="bb:disabled:cursor-not-allowed"] {
+.dark :where(button:not([role="switch"]))[class~="bb:w-10"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button:not([role="switch"]))[class~="bb:w-9"][class~="bb:disabled:cursor-not-allowed"],
+.dark :where(button:not([role="switch"]))[class~="bb:w-8"][class~="bb:disabled:cursor-not-allowed"] {
   width: var(--go-space-8);
   height: var(--go-space-8);
   padding: 0;
@@ -1308,6 +1308,385 @@ a.go-list-item:hover {
 .go-id {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* the game config as a settings page: the groups as a sub-menu with a search above it, the chosen group as a form */
+.go-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--go-space-6);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .go-settings {
+    grid-template-columns: 14rem minmax(0, 1fr);
+  }
+}
+
+.go-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-3);
+}
+
+@media (min-width: 64rem) {
+  .go-settings-nav {
+    position: sticky;
+    top: calc(var(--go-space-12) + var(--go-space-4));
+  }
+}
+
+.go-settings-nav ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 63.99rem) {
+  .go-settings-nav ul {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+.dark .go-settings-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+  width: 100%;
+  height: var(--go-space-8);
+  padding: 0 var(--go-space-3);
+  border: 0;
+  border-radius: var(--go-radius-md);
+  background: transparent;
+  color: var(--go-color-text-secondary);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-sm);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 120ms, color 120ms;
+}
+
+.dark .go-settings-group:hover {
+  background: var(--go-color-bg-surface);
+  color: var(--go-color-text-primary);
+}
+
+.dark .go-settings-group[aria-current="true"] {
+  background: var(--go-color-bg-raised);
+  color: var(--go-color-text-primary);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.go-settings-group[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-accent-default);
+}
+
+.go-settings-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.go-settings-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--go-radius-sm);
+  background: var(--go-color-accent-tint-14);
+  color: var(--go-color-accent-default);
+  font-size: var(--go-font-size-xs);
+  font-weight: var(--go-font-weight-semibold);
+}
+
+.go-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-6);
+  min-width: 0;
+}
+
+.go-settings-section {
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-panel);
+}
+
+.go-settings-title {
+  margin: 0;
+  padding: var(--go-space-4) var(--go-space-6);
+  border-bottom: 1px solid var(--go-color-border-default);
+  font-family: var(--go-font-display);
+  font-size: var(--go-font-size-lg);
+  font-weight: var(--go-font-weight-bold);
+  color: var(--go-color-text-primary);
+}
+
+/* one row per field: the label, the key and the help at the start, the control at the end, stacked on a phone */
+.go-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--go-space-3);
+  padding: var(--go-space-4) var(--go-space-6);
+  border-bottom: 1px solid var(--go-color-border-subtle);
+}
+
+.go-setting:last-child {
+  border-bottom: 0;
+}
+
+@media (min-width: 48rem) {
+  .go-setting {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
+    gap: var(--go-space-6);
+    align-items: start;
+  }
+}
+
+.go-setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-1);
+  min-width: 0;
+}
+
+.go-setting-label {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.dark .go-setting-label label {
+  color: var(--go-color-text-primary);
+  font-size: var(--go-font-size-sm);
+}
+
+/* a field that differs from live carries a tan dot before its label */
+.go-setting-dot {
+  flex: none;
+  width: var(--go-space-2);
+  height: var(--go-space-2);
+  border-radius: var(--go-radius-pill);
+  background: var(--go-color-accent-default);
+}
+
+.go-setting-key {
+  margin: 0;
+  font-family: var(--go-font-mono);
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.go-setting-help {
+  max-width: 60ch;
+  margin: 0;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-setting-text .go-chips:empty {
+  display: none;
+}
+
+.dark .go-setting-revert {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--go-color-text-secondary);
+  font-family: var(--go-font-body);
+  font-size: var(--go-font-size-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.dark .go-setting-revert:hover {
+  color: var(--go-color-accent-hover);
+}
+
+.go-setting-error {
+  margin: 0;
+  font-size: var(--go-font-size-xs);
+  color: var(--go-color-status-danger-text);
+}
+
+.go-setting-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--go-space-2);
+  min-width: 0;
+}
+
+@media (max-width: 47.99rem) {
+  .go-setting-control {
+    justify-content: space-between;
+  }
+}
+
+.go-setting-control > :not(:last-child) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.go-setting-control > button[role="switch"] {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+.go-setting-number {
+  display: flex;
+  align-items: center;
+  gap: var(--go-space-2);
+}
+
+.go-setting-unit {
+  flex: none;
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-setting-custom {
+  font-size: var(--go-font-size-sm);
+  color: var(--go-color-text-muted);
+}
+
+.go-setting-input {
+  width: 100%;
+}
+
+/* a switch: the raised track, tan when on, as the one accent of its row */
+.dark button[role="switch"] {
+  background: var(--go-color-bg-raised);
+  border-color: var(--go-color-border-control);
+}
+
+.dark button[role="switch"][aria-checked="true"] {
+  background: var(--go-color-accent-default);
+  border-color: var(--go-color-accent-default);
+}
+
+/* the bar that stays in view while the draft differs from live */
+.go-publish-bar {
+  position: sticky;
+  bottom: var(--go-space-4);
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--go-space-3);
+  padding: var(--go-space-3) var(--go-space-4);
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-raised);
+  box-shadow: var(--shadow-xl);
+  color: var(--go-color-text-secondary);
+  font-size: var(--go-font-size-sm);
+}
+
+.go-publish-bar strong {
+  color: var(--go-color-text-primary);
+}
+
+/* the side panels: targeting, review, history, export and import */
+.dark .go-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;
+  padding: 0;
+  background: var(--go-color-bg-panel);
+  border-inline-start: 1px solid var(--go-color-border-default);
+}
+
+.dark .go-panel-wide {
+  max-width: 52rem;
+}
+
+.go-panel > [class~="bb:flex-col"]:first-of-type {
+  padding: var(--go-space-6) var(--go-space-6) 0;
+}
+
+.go-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--go-space-4);
+  min-height: 0;
+  padding: var(--go-space-4) var(--go-space-6);
+  overflow-y: auto;
+}
+
+.dark .go-panel-footer {
+  gap: var(--go-space-2);
+  padding: var(--go-space-4) var(--go-space-6);
+  border-top: 1px solid var(--go-color-border-subtle);
+}
+
+.go-panel-rule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--go-space-2);
+  padding: var(--go-space-3);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-surface);
+}
+
+.dark .go-panel-code {
+  min-height: 16rem;
+}
+
+.dark .go-panel-link {
+  align-self: center;
+  color: var(--go-color-text-primary);
+  font-size: var(--go-font-size-sm);
+}
+
+/* a table inside a frame, as the board draws one */
+.go-table-frame {
+  overflow-x: auto;
+  border: 1px solid var(--go-color-border-default);
+  border-radius: var(--go-radius-md);
+  background: var(--go-color-bg-panel);
+}
+
+.go-table-frame table {
+  width: 100%;
+}
+
+.go-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: var(--go-space-1);
+}
+
+/* words for a screen reader only */
+.go-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
