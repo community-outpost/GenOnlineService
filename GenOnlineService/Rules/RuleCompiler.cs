@@ -50,7 +50,26 @@ namespace GenOnlineService.Rules
 
 		public static string Serialize(RuleDocument document) => JsonSerializer.Serialize(document, s_json);
 
-		public static RuleDocument Deserialize(string json) => JsonSerializer.Deserialize<RuleDocument>(json, s_json)!;
+		// A stored document, read with its keys before the rename under their current keys
+		public static RuleDocument Deserialize(string json) => Current(JsonSerializer.Deserialize<RuleDocument>(json, s_json)!);
+
+		// The document in the current names: every field under its current key and the trigger as event.action. A
+		// document saved before the rename reads and saves the same way as one written in the current names.
+		public static RuleDocument Current(RuleDocument document) => document with
+		{
+			Nodes = (document.Nodes ?? []).Select(n => n == null ? n! : n with
+			{
+				Event = n.Trigger != null && n.Event == null ? new RuleNodeEvent { Action = n.Trigger } : n.Event,
+				Trigger = n.Trigger != null && n.Event != null ? n.Trigger : null,
+				Query = n.Query == null ? null : CurrentQuery(n.Query)
+			}).ToList()
+		};
+
+		private static RuleQuery CurrentQuery(RuleQuery query) => query with
+		{
+			Field = query.Field == null ? null : RuleFields.CurrentKey(query.Field),
+			Rules = query.Rules?.Select(r => r == null ? r! : CurrentQuery(r)).ToList()
+		};
 
 		// The document and every problem with it. A document with problems is never stored or compiled.
 		public static (RuleDocument? Document, List<RuleProblem> Problems) Parse(string? json)
@@ -78,6 +97,7 @@ namespace GenOnlineService.Rules
 			{
 				return (null, [new RuleProblem("document", "missing")]);
 			}
+			document = Current(document);
 			List<RuleProblem> problems = Validate(document);
 			return (problems.Count == 0 ? document : null, problems);
 		}
@@ -119,7 +139,7 @@ namespace GenOnlineService.Rules
 			{
 				problems.Add(new RuleProblem("nodes", "exactly one trigger node"));
 			}
-			string? trigger = triggers.Count == 1 ? triggers[0].Trigger : null;
+			string? trigger = triggers.Count == 1 ? triggers[0].Event?.Action : null;
 			if (RuleTriggers.IsKnown(trigger))
 			{
 				for (int i = 0; i < nodes.Count; i++)
@@ -206,9 +226,13 @@ namespace GenOnlineService.Rules
 			switch (node.Kind)
 			{
 				case RuleNodeKinds.Trigger:
-					if (!RuleTriggers.IsKnown(node.Trigger))
+					if (node.Trigger != null)
 					{
-						problems.Add(new RuleProblem(path + ".trigger", "one of " + String.Join(", ", RuleTriggers.All)));
+						problems.Add(new RuleProblem(path + ".trigger", "either trigger or event.action, not both"));
+					}
+					else if (!RuleTriggers.IsKnown(node.Event?.Action))
+					{
+						problems.Add(new RuleProblem(path + ".event.action", "one of " + String.Join(", ", RuleTriggers.All)));
 					}
 					break;
 				case RuleNodeKinds.Condition:
@@ -413,7 +437,7 @@ namespace GenOnlineService.Rules
 			return reached;
 		}
 
-		public static string TriggerOf(RuleDocument document) => document.Nodes.First(n => n.Kind == RuleNodeKinds.Trigger).Trigger!;
+		public static string TriggerOf(RuleDocument document) => document.Nodes.First(n => n.Kind == RuleNodeKinds.Trigger).Event!.Action!;
 	}
 
 	// The fields read and the actions reached for one player

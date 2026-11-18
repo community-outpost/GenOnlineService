@@ -114,6 +114,22 @@ namespace GenOnlineService.Portal.Client
 			_ => op ?? ""
 		};
 
+		// The short form of an operator on a condition row, the words of OperatorLabel stay with it for screen readers
+		public static string OperatorSymbol(string? op) => op switch
+		{
+			"equals" => "=",
+			"not_equals" => "\u2260",
+			InList => "in",
+			"contains" => "contains",
+			"starts_with" => "starts with",
+			"greater_than" => ">",
+			"less_than" => "<",
+			Between => "between",
+			IsEmpty => "is empty",
+			"cidr" => "in range",
+			_ => op ?? ""
+		};
+
 		public static string OutcomeLabel(string? outcome) => outcome switch
 		{
 			"watched" => "Watched",
@@ -155,12 +171,27 @@ namespace GenOnlineService.Portal.Client
 	{
 		public string Id { get; set; } = "";
 		public string Kind { get; set; } = "";
-		public string? Trigger { get; set; }
+
+		// trigger nodes: the event the rule is checked on, as event.action
+		public PortalRuleNodeEvent? Event { get; set; }
 		public PortalRuleQuery? Query { get; set; }
 		public string? Action { get; set; }
 		public long? DurationS { get; set; }
 		public string? Reason { get; set; }
 		public PortalRulePosition? Position { get; set; }
+
+		// The event.action of a trigger node, null when the node has none
+		[JsonIgnore]
+		public string? Trigger
+		{
+			get => Event?.Action;
+			set => Event = value == null ? null : new PortalRuleNodeEvent { Action = value };
+		}
+	}
+
+	public sealed class PortalRuleNodeEvent
+	{
+		public string? Action { get; set; }
 	}
 
 	public sealed class PortalRulePosition
@@ -210,6 +241,10 @@ namespace GenOnlineService.Portal.Client
 
 		// set while the circuit breaker holds an Enforce rule in Flag, until staff change its mode
 		public DateTime? BreakerTrippedAt { get; init; }
+
+		// the players behind created_by and updated_by, null when the actor is no player
+		public PortalMember? CreatedByPlayer { get; init; }
+		public PortalMember? UpdatedByPlayer { get; init; }
 	}
 
 	public sealed record PortalRuleList
@@ -224,6 +259,9 @@ namespace GenOnlineService.Portal.Client
 		public string? Comment { get; init; }
 		public DateTime CreatedAt { get; init; }
 		public PortalRuleDocument? Document { get; init; }
+
+		// the player behind created_by, null when the actor is no player
+		public PortalMember? CreatedByPlayer { get; init; }
 	}
 
 	public sealed record PortalRuleDetail
@@ -254,6 +292,10 @@ namespace GenOnlineService.Portal.Client
 		public string Description { get; init; } = "";
 		public IReadOnlyList<string> Triggers { get; init; } = [];
 		public IReadOnlyList<string> Operators { get; init; } = [];
+
+		// a yes or no field only: its two states as whole sentences, such as Email is not confirmed
+		public string? TrueLabel { get; init; }
+		public string? FalseLabel { get; init; }
 	}
 
 	public sealed record PortalRuleCatalog

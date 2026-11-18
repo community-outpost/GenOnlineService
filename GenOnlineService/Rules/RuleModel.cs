@@ -19,6 +19,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Rules
 {
@@ -152,7 +153,11 @@ namespace GenOnlineService.Rules
 		public string Id { get; init; } = "";
 		public string Kind { get; init; } = "";
 
-		// trigger nodes: the event the rule is checked on
+		// trigger nodes: the event the rule is checked on, as event.action
+		public RuleNodeEvent? Event { get; init; }
+
+		// trigger nodes saved before event.action, read into Event and never written
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public string? Trigger { get; init; }
 
 		// condition nodes: the query that decides the true or false output
@@ -167,6 +172,12 @@ namespace GenOnlineService.Rules
 
 		// where the editor draws the node, the server keeps it as given
 		public RuleNodePosition? Position { get; init; }
+	}
+
+	// The event of a trigger node in the Elastic Common Schema form, event.action
+	public sealed record RuleNodeEvent
+	{
+		public string? Action { get; init; }
 	}
 
 	public sealed record RuleNodePosition

@@ -174,7 +174,7 @@ public class AutomatedRulesTests
 		Assert.Contains(await Problems(Document("sign_in", Condition("account.two_factor", "equals", true), "kick", 600)), p => p.Path == "nodes[2].duration_s");
 		Assert.Contains(await Problems(Document("sign_in", Condition("account.two_factor", "equals", true), "ban", 90)), p => p.Path == "nodes[2].duration_s");
 		Assert.Contains(await Problems(Document("sign_in", Condition("account.two_factor", "equals", true), "ban", null, " ")), p => p.Path == "nodes[2].reason");
-		Assert.Contains(await Problems(Document("bedtime", Condition("account.two_factor", "equals", true))), p => p.Path == "nodes[0].trigger");
+		Assert.Contains(await Problems(Document("bedtime", Condition("account.two_factor", "equals", true))), p => p.Path == "nodes[0].event.action");
 		Assert.Contains(await Problems(new { nodes = Array.Empty<object>(), edges = Array.Empty<object>() }), p => p.Path == "nodes");
 		Assert.Contains(await Problems(new { nodes = "x" }), p => p.Path == "nodes");
 
@@ -259,16 +259,20 @@ public class AutomatedRulesTests
 		JsonElement catalogue = Json(await admin.Get(RulesPath + "/fields"));
 		Dictionary<string, JsonElement> fields = catalogue.GetProperty("fields").EnumerateArray().ToDictionary(f => f.GetProperty("key").GetString()!);
 
-		foreach (string key in new[] { "device.machine_guid", "device.mac", "device.volume_serial", "mac.vendor", "mac.locally_administered", "network.ip", "network.country", "network.city", "network.asn", "network.owner",
-			"account.age_days", "account.email_domain", "account.email_confirmed", "account.providers", "account.name", "account.name_key", "account.two_factor", "sanctions.count", "sanctions.active_ban",
-			"sanctions.active_mute", "reports.open", "stats.elo", "stats.games_played", "anticheat.modules", "anticheat.devices", "event.lobby_id", "event.won" })
+		foreach ((string old, string key) in AutomatedRulesNamingTests.Expected)
 		{
 			Assert.True(fields.ContainsKey(key), key);
+			Assert.False(fields.ContainsKey(old), old);
 		}
-		Assert.Equal(["equals", "not_equals", "in_list", "is_empty"], fields["device.mac"].GetProperty("operators").EnumerateArray().Select(o => o.GetString()!).ToArray());
-		Assert.Contains("cidr", fields["network.ip"].GetProperty("operators").EnumerateArray().Select(o => o.GetString()));
-		Assert.Equal(RuleTriggers.All, fields["account.age_days"].GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
-		Assert.Equal(["lobby_join"], fields["event.lobby_id"].GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
+		Assert.True(fields.ContainsKey("user.anticheat.modules"));
+		Assert.True(fields.ContainsKey("event.action"));
+		Assert.Equal(["equals", "not_equals", "in_list", "is_empty"], fields["host.mac"].GetProperty("operators").EnumerateArray().Select(o => o.GetString()!).ToArray());
+		Assert.Contains("cidr", fields["source.ip"].GetProperty("operators").EnumerateArray().Select(o => o.GetString()));
+		Assert.Equal(RuleTriggers.All, fields["user.age_days"].GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
+		Assert.Equal(RuleTriggers.All, fields["event.action"].GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
+		Assert.Equal(["lobby_join"], fields["game.lobby.id"].GetProperty("triggers").EnumerateArray().Select(t => t.GetString()!).ToArray());
+		Assert.Equal(("Email is confirmed", "Email is not confirmed"), (fields["user.email_confirmed"].GetProperty("true_label").GetString(), fields["user.email_confirmed"].GetProperty("false_label").GetString()));
+		Assert.Contains(catalogue.GetProperty("renamed").EnumerateArray(), r => r.GetProperty("from").GetString() == "account.age_days" && r.GetProperty("to").GetString() == "user.age_days");
 		Assert.Equal(["watch", "flag", "enforce"], catalogue.GetProperty("modes").EnumerateArray().Select(m => m.GetString()!).ToArray());
 	}
 
@@ -373,8 +377,8 @@ public class AutomatedRulesTests
 		var facts = new RuleFacts(context, Environment(probe), RuleEvent.Of("sign_in", id), DateTime.UtcNow);
 		RuleResult result = await rule.RunAsync(facts);
 		Assert.Single(result.Actions);
-		Assert.Equal(["account.two_factor"], result.FieldsRead);
-		Assert.Equal(["account.two_factor"], facts.Values.Keys.ToArray());
+		Assert.Equal(["user.two_factor"], result.FieldsRead);
+		Assert.Equal(["user.two_factor"], facts.Values.Keys.ToArray());
 	}
 
 	// Another copy saves a change: this copy follows on its next reload, an unchanged set is kept as it is

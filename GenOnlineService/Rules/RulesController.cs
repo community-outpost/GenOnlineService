@@ -99,8 +99,14 @@ namespace GenOnlineService.Rules
 		// when the circuit breaker switched the rule from Enforce to Flag, until staff change the rule again
 		public DateTime? BreakerTrippedAt { get; init; }
 
-		public static RuleView Of(AutomatedRule r, string trigger, DateTime? lastMatchAt = null) => new RuleView
+		// the players behind created_by and updated_by, null when the actor is no player
+		public Member? CreatedByPlayer { get; init; }
+		public Member? UpdatedByPlayer { get; init; }
+
+		public static RuleView Of(AutomatedRule r, string trigger, DateTime? lastMatchAt = null, IReadOnlyDictionary<string, Member>? players = null) => new RuleView
 		{
+			CreatedByPlayer = players?.GetValueOrDefault(r.CreatedBy),
+			UpdatedByPlayer = players?.GetValueOrDefault(r.UpdatedBy),
 			Id = r.ID, Name = r.Name, Description = r.Description, Mode = r.Mode, Enabled = r.Enabled, CurrentVersion = r.CurrentVersion, Archived = r.ArchivedAt != null,
 			Trigger = trigger, CreatedBy = r.CreatedBy, CreatedAt = r.CreatedAt, UpdatedBy = r.UpdatedBy, UpdatedAt = r.UpdatedAt, LastMatchAt = lastMatchAt,
 			// the breaker is the only change the rule makes to itself, and the next staff change writes a staff name
@@ -112,6 +118,27 @@ namespace GenOnlineService.Rules
 	public static class RuleBreakerActors
 	{
 		public const string Prefix = "rule:";
+	}
+
+	// The players behind the actor names staff save rules with, user:<id>, read with their display names
+	public static class RuleActorPlayers
+	{
+		private const string UserPrefix = "user:";
+
+		public static long? UserIDOf(string? actor) =>
+			actor != null && actor.StartsWith(UserPrefix, StringComparison.Ordinal) && Int64.TryParse(actor.AsSpan(UserPrefix.Length), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long id) ? id : null;
+
+		// Every actor name that names a player, to that player
+		public static async Task<Dictionary<string, Member>> OfAsync(AppDbContext db, IEnumerable<string?> actors)
+		{
+			Dictionary<string, long> ids = actors.Distinct().Select(a => (Actor: a, ID: UserIDOf(a))).Where(a => a.ID != null).ToDictionary(a => a.Actor!, a => a.ID!.Value, StringComparer.Ordinal);
+			if (ids.Count == 0)
+			{
+				return new Dictionary<string, Member>(StringComparer.Ordinal);
+			}
+			Dictionary<long, (string Name, int Tag)> names = await RealtimeHub.NamesAsync(db, ids.Values.Distinct());
+			return ids.Where(a => names.ContainsKey(a.Value)).ToDictionary(a => a.Key, a => RealtimeMembers.Of(a.Value, names), StringComparer.Ordinal);
+		}
 	}
 
 	public sealed record RuleListResponse
@@ -129,8 +156,12 @@ namespace GenOnlineService.Rules
 		// only on the read of one version and of the rule's current version
 		public RuleDocument? Document { get; init; }
 
-		public static RuleVersionView Of(AutomatedRuleVersion v, bool document) => new RuleVersionView
+		// the player behind created_by, null when the actor is no player
+		public Member? CreatedByPlayer { get; init; }
+
+		public static RuleVersionView Of(AutomatedRuleVersion v, bool document, IReadOnlyDictionary<string, Member>? players = null) => new RuleVersionView
 		{
+			CreatedByPlayer = players?.GetValueOrDefault(v.CreatedBy),
 			Number = v.Number, CreatedBy = v.CreatedBy, Comment = v.Comment, CreatedAt = v.CreatedAt, Document = document ? RuleDocuments.Deserialize(v.Document) : null
 		};
 	}
@@ -151,6 +182,17 @@ namespace GenOnlineService.Rules
 		public string Description { get; init; } = "";
 		public IReadOnlyList<string> Triggers { get; init; } = [];
 		public IReadOnlyList<string> Operators { get; init; } = [];
+
+		// a yes or no field only: its two states as whole sentences, such as Email is not confirmed
+		public string? TrueLabel { get; init; }
+		public string? FalseLabel { get; init; }
+	}
+
+	// A key before the rename and the current key it reads as
+	public sealed record RuleRenamedFieldView
+	{
+		public string From { get; init; } = "";
+		public string To { get; init; } = "";
 	}
 
 	// What a rule document may use: the fields with their operators and triggers, the actions and the modes
@@ -160,6 +202,9 @@ namespace GenOnlineService.Rules
 		public IReadOnlyList<string> Triggers { get; init; } = [];
 		public IReadOnlyList<string> Actions { get; init; } = [];
 		public IReadOnlyList<string> Modes { get; init; } = [];
+
+		// every key before the Elastic Common Schema rename, which documents saved earlier still use
+		public IReadOnlyList<RuleRenamedFieldView> Renamed { get; init; } = [];
 	}
 
 	// A saved rule by id or an unsaved document
@@ -229,7 +274,8 @@ namespace GenOnlineService.Rules
 			List<AutomatedRule> rules = await RuleStore.ListAsync(db, archived);
 			Dictionary<long, string> triggers = await TriggersOf(db, rules);
 			Dictionary<long, DateTime> lastMatches = await LastMatchesOf(db, rules.Select(r => r.ID).ToList());
-			return RestResults.Ok(new RuleListResponse { Rules = rules.Select(r => RuleView.Of(r, triggers.GetValueOrDefault(r.ID, ""), lastMatches.TryGetValue(r.ID, out DateTime last) ? last : null)).ToList() });
+			Dictionary<string, Member> players = await RuleActorPlayers.OfAsync(db, rules.SelectMany(r => new[] { r.CreatedBy, r.UpdatedBy }));
+			return RestResults.Ok(new RuleListResponse { Rules = rules.Select(r => RuleView.Of(r, triggers.GetValueOrDefault(r.ID, ""), lastMatches.TryGetValue(r.ID, out DateTime last) ? last : null, players)).ToList() });
 		}
 
 		[EndpointSummary("Reads a rule with the document of its current version and every version.")]
@@ -248,7 +294,11 @@ namespace GenOnlineService.Rules
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 			AutomatedRuleVersion? version = await RuleStore.GetVersionAsync(db, id, number);
-			return version == null ? RestResults.NotFound("version") : RestResults.Ok(RuleVersionView.Of(version, document: true));
+			if (version == null)
+			{
+				return RestResults.NotFound("version");
+			}
+			return RestResults.Ok(RuleVersionView.Of(version, document: true, await RuleActorPlayers.OfAsync(db, [version.CreatedBy])));
 		}
 
 		[EndpointSummary("Creates a rule with its first version after the document validates.")]
@@ -328,10 +378,14 @@ namespace GenOnlineService.Rules
 		{
 			return RestResults.Ok(new RuleCatalogResponse
 			{
-				Fields = RuleFields.All.Select(f => new RuleFieldView { Key = f.Key, Type = f.Type, Label = f.Label, Description = f.Description, Triggers = f.Triggers, Operators = f.Operators }).ToList(),
+				Fields = RuleFields.All.Select(f => new RuleFieldView
+				{
+					Key = f.Key, Type = f.Type, Label = f.Label, Description = f.Description, Triggers = f.Triggers, Operators = f.Operators, TrueLabel = f.TrueLabel, FalseLabel = f.FalseLabel
+				}).ToList(),
 				Triggers = RuleTriggers.All,
 				Actions = RuleActionKinds.All,
-				Modes = RuleModes.All
+				Modes = RuleModes.All,
+				Renamed = RuleFields.Renamed.Select(r => new RuleRenamedFieldView { From = r.Key, To = r.Value }).ToList()
 			});
 		}
 
@@ -415,7 +469,8 @@ namespace GenOnlineService.Rules
 				return RestResults.Fail(new Failure(result.Code!, result.Params!));
 			}
 			Dictionary<long, DateTime> lastMatches = await LastMatchesOf(db, [result.Data!.ID]);
-			return RestResults.Ok(RuleView.Of(result.Data!, TriggerOfVersion(db, result.Data!), lastMatches.TryGetValue(result.Data!.ID, out DateTime last) ? last : null));
+			Dictionary<string, Member> players = await RuleActorPlayers.OfAsync(db, [result.Data!.CreatedBy, result.Data!.UpdatedBy]);
+			return RestResults.Ok(RuleView.Of(result.Data!, TriggerOfVersion(db, result.Data!), lastMatches.TryGetValue(result.Data!.ID, out DateTime last) ? last : null, players));
 		}
 
 		// The newest match of each rule, from the index on rule and match time
@@ -451,11 +506,13 @@ namespace GenOnlineService.Rules
 			}
 			AutomatedRuleVersion current = (await RuleStore.GetVersionAsync(db, id, rule.CurrentVersion))!;
 			RuleDocument document = RuleDocuments.Deserialize(current.Document);
+			List<AutomatedRuleVersion> versions = await RuleStore.VersionsAsync(db, id);
+			Dictionary<string, Member> players = await RuleActorPlayers.OfAsync(db, versions.Select(v => v.CreatedBy).Append(rule.CreatedBy).Append(rule.UpdatedBy));
 			return new RuleDetailResponse
 			{
-				Rule = RuleView.Of(rule, RuleDocuments.TriggerOf(document), (await LastMatchesOf(db, [id])).TryGetValue(id, out DateTime last) ? last : null),
+				Rule = RuleView.Of(rule, RuleDocuments.TriggerOf(document), (await LastMatchesOf(db, [id])).TryGetValue(id, out DateTime last) ? last : null, players),
 				Document = document,
-				Versions = (await RuleStore.VersionsAsync(db, id)).Select(v => RuleVersionView.Of(v, document: false)).ToList()
+				Versions = versions.Select(v => RuleVersionView.Of(v, document: false, players)).ToList()
 			};
 		}
 

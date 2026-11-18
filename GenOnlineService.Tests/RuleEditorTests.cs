@@ -34,14 +34,14 @@ public class RuleEditorTests
 	private const string Example = """
 	{
 	  "nodes": [
-	    { "id": "t", "kind": "trigger", "trigger": "sign_in" },
+	    { "id": "t", "kind": "trigger", "event": { "action": "sign_in" } },
 	    { "id": "c", "kind": "condition", "query": {
 	        "match": "all",
 	        "rules": [
-	          { "field": "device.machine_guid", "operator": "in_list", "value": ["AB12-CD34-YY"] },
+	          { "field": "host.id", "operator": "in_list", "value": ["AB12-CD34-YY"] },
 	          { "match": "any", "rules": [
-	            { "field": "account.age_days", "operator": "less_than", "value": 7 },
-	            { "field": "network.ip", "operator": "cidr", "value": "203.0.113.0/24" }
+	            { "field": "user.age_days", "operator": "less_than", "value": 7 },
+	            { "field": "source.ip", "operator": "cidr", "value": "203.0.113.0/24" }
 	          ] }
 	        ] } },
 	    { "id": "a", "kind": "action", "action": "ban", "reason": "Ban evasion" }
@@ -57,7 +57,7 @@ public class RuleEditorTests
 
 	private static PortalRuleCatalog Catalog() => new PortalRuleCatalog
 	{
-		Fields = RuleFields.All.Select(f => new PortalRuleField { Key = f.Key, Type = f.Type, Label = f.Label, Triggers = f.Triggers, Operators = f.Operators }).ToList()
+		Fields = RuleFields.All.Select(f => new PortalRuleField { Key = f.Key, Type = f.Type, Label = f.Label, Triggers = f.Triggers, Operators = f.Operators, TrueLabel = f.TrueLabel, FalseLabel = f.FalseLabel }).ToList()
 	};
 
 	[Fact]
@@ -155,23 +155,56 @@ public class RuleEditorTests
 
 		List<RuleOutlineLine> lines = RuleOutline.Lines(document, Catalog());
 		Assert.Equal("""
-			When a player signs in
-			  Check that all of these hold:
-			    Machine GUID is one of "AB12-CD34-YY"
-			    Any of:
-			      Account age in days is less than 7
-			      IP address is in range "203.0.113.0/24"
-			  If true:
-			    Ban permanently, reason: Ban evasion
-			  If false:
-			    Mute for 1 day, reason: Cool down
-			  Continue at Mute for 1 day, reason: Cool down, described above
-			Not reached from the trigger:
-			  Flag for review, reason: Look
-			""".Replace("\t", "").Trim(), RuleOutline.Text(lines));
+			on event.action == "sign_in"
+			  if host.id in ["AB12-CD34-YY"] && (user.age_days < 7 || cidr("203.0.113.0/24").containsIP(source.ip))
+			    then ban permanently, reason "Ban evasion"
+			  else
+			    then mute for 1d, reason "Cool down"
+			  see above: then mute for 1d, reason "Cool down"
+			unreached:
+			  then flag, reason "Look"
+			""".Replace("\t", "").Trim().ReplaceLineEndings("\n"), RuleOutline.Text(lines));
 		// a line that starts a node names it, so the outline view selects that node on the canvas
 		Assert.Equal(["t", "c", "a", "m", "m", "lost"], lines.Where(l => l.NodeId != null).Select(l => l.NodeId));
-		Assert.Equal("Nothing happens", RuleOutline.Lines(Parse("""{"nodes":[{"id":"t","kind":"trigger","trigger":"sweep"}],"edges":[]}"""))[1].Text);
+		Assert.Equal("nothing", RuleOutline.Lines(Parse("""{"nodes":[{"id":"t","kind":"trigger","event":{"action":"sweep"}}],"edges":[]}"""))[1].Text);
+
+		// every line also reads in words, for screen readers
+		Assert.Equal("When a player signs in", lines[0].Spoken);
+		Assert.Equal("If Machine GUID is one of \"AB12-CD34-YY\" and either Account age in days is less than 7 or IP address is in range \"203.0.113.0/24\"", lines[1].Spoken);
+		Assert.Equal("Ban permanently, reason: Ban evasion", lines[2].Spoken);
+		Assert.Equal("Otherwise", lines[3].Spoken);
+	}
+
+	[Fact]
+	public void TheOutlineWritesEveryConditionAsACelExpression()
+	{
+		PortalRuleCatalog catalog = Catalog();
+		PortalRuleQuery Leaf(string field, string op, object? value = null) =>
+			new PortalRuleQuery { Field = field, Operator = op, Value = value == null ? null : JsonSerializer.SerializeToElement(value) };
+
+		// nested groups in parentheses, a yes or no field as itself or negated
+		PortalRuleQuery query = PortalRuleQuery.Group("all", Leaf("user.age_days", "less_than", 7), PortalRuleQuery.Group("any", Leaf("user.email_confirmed", "equals", false), Leaf("host.mac_virtual", "equals", true)));
+		Assert.Equal("user.age_days < 7 && (!user.email_confirmed || host.mac_virtual)", RuleOutline.Expression(query));
+		Assert.Equal("If Account age in days is less than 7 and either Email is not confirmed or MAC is virtual", "If " + RuleOutline.Words(query, catalog));
+
+		// every operator, quoted strings with their quotes escaped and lists in brackets
+		Assert.Equal("user.name == \"Sneaky \\\"Pete\\\"\"", RuleOutline.Expression(Leaf("user.name", "equals", "Sneaky \"Pete\"")));
+		Assert.Equal("user.name != \"x\"", RuleOutline.Expression(Leaf("user.name", "not_equals", "x")));
+		Assert.Equal("source.geo.country_iso_code in [\"NL\", \"BE\"]", RuleOutline.Expression(Leaf("source.geo.country_iso_code", "in_list", new[] { "NL", "BE" })));
+		Assert.Equal("user.email_domain.contains(\"spam\")", RuleOutline.Expression(Leaf("user.email_domain", "contains", "spam")));
+		Assert.Equal("user.name.startsWith(\"x\")", RuleOutline.Expression(Leaf("user.name", "starts_with", "x")));
+		Assert.Equal("user.stats.elo > 1500", RuleOutline.Expression(Leaf("user.stats.elo", "greater_than", 1500)));
+		Assert.Equal("(3 <= user.age_days && user.age_days <= 10)", RuleOutline.Expression(Leaf("user.age_days", "between", new[] { 3, 10 })));
+		Assert.Equal("size(user.stats.elo) == 0", RuleOutline.Expression(Leaf("user.stats.elo", "is_empty")));
+		Assert.Equal("user.two_factor", RuleOutline.Expression(PortalRuleQuery.Group("any", Leaf("user.two_factor", "equals", true))));
+		Assert.Equal("true", RuleOutline.Expression(PortalRuleQuery.Group("all")));
+		Assert.Equal("false", RuleOutline.Expression(PortalRuleQuery.Group("any")));
+
+		// the actions keep their reason and length readable
+		Assert.Equal("then ban for 7d, reason \"Ban evasion\"", RuleOutline.ActionExpression(new PortalRuleNode { Kind = "action", Action = "ban", DurationS = 604800, Reason = "Ban evasion" }));
+		Assert.Equal("then mute for 90m, reason \"Calm\"", RuleOutline.ActionExpression(new PortalRuleNode { Kind = "action", Action = "mute", DurationS = 5400, Reason = "Calm" }));
+		Assert.Equal("then kick, reason \"Go\"", RuleOutline.ActionExpression(new PortalRuleNode { Kind = "action", Action = "kick", Reason = "Go" }));
+		Assert.Equal(["7d", "3h", "90s", "1m", "?"], new long?[] { 604800, 10800, 90, 60, null }.Select(RuleOutline.ShortLength));
 	}
 
 	[Fact]
@@ -197,10 +230,10 @@ public class RuleEditorTests
 		List<RuleOutlineChange> changes = RuleOutline.Diff(older, newer, Catalog());
 		Assert.Equal(
 			[
-				('-', "      Account age in days is less than 7"),
-				('+', "      Account age in days is less than 3"),
-				('-', "    Ban permanently, reason: Ban evasion"),
-				('+', "    Ban permanently, reason: Evading a ban")
+				('-', "  if host.id in [\"AB12-CD34-YY\"] && (user.age_days < 7 || cidr(\"203.0.113.0/24\").containsIP(source.ip))"),
+				('-', "    then ban permanently, reason \"Ban evasion\""),
+				('+', "  if host.id in [\"AB12-CD34-YY\"] && (user.age_days < 3 || cidr(\"203.0.113.0/24\").containsIP(source.ip))"),
+				('+', "    then ban permanently, reason \"Evading a ban\"")
 			],
 			changes.Where(c => c.Kind != ' ').Select(c => (c.Kind, c.Line)));
 		Assert.Equal(RuleOutline.Text(RuleOutline.Lines(older, Catalog())).Split('\n').Length - 2, changes.Count(c => c.Kind == ' '));

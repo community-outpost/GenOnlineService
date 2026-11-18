@@ -104,7 +104,7 @@ public class AutomatedRulesActionTests
 			Assert.Equal((RuleOutcomes.Watched, RuleReviewStates.None, (string?)null), (matches[watch].Outcome, matches[watch].ReviewState, matches[watch].Actions));
 			Assert.Equal((RuleOutcomes.Flagged, RuleReviewStates.Pending, (string?)null), (matches[flag].Outcome, matches[flag].ReviewState, matches[flag].Actions));
 			Assert.Equal((RuleOutcomes.Enforced, RuleReviewStates.None, "ban", 1, RuleTriggers.SignIn), (matches[enforce].Outcome, matches[enforce].ReviewState, matches[enforce].Actions, matches[enforce].RuleVersion, matches[enforce].Trigger));
-			Assert.Equal("TargetOne", JsonDocument.Parse(matches[enforce].Facts).RootElement.GetProperty("account.name")[0].GetString());
+			Assert.Equal("TargetOne", JsonDocument.Parse(matches[enforce].Facts).RootElement.GetProperty("user.name")[0].GetString());
 
 			// one ban, by the rule and its version, with the reason of the action node
 			Sanction ban = Assert.Single(await SanctionsOf(probe, target));
@@ -276,7 +276,7 @@ public class AutomatedRulesActionTests
 			await RuleRunner.DrainAsync(TimeSpan.FromSeconds(10));
 			AutomatedRuleMatch match = Assert.Single(await MatchesOf(probe, player));
 			JsonElement facts = JsonDocument.Parse(match.Facts).RootElement;
-			Assert.Equal(("new_accounts", 1), (facts.GetProperty("event.anticheat_kind")[0].GetString(), facts.GetProperty("anticheat.new_accounts")[0].GetInt32()));
+			Assert.Equal(("new_accounts", 1), (facts.GetProperty("game.anticheat.kind")[0].GetString(), facts.GetProperty("user.anticheat.new_accounts")[0].GetInt32()));
 		}
 		finally
 		{
@@ -306,7 +306,7 @@ public class AutomatedRulesActionTests
 			Assert.Equal("1", listed.Headers!["X-Total"].ToString());
 			JsonElement row = Assert.Single(Json(listed).GetProperty("matches").EnumerateArray());
 			Assert.Equal((id, rule, "suspects", target, "pending", "flagged"), (row.GetProperty("id").GetInt64(), row.GetProperty("rule_id").GetInt64(), row.GetProperty("rule_name").GetString(), row.GetProperty("player").GetProperty("id").GetInt64(), row.GetProperty("review_state").GetString(), row.GetProperty("outcome").GetString()));
-			Assert.Equal("TargetSuspect", row.GetProperty("facts").GetProperty("account.name")[0].GetString());
+			Assert.Equal("TargetSuspect", row.GetProperty("facts").GetProperty("user.name")[0].GetString());
 			Assert.Equal(400, (await admin.Get(RulesPath + "/matches?review=maybe")).Status);
 
 			// the staff Flagged list holds the player for a reviewer, as an unreviewed anti-cheat row does
