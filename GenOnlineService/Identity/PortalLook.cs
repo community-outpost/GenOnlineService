@@ -27,7 +27,7 @@ namespace GenOnlineService.Identity
 
 	// The look of the sign-in pages: Blazor Blueprint's "Login with Cover" blueprint (login-02), dark only, in the Swiss
 	// stone palette with the logo's gold as the one accent and the box art, without its colours, as the cover
-	// (wwwroot/portal/generals.css, poster.jpg). The markup is
+	// (wwwroot/portal/generals.css, poster.webp). The markup is
 	// what BbInput, BbButton, BbLabel, BbSeparator and BbAlert render, with Lucide icons from BlazorBlueprint.Icons.Lucide's
 	// data; the package only serves its prebuilt stylesheet, so no component code runs on the server. Every bb: class used
 	// here is in that stylesheet (blazorblueprint.css 4.2.0): a library update can drop one, PortalLookTests catches it, and
@@ -40,8 +40,14 @@ namespace GenOnlineService.Identity
 		// The stone palette and gold accent over the stock dark theme, IBM Plex Sans, the split layout, the provider colours,
 		// and the go-* classes
 		public const string GeneralsPath = "/portal/generals.css";
-		// the Zero Hour box art widened to landscape, the cover beside the form (generals.css .go-cover)
-		public const string PosterPath = "/portal/poster.jpg";
+		// the Zero Hour box art widened to landscape, the cover beside the form (generals.css .go-cover). Its look is baked in
+		// (grey, darkened, under the veil) rather than filtered in the browser, and it is WebP: 40 KB instead of a 174 KB JPEG
+		// that the browser then had to filter on every paint. Made from the 1920x1080 box art with the stylesheet's old
+		// grayscale(1) brightness(0.55) contrast(1.1) and the rgb(12 10 9 / 0.35) veil:
+		//   ffmpeg -i poster.jpg -vf "colorchannelmixer=.2126:.7152:.0722:0:.2126:.7152:.0722:0:.2126:.7152:.0722,
+		//     lutrgb=r='E*0.65*255+12*0.35':g='E*0.65*255+10*0.35':b='E*0.65*255+9*0.35'" -c:v libwebp -quality 80
+		//     -compression_level 6 poster.webp, with E = clip((((val/255*0.55)-0.5)*1.1+0.5),0,1)
+		public const string PosterPath = "/portal/poster.webp";
 		// Generals Online's logo, top left of every page, and GameReplays' on its button: both from the
 		// playgenerals.online sign-in page
 		public const string LogoPath = "/portal/logo.png";
@@ -81,7 +87,7 @@ namespace GenOnlineService.Identity
 		{
 			if (provider == "gamereplays")
 			{
-				return $"<img src=\"{GameReplaysLogoPath}\" alt=\"\" width=\"16\" height=\"16\" class=\"bb:h-4 bb:w-4 bb:shrink-0\">";
+				return $"<img src=\"{PortalAssets.Url(GameReplaysLogoPath)}\" alt=\"\" width=\"16\" height=\"16\" class=\"bb:h-4 bb:w-4 bb:shrink-0\">";
 			}
 			return s_brands.TryGetValue(provider, out string? mark)
 				? $"<svg viewBox=\"0 0 24 24\" class=\"bb:h-4 bb:w-4 bb:shrink-0\" aria-hidden=\"true\">{mark}</svg>"
@@ -94,25 +100,29 @@ namespace GenOnlineService.Identity
 		public static string Document(string title, string body, string? description = null, PortalLanguage? language = null)
 		{
 			CultureInfo culture = AccountsText.Resolve(language?.Culture);
-			return Head(title, culture)
+			return Head(title, culture, cover: true)
 				+ "<div class=\"go-split\">"
-				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{LogoPath}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
+				+ $"<main class=\"go-main\"><a href=\"/profile\" class=\"go-logo\"><img src=\"{PortalAssets.Url(LogoPath)}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
 				+ "<div class=\"bb:w-full bb:max-w-sm bb:space-y-6\">"
 				+ $"<div class=\"bb:space-y-2 bb:text-center\"><h1 class=\"go-heading\">{E(title)}</h1>"
 				+ (description == null ? String.Empty : $"<p class=\"bb:text-sm bb:text-muted-foreground\">{E(description)}</p>")
 				+ "</div>"
 				+ $"<div class=\"bb:space-y-4 bb:text-sm\">{body}</div>"
 				+ (language == null ? String.Empty : LanguageSwitch(language))
-				+ "</div></main><div class=\"go-cover\" role=\"presentation\"></div></div></body></html>";
+				// the poster's address is set here, as the stylesheet cannot name a fingerprinted file
+				+ $"</div></main><div class=\"go-cover\" role=\"presentation\" style=\"--go-poster: url('{PortalAssets.Url(PosterPath)}')\"></div></div></body></html>";
 		}
 
 		// The head and the opening body of every page: dark only, the theme's .dark variables with the stone palette over them
-		// lang and dir follow the page's language, so Arabic reads right to left
-		private static string Head(string title, CultureInfo culture)
+		// lang and dir follow the page's language, so Arabic reads right to left. Every file is linked by its fingerprinted
+		// address (PortalAssets), cached for a year. A page with the cover preloads the poster on a screen wide enough to show
+		// it, so it loads beside the stylesheets instead of after them.
+		private static string Head(string title, CultureInfo culture, bool cover = false)
 			=> $"<!doctype html><html lang=\"{E(culture.Name)}\" dir=\"{(AccountsText.IsRightToLeft(culture) ? "rtl" : "ltr")}\" class=\"dark\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
 				+ "<meta name=\"color-scheme\" content=\"dark\"><meta name=\"theme-color\" content=\"#0c0a09\">"
 				+ $"<title>{AccountsText.Format("Page.Title", culture, E(title))}</title>"
-				+ $"<link rel=\"stylesheet\" href=\"{ThemePath}\"><link rel=\"stylesheet\" href=\"{StylesheetPath}\"><link rel=\"stylesheet\" href=\"{GeneralsPath}\">"
+				+ $"<link rel=\"stylesheet\" href=\"{PortalAssets.Url(ThemePath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(StylesheetPath)}\"><link rel=\"stylesheet\" href=\"{PortalAssets.Url(GeneralsPath)}\">"
+				+ (cover ? $"<link rel=\"preload\" as=\"image\" type=\"image/webp\" href=\"{PortalAssets.Url(PosterPath)}\" media=\"(min-width: 64rem)\" fetchpriority=\"high\">" : String.Empty)
 				+ "</head><body class=\"bb:bg-background bb:text-foreground\">";
 
 		// A signed-in page of the portal (S12), after the Top Navigation Bar blueprint (nav-01) and GitLab's user settings: a
@@ -123,7 +133,7 @@ namespace GenOnlineService.Identity
 			CultureInfo culture = AccountsText.Resolve(language?.Culture);
 			return Head(title, culture)
 				+ $"<a href=\"#content\" class=\"go-skip\">{E(AccountsText.Get("Skip", culture))}</a><header class=\"go-topbar\">"
-				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{LogoPath}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
+				+ $"<a href=\"/profile\" class=\"go-topbar-logo\"><img src=\"{PortalAssets.Url(LogoPath)}\" alt=\"{E(AccountsText.Get("Brand", culture))}\" width=\"190\" height=\"69\"></a>"
 				+ $"<div class=\"go-topbar-actions\">{(language == null ? String.Empty : LanguageSwitch(language))}<span class=\"bb:text-sm bb:font-medium\">{E(signedInAs)}</span>{actions}</div>"
 				+ "</header>"
 				+ $"<main id=\"content\" class=\"go-column\" tabindex=\"-1\"><h1 class=\"go-heading\">{E(title)}</h1>{body}</main>"

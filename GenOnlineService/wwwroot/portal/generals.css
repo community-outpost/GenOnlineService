@@ -268,29 +268,17 @@ html.dark {
   width: auto;
 }
 
-/* the cover: the box art without its colours under a flat veil, so the accent stays the only hue */
+/* the cover: the box art without its colours under a flat veil, so the accent stays the only hue. The grey, the darkening
+   and the veil are baked into poster.webp; the page sets --go-poster to its fingerprinted address (PortalLook.Document) */
 .go-cover {
   display: none;
   position: relative;
   overflow: hidden;
   border-inline-start: 1px solid var(--border);
-}
-
-.go-cover::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: url("/portal/poster.jpg");
+  background-color: var(--background);
+  background-image: var(--go-poster);
   background-size: cover;
   background-position: center;
-  filter: grayscale(1) brightness(0.55) contrast(1.1);
-}
-
-.go-cover::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgb(12 10 9 / 0.35);
 }
 
 @media (min-width: 64rem) {
