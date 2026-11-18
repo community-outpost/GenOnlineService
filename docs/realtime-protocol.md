@@ -144,6 +144,13 @@ Missed events while disconnected are not replayed in v1: state is restored by th
 
 `type`: `chat`, `action` (an emote, rendered as "Ann waves"), `announcement` (lobby host only, rendered prominently). `created_at` is when the service stored the message.
 
+`mentions?: [user_id]` lists the users the service found as `@name` or `@name#tag` in `content`, in order of appearance, without duplicates, at most `mention_max` (section 6.1); further mentions stay plain text. Absent when there is none. The service fills it, a client never sends it, and it is stored with the message and returned by the history methods. Resolution:
+
+- `@name` and `@name#tag` resolve against the current members of the conversation: the channel, the lobby, the two users of a `dm:`, the group members. In a `channel:` an exact `@name#tag` (tag required) also resolves a user who is not in the channel; a bare `@name` never does, and in `lobby:`, `dm:` and `group:` no outsider resolves.
+- Names compare case insensitively on the stored player name after NFC normalisation, never on the look-alike key. Names may contain spaces: the longest matching name wins, and it must end at the end of the text, whitespace, punctuation or `#`, so `@Bob` does not mention `Bobby`. The tag is the number after `#` and matches with or without leading zeros (`#42`, `#0042`).
+
+Clients highlight a message whose `mentions` holds their own id and do not parse `@` for notifications. A user mentioned from outside a channel gets `MentionCreate` (section 6.2).
+
 A message deleted by staff appears in history as a tombstone with no author and no content:
 
 ```json
@@ -233,7 +240,7 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 |---|---|---|---|
 | `JoinChannel` | `{channel_id}` | Result | Then `ChannelMembers`, then `ChannelHistory`. A parent channel resolves to its default child; `ChannelMembers.channel_id` is the channel actually joined. Leaving a channel happens by joining another or `LeaveChannel` |
 | `LeaveChannel` | `{}` | Result | |
-| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters |
+| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters. The service fills the message's `mentions` (section 4) |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:`, `dm:`, `group:` and `lobby:` (current members of that lobby) only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id}` | Result | Marks the whole conversation read, up to the newest message the service holds at that moment; `Conversations` then shows `unread` 0 for it. The user's other connections get `ReadMarker`. `dm:` and `group:` conversations the caller is part of, otherwise `not_found {what: channel}` or `group.not_member` |
 
@@ -295,7 +302,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 
 | Event | Data |
 |---|---|
-| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only |
+| `Ready` | `{protocol_version, session_type, user: Member, permissions: [string], features: [string], badges: {id: {text, color}}, channels: [{id, name, parent_id: int or null, show_all_matches}], limits: {chat_max_length, chat_rate: {messages, window_s}, name_min_length, name_max_length, group_max_members, mention_max}}`; a channel whose `parent_id` is null is top level; `chat_rate` applies to `channel:` chat only; `mention_max` is the most users one message mentions (10) |
 | `BadgesUpdate` | `{badges: {id: {text, color}}}` (full set) |
 | `FeaturesUpdate` | `{features: [string]}` (the user's full new feature list, sent to every connection of the user whenever it changes, for example after a role change) |
 | `Notice` | `Notice` (section 4), for things that are not the answer to a call, such as `name.changed` |
@@ -315,6 +322,7 @@ Staff actions are REST endpoints (section 10.2): kick, mute and ban as sanctions
 | `MemberUpdate` | `{member: Member}` (rename, new tag, badge change; sent to everyone who can see the user) |
 | `MessageCreate` | `Message` |
 | `MessageDelete` | `{channel_id, message_id}` (staff deleted the message; sent to everyone who received it) |
+| `MentionCreate` | `{channel_id, message: Message}` (a `channel:` message mentioned the user by `@name#tag` while none of the user's connections was in that channel; sent through `user:<id>` to every connection of an online user, never stored for an offline one, and never between users who blocked each other in either direction. At most one per user per channel per 30 s, and at most 5 outsider mentions per author per minute; further ones only appear in the message's `mentions`) |
 | `Conversations` | `{conversations: [{channel_id, unread, last: Message or null}], groups: [Group]}` (snapshot after `Friends`: every direct message conversation and group chat of the user, newest activity first; `channel_id` is `dm:<user_id>` or `group:<group_id>`; `last` is `null` for a group with no messages yet) |
 | `ReadMarker` | `{channel_id}` (the user read that whole conversation on another connection; clear its unread count) |
 | `GroupCreate` | `{group: Group}` (the user was put in a group, by creating it or being added) |
