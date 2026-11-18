@@ -427,10 +427,11 @@ namespace Database
 		}
 	}
 
-	// Devices are kept 180 days after they were last seen, session events 90 days
+	// Devices are kept 90 days after they were last seen, or for as long as a ban on their account lasts (to find ban
+	// evasion); session events 90 days (Privacy Policy)
 	public static class Retention
 	{
-		public static readonly TimeSpan DeviceRetention = TimeSpan.FromDays(180);
+		public static readonly TimeSpan DeviceRetention = TimeSpan.FromDays(90);
 		public static readonly TimeSpan SessionEventRetention = TimeSpan.FromDays(90);
 
 		public static async Task<(int Devices, int SessionEvents)> Purge(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
@@ -438,7 +439,8 @@ namespace Database
 			DateTime deviceCutoff = utcNow - DeviceRetention;
 			DateTime eventCutoff = utcNow - SessionEventRetention;
 
-			int devices = await db.Devices.Where(d => d.LastSeenAt < deviceCutoff).ExecuteDeleteAsync(cancellationToken);
+			IQueryable<Int64> banned = Moderation.ActiveSanctions(db, SanctionTypes.Ban, utcNow).Select(s => s.UserID);
+			int devices = await db.Devices.Where(d => d.LastSeenAt < deviceCutoff && !banned.Contains(d.UserID)).ExecuteDeleteAsync(cancellationToken);
 			int events = await db.SessionEvents.Where(e => e.CreatedAt < eventCutoff).ExecuteDeleteAsync(cancellationToken);
 
 			return (devices, events);

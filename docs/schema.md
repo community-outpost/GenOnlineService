@@ -190,7 +190,7 @@ devices                   id, user_id, kind varchar(16) ('machine_guid' | 'mac' 
                           value_hmac binary(32), value_raw varchar(64) null, first_seen_at, last_seen_at,
                           last_ip varchar(45) null
                           unique (user_id, kind, value_hmac)
-                          -- retention: purged 180 days after last_seen_at
+                          -- retention: purged 90 days after last_seen_at, kept while the account has an active ban
 
 session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | 'end' | 'denied'),
                           result varchar(32), client varchar(32), client_version varchar(32),
@@ -201,7 +201,7 @@ session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | '
 
 `devices.value_hmac` is HMAC-SHA-256 with a per-deployment key (`Devices:hmac_key_path`). Equality lookups for ban evasion still work; a plain SHA-256 of a MAC or volume serial is reversible by brute force. The key can never rotate without rehashing, so it is created once and must outlive the cluster: the official deployment creates it once with OpenTofu (outpost-infra `opentofu/genonline`), keeps it in OpenBao, which backs it up with its snapshots, never rotates it, and mounts it read-only. If the file is missing and the path is writable, the service creates a new key, so every copy must read the same mounted file.
 
-`devices.value_raw` is the value the client sent, upper-cased, as the old `hwid_3..5` columns held it. Purpose: staff review of ban evasion and anti-cheat reports. It is personal data: it leaves with the row 180 days after the device was last seen, and it is null on rows whose raw value was never known. Matching always uses `value_hmac`.
+`devices.value_raw` is the value the client sent, upper-cased, as the old `hwid_3..5` columns held it. Purpose: staff review of ban evasion and anti-cheat reports. It is personal data: it leaves with the row 90 days after the device was last seen (later while a ban on the account is active), and it is null on rows whose raw value was never known. Matching always uses `value_hmac`.
 
 ### Matches and stats
 

@@ -80,7 +80,7 @@ The schema is v1 (`docs/schema.md`): every environment has its own database, and
 - Verify: every target table is read back and compared with what was written (row counts and SHA-256 row checksums), and the identity sequences are checked to continue after the highest imported id. Only then does the transaction commit; `--dry-run` rolls it back instead
 - The report is printed and written to `Import:report_path` (`import-report-<time>.txt` by default). Exit code 2 means blocking findings, 1 a failure (nothing was written)
 - Imported players sign in with the Discord, Steam, Google or GameReplays account linked in the old database: the import writes those links to `identities` under the provider names `steam`, `discord`, `google` and `gamereplays`, and the first sign-in through the provider of that name lands on the imported user, name and tag included. `Import:keycloak_file` is gone; a config that still sets it stops the import
-- Cutover: stop the old service, run the import, start the new deploy. Devices whose user last signed in more than 180 days ago are removed by the first retention purge
+- Cutover: stop the old service, run the import, start the new deploy. Devices last seen more than 90 days ago are removed by the first retention purge, unless their account has an active ban
 
 # Changing The Database Schema
 The schema is defined by the EF Core model (`GenOnlineService\Database`) and applied through code-first migrations. Migrations are only applied by `GenOnlineService migrate`, never by the service itself.
