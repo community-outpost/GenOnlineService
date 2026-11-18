@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
 using OpenIddict.Client.AspNetCore;
 using OpenIddict.Server.AspNetCore;
@@ -740,6 +741,13 @@ namespace GenOnlineService.Identity
 			return Page(200, T("SignedOut.Title"), P("SignedOut.Body"));
 		}
 
+		// The documents this account still has to agree to (S19); none when no version is configured
+		private Task<IReadOnlyList<AgreementDocument>> OwedAgreements(Int64 userID)
+			=> Agreements.OwedAsync(HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>(), m_settings.Agreements, userID, HttpContext.RequestAborted);
+
+		// A realtime connection of the player on this copy, any client type: the same check as "online" on the staff player page
+		private static bool HasLiveGameConnection(Int64 userID) => WebSocketManager.GetSharedDataForUser(userID) != null;
+
 		// This authorize request again, without prompt, for a page to send the user back to
 		private string AuthorizeAgain()
 		{
@@ -805,6 +813,17 @@ namespace GenOnlineService.Identity
 				}
 
 				return LocalRedirect(WelcomeUrl(AuthorizeAgain()));
+			}
+
+			// a player who owes an agreement (S19) agrees to the rules and terms in force before any token, then comes back here
+			if ((await OwedAgreements(user.ID)).Count > 0)
+			{
+				if (request.HasPromptValue(PromptValues.None))
+				{
+					return Forbid(Error(Errors.InteractionRequired, "The player must accept the current agreements first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+				}
+
+				return LocalRedirect(AgreementsUrl(AuthorizeAgain()));
 			}
 
 			object application = await m_applications.FindByClientIdAsync(request.ClientId!) ?? throw new InvalidOperationException("Unknown client.");
@@ -875,6 +894,17 @@ namespace GenOnlineService.Identity
 			if (request.IsRefreshTokenGrantType() && user.NameRequiredAt != null)
 			{
 				return Forbid(Error(Errors.InvalidGrant, "The player must choose a new name."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+			}
+
+			// The agreement refresh rule (S19): the game client's refresh is refused while an agreement is owed only when the
+			// player has no live game connection on this copy of the service (WebSocketManager, the check behind "online" on
+			// the staff player page). That is the client's login with a saved sign-in: invalid_grant makes it drop the saved
+			// sign-in and open the browser, where authorize sends it through the agreement pages. A refresh while connected
+			// passes, so a new rules version never logs a player out of a lobby or a match; they agree at their next login.
+			if (request.IsRefreshTokenGrantType() && SessionRevocation.IsGameClient(request.ClientId) && !HasLiveGameConnection(user.ID)
+				&& (await OwedAgreements(user.ID)).Count > 0)
+			{
+				return Forbid(Error(Errors.InvalidGrant, "The player must accept the current agreements first."), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 			}
 
 			// the name is read again so a rename reaches the next access token
