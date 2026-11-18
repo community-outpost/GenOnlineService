@@ -31,7 +31,7 @@ namespace GenOnlineService
 			+ "  GenOnlineService users two-factor-reset <user_id> [--reason <text>]\n"
 			+ "  GenOnlineService users name-reset <user_id> [--reason <text>]\n"
 			+ "password-reset prints a new random password once, or sets the one read from standard input with --password-stdin.\n"
-			+ "Both end the account's lockout and sign it out of the website within a minute.\n"
+			+ "Both end the account's lockout, revoke every sign-in of the game with its refresh tokens, and sign it out of the website within a minute.\n"
 			+ "name-reset replaces an inappropriate player name with a placeholder and ends every sign-in; the player chooses a new name when signing in again.";
 
 		private sealed class CliException : Exception

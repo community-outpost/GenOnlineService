@@ -173,6 +173,8 @@ namespace GenOnlineService.Rest
 				throw Forbidden(permission, $"{permission} is privileged and is granted through the CLI on the host.");
 			}
 
+			RefuseStaffOnly(permission);
+
 			if (!Permissions.IsMachine(permission) && !callerPermissions.Contains(permission))
 			{
 				throw Forbidden(permission, $"Granting {permission} needs the caller to hold it.");
@@ -420,9 +422,19 @@ namespace GenOnlineService.Rest
 			return account;
 		}
 
+		// A staff-only permission never goes to a service account, over HTTP or on the host
+		private static void RefuseStaffOnly(string permission)
+		{
+			if (Permissions.IsStaffOnly(permission))
+			{
+				throw Forbidden(permission, $"{permission} is for staff on the staff pages and is never granted to a service account.");
+			}
+		}
+
 		// Stages the grant and its sa_grant entry for the caller's SaveChanges; false when the account already holds it
 		public static async Task<bool> StageGrant(AppDbContext db, ApiTokenActor actor, ServiceAccount account, string permission)
 		{
+			RefuseStaffOnly(permission);
 			if (await db.ServiceAccountPermissions.AnyAsync(p => p.ServiceAccountID == account.ID && p.Permission == permission))
 			{
 				return false;

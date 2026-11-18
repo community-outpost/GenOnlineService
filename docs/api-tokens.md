@@ -101,6 +101,7 @@ Added by this design:
 | `tokens.manage` | human (admin) | the management API in section 9 (v2) |
 | `audit.read` | human (admin) | `GET /api/v1/audit_events` |
 | `settings.manage` | human (admin) | `GET` and `PUT /api/v1/application/settings` |
+| `accounts.support` | human (admin), staff only: never granted to a service account | `POST /api/v1/players/:id/password_reset` and `POST /api/v1/players/:id/two_factor_reset`, with the staff pages' sign-in cookie only |
 
 Monitoring self tests run on the internal ops port without a permission (section 11), so there is no `ops.self_test`.
 

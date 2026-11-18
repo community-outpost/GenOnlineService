@@ -70,7 +70,7 @@ namespace GenOnlineService.Api
 				return ApiResults.Fail(Result.Fail(NoPassword));
 			}
 
-			string password = await UserResets.ResetPassword(db, userID, null, m_accounts.Password.MinLength, SanctionActions.ApiActorOf(Me), reason);
+			string password = await UserResets.ResetPassword(db, userID, null, m_accounts.Password.MinLength, SanctionActions.ApiActorOf(Me), reason, live: true);
 			return ApiResults.Ok(new PasswordResetResponse { Password = password });
 		}
 
@@ -100,7 +100,7 @@ namespace GenOnlineService.Api
 				return ApiResults.Fail(Result.Fail(NoTwoFactor));
 			}
 
-			await UserResets.ResetTwoFactor(db, userID, SanctionActions.ApiActorOf(Me), reason);
+			await UserResets.ResetTwoFactor(db, userID, SanctionActions.ApiActorOf(Me), reason, live: true);
 			return NoContent();
 		}
 

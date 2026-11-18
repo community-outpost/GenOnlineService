@@ -72,6 +72,12 @@ namespace GenOnlineService
 			UsersRevoke, OpsDatabase
 		};
 
+		// Human permissions that act only through the staff pages, so no service account is ever granted them
+		public static readonly IReadOnlySet<string> StaffOnly = new HashSet<string>(StringComparer.Ordinal)
+		{
+			AccountsSupport
+		};
+
 		public static IEnumerable<string> All => Human.Concat(Machine);
 
 		public static bool IsKnown(string permission) => Human.Contains(permission) || Machine.Contains(permission);
@@ -79,6 +85,8 @@ namespace GenOnlineService
 		public static bool IsMachine(string permission) => Machine.Contains(permission);
 
 		public static bool IsPrivileged(string permission) => Privileged.Contains(permission);
+
+		public static bool IsStaffOnly(string permission) => StaffOnly.Contains(permission);
 	}
 
 	// The in-memory copy is reloaded on the reconcile tick, so a change made in the database applies without a restart
