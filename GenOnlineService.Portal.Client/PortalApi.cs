@@ -173,6 +173,34 @@ namespace GenOnlineService.Portal.Client
 			return SendAsync(HttpMethod.Patch, $"{PortalRoutes.Players}/{userID}", new PortalRenameRequest { Name = name, Reason = reason });
 		}
 
+		// A placeholder replaces the name and the player picks a new one at the next sign-in, which the host forces
+		public Task<PortalOutcome> ResetNameAsync(long userID, string? reason)
+		{
+			return SendAsync(HttpMethod.Post, $"{PortalRoutes.Players}/{userID}/reset_name", new PortalReasonRequest { Reason = reason });
+		}
+
+		// A reported message, the id as the report names it
+		public Task<PortalOutcome> DeleteMessageAsync(string messageID, string? reason)
+		{
+			return SendAsync(HttpMethod.Delete, $"{PortalRoutes.Messages}/{Uri.EscapeDataString(messageID)}", new PortalReasonRequest { Reason = reason });
+		}
+
+		public Task<PortalAnswer<PortalSettings>> GetSettingsAsync() => GetAsync<PortalSettings>(PortalRoutes.Settings);
+
+		// An empty message of the day clears it; the answer is the settings as saved
+		public Task<PortalAnswer<PortalSettings>> SaveSettingsAsync(string? motd)
+		{
+			// an explicit null clears the row, a dictionary writes it where the options would leave a null property out
+			var body = new Dictionary<string, string?> { ["motd"] = String.IsNullOrEmpty(motd) ? null : motd };
+			return SendForAsync<PortalSettings>(HttpMethod.Put, PortalRoutes.Settings, body);
+		}
+
+		// Goes to every connected player at once
+		public Task<PortalAnswer<PortalAnnouncementResult>> SendAnnouncementAsync(string message)
+		{
+			return SendForAsync<PortalAnnouncementResult>(HttpMethod.Post, PortalRoutes.Announcements, new PortalAnnouncementRequest { Message = message });
+		}
+
 		// One local role, under the host's rank rule; each change is in the audit log
 		public Task<PortalOutcome> GrantRoleAsync(long userID, string role) => SendAsync(HttpMethod.Put, $"{PortalRoutes.Players}/{userID}/roles/{Uri.EscapeDataString(role)}", new { });
 

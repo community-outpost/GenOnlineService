@@ -45,6 +45,9 @@ namespace GenOnlineService.Portal.Client
 		public const string AuditEvents = "api/v1/audit_events";
 		public const string ServiceAccounts = "api/v1/service_accounts";
 		public const string MatchSearch = "api/v1/matches/search";
+		public const string Settings = "api/v1/application/settings";
+		public const string Announcements = "api/v1/announcements";
+		public const string Messages = "api/v1/messages";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -60,6 +63,8 @@ namespace GenOnlineService.Portal.Client
 		public const string AntiCheatPage = "/admin/anticheat";
 		public const string AuditPage = "/admin/audit";
 		public const string PartnersPage = "/admin/partners";
+		public const string SettingsPage = "/admin/settings";
+		public const string AnnouncementsPage = "/admin/announcements";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -91,6 +96,9 @@ namespace GenOnlineService.Portal.Client
 		public const string RolesManage = "roles.manage";
 		public const string AuditRead = "audit.read";
 		public const string TokensManage = "tokens.manage";
+		public const string ChatDeleteAny = "chat.delete_any";
+		public const string AnnouncementsSend = "announcements.send";
+		public const string SettingsManage = "settings.manage";
 	}
 
 	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
@@ -220,6 +228,8 @@ namespace GenOnlineService.Portal.Client
 		public DateTime CreatedAt { get; init; }
 		public DateTime? ResolvedAt { get; init; }
 		public string? ResolutionNote { get; init; }
+		// The reported message's text as the report stored it, null for a report of a player
+		public string? MessageContent { get; init; }
 
 		// Flat values for the grid columns
 		[JsonIgnore]
@@ -405,6 +415,24 @@ namespace GenOnlineService.Portal.Client
 	{
 		public string? Name { get; init; }
 		public string? Reason { get; init; }
+	}
+
+	// The settings staff may change at runtime, GET /api/v1/application/settings
+	public sealed record PortalSettings
+	{
+		// the message of the day, null when none is set
+		public string? Motd { get; init; }
+	}
+
+	public sealed record PortalAnnouncementRequest
+	{
+		public string? Message { get; init; }
+	}
+
+	// The users online the announcement went to
+	public sealed record PortalAnnouncementResult
+	{
+		public int DeliveredTo { get; init; }
 	}
 
 	public sealed record PortalMatchFile

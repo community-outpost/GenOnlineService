@@ -168,6 +168,9 @@ namespace GenOnlineService.Api
 		public DateTime CreatedAt { get; init; }
 		public DateTime? ResolvedAt { get; init; }
 		public string? ResolutionNote { get; init; }
+		// The text of the reported message as the report stored it, in GET /api/v1/reports/search only
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? MessageContent { get; init; }
 	}
 
 	[ApiFixture("get-reports.response")]

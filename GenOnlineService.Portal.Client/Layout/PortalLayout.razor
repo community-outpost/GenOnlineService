@@ -92,6 +92,32 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
+                @if (staff.Can(PortalPermissions.AnnouncementsSend) || staff.Can(PortalPermissions.SettingsManage))
+                {
+                    <BbSidebarGroup>
+                        <BbSidebarGroupLabel>Community</BbSidebarGroupLabel>
+                        <BbSidebarMenu>
+                            @if (staff.Can(PortalPermissions.AnnouncementsSend))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.AnnouncementsPage" Tooltip="Announcements">
+                                        <LucideIcon Name="megaphone" Class="bb:h-4 bb:w-4" />
+                                        <span>Announcements</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.SettingsManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.SettingsPage" Tooltip="Message of the day">
+                                        <LucideIcon Name="message-square-text" Class="bb:h-4 bb:w-4" />
+                                        <span>Message of the day</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                        </BbSidebarMenu>
+                    </BbSidebarGroup>
+                }
                 @if (staff.Can(PortalPermissions.AuditRead) || staff.Can(PortalPermissions.TokensManage))
                 {
                     <BbSidebarGroup>
@@ -316,6 +342,12 @@
                 {
                     yield return ("Partner " + item, null);
                 }
+                break;
+            case "announcements":
+                yield return ("Announcements", null);
+                break;
+            case "settings":
+                yield return ("Message of the day", null);
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);
