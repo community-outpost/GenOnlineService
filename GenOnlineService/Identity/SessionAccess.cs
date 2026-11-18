@@ -45,6 +45,11 @@ namespace GenOnlineService.Identity
 
 		public static PlayBan? GetPlayBan(Int64 userID) => s_banned.GetValueOrDefault(userID);
 
+		// Players who must choose a name before they play: a provider sign-up, or a name staff reset (S17)
+		private static volatile HashSet<Int64> s_nameRequired = new();
+
+		public static bool MustChooseName(Int64 userID) => s_nameRequired.Contains(userID);
+
 		private static readonly SemaphoreSlim s_reloadGate = new SemaphoreSlim(1, 1);
 
 		// Moderation calls this right after a ban as well as the reconcile tick, so reloads never overlap
@@ -80,12 +85,19 @@ namespace GenOnlineService.Identity
 					return new PlayBan(longest.Reason ?? String.Empty, longest.ExpiresAt);
 				});
 
+			HashSet<Int64> nameRequired = (await db.Users.AsNoTracking()
+				.Where(u => u.NameRequiredAt != null && u.State == UserStates.Active)
+				.Select(u => u.ID)
+				.ToListAsync()).ToHashSet();
+
 			Dictionary<Int64, string> previousInactive = s_inactive;
 			Dictionary<Int64, PlayBan> previousBanned = s_banned;
+			HashSet<Int64> previousNameRequired = s_nameRequired;
 			bool bSeeded = s_seeded;
 
 			s_inactive = inactive;
 			s_banned = banned;
+			s_nameRequired = nameRequired;
 			s_seeded = true;
 
 			// the first load only seeds, so a restart does not act on every existing ban again
@@ -105,6 +117,20 @@ namespace GenOnlineService.Identity
 				s_log.LogInformation("User {UserId} was banned: revoking game client authorizations", userID);
 				await SessionRevocation.RevokeUser(userID, true, "banned", ban);
 			}
+
+			// a name reset the API did not kick (the CLI runs apart from the service): a player still connected here is
+			// signed out now, so the next sign-in asks for the new name (S17). New accounts are never connected yet.
+			foreach (Int64 userID in nameRequired.Where(id => !previousNameRequired.Contains(id) && IsConnectedHere(id)))
+			{
+				s_log.LogInformation("User {UserId} must choose a new name: ending their sessions", userID);
+				await SessionRevocation.RevokeUser(userID, false, "name reset");
+			}
+		}
+
+		private static bool IsConnectedHere(Int64 userID)
+		{
+			return WebSocketManager.GetAllDataFromUser(userID).Count > 0
+				|| Enum.GetValues<EUserSessionType>().Any(type => type != EUserSessionType.None && GameSessions.Get(userID, type) != null);
 		}
 
 		// The block path and the startup sweep share this, so the two never diverge
@@ -232,7 +258,8 @@ namespace GenOnlineService.Identity
 			long total = 0;
 			while (true)
 			{
-				List<string> batch = await ids.Take(BatchSize).ToListAsync();
+				// any batch is fine, the loop repeats until nothing is left; the order only keeps EF's 10102 warning out of the log
+				List<string> batch = await ids.OrderBy(id => id).Take(BatchSize).ToListAsync();
 				if (batch.Count == 0)
 				{
 					return total;
@@ -250,35 +277,58 @@ namespace GenOnlineService.Identity
 	// Game is the client's registered game (zerohour, generals or none), so build isolation keys on the game rather than the client id
 	public sealed record GameSessionRegistration(string AuthorizationID, string ClientID, string Game, DateTime RegisteredAt, uint? ExeCrc, uint? IniCrc, int AnticheatID);
 
-	// Game sessions registered through POST /api/v1/auth/session; in memory, so a restart asks clients to register again
+	// Game sessions registered through POST /api/v1/auth/session. The database holds them, so every copy and a restarted copy
+	// accept the realtime upgrade of a registered client (docs/realtime-failover.md); memory is this copy's cache of them, which
+	// the upgrade refreshes from the database, so the hub and lobby checks after it read it without a database call
 	public static class GameSessions
 	{
+		private static readonly ILogger s_log = AppLog.For(typeof(GameSessions));
 		private static readonly ConcurrentDictionary<(Int64, EUserSessionType), GameSessionRegistration> s_sessions = new();
 
-		public static void Register(Int64 userID, EUserSessionType sessionType, GameSessionRegistration registration)
+		public static async Task RegisterAsync(AppDbContext db, Int64 userID, EUserSessionType sessionType, GameSessionRegistration registration)
 		{
+			await Database.GameSessionStore.Save(db, userID, sessionType, registration);
 			s_sessions[(userID, sessionType)] = registration;
 		}
 
+		// This copy's cached registration, current for a client connected here
 		public static GameSessionRegistration? Get(Int64 userID, EUserSessionType sessionType)
 		{
 			return s_sessions.GetValueOrDefault((userID, sessionType));
 		}
 
-		public static bool Remove(Int64 userID, EUserSessionType sessionType)
+		// The stored registration, also cached here; the realtime upgrade reads it so a registration made on another copy counts
+		public static async Task<GameSessionRegistration?> LoadAsync(AppDbContext db, Int64 userID, EUserSessionType sessionType, CancellationToken cancellationToken = default)
 		{
-			return s_sessions.TryRemove((userID, sessionType), out _);
+			GameSessionRegistration? registration = await Database.GameSessionStore.Load(db, userID, sessionType, cancellationToken);
+			if (registration == null)
+			{
+				s_sessions.TryRemove((userID, sessionType), out _);
+			}
+			else
+			{
+				s_sessions[(userID, sessionType)] = registration;
+			}
+			return registration;
 		}
 
-		public static void RemoveSignIn(string authorizationID)
+		// Removals drop the cached entry first, so this copy refuses at once even when the database write fails
+		public static Task RemoveAsync(Int64 userID, EUserSessionType sessionType)
+		{
+			s_sessions.TryRemove((userID, sessionType), out _);
+			return Store(db => Database.GameSessionStore.Delete(db, userID, sessionType), "user " + userID);
+		}
+
+		public static Task RemoveSignInAsync(string authorizationID)
 		{
 			foreach (var entry in s_sessions.Where(e => e.Value.AuthorizationID == authorizationID))
 			{
 				s_sessions.TryRemove(entry);
 			}
+			return Store(db => Database.GameSessionStore.DeleteSignIn(db, authorizationID), "sign-in " + authorizationID);
 		}
 
-		public static void RemoveUser(Int64 userID, bool bOnlyForAuthorizations, IReadOnlySet<string>? authorizationIDs = null)
+		public static Task RemoveUserAsync(Int64 userID, bool bOnlyForAuthorizations, IReadOnlySet<string>? authorizationIDs = null)
 		{
 			foreach (var key in s_sessions.Keys.Where(k => k.Item1 == userID))
 			{
@@ -286,6 +336,30 @@ namespace GenOnlineService.Identity
 				{
 					s_sessions.TryRemove(key, out _);
 				}
+			}
+			IReadOnlyCollection<string>? only = bOnlyForAuthorizations ? (IReadOnlyCollection<string>?)authorizationIDs ?? Array.Empty<string>() : null;
+			return Store(db => Database.GameSessionStore.DeleteUser(db, userID, only), "user " + userID);
+		}
+
+		// Forgets this copy's cache, as a restarted copy or another copy starts; tests use it
+		internal static void ForgetCached() => s_sessions.Clear();
+
+		// A failed delete is logged: the cache already refuses here, and the revoked sign-in fails the upgrade's sign-in check on every copy
+		private static async Task Store(Func<AppDbContext, Task> write, string what)
+		{
+			IDbContextFactory<AppDbContext>? factory = ServiceLocator.Services?.GetService<IDbContextFactory<AppDbContext>>();
+			if (factory == null)
+			{
+				return;
+			}
+			try
+			{
+				await using AppDbContext db = await factory.CreateDbContextAsync();
+				await write(db);
+			}
+			catch (Exception ex)
+			{
+				s_log.LogError(ex, "Removing the stored game session of {What} failed", what);
 			}
 		}
 	}
@@ -359,7 +433,7 @@ namespace GenOnlineService.Identity
 				s_log.LogError(ex, "Revoking authorizations of user {UserId} failed", userID);
 			}
 
-			GameSessions.RemoveUser(userID, bOnlyGameClients, revoked);
+			await GameSessions.RemoveUserAsync(userID, bOnlyGameClients, revoked);
 
 			if (ban == null)
 			{
@@ -387,6 +461,9 @@ namespace GenOnlineService.Identity
 		public const string AuthorizationIDClaim = "oi_au_id";
 
 		private const string BanItemKey = "go_play_ban";
+
+		// The play ban that refused this request's token, for the realtime hub, which closes the connection with it instead of a 403
+		public static PlayBan? BanOf(HttpContext context) => context.Items.TryGetValue(BanItemKey, out object? value) ? value as PlayBan : null;
 		private static readonly ILogger s_log = AppLog.For(typeof(SessionTokenHandler));
 
 		public SessionTokenHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
@@ -417,6 +494,13 @@ namespace GenOnlineService.Identity
 			{
 				s_log.LogInformation("Refused access token of inactive user {UserId}", userID);
 				return AuthenticateResult.Fail("inactive user");
+			}
+
+			// a name reset ends what the access token still allows within one reconcile tick, CLI resets included
+			if (AccessControl.MustChooseName(userID))
+			{
+				s_log.LogInformation("Refused access token of user {UserId}, who must choose a new name", userID);
+				return AuthenticateResult.Fail("name required");
 			}
 
 			PlayBan? ban = AccessControl.GetPlayBan(userID);

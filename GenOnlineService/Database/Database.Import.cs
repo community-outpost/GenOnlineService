@@ -47,8 +47,7 @@ namespace Database
 		MySqlSslMode SslMode,
 		bool LegacyBansAsLocal,
 		IReadOnlySet<string> Waivers,
-		string ReportPath,
-		string? KeycloakFile = null);
+		string ReportPath);
 
 	public sealed class ImportOptions
 	{
@@ -131,6 +130,12 @@ namespace Database
 				waivers.Add(key);
 			}
 
+			// the Keycloak user file is gone: imported identities sign in to this environment directly
+			if (!string.IsNullOrWhiteSpace(section.GetValue<string>("keycloak_file")))
+			{
+				throw new ImportException("Import:keycloak_file belonged to the Keycloak setup, which is gone: imported players sign in with their linked Discord, Steam, Google or GameReplays accounts. Remove the setting.");
+			}
+
 			string? reportPath = section.GetValue<string>("report_path");
 			if (string.IsNullOrWhiteSpace(reportPath))
 			{
@@ -146,8 +151,7 @@ namespace Database
 				sslMode,
 				legacyBans == "local",
 				waivers,
-				reportPath,
-				string.IsNullOrWhiteSpace(section.GetValue<string>("keycloak_file")) ? null : section.GetValue<string>("keycloak_file")!.Trim());
+				reportPath);
 		}
 
 		public static async Task<int> Execute(AppDbContext target, ImportSettings settings, ImportOptions options)
@@ -159,7 +163,6 @@ namespace Database
 			report.Line($"Target: {(target.Database.IsNpgsql() ? "PostgreSQL" : "MySQL/MariaDB")}");
 			report.Line($"Legacy bans: {(settings.LegacyBansAsLocal ? "imported as local play bans" : "skipped")}");
 			report.Line($"Waived findings: {(settings.Waivers.Count == 0 ? "none" : string.Join(", ", settings.Waivers.OrderBy(w => w)))}");
-			report.Line($"Keycloak file: {settings.KeycloakFile ?? "not requested (Import:keycloak_file)"}");
 
 			await CheckTarget(target);
 
@@ -222,33 +225,8 @@ namespace Database
 				report.Line("Import complete: verification passed and the transaction was committed.");
 			}
 
-			// written only after the commit, so Keycloak never holds player ids the database does not
-			List<KeycloakImportUser> keycloakUsers = KeycloakUsers(plan);
-			long counterStart = KeycloakImportFile.BuildCounter(keycloakUsers)[KeycloakImportFile.CounterStartAttribute]!.GetValue<long>();
-			if (settings.KeycloakFile != null && !options.DryRun)
-			{
-				(string usersPath, string counterPath) = KeycloakImportFile.Write(settings.KeycloakFile, keycloakUsers);
-				report.Line($"Keycloak file: {keycloakUsers.Count} users with player_id written to {Path.GetFullPath(usersPath)}");
-				report.Line($"Keycloak player_id counter: start the GenOnline Keycloak plugin's counter at {counterStart}: set the realm attribute {KeycloakImportFile.CounterStartAttribute} to it before anyone signs up ({Path.GetFullPath(counterPath)})");
-				report.Line("Keycloak name tags: after the partial import, call POST /realms/<realm>/genonline/players/assign-tags once with a client holding genonline-rename; it gives every imported account its static tag and lists name conflicts");
-			}
-			else if (settings.KeycloakFile != null)
-			{
-				report.Line($"Keycloak file: not written in a dry run; it would hold {keycloakUsers.Count} users, counter start {counterStart}");
-			}
-
 			report.Save(settings.ReportPath);
 			return 0;
-		}
-
-		// Each kept user with its kept identities; the player id is the user id the import keeps
-		private static List<KeycloakImportUser> KeycloakUsers(Plan plan)
-		{
-			return plan.Kept.OrderBy(k => k.Key)
-				.Select(k => new KeycloakImportUser(k.Key,
-					k.Value.Identities.Where(i => i.Kept).Select(i => new KeycloakImportIdentity(i.Provider, i.ExternUid, i.ExternUsername)).ToList(),
-					k.Value.Username))
-				.ToList();
 		}
 
 		private static string QuoteTable(AppDbContext db, string table)
@@ -434,7 +412,7 @@ namespace Database
 		{
 			var users = new List<OldUser>();
 
-			string sql = "SELECT user_id, account_type, steam_id, discord_id, discord_username, gamereplays_id, gamereplays_username, displayname, lastlogin, "
+			string sql = "SELECT user_id, account_type, steam_id, discord_id, gamereplays_id, displayname, lastlogin, "
 				+ "favorite_color, favorite_side, favorite_map, favorite_starting_money, favorite_limit_superweapons, admin, banned, "
 				+ "elo_rating, monthly_elo_rating, elo_num_matches, ban_reason, banned_by, ban_verified_by, ban_aliases, "
 				+ $"{schema.Optional("users", "google_id")}, {schema.Optional("users", "google_email")}, {schema.Optional("users", "permissionslevel")}, "
@@ -449,9 +427,7 @@ namespace Database
 					AccountType = (int)r.Long("account_type"),
 					SteamId = r.NullableLong("steam_id"),
 					DiscordId = r.NullableLong("discord_id"),
-					DiscordUsername = r.String("discord_username"),
 					GameReplaysId = r.NullableLong("gamereplays_id"),
-					GameReplaysUsername = r.String("gamereplays_username"),
 					DisplayName = r.String("displayname"),
 					LastLogin = r.NullableDate("lastlogin"),
 					FavoriteColor = r.NullableLong("favorite_color"),
@@ -655,9 +631,9 @@ namespace Database
 			{
 				var users = Line("users (Steam, Discord, unknown)", "users");
 				var steam = Line("users.steam_id", "identities (steam)");
-				var discord = Line("users.discord_id, discord_username", "identities (discord)");
+				var discord = Line("users.discord_id", "identities (discord)");
 				var google = Line("users.google_id", "identities (google)");
-				var gameReplays = Line("users.gamereplays_id, gamereplays_username", "identities (gamereplays)");
+				var gameReplays = Line("users.gamereplays_id", "identities (gamereplays)");
 				var bans = Line("users.banned, ban_reason", "sanctions (ban, local)");
 				var audit = Line("users.banned_by, ban_verified_by, ban_aliases", "audit_log (ban)");
 				var allTime = Line("users.elo_rating, elo_num_matches", "player_ratings (all_time)");
@@ -680,7 +656,7 @@ namespace Database
 						ID = old.Id,
 						Username = kept.Username,
 						UsernameNormalized = NameNormalizer.Normalize(kept.Username),
-						// imported names are unique already (AssignUsernames), so tag 1 keeps name#tag unique; Keycloak's tag replaces it at sign-in
+						// imported names are unique already (AssignUsernames), so tag 1 keeps name#tag unique; renames keep it
 						NameTag = 1,
 						Email = kept.Email,
 						EmailNormalized = kept.Email == null ? null : NameNormalizer.Normalize(kept.Email),
@@ -712,7 +688,6 @@ namespace Database
 							UserID = old.Id,
 							Provider = identity.Provider,
 							ExternUid = identity.ExternUid,
-							ExternUsername = ClampOptional(identity.ExternUsername, 128, "identities", "extern_username"),
 							CreatedAt = _now
 						});
 					}
@@ -1229,9 +1204,7 @@ namespace Database
 		public int AccountType;
 		public long? SteamId;
 		public long? DiscordId;
-		public string? DiscordUsername;
 		public long? GameReplaysId;
-		public string? GameReplaysUsername;
 		public string? DisplayName;
 		public DateTime? LastLogin;
 		public long? FavoriteColor;
@@ -1266,7 +1239,6 @@ namespace Database
 	{
 		public string Provider = string.Empty;
 		public string ExternUid = string.Empty;
-		public string? ExternUsername;
 		public bool Kept = true;
 	}
 
@@ -1398,20 +1370,21 @@ namespace Database
 
 			foreach (OldUser user in KeptUsers.Values)
 			{
-				void Link(string provider, string? uid, string? username)
+				// the provider's id only, never its username (S17)
+				void Link(string provider, string? uid)
 				{
 					if (string.IsNullOrWhiteSpace(uid))
 						return;
 
-					var identity = new KeptIdentity { Provider = provider, ExternUid = uid.Trim(), ExternUsername = string.IsNullOrEmpty(username) ? null : username };
+					var identity = new KeptIdentity { Provider = provider, ExternUid = uid.Trim() };
 					Kept[user.Id].Identities.Add(identity);
 					all.Add((user, identity));
 				}
 
-				Link(IdentityProviders.Steam, user.SteamId > 0 ? user.SteamId.Value.ToString(CultureInfo.InvariantCulture) : null, null);
-				Link(IdentityProviders.Discord, user.DiscordId > 0 ? user.DiscordId.Value.ToString(CultureInfo.InvariantCulture) : null, user.DiscordUsername);
-				Link(IdentityProviders.Google, user.GoogleId, null);
-				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null, user.GameReplaysUsername);
+				Link(IdentityProviders.Steam, user.SteamId > 0 ? user.SteamId.Value.ToString(CultureInfo.InvariantCulture) : null);
+				Link(IdentityProviders.Discord, user.DiscordId > 0 ? user.DiscordId.Value.ToString(CultureInfo.InvariantCulture) : null);
+				Link(IdentityProviders.Google, user.GoogleId);
+				Link(IdentityProviders.GameReplays, user.GameReplaysId > 0 ? user.GameReplaysId.Value.ToString(CultureInfo.InvariantCulture) : null);
 			}
 
 			// the target allows one identity per provider per user; a second one on a user is reported and not kept
@@ -1482,7 +1455,7 @@ namespace Database
 			var droppedStaff = AllUsers.Where(u => Dropped.Contains(u.Id) && (u.Admin || u.PermissionsLevel > 0)).OrderBy(u => u.Id).ToList();
 
 			report.Line();
-			report.Line($"Staff remap report: admin and permissionslevel are NOT imported. Grant roles again with \"GenOnlineService roles grant\" or Keycloak groups ({staff.Count} users):");
+			report.Line($"Staff remap report: admin and permissionslevel are NOT imported. Grant roles again with \"GenOnlineService roles grant\" ({staff.Count} users):");
 			foreach (OldUser user in staff)
 			{
 				report.Line($"  user {user.Id,-10} {Kept[user.Id].Username,-32} admin={(user.Admin ? 1 : 0)} permissionslevel={user.PermissionsLevel?.ToString(CultureInfo.InvariantCulture) ?? "null"}");
@@ -1595,7 +1568,7 @@ namespace Database
 	{
 		private static readonly Dictionary<string, string[]> Required = new(StringComparer.Ordinal)
 		{
-			["users"] = new[] { "user_id", "account_type", "steam_id", "discord_id", "discord_username", "gamereplays_id", "gamereplays_username", "displayname", "lastlogin",
+			["users"] = new[] { "user_id", "account_type", "steam_id", "discord_id", "gamereplays_id", "displayname", "lastlogin",
 				"favorite_color", "favorite_side", "favorite_map", "favorite_starting_money", "favorite_limit_superweapons", "admin", "banned",
 				"elo_rating", "monthly_elo_rating", "elo_num_matches", "ban_reason", "banned_by", "ban_verified_by", "ban_aliases" },
 			["user_devices"] = new[] { "user_id", "hwid_0", "hwid_1", "hwid_2", "hwid_3", "hwid_4", "hwid_5", "ip_addr" },

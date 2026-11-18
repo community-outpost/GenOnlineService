@@ -24,24 +24,23 @@ using System.Text;
 
 namespace GenOnlineService.Identity
 {
-	public sealed record UpstreamSignInResult(User? User, string? Error)
+	// SuggestedName: the provider's own name, cleaned, while the user still owes a chosen one; never stored (S17)
+	public sealed record UpstreamSignInResult(User? User, string? Error, string? SuggestedName = null)
 	{
 		public static UpstreamSignInResult Refused(string error) => new(null, error);
 	}
 
-	// GitLab OmniAuth behaviour: a known identity signs in, a player id or (opt-in) verified email finds the user, otherwise sign-up
+	// Who the provider says signed in: the subject identities store (null when the provider gave none we accept) and a name
+	public sealed record UpstreamProfile(string? Subject, string? Name);
+
+	// GitLab OmniAuth behaviour: a known identity signs in, an (opt-in) verified email finds the user, otherwise sign-up
 	public sealed class UpstreamAccounts
 	{
 		public const string ErrorNoSubject = "no_subject";
 		public const string ErrorSignUpDisabled = "sign_up_disabled";
 		public const string ErrorBlocked = "blocked";
 		public const string ErrorDeactivated = "deactivated";
-		public const string ErrorNoPlayerID = "no_player_id";
-		public const string ErrorPlayerIDMismatch = "player_id_mismatch";
-
-		// The display name and its tag, copied from a trusted provider at every sign-in (identity section 5a)
-		public const string NameClaim = "name";
-		public const string NameTagClaim = "name_tag";
+		public const string ErrorIdentityConflict = "identity_conflict";
 
 		private static readonly ILogger s_log = AppLog.For(typeof(UpstreamAccounts));
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
@@ -53,13 +52,15 @@ namespace GenOnlineService.Identity
 
 		public async Task<UpstreamSignInResult> SignIn(UpstreamProviderSettings provider, ClaimsPrincipal external)
 		{
-			string? subject = external.GetClaim(OpenIddictConstants.Claims.Subject) ?? external.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+			UpstreamProfile profile = ReadProfile(provider, external);
+			string? subject = profile.Subject;
 			if (String.IsNullOrEmpty(subject) || subject.Length > 128)
 			{
+				s_log.LogWarning("{Provider} sign-in carries no usable subject", provider.Name);
 				return UpstreamSignInResult.Refused(ErrorNoSubject);
 			}
 
-			string? externName = Truncate(external.GetClaim(OpenIddictConstants.Claims.PreferredUsername) ?? external.GetClaim(OpenIddictConstants.Claims.Name), 128);
+			string? externName = Truncate(profile.Name, 128);
 
 			try
 			{
@@ -76,7 +77,7 @@ namespace GenOnlineService.Identity
 				{
 					// another upstream account linked the same user in between: one identity per provider per user
 					s_log.LogWarning("{Provider} sign-in of {Subject} lost a race for its user", provider.Name, subject);
-					return UpstreamSignInResult.Refused(ErrorPlayerIDMismatch);
+					return UpstreamSignInResult.Refused(ErrorIdentityConflict);
 				}
 			}
 		}
@@ -86,26 +87,7 @@ namespace GenOnlineService.Identity
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
 			DateTime now = DateTime.UtcNow;
 
-			// with player ids the upstream claim is the user id: no sign-in without one, and an identity never moves to another id
-			Int64? playerID = null;
-			if (provider.PlayerIDs)
-			{
-				if (!Int64.TryParse(external.GetClaim(provider.PlayerIDClaim), NumberStyles.None, CultureInfo.InvariantCulture, out Int64 claimed) || claimed <= 0)
-				{
-					s_log.LogWarning("{Provider} sign-in of {Subject} carries no numeric {Claim}", provider.Name, subject, provider.PlayerIDClaim);
-					return UpstreamSignInResult.Refused(ErrorNoPlayerID);
-				}
-
-				playerID = claimed;
-			}
-
 			UserIdentity? identity = await db.Identities.AsTracking().FirstOrDefaultAsync(i => i.Provider == provider.Name && i.ExternUid == subject);
-			if (identity != null && playerID != null && identity.UserID != playerID)
-			{
-				s_log.LogWarning("{Provider} identity {Subject} belongs to user {UserId} but asserts {Claim} {PlayerId}", provider.Name, subject, identity.UserID, provider.PlayerIDClaim, playerID);
-				return UpstreamSignInResult.Refused(ErrorPlayerIDMismatch);
-			}
-
 			User? user = identity == null ? null : await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == identity.UserID);
 
 			if (user == null)
@@ -113,20 +95,7 @@ namespace GenOnlineService.Identity
 				// a new user and its identity commit together, so a failed link never leaves an orphan account
 				await using var tx = await db.Database.BeginTransactionAsync();
 
-				if (playerID != null)
-				{
-					// an imported or earlier user with this id is the same person, unless another identity of this provider already holds it
-					user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == playerID);
-					if (user != null && await db.Identities.AnyAsync(i => i.UserID == playerID && i.Provider == provider.Name))
-					{
-						s_log.LogWarning("{Provider} identity {Subject} asserts {Claim} {PlayerId}, which another identity of the provider holds", provider.Name, subject, provider.PlayerIDClaim, playerID);
-						return UpstreamSignInResult.Refused(ErrorPlayerIDMismatch);
-					}
-				}
-				else
-				{
-					user = await FindByVerifiedEmail(db, provider, external);
-				}
+				user = await FindByVerifiedEmail(db, provider, external);
 
 				if (user == null)
 				{
@@ -135,23 +104,16 @@ namespace GenOnlineService.Identity
 						return UpstreamSignInResult.Refused(ErrorSignUpDisabled);
 					}
 
-					// with player ids the id is set explicitly, so the database never picks one Keycloak gives out later
 					user = new User
 					{
-						Username = InitialName(provider.Trusted ? external.GetClaim(NameClaim) ?? externName : externName),
+						Username = Database.DisplayNames.Placeholder(),
 						State = UserStates.Active,
+						// the player chooses their own name before the first token (S17)
+						NameRequiredAt = now,
 						CreatedAt = now,
 						UpdatedAt = now
 					};
-					if (playerID != null)
-					{
-						user.ID = playerID.Value;
-					}
-					// a trusted provider's name and tag are taken as they are, so no throwaway tag reaches the name history
-					if (!provider.Trusted || !await Database.DisplayNames.TryAssignUpstream(db, user, external.GetClaim(NameClaim), external.GetClaim(NameTagClaim)))
-					{
-						await Database.DisplayNames.AssignNewUser(db, user);
-					}
+					await Database.DisplayNames.AssignNewUser(db, user);
 					db.Users.Add(user);
 					await db.SaveChangesAsync();
 					s_log.LogInformation("Created user {UserId} from {Provider} sign-up", user.ID, provider.Name);
@@ -173,43 +135,60 @@ namespace GenOnlineService.Identity
 				return UpstreamSignInResult.Refused(ErrorDeactivated);
 			}
 
-			identity.ExternUsername = externName;
 			identity.LastUsedAt = now;
 			user.LastSignInAt = now;
 			await db.SaveChangesAsync();
 
-			if (provider.Trusted)
-			{
-				foreach (NameChange change in await ApplyUpstreamName(db, provider, user.ID, external.GetClaim(NameClaim), external.GetClaim(NameTagClaim)))
-				{
-					if (change.UserID == user.ID)
-					{
-						user.Username = change.NewName;
-						user.UsernameNormalized = NameNormalizer.Normalize(change.NewName);
-						user.NameKey = GenOnlineService.Names.NameKey.Of(change.NewName);
-						user.NameTag = change.NewTag;
-					}
-				}
-				await ApplyTrustedClaims(db, provider, user.ID, GroupsOf(provider, external));
-			}
-
-			return new UpstreamSignInResult(user, null);
+			return new UpstreamSignInResult(user, null, user.NameRequiredAt != null ? Suggestion(externName) : null);
 		}
 
-		// Copies a trusted provider's name and tag (the provider owns them) and tells live sessions about any change
-		public static async Task<IReadOnlyList<NameChange>> ApplyUpstreamName(AppDbContext db, UpstreamProviderSettings provider, Int64 userID, string? name, string? tag)
+		private const string SteamClaimedIDPrefix = "https://steamcommunity.com/openid/id/";
+
+		// The subject in the form the import stores it: SteamID64 for Steam, the member id for GameReplays, the provider's
+		// user id (sub or the name identifier OpenIddict maps it to) for the others
+		public static UpstreamProfile ReadProfile(UpstreamProviderSettings provider, ClaimsPrincipal external)
 		{
-			if (name == null && tag == null)
-			{
-				return Array.Empty<NameChange>();
-			}
+			string? Claim(string type) => external.FindFirst(type)?.Value is { Length: > 0 } value ? value : null;
+			string? name = Claim(OpenIddictConstants.Claims.PreferredUsername) ?? Claim(OpenIddictConstants.Claims.Name) ?? Claim(ClaimTypes.Name);
 
-			IReadOnlyList<NameChange> changes = await Database.DisplayNames.ApplyUpstream(db, userID, name, tag, provider.Source);
-			Realtime.RealtimeNames.Publish(changes);
-			return changes;
+			switch (provider.Kind)
+			{
+				case ProviderKind.Steam:
+				{
+					// the verified OpenID 2.0 claimed id; only Steam's own https form is a Steam account
+					string? claimed = Claim(ClaimTypes.NameIdentifier);
+					string? steamID = claimed != null && claimed.StartsWith(SteamClaimedIDPrefix, StringComparison.Ordinal) ? claimed.Substring(SteamClaimedIDPrefix.Length) : null;
+					bool valid = steamID != null && steamID.Length is > 0 and <= 20 && steamID.All(Char.IsAsciiDigit);
+					return new UpstreamProfile(valid ? steamID : null, name);
+				}
+				case ProviderKind.GameReplays:
+				{
+					// resource.php answers the member itself or wraps it in "user"; the name is members_display_name only,
+					// GameReplays: "You can ignore username."
+					string? id = Claim("id");
+					string? memberName = Claim("members_display_name");
+					if (id == null && Claim("user") is string wrapped)
+					{
+						try
+						{
+							using var document = System.Text.Json.JsonDocument.Parse(wrapped);
+							System.Text.Json.JsonElement user = document.RootElement;
+							id = user.TryGetProperty("id", out var idValue) ? idValue.ToString() : null;
+							memberName ??= user.TryGetProperty("members_display_name", out var display) && display.ValueKind == System.Text.Json.JsonValueKind.String ? display.GetString() : null;
+						}
+						catch (System.Text.Json.JsonException)
+						{
+							id = null;
+						}
+					}
+					return new UpstreamProfile(String.IsNullOrEmpty(id) ? null : id, memberName);
+				}
+				default:
+					return new UpstreamProfile(Claim(OpenIddictConstants.Claims.Subject) ?? Claim(ClaimTypes.NameIdentifier), name);
+			}
 		}
 
-		// Without player ids an unknown identity links by a verified email only where the operator allows it
+		// An unknown identity links by a verified email only where the operator allows it
 		private static async Task<User?> FindByVerifiedEmail(AppDbContext db, UpstreamProviderSettings provider, ClaimsPrincipal external)
 		{
 			string? email = external.GetClaim(OpenIddictConstants.Claims.Email);
@@ -227,33 +206,9 @@ namespace GenOnlineService.Identity
 			return null;
 		}
 
-		public static HashSet<string> GroupsOf(UpstreamProviderSettings provider, ClaimsPrincipal external)
-		{
-			return external.FindAll(provider.GroupsClaim).Select(c => c.Value.TrimStart('/')).ToHashSet(StringComparer.Ordinal);
-		}
-
-		// Rewrites the provider's role and ban rows from its groups; returns what changed
-		public static async Task<Database.Upstream.Changes> ApplyTrustedClaims(AppDbContext db, UpstreamProviderSettings provider, Int64 userID, IReadOnlySet<string> groups)
-		{
-			List<string> roles = provider.RoleGroups
-				.Where(m => groups.Contains(m.Key) && StaffRoles.IsKnown(m.Value))
-				.Select(m => m.Value)
-				.Distinct(StringComparer.Ordinal)
-				.ToList();
-			bool bBanned = provider.BanGroup != null && groups.Contains(provider.BanGroup);
-
-			Database.Upstream.Changes changes = await Database.Upstream.Apply(db, userID, provider.Source, roles, bBanned, $"Member of {provider.BanGroup} in {provider.DisplayName}");
-			if (changes.Any)
-			{
-				s_log.LogInformation("{Provider} changed user {UserId}: roles +[{Added}] -[{Removed}], ban started {BanStarted}, ban ended {BanEnded}",
-					provider.Name, userID, String.Join(",", changes.RolesAdded), String.Join(",", changes.RolesRemoved), changes.BanStarted, changes.BanEnded);
-			}
-
-			return changes;
-		}
-
-		// A first name for a new account: printable, trimmed, at most 32 characters; the tag makes it unique
-		private static string InitialName(string? requested)
+		// The provider's name as a suggestion for the choose-a-name box: printable, trimmed, at most 32 characters; null when
+		// nothing usable is left. The box checks the name rules when the player submits it.
+		private static string? Suggestion(string? requested)
 		{
 			var builder = new StringBuilder();
 			foreach (char c in (requested ?? String.Empty).Normalize(NormalizationForm.FormKC))
@@ -271,7 +226,7 @@ namespace GenOnlineService.Identity
 				name = name.Substring(0, name.Length - 1).TrimEnd();
 			}
 
-			return name.Length == 0 ? "player" : name;
+			return name.Length == 0 ? null : name;
 		}
 
 		private static string? Truncate(string? value, int length) => value == null || value.Length <= length ? value : value.Substring(0, length);

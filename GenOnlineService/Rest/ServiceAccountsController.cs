@@ -16,6 +16,8 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,7 +25,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GenOnlineService.Rest
 {
-	// Service accounts and their tokens for holders of tokens.manage; privileged grants and tokens stay CLI only
+	// Service accounts and their tokens for holders of tokens.manage; privileged grants and tokens stay CLI only. Every
+	// route also takes the staff pages' sign-in cookie
 	[Authorize(Policy = PermissionPolicies.Prefix + Permissions.TokensManage)]
 	public sealed class ServiceAccountsController : ApiTokenAdminControllerBase
 	{
@@ -31,6 +34,9 @@ namespace GenOnlineService.Rest
 		{
 		}
 
+		[AllowSignInCookie]
+		[EndpointSummary("Lists the service accounts of partners.")]
+		[ProducesResponseType<ServiceAccountsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/service_accounts")]
 		public async Task<IActionResult> List()
 		{
@@ -52,10 +58,38 @@ namespace GenOnlineService.Rest
 			ILookup<Int64, string> grants = (await db.ServiceAccountPermissions.AsNoTracking().Where(p => ids.Contains(p.ServiceAccountID)).ToListAsync())
 				.ToLookup(p => p.ServiceAccountID, p => p.Permission);
 
+			Dictionary<Int64, TokenSummary> summaries = await SummariesOf(db, ids);
+
 			Paging.WriteOffsetHeaders(HttpContext, page, total);
-			return RestResults.Ok(new ServiceAccountsResponse { ServiceAccounts = accounts.Select(a => InfoOf(a, grants[a.ID])).ToList() });
+			return RestResults.Ok(new ServiceAccountsResponse { ServiceAccounts = accounts.Select(a => InfoOf(a, grants[a.ID], summaries.GetValueOrDefault(a.ID))).ToList() });
 		}
 
+		[AllowSignInCookie]
+		[EndpointSummary("Reads one service account.")]
+		[ProducesResponseType<ServiceAccountInfo>(StatusCodes.Status200OK)]
+		[HttpGet("~/api/v1/service_accounts/{accountID:long}")]
+		public async Task<IActionResult> Get(long accountID)
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			ServiceAccount? account = await db.ServiceAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.ID == accountID);
+			if (account == null)
+			{
+				return RestResults.NotFound("service_account");
+			}
+
+			List<string> grants = await db.ServiceAccountPermissions.AsNoTracking().Where(p => p.ServiceAccountID == accountID).Select(p => p.Permission).ToListAsync();
+			return RestResults.Ok(InfoOf(account, grants, (await SummariesOf(db, [accountID])).GetValueOrDefault(accountID)));
+		}
+
+		[AllowSignInCookie]
+		[EndpointSummary("Creates a service account.")]
+		[ProducesResponseType<ServiceAccountInfo>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(CreateServiceAccountRequest))]
 		[HttpPost("~/api/v1/service_accounts")]
 		public async Task<IActionResult> Create()
 		{
@@ -76,7 +110,7 @@ namespace GenOnlineService.Rest
 				try
 				{
 					ServiceAccount account = await ApiTokenAdmin.CreateServiceAccount(db, Actor, body?.Name ?? String.Empty, (body?.Description ?? String.Empty).Trim());
-					return RestResults.Created(InfoOf(account, []));
+					return RestResults.Created(InfoOf(account, [], default));
 				}
 				catch (DbUpdateException)
 				{
@@ -86,7 +120,12 @@ namespace GenOnlineService.Rest
 			});
 		}
 
-		// Checks every change first, then writes the grants, removals, the disable or enable and their audit entries in one save
+		// Checks every change first, then writes the description, grants, removals, the disable or enable and their audit entries
+		// in one save
+		[AllowSignInCookie]
+		[EndpointSummary("Changes the description, the state or the permissions of a service account.")]
+		[ProducesResponseType<ServiceAccountInfo>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(UpdateServiceAccountRequest))]
 		[HttpPatch("~/api/v1/service_accounts/{accountID:long}")]
 		public async Task<IActionResult> Update(long accountID)
 		{
@@ -110,6 +149,7 @@ namespace GenOnlineService.Rest
 
 			List<string> add = (body?.Grants?.Add ?? []).Distinct(StringComparer.Ordinal).ToList();
 			List<string> remove = (body?.Grants?.Remove ?? []).Distinct(StringComparer.Ordinal).ToList();
+			string? description = body?.Description?.Trim();
 
 			return await Answer(async () =>
 			{
@@ -119,6 +159,11 @@ namespace GenOnlineService.Rest
 				if (add.Intersect(remove, StringComparer.Ordinal).Any())
 				{
 					return RestResults.Invalid("grants");
+				}
+				// the description check is the last one, so nothing is staged before every change has passed
+				if (description != null)
+				{
+					ApiTokenAdmin.StageDescription(db, Actor, account, description);
 				}
 
 				foreach (string permission in add)
@@ -138,10 +183,13 @@ namespace GenOnlineService.Rest
 				// The change takes effect at once in this instance; other instances follow on the reconcile tick
 				await ApiTokenCache.Reload(db);
 				List<string> grants = await db.ServiceAccountPermissions.AsNoTracking().Where(p => p.ServiceAccountID == account.ID).Select(p => p.Permission).ToListAsync();
-				return RestResults.Ok(InfoOf(account, grants));
+				return RestResults.Ok(InfoOf(account, grants, (await SummariesOf(db, [account.ID])).GetValueOrDefault(account.ID)));
 			});
 		}
 
+		[AllowSignInCookie]
+		[EndpointSummary("Lists the tokens of a service account.")]
+		[ProducesResponseType<PersonalAccessTokensResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens")]
 		public async Task<IActionResult> ListAccountTokens(long accountID)
 		{
@@ -155,6 +203,10 @@ namespace GenOnlineService.Rest
 			return account == null ? RestResults.NotFound("service_account") : await ListTokens(db, ApiTokenOwner.Service(account));
 		}
 
+		[AllowSignInCookie]
+		[EndpointSummary("Creates a token for a service account; the answer is the only time the secret is shown.")]
+		[ProducesResponseType<CreatedPersonalAccessToken>(StatusCodes.Status201Created)]
+		[ApiRequestBody(typeof(CreatePersonalAccessTokenRequest))]
 		[HttpPost("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens")]
 		public async Task<IActionResult> CreateToken(long accountID)
 		{
@@ -168,14 +220,69 @@ namespace GenOnlineService.Rest
 			return account == null ? RestResults.NotFound("service_account") : await MintToken(db, ApiTokenOwner.Service(account));
 		}
 
-		private static ServiceAccountInfo InfoOf(ServiceAccount account, IEnumerable<string> grants) => new ServiceAccountInfo
+		// Same query as the personal token rotate; a token of another owner answers not_found {what: token}
+		[AllowSignInCookie]
+		[EndpointSummary("Replaces a token of a service account with a new secret.")]
+		[ProducesResponseType<CreatedPersonalAccessToken>(StatusCodes.Status201Created)]
+		[HttpPost("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens/{tokenID:long}/rotate")]
+		public async Task<IActionResult> RotateAccountToken(long accountID, long tokenID)
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			ApiToken? old = await FindAccountToken(db, accountID, tokenID);
+			return old == null ? RestResults.NotFound("token") : await RotateToken(db, old);
+		}
+
+		[AllowSignInCookie]
+		[EndpointSummary("Revokes a token of a service account.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[HttpDelete("~/api/v1/service_accounts/{accountID:long}/personal_access_tokens/{tokenID:long}")]
+		public async Task<IActionResult> RevokeAccountToken(long accountID, long tokenID)
+		{
+			if (RequireWebSession() is IActionResult denied)
+			{
+				return denied;
+			}
+
+			await using AppDbContext db = await DbFactory.CreateDbContextAsync();
+			ApiToken? token = await FindAccountToken(db, accountID, tokenID);
+			return token == null ? RestResults.NotFound("token") : await RevokeToken(db, token);
+		}
+
+		private static Task<ApiToken?> FindAccountToken(AppDbContext db, long accountID, long tokenID)
+		{
+			return db.ApiTokens.AsTracking().FirstOrDefaultAsync(t => t.ID == tokenID && t.OwnerServiceID == accountID);
+		}
+
+		private readonly record struct TokenSummary(int Active, DateTime? LastUsedAt);
+
+		// The active tokens and the latest token use of each account, counted as the active token limit counts them
+		private static async Task<Dictionary<Int64, TokenSummary>> SummariesOf(AppDbContext db, List<Int64> accountIDs)
+		{
+			DateTime now = DateTime.UtcNow;
+			var rows = await db.ApiTokens.AsNoTracking()
+				.Where(t => t.OwnerServiceID != null && accountIDs.Contains(t.OwnerServiceID.Value))
+				.Select(t => new { Owner = t.OwnerServiceID!.Value, t.ExpiresAt, t.RevokedAt, t.LastUsedAt })
+				.ToListAsync();
+			return rows.GroupBy(r => r.Owner).ToDictionary(g => g.Key, g => new TokenSummary(
+				g.Count(r => r.ExpiresAt > now && (r.RevokedAt == null || r.RevokedAt > now)),
+				g.Max(r => r.LastUsedAt)));
+		}
+
+		private static ServiceAccountInfo InfoOf(ServiceAccount account, IEnumerable<string> grants, TokenSummary tokens) => new ServiceAccountInfo
 		{
 			Id = account.ID,
 			Name = account.Name,
 			Description = String.IsNullOrEmpty(account.Description) ? null : account.Description,
 			CreatedAt = account.CreatedAt,
 			DisabledAt = account.DisabledAt,
-			Permissions = grants.OrderBy(p => p, StringComparer.Ordinal).ToList()
+			Permissions = grants.OrderBy(p => p, StringComparer.Ordinal).ToList(),
+			ActiveTokens = tokens.Active,
+			LastTokenUsedAt = tokens.LastUsedAt
 		};
 	}
 }

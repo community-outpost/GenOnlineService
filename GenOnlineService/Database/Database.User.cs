@@ -33,7 +33,6 @@ public static class UserStates
 // Sign-in providers an identity row can come from
 public static class IdentityProviders
 {
-	public const string Keycloak = "keycloak";
 	public const string Steam = "steam";
 	public const string Discord = "discord";
 	public const string Google = "google";
@@ -72,6 +71,8 @@ public class User
 	public string? PasswordHash { get; set; }
 
 	public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
+	// The TOTP key, encrypted with Data Protection; null without an authenticator app
+	public string? AuthenticatorKey { get; set; }
 	public string State { get; set; } = UserStates.Active;
 	public bool TwoFactorEnabled { get; set; }
 	public DateTime? LockoutEndAt { get; set; }
@@ -80,6 +81,9 @@ public class User
 	public DateTime UpdatedAt { get; set; } = DateTime.UnixEpoch;
 	public DateTime? LastSignInAt { get; set; }
 	public DateTime? RenamedAt { get; set; }
+
+	// When the player was asked to choose a name (a provider sign-up, or staff reset an inappropriate one); null once chosen
+	public DateTime? NameRequiredAt { get; set; }
 }
 
 // Every earlier username of a user, written when the name changes
@@ -103,8 +107,8 @@ public class UserIdentity
 	public Int64 ID { get; set; }
 	public Int64 UserID { get; set; }
 	public string Provider { get; set; } = String.Empty;
+	// The provider's id only; no provider username is kept (S17)
 	public string ExternUid { get; set; } = String.Empty;
-	public string? ExternUsername { get; set; }
 	public DateTime CreatedAt { get; set; } = DateTime.UnixEpoch;
 	public DateTime? LastUsedAt { get; set; }
 }
@@ -135,6 +139,9 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		// closes the race between two look-alike names on one tag, which the code checks cannot
 		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
 		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
+		// the staff player list's sorts (T17f): last seen newest first (a backward scan serves the other way), and creation
+		builder.HasIndex(e => new { e.LastSignInAt, e.ID }).IsDescending(true, true).HasDatabaseName("ix_users_last_sign_in_at");
+		builder.HasIndex(e => new { e.CreatedAt, e.ID }).HasDatabaseName("ix_users_created_at");
 
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.Username).HasColumnName("username").HasMaxLength(User.UsernameMaxLength);
@@ -146,6 +153,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.Property(e => e.EmailConfirmedAt).HasColumnName("email_confirmed_at");
 		builder.Property(e => e.PasswordHash).HasColumnName("password_hash").HasMaxLength(255);
 		builder.Property(e => e.SecurityStamp).HasColumnName("security_stamp").HasMaxLength(64);
+		builder.Property(e => e.AuthenticatorKey).HasColumnName("authenticator_key").HasMaxLength(512);
 		builder.Property(e => e.State).HasColumnName("state").HasMaxLength(16);
 		builder.Property(e => e.TwoFactorEnabled).HasColumnName("two_factor_enabled");
 		builder.Property(e => e.LockoutEndAt).HasColumnName("lockout_end_at");
@@ -154,6 +162,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
 		builder.Property(e => e.LastSignInAt).HasColumnName("last_sign_in_at");
 		builder.Property(e => e.RenamedAt).HasColumnName("renamed_at");
+		builder.Property(e => e.NameRequiredAt).HasColumnName("name_required_at");
 	}
 }
 
@@ -175,6 +184,33 @@ public class UserUsernameHistoryConfiguration : IEntityTypeConfiguration<UserUse
 	}
 }
 
+// A two-factor recovery code of a password account: only its SHA-256, and when it was used
+public class UserRecoveryCode
+{
+	public Int64 ID { get; set; }
+	public Int64 UserID { get; set; }
+	public string CodeHash { get; set; } = String.Empty;
+	public DateTime CreatedAt { get; set; }
+	public DateTime? UsedAt { get; set; }
+}
+
+public class UserRecoveryCodeConfiguration : IEntityTypeConfiguration<UserRecoveryCode>
+{
+	public void Configure(EntityTypeBuilder<UserRecoveryCode> builder)
+	{
+		builder.ToTable("user_recovery_codes");
+
+		builder.HasKey(e => e.ID);
+		builder.HasIndex(e => e.UserID).HasDatabaseName("ix_user_recovery_codes_user_id");
+
+		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.CodeHash).HasColumnName("code_hash").HasMaxLength(64);
+		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
+		builder.Property(e => e.UsedAt).HasColumnName("used_at");
+	}
+}
+
 public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 {
 	public void Configure(EntityTypeBuilder<UserIdentity> builder)
@@ -190,7 +226,6 @@ public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(32);
 		builder.Property(e => e.ExternUid).HasColumnName("extern_uid").HasMaxLength(128);
-		builder.Property(e => e.ExternUsername).HasColumnName("extern_username").HasMaxLength(128);
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 		builder.Property(e => e.LastUsedAt).HasColumnName("last_used_at");
 	}
@@ -198,6 +233,8 @@ public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 
 namespace Database
 {
+	public readonly record struct StaffPlayerRow(long ID, string Name, int NameTag, string State, DateTime CreatedAt, DateTime? LastSignInAt);
+
 	public static class Users
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Users));

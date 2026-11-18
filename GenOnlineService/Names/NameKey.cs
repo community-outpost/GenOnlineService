@@ -22,12 +22,12 @@ using System.Text;
 
 namespace GenOnlineService.Names
 {
-	// The uniqueness key of a display name, the same as the Keycloak plugin's registry key (NameRules.normalize):
+	// The uniqueness key of a display name, first defined by the retired GenOnline Keycloak plugin (NameRules.normalize):
 	// lower case, NFKC, the UTS #39 confusables skeleton, lower case again. Bob, BOB and B0b share one key.
 	// Lower case follows Java's Locale.ROOT rules, NameKeyVectors.txt in the tests pins the result against the plugin's code.
 	public static class NameKey
 	{
-		// The plugin's table, generated from ICU4J 78.1 (genonline-keycloak confusables.txt)
+		// The UTS #39 table, generated from ICU4J 78.1 for the plugin (genonline-keycloak confusables.txt)
 		public const string TableResource = "GenOnlineService.Resources.confusables.txt";
 
 		private static readonly Lazy<IReadOnlyDictionary<int, string>> s_table = new(LoadTable);

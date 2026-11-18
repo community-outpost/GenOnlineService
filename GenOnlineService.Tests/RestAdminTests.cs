@@ -71,7 +71,7 @@ namespace GenOnlineService.Tests
 		}
 
 		[Theory]
-		[InlineData("owner")]
+		[InlineData("overlord")]
 		[InlineData("")]
 		[InlineData(null)]
 		public void UnknownRoleNamesTheRolesField(string? role)
@@ -109,7 +109,7 @@ namespace GenOnlineService.Tests
 		}
 
 		[Theory]
-		[InlineData("{\"keycloak_group_sync_cursor\":\"x\"}", "keycloak_group_sync_cursor")]
+		[InlineData("{\"sync_cursor\":\"x\"}", "sync_cursor")]
 		[InlineData("{\"motd\":\"hi\",\"token_lifetime\":3}", "token_lifetime")]
 		[InlineData("{\"motd\":5}", "motd")]
 		[InlineData("{\"motd\":{\"text\":\"hi\"}}", "motd")]

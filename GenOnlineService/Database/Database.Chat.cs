@@ -430,8 +430,9 @@ namespace Database
 			return ToPage(rows, limit);
 		}
 
-		// Conversations of a user, newest first, with the last message and the unread count past the read marker
-		public static async Task<List<DirectConversation>> GetDirectConversations(AppDbContext db, long userId, int maxConversations = 50, IReadOnlyCollection<long>? excludeUserIds = null, CancellationToken cancellationToken = default)
+		// Conversations of a user, newest first, with the last message and the unread count past the read marker;
+		// includeUser picks the other users whose conversation is listed, before the limit applies
+		public static async Task<List<DirectConversation>> GetDirectConversations(AppDbContext db, long userId, int maxConversations = 50, Func<long, bool>? includeUser = null, CancellationToken cancellationToken = default)
 		{
 			var outgoing = await db.ChatMessages.AsNoTracking()
 				.Where(m => m.SenderID == userId && m.RecipientID != null)
@@ -453,7 +454,7 @@ namespace Database
 			}
 
 			List<KeyValuePair<long, long>> selected = lastAny
-				.Where(kv => excludeUserIds == null || !excludeUserIds.Contains(kv.Key))
+				.Where(kv => includeUser == null || includeUser(kv.Key))
 				.OrderByDescending(kv => kv.Value)
 				.Take(maxConversations)
 				.ToList();
@@ -727,6 +728,43 @@ namespace Database
 				query = query.Where(r => r.Status == status);
 			}
 			return await query.OrderBy(r => r.CreatedAt).ThenBy(r => r.ID).Take(limit).ToListAsync(cancellationToken);
+		}
+
+		// One page of the staff queue without the evidence: statuses null lists every report, search matches the reason or the name of either player
+		public static async Task<(int Total, List<PlayerReport> Page)> GetReportsPage(AppDbContext db, IReadOnlyCollection<string>? statuses, string? search, bool newestFirst, int skip, int take, CancellationToken cancellationToken = default)
+		{
+			IQueryable<PlayerReport> query = db.PlayerReports.AsNoTracking();
+			if (statuses != null)
+			{
+				query = query.Where(r => statuses.Contains(r.Status));
+			}
+			if (!String.IsNullOrWhiteSpace(search))
+			{
+				string term = search.Trim().ToLowerInvariant();
+				string name = NameNormalizer.Normalize(search.Trim());
+				query = query.Where(r => (r.Reason != null && r.Reason.ToLower().Contains(term))
+					|| db.Users.Any(u => (u.ID == r.ReporterID || u.ID == r.ReportedUserID) && u.UsernameNormalized.Contains(name)));
+			}
+
+			int total = await query.CountAsync(cancellationToken);
+			query = newestFirst
+				? query.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.ID)
+				: query.OrderBy(r => r.CreatedAt).ThenBy(r => r.ID);
+			List<PlayerReport> page = await query.Skip(skip).Take(take)
+				.Select(r => new PlayerReport
+				{
+					ID = r.ID,
+					ReporterID = r.ReporterID,
+					ReportedUserID = r.ReportedUserID,
+					MessageID = r.MessageID,
+					Reason = r.Reason,
+					Status = r.Status,
+					CreatedAt = r.CreatedAt,
+					ResolvedAt = r.ResolvedAt,
+					ResolutionNote = r.ResolutionNote
+				})
+				.ToListAsync(cancellationToken);
+			return (total, page);
 		}
 
 		public static async Task<PlayerReport?> GetReport(AppDbContext db, long reportId, CancellationToken cancellationToken = default)

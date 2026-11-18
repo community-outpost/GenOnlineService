@@ -1,6 +1,6 @@
 # Identity: every environment is its own identity provider (OpenIddict)
 
-Status: **draft, topology decided by the user** (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
+Status: **being replaced.** Keycloak is gone (the identity hub, decided 2026-11-15): prod's service is the identity provider, and the sections below on Keycloak, player ids, trusted claims, group sync and the plugin's change log no longer describe the service. A full rewrite follows. Earlier status: draft, topology decided by the user (separate environments tied together by Keycloak). Proposed to replace `docs/identity-keycloak.md` (branch `arctic/feat/keycloak-idp`). Nothing is built. Target location once agreed: `docs/identity.md`.
 
 Each GenOnline environment owns its accounts and issues every token itself, like a GitLab instance. Upstream sign-in providers (Keycloak, Discord, Steam, Google, any OIDC) are linked to a local account, like GitLab's OmniAuth providers. The official deployment ties its environments together through one Keycloak; a self-hoster runs the same thing with or without one.
 
@@ -99,7 +99,7 @@ game client           system browser                 accounts (this environment)
    |<---- session registered: display name, ws url, bans checked, device recorded ---------|
 ```
 
-- The game API accepts this environment's access tokens directly; `POST /api/v1/auth/session` registers the game session (device ids, CRCs, ban check, session event), it does not mint tokens.
+- The game API accepts this environment's access tokens directly; `POST /api/v1/auth/session` registers the game session (device ids, CRCs, ban check, session event), it does not mint tokens. The registration is stored (`game_sessions`), so every service copy and a restarted copy accept that client's realtime connection.
 - Refresh tokens rotate on every use with reuse detection (OpenIddict rolling reference tokens). This replaces the service-side rotation from `cf5f0549`.
 - Logout: `POST /oauth/revoke` plus `DELETE /api/v1/auth/session` (drops realtime).
 - The client reads the environment's issuer from its configured base URL, so one client build works against any environment or self-hosted server.
@@ -114,7 +114,9 @@ game client           system browser                 accounts (this environment)
 
 Steam is OpenID 2.0; its handler is built into accounts.
 
-GameReplays offers OAuth sign-in (Invision Community OAuth 2.0 server). It is a regular upstream provider: a generic OAuth 2.0 handler in accounts (authorization code, then the user from the Invision user-info API `/api/core/me`, `extern_uid` = GameReplays member id). Imported `gamereplays_id` links work on first sign-in. For the official deployment it is brokered in Keycloak like the others; if GameReplays issues no ID tokens, Keycloak's OIDC broker cannot use it directly and needs either a small identity provider extension or GameReplays configured as a provider in each environment's accounts next to Keycloak (to be verified against GameReplays' endpoints).
+GameReplays offers OAuth 2.0 sign-in (no ID tokens): provider kind `gamereplays`, `base_url` `https://www.gamereplays.org/community/modules/oauth` (the folder of `authorize.php`, `token.php` and `resource.php`), scope `user_profile`, the client secret sent in the token request form. `resource.php` answers the member (or wraps it in `user`): `extern_uid` = member `id`, the name = `members_display_name`; `username` is ignored. Imported `gamereplays_id` links work on first sign-in.
+
+Any provider except Steam may set `redirect_uri` when the return URL registered at the provider is another host's: the service sends that exact URL in the authorization and token requests, and that host must redirect the browser, query string intact, to `<service>/users/auth/<name>/callback`. That callback then counts as the registered URL for that provider only.
 
 ### 4.3 Website
 
@@ -132,7 +134,7 @@ Built so far: third-party clients (`first_party = false`) get a consent page on 
 
 ### 4.6 EOS
 
-The EOS ID token (RS256, `sub` = user id, audience `genonline-eos`) is issued by each environment's accounts; each environment points at its own EOS deployment and JWKS.
+The EOS ID token (RS256, `sub` = user id, audience `genonline-eos`) is issued by each environment's accounts as the `eos` sign-in token of `POST /api/v1/me/linked_accounts/eos/sign_in_token`; each environment points at its own EOS deployment and JWKS.
 
 ### 4.7 Client registry
 
@@ -176,6 +178,17 @@ Roles granted in Keycloak follow a person into every environment without sharing
 - **Group sync (official deployment, recommended):** the Keycloak provider entry gets a `group_sync` setting. When on, the reconcile tick polls Keycloak admin events (group membership added or removed for the mapped groups) with a Keycloak service account client that has only `view-events` and `view-users`. A change rewrites that user's `upstream:keycloak` rows at once; a removal from a staff group or an addition to `genonline-banned` also revokes the user's game sessions in that environment. A removal from `genonline-streamer` keeps the sessions and only sends the new feature list (`FeaturesUpdate`). If Keycloak is unreachable the environment keeps its last state, logs and alerts, and catches up from the last event time; it never grants anything from stale data. Admin events must be enabled in the realm.
 - Only providers marked trusted may assert roles or bans; a self-hoster's Discord sign-in never grants staff.
 
+**Rank rule for role changes.** Staff ranks:
+
+| Role | Rank | Permissions |
+| --- | --- | --- |
+| `owner` | 3 | the same as `admin` |
+| `admin` | 2 | every staff permission |
+| `moderator` | 1 | kick, mute, rename, chat moderation |
+| `streamer`, any other role | 0 | none (client features only) |
+
+A staff member with `roles.manage` (the staff pages, `PUT`/`DELETE /api/v1/players/:id/roles[/:role]`) may grant or revoke a role only when they outrank the player (as for every moderation action: never themself or a peer) and the role ranks strictly below their own highest role (otherwise `roles.rank`). A service account token acts with admin rank. So an owner manages `admin`, `moderator` and `streamer`; an admin manages `moderator` and `streamer` of players and moderators; nobody changes another owner; and `owner` is granted or revoked with the `roles` CLI only, which has no rank. The same ranks decide every other staff action (renames, kicks, mutes, bans, message deletion), so an owner outranks an admin there too. `owner` is local only: a sign-in provider's role mapping that names it is ignored (`Database.Upstream`). Only `local` rows change; a role from a sign-in provider follows its sign-ins. Each change writes a `role_grant` or `role_revoke` audit row and reloads `StaffRoles`.
+
 Effective permissions in `application` = all `user_roles` rows (local and upstream) → `StaffRoles` → `PermissionHandler`. Client features = the same roles → `Features:roles` → `Ready.features`, and `FeaturesUpdate` when the role reload changes the list.
 
 ## 5a. Display names
@@ -186,6 +199,7 @@ Model: Xbox modern gamertag. The display name is not unique; every account also 
 - **Copy at sign-in:** on every sign-in through a `trusted` provider the environment copies the `name` and `name_tag` claims (`UpstreamAccounts`). An untrusted provider never sets a name. A local user that still holds the copied `name#tag` has a stale copy (it renamed in Keycloak and has not been back); it moves to a free local tag until its own next sign-in. Every change writes a `user_username_history` row with the previous name and tag, so old matches show who someone was.
 - **Live renames (group sync):** with `group_sync` on, the reconcile tick also reads Keycloak user events of type `UPDATE_PROFILE` (a player's own rename) and admin events `UPDATE` on users (a staff rename in the admin console), each from its own cursor (`group_sync.<provider>.names_cursor`), then reads the user's `display_name` and `name_tag` and copies them. Players online get `MemberUpdate` and the `name.changed` notice at once. The realm must save `UPDATE_PROFILE` user events and admin events; the sync client needs `view-events` and `view-users`.
 - **Renaming:** players call `PATCH /api/v1/me {name}`; staff with `moderation.rename` call `PATCH /api/v1/players/:id {name, reason?}` (rank rule, `audit_log` with the full reason and the old and new `name#tag`), and the Discord `/rename` goes through the same code. Where Keycloak owns names (an enabled `trusted` provider with `player_ids`, `AccountsSettings.NameOwner`), prod has the provider's `rename` client (realm role `genonline-rename`) and calls the plugin's `POST /realms/<realm>/genonline/players/{player_id}/name` with `actor` `player:<player_id>` or `discord:<id>`; a 200 applies the returned name and tag at once (`MemberUpdate`) and leaves `last_seq` to the change-log consumer. With the change log on, that apply holds the same `last_seq` row lock as the consumer, so the push of the same seq finds the name current and writes no second history row. Plugin rule failures map to the `name.*` codes, its `name.taken` to `name.taken`; a timeout, refused connection, 5xx, 401, 403, 404 or `request.invalid` answers 503 `name.unavailable` with nothing applied. Test and dev, without that client, answer `name.managed`.
+- **Chosen names (S17):** no real names are kept. A provider sign-up starts with a placeholder (`Player` and six digits) and owes a name (`users.name_required_at`); `/users/sign_up/welcome` asks for it before `/oauth/authorize` issues anything, the provider's own name only prefilling the box from a short-lived encrypted cookie. Staff reset an inappropriate name with `POST /api/v1/players/:id/reset_name` or `users name-reset`: a placeholder, the name owed again, every sign-in revoked, audited as `name_reset`.
 - **Self-hosters without Keycloak:** the environment owns name and tag with the same rules. Look-alikes are one name: the key is the plugin's (lower case, NFKC, UTS #39 confusable skeleton from the plugin's ICU table, lower case), stored in `users.name_key` and unique with the tag. Sign-up takes the provider's name and a tag no look-alike holds; a rename keeps the tag and answers `name.taken` when another player holds a name with the same key and tag, also when two look-alike renames race (the unique index refuses the second). Both endpoints work the same way as in prod. Reserved words follow the plugin's rule: its default list (`NameRules.DEFAULT_RESERVED_WORDS`, kept identical in `ProfileActions.ReservedNameWords`), matched case-insensitively anywhere in the name, with `name.reserved {word}` naming the word as the list spells it. A realm that replaces the list through the `reserved-words` option of its `genonline-display-name` validator changes only Keycloak's rule; the service list is fixed in code.
 - **Key migration:** SQL cannot compute the key, so the `NameKeys` migration gives each existing row a unique placeholder and `GenOnlineService migrate` computes every key right after, on every run (so a new confusables table rekeys too). When existing names collide under the key and tag, it still keys every other user, leaves the colliding users their names, tags and placeholders, prints each group (tag, key, user ids and names) and exits with code 2; rename all but one user of each group (`PATCH /api/v1/players/:id`) and run `migrate` again. Until then only the exact-name checks cover the colliding users.
 - **Key parity with the plugin:** `NameKey` lower-cases like Java's `toLowerCase(Locale.ROOT)`, not .NET's invariant culture: capital I with dot above (U+0130) becomes `i` and a combining dot, and capital sigma becomes final sigma (U+03C2) at the end of a word, with words found by the JDK word break rules as the plugin's JDK applies them (`GenOnlineService.Tests/NameKeyVectors.txt` pins vectors generated from the plugin's own `NameRules.normalize`; across every assigned code point and six million random mixed strings the two agree, except as follows). What still differs: .NET takes case mappings and NFKC/NFD from the host's ICU (Windows or the Linux `libicu`) and the plugin from its JDK, so a character one Unicode version knows and the other does not keys differently. On JDK 25 against Windows ICU these are 47 code points new in Unicode 16.0 (for example U+A7CB, the Garay letters U+10D50 to U+10D65, Todhri, Tulu-Tigalari, Gurung Khema, Kirat Rai). The Keycloak 26 image runs JDK 21 (Unicode 15.0), so there any character newer than Unicode 15.0 that the host ICU knows can differ the same way.
@@ -292,6 +306,7 @@ To rotate the data protection certificate, list the new certificate first and ke
 - Local passwords (operator toggle): policy, breached-password check, lockout, rate limits on sign-in, sign-up, reset and 2FA.
 - HTTP rate limiting belongs to the proxy, not the service: flood protection, per-path limits (`/oauth/token`, `/oauth/authorize`, the sign-in pages, the API) and per-IP blocking belong to the reverse proxy in front of it (Envoy with CrowdSec in the official deployment); a self-hoster without such a proxy should put one in front. Set `TrustedProxies` to the proxy addresses only, so forwarded headers are trusted from the proxy alone and logs and `allowed_ips` see the real client address. Per-account limits (failed sign-ins lead to lockout) come with local passwords and TOTP in phase 3; ASP.NET Identity lockout (failed attempts lock the account) must be enabled for local password sign-in then, since a self-hoster may run without a proxy.
 - Email verification and reset need SMTP; without SMTP an operator runs upstream-only sign-in.
+- Staff account support (no mail, so no reset link): an operator runs `users password-reset` or `users two-factor-reset` on the host, and an admin (`accounts.support`, never a moderator) does the same from the player page's Account menu through `POST /api/v1/players/:id/password_reset` and `POST /api/v1/players/:id/two_factor_reset`. Both paths call `UserResets`: a new random password of 20 characters (shown once, in the answer or on the console, never in the log or `audit_log`; there is no forced change at the next sign-in), or two-factor sign-in off with the key and the recovery codes deleted. Each ends the lockout and changes the security stamp, so website sign-ins end within a minute; refresh tokens and game sign-ins are not revoked. The routes take the staff pages' sign-in cookie only (antiforgery, `Origin` and the staff two-factor rule), a reason is required, the staff rank rule applies (no self, peer, senior or owner), and `audit_log` keeps `password_reset` or `two_factor_reset` with the staff member, the target and the reason.
 - TOTP 2FA with recovery codes, mandatory for staff when local passwords are on; with Keycloak, MFA is enforced in Keycloak.
 - Sign-up modes: open, invite only, upstream only.
 - Account page: sessions, authorized apps, linked identities; email notifications for security changes.
@@ -301,7 +316,8 @@ To rotate the data protection certificate, list the new certificate first and ke
 
 ```
 /users/sign_in, /users/sign_up, /users/sign_out, /users/password, /users/confirmation   (HTML)
-/users/two_factor, /profile/account, /profile/applications, /profile/identities          (HTML)
+/users/sign_up/welcome (choose a name), /profile (the player page), /profile/two_factor_auth   (HTML)
+/users/two_factor, /profile/applications, /profile/identities                            (HTML)
 /users/auth/:provider, /users/auth/:provider/callback                                     (upstream sign-in)
 /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect, /oauth/userinfo         (OpenIddict)
 /.well-known/openid-configuration, /oauth/discovery/keys

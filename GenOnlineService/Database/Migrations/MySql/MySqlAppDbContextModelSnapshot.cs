@@ -51,11 +51,22 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("bigint")
                         .HasColumnName("module_size");
 
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_module_reports_reviewed_at");
 
                     b.HasIndex("UserId", "MatchId", "ModuleName")
                         .IsUnique()
@@ -77,11 +88,22 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_new_account_games_reviewed_at");
 
                     b.ToTable("anticheat_new_account_games", (string)null);
                 });
@@ -105,13 +127,85 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("varchar(256)")
                         .HasColumnName("reason");
 
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<long>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
 
                     b.HasKey("ReportId");
 
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_probe_reports_reviewed_at");
+
                     b.ToTable("anticheat_probe_reports", (string)null);
+                });
+
+            modelBuilder.Entity("AnticheatQuickMatchReport", b =>
+                {
+                    b.Property<long>("ReportId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("report_id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ReportId"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("LobbyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("lobby_id");
+
+                    b.Property<long>("MatchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("method");
+
+                    b.Property<int>("PlaylistId")
+                        .HasColumnType("int")
+                        .HasColumnName("playlist_id");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<string>("Sides")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("sides");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ReportId");
+
+                    b.HasIndex("ReviewedAt")
+                        .HasDatabaseName("ix_anticheat_quickmatch_reports_reviewed_at");
+
+                    b.HasIndex("UserId", "LobbyId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_anticheat_quickmatch_reports_user_lobby");
+
+                    b.ToTable("anticheat_quickmatch_reports", (string)null);
                 });
 
             modelBuilder.Entity("ApiToken", b =>
@@ -596,8 +690,8 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.Property<string>("Transport")
                         .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("varchar(8)")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
                         .HasColumnName("transport");
 
                     b.Property<DateTime>("UpdatedAt")
@@ -796,6 +890,57 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("friendships", (string)null);
                 });
 
+            modelBuilder.Entity("GameSessionRow", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("SessionType")
+                        .HasColumnType("int")
+                        .HasColumnName("session_type");
+
+                    b.Property<int>("AnticheatID")
+                        .HasColumnType("int")
+                        .HasColumnName("anticheat_id");
+
+                    b.Property<string>("AuthorizationID")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("authorization_id");
+
+                    b.Property<string>("ClientID")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("client_id");
+
+                    b.Property<long?>("ExeCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exe_crc");
+
+                    b.Property<string>("Game")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("game");
+
+                    b.Property<long?>("IniCrc")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ini_crc");
+
+                    b.Property<DateTime>("RegisteredAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("registered_at");
+
+                    b.HasKey("UserID", "SessionType");
+
+                    b.HasIndex("AuthorizationID")
+                        .HasDatabaseName("ix_game_sessions_authorization_id");
+
+                    b.ToTable("game_sessions", (string)null);
+                });
+
             modelBuilder.Entity("GenOnlineService.Identity.DataProtectionKeyRow", b =>
                 {
                     b.Property<long>("ID")
@@ -961,10 +1106,264 @@ namespace GenOnlineService.Migrations.MySql
 
                     b.HasKey("Id");
 
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_matches_started_at");
+
                     b.HasIndex("FinishedAt", "Id")
                         .HasDatabaseName("ix_matches_finished_at");
 
                     b.ToTable("matches", (string)null);
+                });
+
+            modelBuilder.Entity("MatchIdWorker", b =>
+                {
+                    b.Property<int>("WorkerID")
+                        .HasColumnType("int")
+                        .HasColumnName("worker_id");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<string>("Holder")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("holder");
+
+                    b.Property<long>("ReservedUntil")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reserved_until");
+
+                    b.HasKey("WorkerID");
+
+                    b.ToTable("match_id_workers", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            WorkerID = 0,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 1,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 2,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 3,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 4,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 5,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 6,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 7,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 8,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 9,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 10,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 11,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 12,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 13,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 14,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 15,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 16,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 17,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 18,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 19,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 20,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 21,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 22,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 23,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 24,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 25,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 26,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 27,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 28,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 29,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 30,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        },
+                        new
+                        {
+                            WorkerID = 31,
+                            Generation = 0L,
+                            Holder = "",
+                            ReservedUntil = 0L
+                        });
                 });
 
             modelBuilder.Entity("MatchPlayer", b =>
@@ -1766,6 +2165,9 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasIndex("CreatedAt")
                         .HasDatabaseName("ix_session_events_created_at");
 
+                    b.HasIndex("Ip", "UserID")
+                        .HasDatabaseName("ix_session_events_ip_user");
+
                     b.HasIndex("UserID", "CreatedAt")
                         .HasDatabaseName("ix_session_events_user_created");
 
@@ -1780,6 +2182,11 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("id");
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("AuthenticatorKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)")
+                        .HasColumnName("authenticator_key");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)")
@@ -1818,6 +2225,10 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnType("varchar(255)")
                         .HasColumnName("name_key")
                         .UseCollation("utf8mb4_bin");
+
+                    b.Property<DateTime?>("NameRequiredAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("name_required_at");
 
                     b.Property<int>("NameTag")
                         .HasColumnType("int")
@@ -1871,6 +2282,13 @@ namespace GenOnlineService.Migrations.MySql
                         .IsUnique()
                         .HasDatabaseName("ux_users_email_normalized");
 
+                    b.HasIndex("CreatedAt", "ID")
+                        .HasDatabaseName("ix_users_created_at");
+
+                    b.HasIndex("LastSignInAt", "ID")
+                        .IsDescending()
+                        .HasDatabaseName("ix_users_last_sign_in_at");
+
                     b.HasIndex("NameKey", "NameTag")
                         .IsUnique()
                         .HasDatabaseName("ux_users_name_key_name_tag");
@@ -1921,11 +2339,6 @@ namespace GenOnlineService.Migrations.MySql
                         .HasColumnName("extern_uid")
                         .UseCollation("utf8mb4_bin");
 
-                    b.Property<string>("ExternUsername")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)")
-                        .HasColumnName("extern_username");
-
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("last_used_at");
@@ -1952,6 +2365,41 @@ namespace GenOnlineService.Migrations.MySql
                         .HasDatabaseName("ux_identities_user_id_provider");
 
                     b.ToTable("identities", (string)null);
+                });
+
+            modelBuilder.Entity("UserRecoveryCode", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("ID"));
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("code_hash");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("used_at");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_user_recovery_codes_user_id");
+
+                    b.ToTable("user_recovery_codes", (string)null);
                 });
 
             modelBuilder.Entity("UserRole", b =>
@@ -2048,6 +2496,15 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasOne("Client", null)
                         .WithMany()
                         .HasForeignKey("ClientDbID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameSessionRow", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorizationID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

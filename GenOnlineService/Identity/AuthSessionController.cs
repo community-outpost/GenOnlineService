@@ -57,6 +57,8 @@ namespace GenOnlineService.Identity
 		// Every REST failure is {"error": "<code>", "params": {...}}
 		private static object Problem(string error, object? parameters = null) => new { error, @params = parameters ?? new { } };
 
+		[EndpointSummary("Registers the game session of the access token.")]
+		[ProducesResponseType<GenOnlineService.OpenApi.AuthSessionResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/auth/session")]
 		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<IActionResult> Register([FromBody] AuthSessionRequest? body)
@@ -115,7 +117,7 @@ namespace GenOnlineService.Identity
 			// a new session replaces the previous one of this type: its lobby, matchmaking and socket state go
 			await SessionHelpers.SetUsedLoggedIn(userID, client.ClientID, sessionType);
 			await WebSocketManager.ClearDataFromUser(userID, sessionType);
-			GameSessions.Register(userID, sessionType, new GameSessionRegistration(authorizationID, client.ClientID, client.Game, DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
+			await GameSessions.RegisterAsync(db, userID, sessionType, new GameSessionRegistration(authorizationID, client.ClientID, client.Game, DateTime.UtcNow, body.ExeCrc, body.IniCrc, body.AnticheatID ?? -1));
 			AppMetrics.RecordAuthentication("session", client.ClientID, "success");
 
 			return Ok(new
@@ -129,6 +131,8 @@ namespace GenOnlineService.Identity
 		}
 
 		// Logout: drops the game session and its realtime connection, and revokes this sign-in's refresh chain
+		[EndpointSummary("Ends the game session of this sign-in and revokes its refresh tokens.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/auth/session")]
 		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task<IActionResult> Unregister()
@@ -140,14 +144,14 @@ namespace GenOnlineService.Identity
 			// only this sign-in ends, another install of the same session type keeps its session
 			if (String.IsNullOrEmpty(authorizationID))
 			{
-				GameSessions.Remove(userID, sessionType);
+				await GameSessions.RemoveAsync(userID, sessionType);
 				await SessionRevocation.CloseRealtime(userID, sessionType);
 				await WebSocketManager.ClearDataFromUser(userID, sessionType);
 				return NoContent();
 			}
 
 			// the registration goes first and the revocation before the close, so a connection still opening is refused when it checks again
-			GameSessions.RemoveSignIn(authorizationID);
+			await GameSessions.RemoveSignInAsync(authorizationID);
 			try
 			{
 				object? authorization = await m_authorizations.FindByIdAsync(authorizationID);
@@ -167,6 +171,8 @@ namespace GenOnlineService.Identity
 		}
 
 		// Sign out everywhere for one user (website account security page); privileged, so only through a CLI-minted token
+		[EndpointSummary("Signs a user out everywhere.")]
+		[ProducesResponseType<GenOnlineService.OpenApi.RevokeSessionsResponse>(StatusCodes.Status200OK)]
 		[HttpPost("~/api/v1/users/{id:long}/revoke_sessions")]
 		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.UsersRevoke)]
 		public async Task<IActionResult> RevokeSessions(Int64 id)

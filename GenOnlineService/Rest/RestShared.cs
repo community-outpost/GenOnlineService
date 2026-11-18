@@ -31,13 +31,19 @@ namespace GenOnlineService.Rest
 		public const string Unauthorized = "unauthorized";
 		public const string ServiceUnavailable = "service.unavailable";
 		public const string SessionGameRequired = "session.game_required";
-		public const string EosInvalidToken = "eos.invalid_token";
-		public const string EosAccountMismatch = "eos.account_mismatch";
-		public const string EosAccountInUse = "eos.account_in_use";
-		public const string EosAccountLocked = "eos.account_locked";
+		public const string LinkedAccountInvalidProof = "linked_account.invalid_proof";
+		public const string LinkedAccountMismatch = "linked_account.mismatch";
+		public const string LinkedAccountInUse = "linked_account.in_use";
+		public const string LinkedAccountLocked = "linked_account.locked";
 		public const string TokenLimitReached = "token.limit_reached";
 		public const string Conflict = "conflict";
 		public const string MethodNotAllowed = "method_not_allowed";
+
+		// A role change the rank rule refuses: the role ranks the same as or above the caller's own
+		public const string RoleRank = "roles.rank";
+
+		// A role held only through a sign-in provider, which follows that provider's sign-ins
+		public const string RoleUpstream = "roles.upstream";
 	}
 
 	// The tag a player response carries, written like Member.tag ("0042"); null for an account without one
@@ -54,11 +60,13 @@ namespace GenOnlineService.Rest
 			[RestCodes.Unauthorized] = StatusCodes.Status401Unauthorized,
 			[RestCodes.ServiceUnavailable] = StatusCodes.Status503ServiceUnavailable,
 			[RestCodes.SessionGameRequired] = StatusCodes.Status403Forbidden,
-			[RestCodes.EosAccountMismatch] = StatusCodes.Status403Forbidden,
-			[RestCodes.EosAccountInUse] = StatusCodes.Status409Conflict,
-			[RestCodes.EosAccountLocked] = StatusCodes.Status409Conflict,
+			[RestCodes.LinkedAccountMismatch] = StatusCodes.Status403Forbidden,
+			[RestCodes.LinkedAccountInUse] = StatusCodes.Status409Conflict,
+			[RestCodes.LinkedAccountLocked] = StatusCodes.Status409Conflict,
 			[RestCodes.Conflict] = StatusCodes.Status409Conflict,
 			[RestCodes.MethodNotAllowed] = StatusCodes.Status405MethodNotAllowed,
+			[RestCodes.RoleRank] = StatusCodes.Status403Forbidden,
+			[RestCodes.RoleUpstream] = StatusCodes.Status409Conflict,
 			[GenOnlineService.Flags.FlagCodes.Stale] = StatusCodes.Status409Conflict,
 			[GenOnlineService.Flags.FlagCodes.Exists] = StatusCodes.Status409Conflict,
 		};
@@ -123,6 +131,19 @@ namespace GenOnlineService.Rest
 			headers["X-Page"] = page.Page.ToString(CultureInfo.InvariantCulture);
 			headers["X-Per-Page"] = page.PerPage.ToString(CultureInfo.InvariantCulture);
 			bool hasNext = (long)page.Page * page.PerPage < total;
+			headers["X-Next-Page"] = hasNext ? (page.Page + 1).ToString(CultureInfo.InvariantCulture) : "";
+			if (hasNext)
+			{
+				headers["Link"] = $"<{LinkTo(context.Request, "page", (page.Page + 1).ToString(CultureInfo.InvariantCulture))}>; rel=\"next\"";
+			}
+		}
+
+		// A list too long to count (as GitLab past 10,000 rows): the same headers without X-Total, the next page from a look ahead
+		public static void WriteOffsetHeaders(HttpContext context, OffsetPage page, bool hasNext)
+		{
+			IHeaderDictionary headers = context.Response.Headers;
+			headers["X-Page"] = page.Page.ToString(CultureInfo.InvariantCulture);
+			headers["X-Per-Page"] = page.PerPage.ToString(CultureInfo.InvariantCulture);
 			headers["X-Next-Page"] = hasNext ? (page.Page + 1).ToString(CultureInfo.InvariantCulture) : "";
 			if (hasNext)
 			{

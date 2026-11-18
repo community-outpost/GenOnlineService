@@ -46,6 +46,15 @@ namespace GenOnlineService
 		public const string ChannelsManage = "channels.manage";
 		public const string BroadcastsManage = "broadcasts.manage";
 
+		// Reads the anti-cheat review lists and marks their rows reviewed
+		public const string AnticheatReview = "anticheat.review";
+
+		// Reads the sign-ins, devices, addresses and possible duplicate accounts of a player
+		public const string PlayersInspect = "players.inspect";
+
+		// Resets the password or the two-factor sign-in of a player who lost them, from the staff pages only
+		public const string AccountsSupport = "accounts.support";
+
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
 		public const string OpsDatabase = "ops.database";
@@ -54,7 +63,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, FlagsManage, PlaylistsManage, LaddersManage, ChannelsManage, BroadcastsManage
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect, AccountsSupport, FlagsManage, PlaylistsManage, LaddersManage, ChannelsManage, BroadcastsManage
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -85,6 +94,10 @@ namespace GenOnlineService
 		public const string Moderator = "moderator";
 		public const string Admin = "admin";
 
+		// The top rank: admin's permissions, and the only rank above admin, so an owner manages admins. Granted with the
+		// roles CLI only (nobody outranks it), and never by a sign-in provider (Database.Upstream drops it)
+		public const string Owner = "owner";
+
 		// Streamer grants no permission and no rank, it only switches on client features through Features:roles
 		public const string Streamer = "streamer";
 
@@ -109,6 +122,9 @@ namespace GenOnlineService
 			Permissions.TokensManage,
 			Permissions.AuditRead,
 			Permissions.SettingsManage,
+			Permissions.AnticheatReview,
+			Permissions.PlayersInspect,
+			Permissions.AccountsSupport,
 			Permissions.FlagsManage,
 			Permissions.PlaylistsManage,
 			Permissions.LaddersManage,
@@ -120,16 +136,19 @@ namespace GenOnlineService
 		{
 			[Moderator] = new HashSet<string>(s_moderatorPermissions, StringComparer.Ordinal),
 			[Admin] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal),
+			[Owner] = new HashSet<string>(s_adminPermissions, StringComparer.Ordinal),
 			[Streamer] = new HashSet<string>(StringComparer.Ordinal)
 		};
 
 		// Staff rank decides who may moderate whom, a role the code does not know ranks as a player
 		public const int AdminRank = 2;
+		public const int OwnerRank = 3;
 
 		private static readonly Dictionary<string, int> s_roleRanks = new(StringComparer.Ordinal)
 		{
 			[Moderator] = 1,
-			[Admin] = AdminRank
+			[Admin] = AdminRank,
+			[Owner] = OwnerRank
 		};
 
 		private static volatile Dictionary<Int64, HashSet<string>> s_permissionsByUser = new();

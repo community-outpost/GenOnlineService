@@ -16,8 +16,10 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.Client;
@@ -151,25 +153,77 @@ namespace GenOnlineService.Identity
 				{
 					options.User.RequireUniqueEmail = false;
 					options.User.AllowedUserNameCharacters = String.Empty;
+
+					// every account, staff included, locks for 15 minutes after 5 wrong passwords or codes in a row
+					options.Lockout.AllowedForNewUsers = true;
+					options.Lockout.MaxFailedAccessAttempts = 5;
+					options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+
+					// length is the only password rule (NIST SP 800-63B); MaximumLengthPasswordValidator caps it
+					options.Password.RequiredLength = settings.Password.MinLength;
+					options.Password.RequireDigit = false;
+					options.Password.RequireLowercase = false;
+					options.Password.RequireUppercase = false;
+					options.Password.RequireNonAlphanumeric = false;
+					options.Password.RequiredUniqueChars = 1;
 				})
 				.AddUserStore<GoUserStore>()
+				.AddPasswordValidator<MaximumLengthPasswordValidator>()
+				.AddTokenProvider<AuthenticatorTokenProvider<User>>(TokenOptions.DefaultAuthenticatorProvider)
 				.AddSignInManager();
 
-			services.AddAuthentication().AddIdentityCookies(cookies => cookies.ApplicationCookie?.Configure(options =>
+			// Identity's own user validator would refuse a second "Player": display names are not unique (Name#tag)
+			services.RemoveAll<IUserValidator<User>>();
+			services.AddScoped<IUserValidator<User>, GoUserValidator>();
+
+			services.AddAuthentication().AddIdentityCookies(cookies =>
 			{
-				options.LoginPath = "/users/sign_in";
-				options.LogoutPath = "/users/sign_out";
-				options.AccessDeniedPath = "/users/sign_in";
-				options.Cookie.Name = "go_session";
-				options.Cookie.SameSite = SameSiteMode.Lax;
-				options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
-				options.ExpireTimeSpan = TimeSpan.FromDays(14);
-			}));
+				cookies.ApplicationCookie?.Configure(options =>
+				{
+					options.LoginPath = "/users/sign_in";
+					options.LogoutPath = "/users/sign_out";
+					options.AccessDeniedPath = "/users/sign_in";
+					options.Cookie.Name = "go_session";
+					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+					options.ExpireTimeSpan = TimeSpan.FromDays(14);
+				});
+
+				// who gave the right password and still owes the second factor, for 5 minutes
+				cookies.TwoFactorUserIdCookie?.Configure(options =>
+				{
+					options.Cookie.Name = "go_two_factor";
+					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.SecurePolicy = settings.RequireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+				});
+			});
 
 			// a blocked user's stamp is rotated, so their website cookie stops within a minute
-			services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(1));
+			services.Configure<SecurityStampValidatorOptions>(options =>
+			{
+				options.ValidationInterval = TimeSpan.FromMinutes(1);
+				// the rebuilt cookie keeps how it signed in (the method and amr), which Identity's rebuild drops
+				options.OnRefreshingPrincipal = context =>
+				{
+					if (context.NewPrincipal?.Identity is System.Security.Claims.ClaimsIdentity rebuilt && context.CurrentPrincipal != null)
+					{
+						foreach (System.Security.Claims.Claim claim in context.CurrentPrincipal.Claims.Where(c => c.Type == System.Security.Claims.ClaimTypes.AuthenticationMethod || c.Type == "amr"))
+						{
+							if (!rebuilt.HasClaim(claim.Type, claim.Value))
+							{
+								rebuilt.AddClaim(new System.Security.Claims.Claim(claim.Type, claim.Value));
+							}
+						}
+					}
+					return Task.CompletedTask;
+				};
+			});
 
 			services.AddScoped<UpstreamAccounts>();
+			services.AddScoped<PasswordAccounts>();
+			// the choose-a-name page renames through the same rules as every other rename; the host may have added it already
+			services.TryAddSingleton<Names.PlayerNames>();
 
 			// the consent page posts back to /oauth/authorize with an antiforgery token
 			services.AddAntiforgery(options =>
@@ -226,14 +280,12 @@ namespace GenOnlineService.Identity
 			});
 
 			List<UpstreamProviderSettings> providers = settings.EnabledProviders.ToList();
-			if (providers.Count > 0)
+			if (providers.Any(p => p.Kind != ProviderKind.Steam))
 			{
 				openIddict.AddClient(options =>
 				{
 					options.AllowAuthorizationCodeFlow();
 					AddKeys(keys, options.AddEphemeralSigningKey, options.AddEphemeralEncryptionKey, c => options.AddSigningCertificate(c), c => options.AddEncryptionCertificate(c));
-
-					options.SetRedirectionEndpointUris(providers.Select(p => p.CallbackPath).ToArray());
 
 					var aspNetCore = options.UseAspNetCore().EnableRedirectionEndpointPassthrough();
 					if (!settings.RequireHttps)
@@ -242,23 +294,11 @@ namespace GenOnlineService.Identity
 					}
 
 					options.UseSystemNetHttp();
-
-					foreach (UpstreamProviderSettings provider in providers)
-					{
-						var registration = new OpenIddictClientRegistration
-						{
-							ProviderName = provider.Name,
-							ProviderDisplayName = provider.DisplayName,
-							Issuer = new Uri(provider.Issuer, UriKind.Absolute),
-							ClientId = provider.ClientID,
-							ClientSecret = String.IsNullOrEmpty(provider.ClientSecret) ? null : provider.ClientSecret,
-							RedirectUri = new Uri(provider.CallbackPath, UriKind.Relative)
-						};
-						registration.Scopes.UnionWith(new[] { Scopes.Email, Scopes.Profile });
-						options.AddRegistration(registration);
-					}
+					AddUpstreamRegistrations(options, providers);
 				});
 			}
+
+			AddSteamProviders(services.AddAuthentication(), providers);
 
 			if (keys != null)
 			{
@@ -266,6 +306,119 @@ namespace GenOnlineService.Identity
 				var first = new CurrentCertificateFirst(keys.Signing[0].Thumbprint, keys.Encryption[0].Thumbprint);
 				services.AddSingleton<IPostConfigureOptions<OpenIddictServerOptions>>(first);
 				services.AddSingleton<IPostConfigureOptions<OpenIddictClientOptions>>(first);
+			}
+		}
+
+		// Every provider except Steam is an OpenIddict client registration, its callback the passthrough redirection endpoint
+		public static void AddUpstreamRegistrations(OpenIddictClientBuilder options, IEnumerable<UpstreamProviderSettings> providers)
+		{
+			List<UpstreamProviderSettings> registered = providers.Where(p => p.Kind != ProviderKind.Steam).ToList();
+			options.SetRedirectionEndpointUris(registered.Select(p => p.CallbackPath).ToArray());
+
+			// a provider whose return URL is another host's comes back here through that host's redirect, which the
+			// built-in endpoint check would take for a mix-up
+			if (registered.Any(p => p.RedirectUri != null))
+			{
+				options.RemoveEventHandler(OpenIddictClientHandlers.ValidateEndpointUri.Descriptor);
+				options.AddEventHandler(RelayedEndpointUri.CreateDescriptor(new RelayedEndpointUri(registered)));
+			}
+
+			foreach (UpstreamProviderSettings provider in registered)
+			{
+				// an email is asked for only where it may link an existing account
+				string[] email = provider.AutoLinkVerifiedEmail ? new[] { Scopes.Email } : Array.Empty<string>();
+				switch (provider.Kind)
+				{
+					case ProviderKind.Discord:
+						options.UseWebProviders().AddDiscord(discord => discord
+							.SetProviderName(provider.Name)
+							.SetProviderDisplayName(provider.DisplayName)
+							.SetClientId(provider.ClientID)
+							.SetClientSecret(provider.ClientSecret)
+							.SetRedirectUri(provider.ReturnUri)
+							.AddScopes(email.Prepend("identify").ToArray()));
+						break;
+
+					case ProviderKind.Google:
+						options.UseWebProviders().AddGoogle(google => google
+							.SetProviderName(provider.Name)
+							.SetProviderDisplayName(provider.DisplayName)
+							.SetClientId(provider.ClientID)
+							.SetClientSecret(provider.ClientSecret)
+							.SetRedirectUri(provider.ReturnUri)
+							// openid only: no profile, so no real name (user, 2026-11-17)
+							.AddScopes(email));
+						break;
+
+					case ProviderKind.GameReplays:
+						options.AddRegistration(GameReplaysRegistration(provider));
+						break;
+
+					default:
+						var registration = new OpenIddictClientRegistration
+						{
+							ProviderName = provider.Name,
+							ProviderDisplayName = provider.DisplayName,
+							Issuer = new Uri(provider.Issuer, UriKind.Absolute),
+							ClientId = provider.ClientID,
+							ClientSecret = String.IsNullOrEmpty(provider.ClientSecret) ? null : provider.ClientSecret,
+							RedirectUri = new Uri(provider.ReturnUri, UriKind.RelativeOrAbsolute)
+						};
+						registration.Scopes.UnionWith(new[] { Scopes.Email, Scopes.Profile });
+						options.AddRegistration(registration);
+						break;
+				}
+			}
+		}
+
+		// GameReplays is a plain OAuth 2.0 server (no discovery, no ID token): authorize.php, token.php with the client
+		// secret in the form, then the member from resource.php with the access token; scope user_profile
+		// GameReplays: "Scope for you would be user_profile. It will give you the display name, username and email."
+		private const string GameReplaysScope = "user_profile";
+
+		private static OpenIddictClientRegistration GameReplaysRegistration(UpstreamProviderSettings provider)
+		{
+			var issuer = new Uri(provider.BaseUrl + "/", UriKind.Absolute);
+			var configuration = new OpenIddictConfiguration
+			{
+				Issuer = issuer,
+				AuthorizationEndpoint = new Uri(issuer, "authorize.php"),
+				TokenEndpoint = new Uri(issuer, "token.php"),
+				UserInfoEndpoint = new Uri(issuer, "resource.php")
+			};
+			configuration.GrantTypesSupported.Add(GrantTypes.AuthorizationCode);
+			configuration.ResponseTypesSupported.Add(ResponseTypes.Code);
+			configuration.ScopesSupported.Add(GameReplaysScope);
+			configuration.TokenEndpointAuthMethodsSupported.Add(ClientAuthenticationMethods.ClientSecretPost);
+
+			var registration = new OpenIddictClientRegistration
+			{
+				ProviderName = provider.Name,
+				ProviderDisplayName = provider.DisplayName,
+				Issuer = issuer,
+				ClientId = provider.ClientID,
+				ClientSecret = provider.ClientSecret,
+				RedirectUri = new Uri(provider.ReturnUri, UriKind.RelativeOrAbsolute),
+				Configuration = configuration
+			};
+			registration.Scopes.Add(GameReplaysScope);
+			return registration;
+		}
+
+		// Steam speaks OpenID 2.0: its handler verifies the assertion at SteamHandlerPath, signs into the external cookie
+		// and hands over to the provider's callback, where the sign-in goes on like every other provider's
+		public static void AddSteamProviders(AuthenticationBuilder authentication, IEnumerable<UpstreamProviderSettings> providers)
+		{
+			foreach (UpstreamProviderSettings provider in providers.Where(p => p.Kind == ProviderKind.Steam))
+			{
+				authentication.AddSteam(provider.Name, provider.DisplayName, options =>
+				{
+					options.CallbackPath = provider.SteamHandlerPath;
+					options.SignInScheme = IdentityConstants.ExternalScheme;
+					options.ApplicationKey = provider.ApplicationKey;
+					// no attribute exchange: the SteamID64 is all we keep, and email or real names must not arrive (S17)
+					options.Attributes.Clear();
+				});
 			}
 		}
 

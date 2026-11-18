@@ -40,7 +40,6 @@ namespace GenOnlineService.Flags
 				"use_mapped_port": true,
 				"retry_signalling": true,
 				"reconnect_timeout_ms": 30000,
-				"anticheat_transport": false,
 				"probe_lobby_interval_ms": 250,
 				"probe_match_interval_ms": 1000,
 				"wifi_low_latency": true

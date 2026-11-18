@@ -122,13 +122,14 @@ namespace GenOnlineService.Failover
 
 		internal static void Install(FailoverCoordinator? coordinator) => Volatile.Write(ref s_current, coordinator);
 
-		// A standby refuses the hub upgrade and game API calls with a retryable 503, the proxy sends that traffic to the ready copy
+		// A standby refuses game API calls and other hub requests with a retryable 503, the proxy sends that traffic to the ready copy
 		public static IApplicationBuilder UseRealtimeStandbyGate(this IApplicationBuilder app, Func<bool>? serving = null)
 		{
 			Func<bool> isServing = serving ?? (() => Serving);
 			return app.Use(async (context, next) =>
 			{
-				if (!isServing() && (context.Request.Path.StartsWithSegments(RealtimeHub.Path) || context.Request.Path.StartsWithSegments("/api")))
+				// the realtime upgrade is refused after the handshake (RealtimeAdmission), a status here would reach clients behind the tunnel only as a 502
+				if (!isServing() && !RealtimeAdmission.IsRealtimeUpgrade(context) && (context.Request.Path.StartsWithSegments(RealtimeHub.Path) || context.Request.Path.StartsWithSegments("/api")))
 				{
 					context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
 					context.Response.Headers.RetryAfter = "1";

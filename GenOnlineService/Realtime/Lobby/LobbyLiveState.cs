@@ -144,6 +144,8 @@ namespace GenOnlineService
 				Passworded = IsPassworded,
 				Password = Password,
 				AllowObservers = AllowObservers,
+				AllowArmySelection = AllowArmySelection,
+				PlaylistId = PlaylistID,
 				Build = LiveBuildOf(Build),
 				NetworkRoomId = NetworkRoomID,
 				RngSeed = RNGSeed,
@@ -242,6 +244,8 @@ namespace GenOnlineService
 			lobby.IsPassworded = live.Passworded;
 			lobby.Password = live.Password ?? String.Empty;
 			lobby.AllowObservers = live.AllowObservers;
+			lobby.AllowArmySelection = live.AllowArmySelection;
+			lobby.PlaylistID = live.PlaylistId;
 			GameBuild build = GameBuildOf(live.Build ?? new LiveBuild());
 			lobby.Game = build.Game;
 			lobby.ExeCRC = build.ExeCRC;
@@ -360,6 +364,7 @@ namespace GenOnlineService
 
 			member.AttachSession(session);
 			session.UpdateSessionLobbyID(LobbyID);
+			NoteHandoverReturnLocked(session);
 			if (State == ELobbyState.INGAME)
 			{
 				session.RegisterHistoricMatchID(MatchID, member.SlotIndex, member.Side, TimeCreated);

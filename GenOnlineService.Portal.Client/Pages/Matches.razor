@@ -1,0 +1,292 @@
+@* The match list: the page header (nav-02) with the id lookup as its action, over GitLab's filtered search and the data
+   grid blueprint (data-02) in a card. It opens on the newest matches, running and finished; the filters live in the
+   address, so a view can be linked and survives a reload. One match opens on Match.razor. *@
+@page "/admin/matches"
+@inject PortalApi Api
+@inject NavigationManager Navigation
+@using DataGridRequest = BlazorBlueprint.Primitives.DataGrid.DataGridRequest
+
+<PageTitle>Matches · Generals Online</PageTitle>
+
+<PageHeader Description="Every match, running and finished, the newest first. Filter by type, map, player and start date, or open one by its id.">
+    <Title>Matches</Title>
+    <Actions>
+        <form class="bb:flex bb:items-center bb:gap-2" @onsubmit="Open">
+            <BbInput Id="match-id" @bind-Value="m_typedID" Placeholder="Match id…" AriaLabel="Match id" AriaInvalid="@(m_invalidID ? true : null)" Class="bb:h-8 bb:w-40" inputmode="numeric" autocomplete="off" />
+            <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small">
+                <LucideIcon Name="search" Class="bb:h-4 bb:w-4" />
+                Open
+            </BbButton>
+        </form>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Refresh">
+            <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+            Refresh
+        </BbButton>
+    </Actions>
+</PageHeader>
+
+@if (m_invalidID)
+{
+    <p class="bb:text-sm bb:text-destructive" role="alert">A match id is a positive number.</p>
+}
+
+@if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The list could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+
+<BbCard Class="go-filtered">
+    <BbCardContent Class="bb:pt-6">
+        <form class="go-filterbar" role="search" aria-label="Filter matches" @onsubmit="Apply">
+            <div class="go-filterbar-search">
+                <BbInput Id="match-player" Type="InputType.Search" @bind-Value="m_player" Placeholder="Player: name, Name#tag or id…" AriaLabel="Player" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="go-filterbar-search">
+                <BbInput Id="match-map" Type="InputType.Search" @bind-Value="m_map" Placeholder="Map…" AriaLabel="Map" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="go-filterbar-selects">
+                <BbNativeSelect TValue="string" Value="@(m_query.Type ?? "")" ValueChanged="@((string? v) => Show(Typed() with { Type = String.IsNullOrEmpty(v) ? null : v }))" AriaLabel="Type" Class="go-select">
+                    <option value="">Any type</option>
+                    <option value="quick_match">Quick match</option>
+                    <option value="custom">Custom lobby</option>
+                </BbNativeSelect>
+                <label class="go-date">
+                    <span>From</span>
+                    <BbInput Id="match-from" Type="InputType.Date" Value="@m_query.From" ValueChanged="@((string? v) => Show(Typed() with { From = String.IsNullOrEmpty(v) ? null : v }))" AriaLabel="Started on or after (UTC)" />
+                </label>
+                <label class="go-date">
+                    <span>To</span>
+                    <BbInput Id="match-to" Type="InputType.Date" Value="@m_query.To" ValueChanged="@((string? v) => Show(Typed() with { To = String.IsNullOrEmpty(v) ? null : v }))" AriaLabel="Started on or before (UTC)" />
+                </label>
+                <BbButton Type="ButtonType.Button" Variant="@(m_query.Flagged ? ButtonVariant.Secondary : ButtonVariant.Outline)" Size="ButtonSize.Small" OnClick="@(() => Show(Typed() with { Flagged = !m_query.Flagged }))" aria-pressed="@(m_query.Flagged ? "true" : "false")" data-testid="filter-flagged">
+                    <LucideIcon Name="@(m_query.Flagged ? "check" : "flag")" Class="bb:h-4 bb:w-4" />
+                    Flagged only
+                </BbButton>
+                <BbButton Type="ButtonType.Submit" Variant="ButtonVariant.Outline" Size="ButtonSize.Small">
+                    <LucideIcon Name="search" Class="bb:h-4 bb:w-4" />
+                    Filter
+                </BbButton>
+                @if (m_query.IsFiltered)
+                {
+                    <BbButton Type="ButtonType.Button" Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => Show(new PortalMatchQuery()))">
+                        <LucideIcon Name="x" Class="bb:h-4 bb:w-4" />
+                        Clear
+                    </BbButton>
+                }
+            </div>
+        </form>
+
+        <BbDataGrid @key="m_viewKey" TData="PortalMatchRow" ItemsProvider="@LoadAsync" ItemKey="@(m => m.Id)" InitialPageSize="25" AriaLabel="Matches">
+            <Columns>
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="long" Property="@(m => m.Id)" Title="Match" Width="100px" Hideable="false">
+                    <CellTemplate>
+                        <BbLink Href="@PortalRoutes.MatchPage(context.Id)" Class="bb:font-mono" data-testid="match-link">@context.Id</BbLink>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="DateTime" Property="@(m => m.StartedAt)" Title="Started" Width="140px">
+                    <CellTemplate>
+                        <span title="@(PortalText.Date(context.StartedAt) + " UTC")">@PortalText.Recent(context.StartedAt, m_now)</span>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => PortalText.Duration(m.DurationS))" Title="Length" Width="100px">
+                    <CellTemplate>
+                        @if (context.DurationS is long seconds)
+                        {
+                            <span class="go-num">@PortalText.Duration(seconds)</span>
+                        }
+                        else
+                        {
+                            <BbBadge Variant="BadgeVariant.Secondary"><span class="go-dot" aria-hidden="true"></span>running</BbBadge>
+                        }
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => TypeOf(m.Type))" Title="Type" Width="120px">
+                    <CellTemplate>
+                        <span class="@(context.Type == null ? "go-muted" : "")">@TypeOf(context.Type)</span>
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => m.Map.Name)" Title="Map">
+                    <CellTemplate>
+                        @context.Map.Name
+                        @if (!context.Map.Official)
+                        {
+                            <span class="go-muted"> (unofficial)</span>
+                        }
+                    </CellTemplate>
+                </BbDataGridPropertyColumn>
+                <BbDataGridTemplateColumn TData="PortalMatchRow" Title="Players">
+                    <ChildContent Context="match">
+                        <div class="go-cell-players">
+                            @foreach (PortalMatchRowPlayer player in match.Players)
+                            {
+                                <BbLink Href="@PortalRoutes.PlayerPage(player.UserId)" Class="@(player.Won ? "go-won" : "")">@player.FullName</BbLink>
+                            }
+                            @if (match.Players.Count == 0)
+                            {
+                                <span class="go-muted">none</span>
+                            }
+                        </div>
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+                <BbDataGridTemplateColumn TData="PortalMatchRow" Title="Result">
+                    <ChildContent Context="match">
+                        @if (match.FinishedAt == null)
+                        {
+                            <span class="go-muted">in progress</span>
+                        }
+                        else if (match.Players.Any(p => p.Won))
+                        {
+                            <span>
+                                <LucideIcon Name="trophy" Class="bb:h-4 bb:w-4 go-icon-inline" />
+                                @String.Join(", ", match.Players.Where(p => p.Won).Select(p => p.Name))
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="go-muted">no result</span>
+                        }
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+                <BbDataGridTemplateColumn TData="PortalMatchRow" Title="Flags" Width="150px">
+                    <ChildContent Context="match">
+                        <div class="go-cell-badges">
+                            @foreach (string flag in match.Flags)
+                            {
+                                <BbBadge Variant="@(flag == "no_result" ? BadgeVariant.Outline : BadgeVariant.SoftDestructive)">@FlagOf(flag)</BbBadge>
+                            }
+                        </div>
+                    </ChildContent>
+                </BbDataGridTemplateColumn>
+            </Columns>
+            <EmptyTemplate>
+                @if (m_query.IsFiltered)
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="No match matches" Description="No match fits these filters. A player filter needs a whole name, Name#tag or an id.">
+                        <Icon>
+                            <LucideIcon Name="search-x" />
+                        </Icon>
+                    </BbEmpty>
+                }
+                else
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="No matches yet" Description="Matches show here once players start them.">
+                        <Icon>
+                            <LucideIcon Name="swords" />
+                        </Icon>
+                    </BbEmpty>
+                }
+            </EmptyTemplate>
+            <LoadingTemplate>
+                <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+            </LoadingTemplate>
+        </BbDataGrid>
+    </BbCardContent>
+</BbCard>
+
+@code {
+    [SupplyParameterFromQuery(Name = "type")]
+    public string? Type { get; set; }
+
+    [SupplyParameterFromQuery(Name = "map")]
+    public string? Map { get; set; }
+
+    [SupplyParameterFromQuery(Name = "player")]
+    public string? Player { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? From { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")]
+    public string? To { get; set; }
+
+    [SupplyParameterFromQuery(Name = "flagged")]
+    public string? Flagged { get; set; }
+
+    private PortalMatchQuery m_query = new PortalMatchQuery();
+    private string m_viewKey = "";
+    private string? m_player;
+    private string? m_map;
+    private string? m_typedID;
+    private bool m_invalidID;
+    private string? m_error;
+    private DateTime m_now = DateTime.UtcNow;
+
+    protected override void OnParametersSet()
+    {
+        m_query = PortalMatchQuery.FromAddress(Type, Map, Player, From, To, Flagged);
+        m_player = m_query.Player;
+        m_map = m_query.Map;
+        // a new view starts a new grid on its first page
+        m_viewKey = m_query.ToApiQuery();
+    }
+
+    private static string TypeOf(string? type) => type switch
+    {
+        "quick_match" => "Quick match",
+        "custom" => "Custom lobby",
+        _ => "unknown"
+    };
+
+    private static string FlagOf(string flag) => flag switch
+    {
+        "desync" => "desync",
+        "no_result" => "no result",
+        "anticheat" => "anti-cheat",
+        _ => flag
+    };
+
+    // The view with the typed player and map, which apply on Enter or with the other filters
+    private PortalMatchQuery Typed() => m_query with
+    {
+        Player = String.IsNullOrWhiteSpace(m_player) ? null : m_player.Trim(),
+        Map = String.IsNullOrWhiteSpace(m_map) ? null : m_map.Trim()
+    };
+
+    private void Apply() => Show(Typed());
+
+    private void Show(PortalMatchQuery query)
+    {
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(query.ToAddress()), replace: true);
+    }
+
+    // The same view again from its first page
+    private void Refresh()
+    {
+        m_viewKey = m_query.ToApiQuery() + "#" + DateTime.UtcNow.Ticks;
+    }
+
+    private void Open()
+    {
+        m_invalidID = !long.TryParse(m_typedID?.Trim(), out long id) || id < 1;
+        if (!m_invalidID)
+        {
+            Navigation.NavigateTo(PortalRoutes.MatchPage(id));
+        }
+    }
+
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalMatchRow>> LoadAsync(DataGridRequest request)
+    {
+        int count = request.Count ?? 25;
+        PortalAnswer<PortalMatchPage> answer = await Api.ListMatchesAsync(m_query, request.StartIndex, count, request.CancellationToken);
+        m_now = DateTime.UtcNow;
+        string? error = answer.Ok ? null : answer.Error;
+        if (error != m_error)
+        {
+            m_error = error;
+            StateHasChanged();
+        }
+
+        PortalMatchPage page = answer.Value ?? new PortalMatchPage();
+        // past the host's count the grid learns of one more page at a time
+        int total = page.Total ?? request.StartIndex + page.Matches.Count + (page.HasNext ? count : 0);
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalMatchRow> { Items = page.Matches.ToList(), TotalItemCount = total };
+    }
+}

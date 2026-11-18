@@ -1,0 +1,1226 @@
+/* Generals Online over the stock dark theme of theme.css, in the Swiss International Style: stone neutrals, hierarchy by
+   opacity of one text colour, and exactly one accent, the gold of the Generals Online logo, kept for primary buttons,
+   the active navigation item, focus rings and the numbers that need attention. Rectilinear shapes, IBM Plex Sans, an 8px
+   grid. The layouts follow GitLab: a grouped left sidebar, page headers with their actions on the right, compact tables,
+   settings sections with their title on the left. Every page is dark only (PortalLook and PortalDocument set .dark).
+   This file is not in a cascade layer, so it wins over blazorblueprint.css, which is: the components restyle through the
+   variables below, and the go-* classes cover only what no component or prebuilt bb: utility does. */
+
+/* IBM Plex Sans 1.1.0 (SIL Open Font License, fonts/OFL.txt), the Latin1 subsets of npm @ibm/plex-sans
+   (cdn.jsdelivr.net/npm/@ibm/plex-sans@1.1.0/fonts/split/woff2), served from here: a font host would learn the address
+   of every visitor of the sign-in pages */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("/portal/fonts/IBMPlexSans-Light-Latin1.woff2") format("woff2");
+  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/portal/fonts/IBMPlexSans-Regular-Latin1.woff2") format("woff2");
+  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/portal/fonts/IBMPlexSans-Medium-Latin1.woff2") format("woff2");
+  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/portal/fonts/IBMPlexSans-SemiBold-Latin1.woff2") format("woff2");
+  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+
+/* The theme: stone-950 page, stone-900 surfaces, stone-800 borders, stone-50 text at full, 70% and 40% */
+.dark {
+  --go-gold: #f0b429;
+  --go-text-2: rgb(250 250 249 / 0.7);
+  --go-text-3: rgb(250 250 249 / 0.4);
+
+  --background: #0c0a09;
+  --foreground: #fafaf9;
+  --card: #1c1917;
+  --card-foreground: #fafaf9;
+  --popover: #1c1917;
+  --popover-foreground: #fafaf9;
+  --primary: var(--go-gold);
+  --primary-foreground: #0c0a09;
+  --secondary: #292524;
+  --secondary-foreground: #fafaf9;
+  --muted: #1c1917;
+  --muted-foreground: var(--go-text-2);
+  --accent: #292524;
+  --accent-foreground: #fafaf9;
+  /* the one exception to the single accent: a danger action and a ban stay recognisable, in a brick red muted towards
+     the stone and kept to solid fills on the two ban buttons and 10% tints on the restriction badges */
+  --destructive: #9c4a41;
+  --destructive-foreground: #fafaf9;
+  --border: #292524;
+  --input: rgb(250 250 249 / 0.16);
+  --ring: var(--go-gold);
+
+  --radius: 0.125rem;
+  --bb-radius-xs: 0.125rem;
+  --bb-radius-xl: 0.125rem;
+  --sidebar-menu-button-radius: 0;
+  --sidebar-group-label-radius: 0;
+  --sidebar-sub-button-radius: 0;
+  --sidebar-badge-radius: 0.125rem;
+  --bb-card-shadow: none;
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: none;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bb-default-font-family: var(--font-sans);
+
+  /* alerts: neutral, the warning in the accent, the danger in the muted red */
+  --alert-success: var(--go-text-2);
+  --alert-success-foreground: #fafaf9;
+  --alert-success-bg: #1c1917;
+  --alert-info: var(--go-text-2);
+  --alert-info-foreground: #fafaf9;
+  --alert-info-bg: #1c1917;
+  --alert-warning: var(--go-gold);
+  --alert-warning-foreground: #fafaf9;
+  --alert-warning-bg: rgb(240 180 41 / 0.1);
+  --alert-danger: var(--destructive);
+  --alert-danger-foreground: #fafaf9;
+  --alert-danger-bg: rgb(156 74 65 / 0.12);
+
+  /* GitLab's left sidebar: a surface beside the page, the active item marked in gold (.go-admin rules below) */
+  --sidebar: #1c1917;
+  --sidebar-foreground: var(--go-text-2);
+  --sidebar-primary: var(--go-gold);
+  --sidebar-primary-foreground: #0c0a09;
+  --sidebar-accent: transparent;
+  --sidebar-accent-foreground: #fafaf9;
+  --sidebar-border: #292524;
+  --sidebar-ring: var(--go-gold);
+  --sidebar-badge-bg: #292524;
+  --sidebar-badge-color: var(--go-text-2);
+
+  /* charts: the accent, then the text colour at falling opacities */
+  --chart-1: var(--go-gold);
+  --chart-2: rgb(250 250 249 / 0.7);
+  --chart-3: rgb(250 250 249 / 0.5);
+  --chart-4: rgb(250 250 249 / 0.35);
+  --chart-5: rgb(250 250 249 / 0.2);
+}
+
+.dark body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* no double-tap zoom delay; anchors land below the sticky top bar of the staff pages */
+html.dark {
+  touch-action: manipulation;
+  scroll-padding-top: 4.5rem;
+}
+
+/* the round pieces of the components (avatars, skeletons, timeline marks) square like everything else */
+.dark [class~="bb:rounded-full"] {
+  border-radius: var(--radius);
+}
+
+/* dialog titles and empty-state titles at normal weight: Swiss headings are never bold */
+.dark [role="dialog"] h2,
+.dark [role="alertdialog"] h2 {
+  font-weight: 400;
+}
+
+/* explanatory copy no wider than 60 characters */
+.dark .go-page p[class~="bb:text-muted-foreground"],
+.go-measure {
+  max-width: 60ch;
+}
+
+/* native selects in the dark scheme on every platform (Windows draws its own light list otherwise) */
+.dark select {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+.dark select option {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+/* "Skip to content": out of sight until a keyboard reaches it */
+.go-skip {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 50;
+  padding: 0.5rem 1rem;
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  transform: translateY(-200%);
+}
+
+.go-skip:focus-visible {
+  transform: none;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* touch targets of at least 44px on a phone or any coarse pointer */
+@media (pointer: coarse), (max-width: 47.99rem) {
+  .dark button,
+  .dark [role="tab"],
+  .dark [role="menuitem"],
+  .dark [data-sidebar="menu-button"],
+  .dark select,
+  .dark textarea,
+  .dark input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .dark a[class~="bb:inline-flex"] {
+    min-height: 44px;
+  }
+
+  .dark button[aria-label],
+  .dark [data-sidebar="trigger"] {
+    min-width: 44px;
+  }
+
+  .dark table a,
+  .dark .go-page a[class~="bb:inline"] {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+
+/* numbers line up in every table and count */
+.dark table,
+.go-stat-value,
+.go-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* without motion when the visitor asks for less: every transition and animation of the pages and the components */
+@media (prefers-reduced-motion: reduce) {
+  .dark *,
+  .dark *::before,
+  .dark *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ===== The sign-in pages: login-02's split, the form beside the cover ===== */
+
+.go-split {
+  display: grid;
+  min-height: 100vh;
+}
+
+@media (min-width: 64rem) {
+  .go-split {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.go-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6.5rem 1rem 2rem;
+}
+
+/* Generals Online's logo, top left of the form column */
+.go-logo {
+  position: absolute;
+  top: 2rem;
+  left: 1rem;
+  display: block;
+}
+
+@media (min-width: 48rem) {
+  .go-logo {
+    left: 2rem;
+  }
+}
+
+.go-logo > img {
+  display: block;
+  height: 2.5rem;
+  width: auto;
+}
+
+/* the cover: the box art without its colours under a flat veil, so the accent stays the only hue */
+.go-cover {
+  display: none;
+  position: relative;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+}
+
+.go-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/portal/poster.jpg");
+  background-size: cover;
+  background-position: center;
+  filter: grayscale(1) brightness(0.55) contrast(1.1);
+}
+
+.go-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(12 10 9 / 0.35);
+}
+
+@media (min-width: 64rem) {
+  .go-main {
+    padding: 2rem;
+  }
+
+  .go-cover {
+    display: block;
+  }
+}
+
+/* a page title: light, tight, as the Swiss H2 */
+.go-heading {
+  font-size: 2rem;
+  font-weight: 300;
+  line-height: 2.5rem;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+/* a form's fields and button, on the 8px grid */
+.go-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* a label and its field */
+.go-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.go-field > label {
+  color: var(--go-text-2);
+}
+
+/* an icon inside the left edge of a field */
+.go-field-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  display: flex;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.go-iconed {
+  padding-left: 2.25rem;
+}
+
+/* login-02's "Or continue with": a caption on the rule */
+.go-or {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.go-or > div {
+  position: absolute;
+  inset: 50% 0 auto 0;
+}
+
+.go-or > span {
+  position: relative;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--go-text-2);
+  background: var(--background);
+}
+
+/* the providers full width, one under another, as login-02 */
+.go-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* a provider button: its mark a little further from its name */
+.go-provider {
+  gap: 0.5rem;
+}
+
+/* each provider in its brand's colours, the one place another hue appears: Discord blurple, Steam's dark navy,
+   Google's dark-theme button and GameReplays' blue (from its logo) */
+.go-provider-discord {
+  border-color: #5865f2;
+  background: #5865f2;
+  color: #fff;
+}
+
+.go-provider-discord:hover {
+  border-color: #4752c4;
+  background: #4752c4;
+  color: #fff;
+}
+
+.go-provider-steam {
+  border-color: #2a475e;
+  background: #171a21;
+  color: #fff;
+}
+
+.go-provider-steam:hover {
+  background: #2a475e;
+  color: #fff;
+}
+
+.go-provider-google {
+  border-color: #8e918f;
+  background: #131314;
+  color: #e3e3e3;
+}
+
+.go-provider-google:hover {
+  background: #1f1f20;
+  color: #e3e3e3;
+}
+
+.go-provider-gamereplays {
+  border-color: #0090d8;
+  background: #0b4f7a;
+  color: #fff;
+}
+
+.go-provider-gamereplays:hover {
+  background: #0d6197;
+  color: #fff;
+}
+
+/* ===== /profile: GitLab's user settings, a top bar and settings sections ===== */
+
+.go-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+@media (min-width: 48rem) {
+  .go-topbar {
+    padding: 0.5rem 2rem;
+  }
+}
+
+.go-topbar-logo > img {
+  display: block;
+  height: 2rem;
+  width: auto;
+}
+
+.go-topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.go-topbar-actions form {
+  margin: 0;
+}
+
+/* the page: a title, then one settings section under another */
+.go-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  width: 100%;
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+@media (min-width: 48rem) {
+  .go-column {
+    padding: 3rem 2rem 6rem;
+  }
+}
+
+/* a settings section: its title and a short description in the left column, the form or content on the right, a rule
+   above each, as GitLab's user settings */
+.go-settings {
+  display: grid;
+  gap: 1rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+}
+
+@media (min-width: 64rem) {
+  .go-settings {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 2rem;
+  }
+}
+
+.go-settings-title {
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.75rem;
+}
+
+.go-settings-intro > p {
+  max-width: 60ch;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5rem;
+  color: var(--go-text-2);
+}
+
+.go-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  font-size: 0.875rem;
+}
+
+/* the buttons under a section's form */
+.go-card-footer {
+  display: flex;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+/* a button its own width: in a section or the top bar */
+.go-narrow {
+  width: auto;
+  align-self: flex-start;
+}
+
+/* a muted label: a role, a state; the accent only for a staff role */
+.go-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid rgb(240 180 41 / 0.3);
+  border-radius: var(--radius);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgb(240 180 41 / 0.1);
+  color: var(--go-gold);
+}
+
+.go-badge-muted {
+  border-color: var(--border);
+  background: var(--secondary);
+  color: var(--go-text-2);
+}
+
+.go-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: var(--radius);
+  font-size: 1.25rem;
+  font-weight: 400;
+  background: var(--secondary);
+  color: var(--go-text-2);
+}
+
+/* the profile's name and its tag */
+.go-profile {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.go-profile-name {
+  font-size: 1.5rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.go-tag {
+  color: var(--go-text-3);
+}
+
+.go-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* a label and its value on one line, ruled like a table row */
+.go-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.go-row-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.go-provider-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+/* a field's message under it: the rule it broke */
+.go-field-error {
+  font-size: 0.875rem;
+  color: var(--destructive);
+}
+
+.go-field-hint {
+  font-size: 0.75rem;
+  color: var(--go-text-2);
+}
+
+/* ===== The staff pages (/admin): GitLab's shell ===== */
+
+/* the logo heads the sidebar, and shrinks to the shield when the sidebar collapses to its icon rail (sidebar-07) */
+.go-admin-logo {
+  display: flex;
+  align-items: center;
+  height: 2.5rem;
+  overflow: hidden;
+}
+
+.go-admin-logo > img {
+  display: block;
+  height: 2rem;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
+}
+
+aside[data-collapsible="icon"] .go-admin-logo {
+  width: 2rem;
+}
+
+aside[data-collapsible="icon"] .go-admin-logo > img {
+  max-width: none;
+}
+
+/* the group captions as Swiss labels */
+.dark [data-sidebar="group-label"] {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--go-text-3);
+}
+
+/* a menu item: square, no fill; hover raises the label from 70% to full opacity */
+.dark [data-sidebar="menu-button"] {
+  position: relative;
+  border-radius: 0;
+  background: transparent;
+  color: var(--go-text-2);
+}
+
+.dark [data-sidebar="menu-button"]:hover {
+  background: transparent;
+  color: var(--foreground);
+}
+
+/* the active item, GitLab's marker as one cue: a straight full-height bar flush with its left edge, drawn as a box so it
+   cannot curve, and the label at full opacity and medium weight; the same in the collapsed icon rail */
+.dark [data-sidebar="menu-button"][data-active="true"] {
+  background: transparent;
+  box-shadow: none;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.dark [data-sidebar="menu-button"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--go-gold);
+}
+
+/* sidebar-06's search field, a magnifier inside its left edge; the rail has no room for it */
+.go-admin-search {
+  position: relative;
+  margin: 0;
+}
+
+.go-admin-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.5rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.go-admin-search .go-admin-search-input {
+  padding-left: 2rem;
+}
+
+aside[data-collapsible="icon"] .go-admin-search,
+aside[data-collapsible="icon"] .go-admin-user-text {
+  display: none;
+}
+
+aside[data-collapsible="icon"] .go-admin-user {
+  justify-content: center;
+  padding: 0;
+}
+
+.go-admin-user-menu {
+  width: 14rem;
+}
+
+/* the content column beside the sidebar may shrink below its widest row, so a phone never scrolls sideways */
+.go-admin-inset {
+  min-width: 0;
+}
+
+/* the top bar over every page: the sidebar toggle and the breadcrumb, kept in view while the page scrolls */
+.go-admin-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 3.5rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+/* one width and padding for every page */
+.go-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+@media (min-width: 48rem) {
+  .go-page {
+    gap: 2rem;
+    padding: 2rem 2rem 4rem;
+  }
+}
+
+/* GitLab's page header: title and description on the left, the actions on the right; stacked on a phone */
+.go-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (min-width: 48rem) {
+  .go-page-header {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+}
+
+.go-page-title {
+  font-size: 1.75rem;
+  font-weight: 300;
+  line-height: 2.25rem;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+/* body copy no wider than 60 characters */
+.go-measure {
+  max-width: 60ch;
+}
+
+/* dashboard-01's stat cards: as many columns as fit, two on a phone */
+.go-stats {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+}
+
+.go-stat {
+  position: relative;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .go-stat {
+    transition: border-color 150ms;
+  }
+}
+
+.go-stat:has(.go-stat-link):hover {
+  border-color: var(--go-text-3);
+}
+
+/* the whole card is the link to the page behind its number */
+.go-stat-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.go-stat-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.go-stat-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--go-text-2);
+}
+
+.go-stat-value {
+  font-size: 2rem;
+  font-weight: 300;
+  line-height: 2.5rem;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+/* a number that needs a staff member: open reports, unreviewed rows */
+.go-stat-value-attention {
+  color: var(--go-gold);
+}
+
+.go-stat-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--go-text-2);
+}
+
+/* the cards under the stats: two columns on a wide screen, one track that may shrink otherwise */
+.go-dashboard {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 64rem) {
+  .go-dashboard {
+    gap: 1.5rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* dashboard-04's rows, each a link, ruled like a list */
+.go-feed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.go-feed > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.go-feed-item {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .go-feed-item,
+  a.go-list-item {
+    transition: background-color 150ms;
+  }
+}
+
+.go-feed-item:hover {
+  background: rgb(250 250 249 / 0.04);
+}
+
+.go-feed-item:focus-visible,
+a.go-list-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* a short list of ruled rows with an icon and a value: the queues, the quick links, the sessions */
+.go-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+.go-list-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.go-list-item:hover {
+  background: rgb(250 250 249 / 0.04);
+}
+
+/* GitLab's filtered search: the grid's search field takes the toolbar's width, its filters and column picker beside it */
+.go-filtered input[type="search"],
+.go-filtered input[type="text"] {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+}
+
+/* a table card keeps its width for the table on a phone (BbCardContent's p-6 is a desktop measure) */
+@media (max-width: 47.99rem) {
+  .go-filtered > [class~="bb:p-6"] {
+    padding: 1rem;
+  }
+}
+
+/* compact tables: GitLab's row height, the header as Swiss labels */
+.dark table th {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--go-text-2);
+}
+
+/* card titles (BbCardTitle's text-2xl semibold) as the Swiss H3: smaller, normal weight */
+.dark [class~="bb:text-2xl"][class~="bb:font-semibold"][class~="bb:tracking-tight"] {
+  font-size: 1.125rem;
+  font-weight: 400;
+  line-height: 1.5rem;
+  letter-spacing: normal;
+}
+
+/* names in tables and lists (BbLink, inline) read as text until pointed at, so the gold stays for actions */
+.dark .go-page a[class~="bb:inline"],
+.dark table a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--go-text-3);
+  text-underline-offset: 4px;
+}
+
+.dark .go-page a[class~="bb:inline"]:hover,
+.dark table a:hover {
+  text-decoration-color: var(--foreground);
+}
+
+/* GitLab's tabs on a detail page: a ruled line of labels, the open one marked underneath in the accent */
+.dark .go-page [role="tablist"] {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dark .go-page [role="tab"] {
+  position: relative;
+  padding: 1rem 0.5rem;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--go-text-2);
+}
+
+.dark .go-page [role="tab"][data-state="active"] {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.dark .go-page [role="tab"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--go-gold);
+}
+
+.dark .go-page [role="tab"]:hover {
+  color: var(--foreground);
+}
+
+.go-capitalize {
+  text-transform: capitalize;
+}
+
+/* tertiary text: captions, metadata */
+.go-text-3 {
+  color: var(--go-text-3);
+}
+
+/* a column header that screen readers read but that shows nothing: a th cannot be taken out of the table's flow */
+.go-sr-header,
+.dark table th.go-sr-header {
+  color: transparent;
+}
+
+/* placeholders the size of a stat card and of a card with a table */
+.go-skeleton-card {
+  width: 100%;
+  height: 7rem;
+}
+
+.go-skeleton-panel {
+  width: 100%;
+  height: 16rem;
+}
+
+/* the audit log's filter bar: actor, target and action side by side, stacked on a phone */
+.go-audit-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.go-audit-filter-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+@media (max-width: 47.99rem) {
+  .go-audit-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* newer and older pages under the table: the log is keyset paged, so it has no page count */
+.go-audit-pager {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* details on one line, cut with an ellipsis; the title holds the whole text */
+.go-audit-details {
+  display: inline-block;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--go-text-2);
+}
+
+.go-nowrap {
+  white-space: nowrap;
+}
+
+/* the player and match lists (T17f): GitLab's filtered search above the table, a search field that takes the width, toggle
+   filters and selects beside it, wrapping on a phone */
+.go-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.go-filterbar-search {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.go-chips,
+.go-filterbar-selects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.go-select {
+  width: auto;
+  min-width: 10rem;
+}
+
+.go-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--go-text-2);
+}
+
+.go-date > span {
+  min-width: 2.25rem;
+}
+
+.go-date input {
+  width: 9.5rem;
+  color-scheme: dark;
+}
+
+.go-filterbar-hint {
+  margin: -0.5rem 0 1rem;
+  font-size: 0.8125rem;
+  color: var(--destructive);
+}
+
+.go-cell-player,
+.go-cell-badges,
+.go-cell-players {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.go-cell-players {
+  gap: 0 0.75rem;
+}
+
+.go-muted {
+  color: var(--go-text-3);
+}
+
+/* counts and durations in tabular figures, on the left edge like their column title */
+.go-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.go-dot {
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-right: 0.375rem;
+  background: currentColor;
+}
+
+/* a winner of a match reads at full strength, the other players a step down */
+.go-cell-players a {
+  opacity: 0.7;
+}
+
+.go-cell-players a.go-won {
+  opacity: 1;
+  font-weight: 500;
+}
+
+.go-icon-inline {
+  display: inline-block;
+  vertical-align: -0.125rem;
+  margin-right: 0.25rem;
+  color: var(--go-text-2);
+}
+
+@media (max-width: 47.99rem) {
+  .go-filterbar-search,
+  .go-select,
+  .go-date {
+    flex: 1 1 100%;
+  }
+
+  .go-date input {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}
+
+/* the player page's Matches tab (T17g): a won match reads at full weight, as a winner does on the match list */
+.go-result-won {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* a card header with its action on the right, as the page header has (the Matches tab's “All matches”) */
+.go-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.go-card-head-text {
+  display: grid;
+  flex: 1 1 20rem;
+  gap: 0.375rem;
+  min-width: 0;
+}

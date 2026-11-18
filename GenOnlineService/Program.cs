@@ -390,8 +390,6 @@ namespace GenOnlineService
 
 	public class Program
 	{
-		private const string BearerSchemeSelector = "go_bearer";
-
 
 		// Main lobby/websocket tick interval. See the comment at the tick timer for why 50ms is sufficient.
 		private const int c_LobbyTickIntervalMS = 50;
@@ -1003,6 +1001,12 @@ namespace GenOnlineService
 				return;
 			}
 
+			if (args.Length > 0 && args[0].Equals("users", StringComparison.OrdinalIgnoreCase))
+			{
+				Environment.ExitCode = await UsersCli.RunUsers(args);
+				return;
+			}
+
 #if !DEBUG
 			AppDomain.CurrentDomain.UnhandledException += GlobalExceptionHandler;
 #endif
@@ -1155,8 +1159,12 @@ namespace GenOnlineService
 			builder.Services.AddHostedService<ExternalLeaderboardPublicationWorker>();
 			builder.Services.AddSingleton<ILobbyIdSource, DatabaseLobbyIdSource>();
 			builder.Services.AddSingleton(sp => new LobbyIdAllocator(sp.GetRequiredService<ILobbyIdSource>()));
+			builder.Services.AddSingleton<IMatchIdWorkerStore, DatabaseMatchIdWorkerStore>();
+			builder.Services.AddSingleton(sp => new MatchIdGenerator(sp.GetRequiredService<IMatchIdWorkerStore>(), TimeProvider.System, MatchIdGenerator.DefaultHolder()));
 			builder.Services.AddSingleton<LobbyManager>();
 			builder.Services.AddSingleton<LobbyMembershipConnections>();
+			// add a provider by registering another ILinkedAccountProvider
+			builder.Services.AddSingleton<GenOnlineService.Rest.ILinkedAccountProvider>(sp => new GenOnlineService.Rest.EosLinkedAccountProvider(sp.GetRequiredService<LobbyManager>()));
 
 			// realtime protocol v1, see docs/realtime-protocol.md; Realtime:backplane redis carries it between copies, see docs/realtime-scaling.md
 			GenOnlineService.Realtime.RealtimeBackplaneSettings realtimeBackplane = GenOnlineService.Realtime.RealtimeBackplaneSettings.Read(builder.Configuration);
@@ -1175,6 +1183,7 @@ namespace GenOnlineService
 				options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 				options.MaximumReceiveMessageSize = 64 * 1024;
 				options.EnableDetailedErrors = false;
+				Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Realtime.RealtimeAdmittedFilter());
 				if (failoverSettings.Enabled)
 				{
 					Microsoft.AspNetCore.SignalR.HubOptionsExtensions.AddFilter(options, new GenOnlineService.Failover.RealtimeFenceFilter());
@@ -1198,31 +1207,18 @@ namespace GenOnlineService
 			AccountsSettings accountsSettings = AccountsSettings.Read(builder.Configuration);
 			builder.Services.AddSingleton(accountsSettings);
 
-			// renames: the Keycloak plugin in prod, local rules for self-hosters (identity section 5b)
-			builder.Services.AddHttpClient(GenOnlineService.Names.KeycloakRenameClient.HttpClientName);
-			builder.Services.AddSingleton<GenOnlineService.Names.KeycloakRenameClient>(sp => new GenOnlineService.Names.KeycloakRenameClient(sp.GetRequiredService<IHttpClientFactory>(), accountsSettings));
 			builder.Services.AddSingleton<GenOnlineService.Names.PlayerNames>();
 
-			builder.Services.AddAuthentication(options =>
-			{
-				options.DefaultScheme = BearerSchemeSelector;
-			})
-			// gopat- bearer values go to the API token handler, every other bearer value to the OpenIddict access token handler
-			.AddPolicyScheme(BearerSchemeSelector, "Bearer", options =>
-			{
-				options.ForwardDefaultSelector = context => ApiTokenHandler.HasApiToken(context.Request) ? ApiTokenHandler.SchemeName : SessionTokenHandler.SchemeName;
-			})
-			.AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, null)
-			.AddScheme<AuthenticationSchemeOptions, SessionTokenHandler>(SessionTokenHandler.SchemeName, null);
+			// bearer tokens everywhere, and the sign-in cookie on the /api/v1 routes the staff pages call (T16), where accounts run
+			GenOnlineService.Api.ApiAuthentication.AddApiAuthentication(builder.Services, signInCookie: accountsSettings.Enabled);
 
 			builder.Services.AddGenOnlineDataProtection(builder.Configuration, builder.Environment.IsDevelopment());
 			builder.Services.AddGenOnlineIdentity(accountsSettings, builder.Environment.IsDevelopment());
 
-			// the Keycloak plugin's change log (identity design 5b): at most one trusted provider feeds it
-			UpstreamProviderSettings? changeLogProvider = accountsSettings.EnabledProviders.FirstOrDefault(p => p.ChangeLog.Enabled);
-			if (changeLogProvider != null)
+			// the staff pages under /admin sign in with the accounts cookie, so they exist only where accounts run (S12)
+			if (accountsSettings.Enabled)
 			{
-				builder.Services.AddSingleton(sp => new KeycloakChangeLog(changeLogProvider, sp.GetRequiredService<IDbContextFactory<AppDbContext>>()));
+				GenOnlineService.Portal.PortalSetup.AddPortal(builder.Services);
 			}
 
 			// "perm:<name>" policies, shared by user sessions and API tokens
@@ -1238,9 +1234,6 @@ namespace GenOnlineService
 						|| context.User.IsInRole("GameLauncher")
 						|| ApiTokenPrincipals.HasPermission(context.User, Permissions.LobbiesRead)));
 			});
-
-			// REST controllers answer a failed role check with the forbidden body of section 7
-			builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, GenOnlineService.Api.ApiAuthorizationResultHandler>();
 
 			// OpenIddict stores cache entries without a size, so the cache has no size limit
 			builder.Services.AddMemoryCache();
@@ -1273,8 +1266,8 @@ namespace GenOnlineService
 			{
 				options.InvalidModelStateResponseFactory = GenOnlineService.Rest.RestSetup.InvalidModelState;
 			});
-			// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-			//builder.Services.AddOpenApi();
+			// the OpenAPI document of /api/v1 and its viewer, unless OpenApi:enabled turns them off
+			GenOnlineService.OpenApi.ApiDocs.AddApiDocs(builder.Services, builder.Configuration);
 
 			ReloadingPemCertificateProvider? certificateProvider = null;
 
@@ -1515,12 +1508,6 @@ namespace GenOnlineService
 			// end websocket
 
 			// Configure the HTTP request pipeline.
-			/*
-			if (app.Environment.IsDevelopment())
-			{
-				app.MapOpenApi();
-			}
-			*/
 
 			app.Use((context, next) =>
 			{
@@ -1535,6 +1522,7 @@ namespace GenOnlineService
 			GenOnlineService.Failover.RealtimeFailover.UseRealtimeStandbyGate(app);
 			app.UseRealtimeQueryToken();
 			app.UseAuthentication();
+			GenOnlineService.Api.ApiAuthentication.UseSignInCookieRules(app);
 			app.UseRealtimeRegistrationGate();
 			bool bTrustedProxiesConfigured = (builder.Configuration.GetSection("TrustedProxies").Get<string[]>() ?? Array.Empty<string>()).Any(v => !string.IsNullOrWhiteSpace(v));
 			app.Use((context, next) =>
@@ -1545,7 +1533,21 @@ namespace GenOnlineService
 
 			app.UseAuthorization();
 
+			if (accountsSettings.Enabled)
+			{
+				GenOnlineService.Portal.PortalSetup.UsePortal(app);
+			}
+
 			app.MapControllers();
+			// /api/openapi/v1.json and the viewer at /api/docs, which /api leads to
+			GenOnlineService.OpenApi.ApiDocs.MapApiDocs(app, builder.Configuration);
+			if (accountsSettings.Enabled)
+			{
+				// the sign-in pages' stylesheet, theme and theme script (PortalLook): wwwroot/portal and Blazor Blueprint's _content,
+				// and the WebAssembly files of the staff pages (_framework)
+				app.MapStaticAssets();
+				GenOnlineService.Portal.PortalSetup.MapPortal(app);
+			}
 			app.MapHub<GenOnlineService.Realtime.RealtimeHub>(GenOnlineService.Realtime.RealtimeHub.Path, options =>
 			{
 				options.Transports = Microsoft.AspNetCore.Http.Connections.HttpTransportType.WebSockets;
@@ -1768,52 +1770,6 @@ namespace GenOnlineService
 					}
 				};
 				timerTick.Start();
-			}
-
-			// Keycloak group changes between sign-ins (identity design section 5)
-			foreach (UpstreamProviderSettings provider in accountsSettings.EnabledProviders.Where(p => p.Trusted && p.GroupSync.Enabled))
-			{
-				System.Timers.Timer timerGroupSync = new System.Timers.Timer(provider.GroupSync.IntervalSeconds * 1000);
-				timerGroupSync.AutoReset = false;
-				timerGroupSync.Elapsed += async (sender, e) =>
-				{
-					try
-					{
-						await RunObservedBackgroundJobAsync("group_sync_" + provider.Name, app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await KeycloakGroupSync.Run(db, provider);
-						});
-					}
-					finally
-					{
-						timerGroupSync.Start();
-					}
-				};
-				timerGroupSync.Start();
-			}
-
-			// the change log: once at startup, then every interval, so a lost push or downtime is caught up
-			KeycloakChangeLog? changeLog = app.Services.GetService<KeycloakChangeLog>();
-			if (changeLog != null)
-			{
-				System.Timers.Timer timerChangeLog = new System.Timers.Timer(1000);
-				timerChangeLog.AutoReset = false;
-				timerChangeLog.Elapsed += async (sender, e) =>
-				{
-					try
-					{
-						await RunObservedBackgroundJobAsync("keycloak_change_log", app.Logger, () => changeLog.Sync());
-					}
-					finally
-					{
-						timerChangeLog.Interval = changeLogProvider!.ChangeLog.IntervalSeconds * 1000;
-						timerChangeLog.Start();
-					}
-				};
-				timerChangeLog.Start();
 			}
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) =>

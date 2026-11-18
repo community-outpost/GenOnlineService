@@ -7,7 +7,7 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 ## 0. Decisions
 
 - **Both providers stay:** MySQL/MariaDB and PostgreSQL, one EF model, one migration set per provider.
-- **One database per environment**, holding account tables and game tables. Environments share nothing; the official deployment ties them together only through Keycloak sign-in.
+- **One database per environment**, holding account tables and game tables. Environments share nothing but the sign-in: test signs in through prod, and its copy of prod's players follows prod (`docs/identity.md`).
 - **Ids kept** on import into prod: `users.id` is today's `user_id`, match ids are kept.
 - **The old schema is only read**, by the import tool. No compatibility views, no `_v2` tables.
 
@@ -46,7 +46,7 @@ Companion docs: `identity-openiddict-design.md`, `api-tokens-design.md`, `api-v1
 
 ```
 users
-  id                      bigint pk              -- the user id; with Keycloak player ids it is the player_id, set explicitly (identity section 3.2)
+  id                      bigint pk              -- the user id; the import keeps the old ids
   username                varchar(32)            -- display name; not unique on its own
   username_normalized     varchar(32)            -- NFKC, upper case: exact name lookups (Name#0042 sign-in)
   name_tag                int                    -- 1 to 9999; unique (username_normalized, name_tag), shown as Name#0042
@@ -56,17 +56,21 @@ users
   email_confirmed_at      timestamp null
   password_hash           varchar(255) null      -- null without local passwords
   security_stamp          varchar(64)
+  authenticator_key       varchar(512) null      -- TOTP key, encrypted with Data Protection; null without an authenticator app
   state                   varchar(16)            -- active | blocked | deactivated
   two_factor_enabled      bool
   lockout_end_at          timestamp null
   failed_sign_in_count    int
   created_at, updated_at, last_sign_in_at, renamed_at null
+  name_required_at        timestamp null         -- the player owes a chosen name (provider sign-up, staff name reset); null once chosen
+  index (last_sign_in_at desc, id desc), (created_at, id)   -- the staff player list's sorts (StaffListIndexes, built online)
 
 user_username_history     id, user_id, username, name_tag null, changed_at, changed_by
-identities                id, user_id, provider varchar(32), extern_uid varchar(128),
-                          extern_username varchar(128) null, created_at, last_used_at
+identities                id, user_id, provider varchar(32), extern_uid varchar(128), created_at, last_used_at
+                          the provider's id only, never its username (extern_username dropped by IdentitiesKeepIdsOnly)
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
-user_authenticator_keys, user_recovery_codes                   -- TOTP (ASP.NET Identity)
+user_recovery_codes       id, user_id, code_hash varchar(64), created_at, used_at null
+                          -- two-factor recovery codes: SHA-256 hex only, each used once; new codes replace the old
 oauth_applications, oauth_authorizations, oauth_scopes, oauth_tokens   -- OpenIddict, renamed via its options
 ```
 
@@ -74,7 +78,7 @@ oauth_applications, oauth_authorizations, oauth_scopes, oauth_tokens   -- OpenId
 
 ```
 user_roles
-  user_id, role varchar(32), source varchar(32) ('local' | 'upstream:keycloak' | ...),
+  user_id, role varchar(32), source varchar(32) ('local' | 'upstream:<environment>'),
   granted_by varchar(64) null, granted_at, reason varchar(512) null
   pk (user_id, role, source)
 
@@ -137,7 +141,7 @@ Messages are stored without encryption. A tombstone keeps `deleted_at` only; who
 ```
 connection_reports        id, reporter_id, lobby_id, target_user_id, attempt int, outcome varchar(16)
                           ('connected_direct' | 'connected_relay' | 'failed' | 'disconnected'),
-                          transport varchar(8) ('gns' | 'eos'), ip_version int (4 | 6), events json,
+                          transport varchar(32) ('gns' or a plugin transport name), ip_version int (4 | 6), events json,
                           created_at, updated_at
                           unique (reporter_id, lobby_id, target_user_id, attempt),
                           index (target_user_id, updated_at), (lobby_id), (updated_at)
@@ -153,6 +157,18 @@ lobby_ids                 id int (always 1), next_id bigint
 ```
 
 One row holds the next lobby id. A service copy reserves a block of ids with an `UPDATE` that adds the block size inside a transaction, then reads the new `next_id`; the block is the ids below it. The row lock of the update makes this atomic on MySQL/MariaDB and Postgres, so lobby ids are never reused across restarts or copies, start at 1 and stay below 2^53. The migration seeds `next_id` above the largest `lobby_id` in `chat_messages` and `connection_reports`.
+
+### Match ids
+
+```
+match_id_workers          worker_id int pk (0..31), holder varchar(128), generation bigint, reserved_until bigint
+```
+
+New match ids are 48 bit snowflakes made by the service (`MatchIds.cs`): 32 bits of seconds since 2026-01-01 00:00:00 UTC, 5 bits of worker slot, 11 bits of sequence (2048 ids per second per copy). They fit a JSON safe integer, are never 0 and are larger than every sequential match id made before, so ordering by id and the `after_id` cursor keep working; `id >> 16` is the second a match id was made. Old matches keep their ids.
+
+Each service copy holds one row of `match_id_workers`. `reserved_until` is the last second (since the same epoch) the holder may put into an id; the copy moves it ahead with an `UPDATE` conditioned on its `generation` when it needs a later second. A copy takes a row only once its `reserved_until` is in the past, with an `UPDATE` conditioned on the `generation` and `reserved_until` it read (so a take read before the holder's extension loses), raises `generation` and starts at the next second, so a copy that stopped or paused can no longer extend it and the ids of the two never meet, whatever their clocks say. The statements are portable and need no database clock. The migration seeds all 32 rows free.
+
+`matches.id` keeps its identity / `AUTO_INCREMENT` in this release so a copy from before the switch still writes matches next to a migrated database; the service always sets the id itself. A later release drops it. On MySQL/MariaDB an insert with an explicit id raises the `AUTO_INCREMENT` counter, so nothing may insert a match without an id once snowflakes are in use.
 
 ### Players and devices
 
@@ -174,6 +190,7 @@ devices                   id, user_id, kind varchar(16) ('machine_guid' | 'mac' 
 session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | 'end' | 'denied'),
                           result varchar(32), client varchar(32), client_version varchar(32),
                           exe_crc varchar(16) null, ip varchar(45), country char(2) null, created_at
+                          index (ip, user_id)   -- other accounts on an address, for the staff duplicate check
                           -- retention: 90 days
 ```
 
@@ -184,9 +201,10 @@ session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | '
 ### Matches and stats
 
 ```
-matches                   id bigint pk (kept), owner_user_id, name, lobby_type, roster_type, map_name, map_path,
+matches                   id bigint pk (kept; new ids are snowflakes, see Match ids), owner_user_id, name, lobby_type, roster_type, map_name, map_path,
                           is_official_map, vanilla_teams,          -- owner_user_id null when the owner was dropped starting_cash, limit_superweapons, track_stats,
                           allow_observers, max_cam_height, exe_crc, ini_crc, started_at, finished_at null
+                          index (finished_at, id), (started_at)   -- the match feed; the staff match list's date filter
 match_players             match_id, slot smallint, user_id null, team smallint null, side int null, color int null,
                           result varchar(16) null, details json null      pk (match_id, slot)
 match_publications        match_id pk, attempts int, next_attempt_at, published_at null, last_error varchar(512) null
@@ -207,7 +225,23 @@ faction_stats_daily       day date, side smallint, matches int, wins int     pk 
 ```
 anticheat_module_reports, anticheat_new_account_games, anticheat_probe_reports
   report_id pk (kept), user_id, match_id, ... (columns as today, snake_case)
+  reviewed_at null, reviewed_by null (users.id)   -- set once by a staff review, the row is kept
+  index (reviewed_at)
 ```
+
+A probe report with `match_id = 0` was raised at sign-in for a device value without the marker of a genuine client. The staff tools list those as `devices` and every other probe report as `probes`.
+
+```
+anticheat_quickmatch_reports
+  report_id pk, user_id, match_id (0 before the match starts), lobby_id, playlist_id
+  method varchar(32)                  -- the refused hub method: UpdateMySlot or UpdateSlots
+  sides varchar(128)                  -- the requested sides, comma separated
+  created_at
+  reviewed_at null, reviewed_by null (users.id)
+  index (reviewed_at), unique (user_id, lobby_id)
+```
+
+A quick match request a genuine client never sends, such as a side other than random in a playlist without army selection, is refused and kept here for staff review as `quickmatch_rules`. Lobby ids are never handed out twice, so the unique key keeps one row per player and lobby however often a client repeats the request.
 
 ### Machine tokens and settings
 
@@ -240,10 +274,10 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 | `users.active` | **not imported**: the old service never read it |
 | `users.account_type` | dropped: `Steam`/`Discord` is already recorded in `identities`; `Ghost` and `DevAccount` users are not imported (below) |
 | `users.steam_id` | `identities(provider='steam')` |
-| `users.discord_id, discord_username` | `identities(provider='discord')` |
+| `users.discord_id` | `identities(provider='discord')`; `discord_username` not imported |
 | `users.google_id, google_email` | `identities(provider='google')`; email not trusted as verified |
-| `users.gamereplays_id, gamereplays_username` | `identities(provider='gamereplays')` |
-| `users.admin, permissionslevel` | **not imported**: printed in the validation report; staff re-granted by hand or via Keycloak groups |
+| `users.gamereplays_id` | `identities(provider='gamereplays')`; `gamereplays_username` not imported |
+| `users.admin, permissionslevel` | **not imported**: printed in the validation report; staff re-granted by hand (`roles grant`) |
 | `users.banned, ban_reason, banned_by, ban_verified_by, ban_aliases` | `sanctions(type='ban', source='local', created_by_kind='cli', created_by_id=null, reason=ban_reason)`; the rest into one `audit_log` entry |
 | `users.elo_rating, elo_num_matches` | `player_ratings(kind='all_time')` |
 | `users.monthly_elo_rating` | `player_ratings(kind='monthly')` |
@@ -270,7 +304,7 @@ Also dropped: `service_stats` and `connection_outcomes` (replaced by metrics) an
 - **Dropped users (`account_type` Ghost or DevAccount):** their `users`, identities, devices, ratings, stats, preferences, network, friendships, friend requests, blocks, leaderboard and anti-cheat rows are not imported. Matches they took part in are kept: their `match_players` rows keep the slot with `user_id = null`, and a match they owned gets `owner_user_id = null`. Their ids are never reused. Exits non-zero until findings are resolved or waived in an import config file.
 - **Phase 2, convert:** table by table in dependency order, batched, through the EF models of both sides.
 - **Phase 3, verify:** row counts and checksums per mapping line, printed and written to a report; identity sequences set to max(id) + 1.
-- **Keycloak file (official deployment, optional, `Import:keycloak_file`):** a Keycloak partial import with federated identity links (Steam, Discord, Google, GameReplays), `player_id` = the old user id and `display_name` = the imported name, so a person's first Keycloak sign-in lands on their prod user with their name; `<path>.counter.json` holds `genonlinePlayerIdStart` (highest imported id + 1), the realm attribute that starts the GenOnline Keycloak plugin's counter. Written only after a committed real run.
+- **Sign-in after the import:** imported identities (Steam, Discord, Google, GameReplays) sign in to their imported user directly; there is no Keycloak file.
 - **Config switches:** legacy bans as local bans (default) or skipped; HMAC key path.
 - **Modes:** `--dry-run` into a scratch database; refuses a non-empty target.
 - **Cutover:** stop the old service, import, start the new deploy. No dual writes.

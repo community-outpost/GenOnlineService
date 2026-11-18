@@ -1,0 +1,9 @@
+Hello {{name}},
+
+please confirm that this address is yours. You need a confirmed address to play.
+
+Confirm email address: {{link}}
+
+The link works for 24 hours.
+
+You get this mail because of your Generals Online account. If you did not ask for it, you can ignore it.

@@ -104,6 +104,9 @@ public class SessionEventConfiguration : IEntityTypeConfiguration<SessionEvent>
 		builder.HasIndex(e => new { e.UserID, e.CreatedAt }).HasDatabaseName("ix_session_events_user_created");
 		builder.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_session_events_created_at");
 
+		// Finds the other accounts seen on an address for the staff duplicate check
+		builder.HasIndex(e => new { e.Ip, e.UserID }).HasDatabaseName("ix_session_events_ip_user");
+
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16);
@@ -313,6 +316,107 @@ namespace Database
 			{
 				db.ChangeTracker.Clear();
 			}
+		}
+	}
+
+	// A stored device as staff see it: a short fingerprint of the keyed hash, never a raw value
+	public sealed record InspectedDevice(string Kind, string Fingerprint, DateTime FirstSeenAt, DateTime LastSeenAt, string? LastIp);
+
+	public sealed record InspectedAddress(string Ip, string? Country, DateTime FirstSeenAt, DateTime LastSeenAt, int Events);
+
+	public sealed record LastSession(DateTime At, string Ip, string? Country, string Client);
+
+	// Another account seen on the same device or only on the same address, Shared counts the devices or addresses in common
+	public sealed record DuplicateAccount(long UserID, string Name, int NameTag, string State, string Match, int Shared, DateTime LastSeenAt);
+
+	public static class DuplicateMatches
+	{
+		public const string Device = "device";
+		public const string Ip = "ip";
+	}
+
+	// What staff with players.inspect read about one player, every list is capped in the database
+	public static class StaffInspection
+	{
+		public const int MaximumRows = 100;
+		public const int MaximumDuplicates = 50;
+		public const int FingerprintBytes = 4;
+
+		public static string FingerprintOf(byte[] valueHmac) => Convert.ToHexString(valueHmac, 0, Math.Min(FingerprintBytes, valueHmac.Length)).ToLowerInvariant();
+
+		public static async Task<List<InspectedDevice>> GetDevices(AppDbContext db, long userID, CancellationToken cancellationToken = default)
+		{
+			List<Device> rows = await db.Devices.AsNoTracking()
+				.Where(d => d.UserID == userID)
+				.OrderByDescending(d => d.LastSeenAt)
+				.ThenBy(d => d.ID)
+				.Take(MaximumRows)
+				.ToListAsync(cancellationToken);
+			return rows.Select(d => new InspectedDevice(d.Kind, FingerprintOf(d.ValueHmac), d.FirstSeenAt, d.LastSeenAt, d.LastIp)).ToList();
+		}
+
+		// The distinct addresses of the session events, most recent first
+		public static async Task<List<InspectedAddress>> GetAddresses(AppDbContext db, long userID, CancellationToken cancellationToken = default)
+		{
+			var rows = await db.SessionEvents.AsNoTracking()
+				.Where(e => e.UserID == userID && e.Ip != "")
+				.GroupBy(e => e.Ip)
+				.Select(g => new { Ip = g.Key, Country = g.Max(e => e.Country), First = g.Min(e => e.CreatedAt), Last = g.Max(e => e.CreatedAt), Events = g.Count() })
+				.OrderByDescending(a => a.Last)
+				.Take(MaximumRows)
+				.ToListAsync(cancellationToken);
+			return rows.Select(a => new InspectedAddress(a.Ip, a.Country, a.First, a.Last, a.Events)).ToList();
+		}
+
+		public static async Task<LastSession?> GetLastSession(AppDbContext db, long userID, CancellationToken cancellationToken = default)
+		{
+			SessionEvent? row = await db.SessionEvents.AsNoTracking()
+				.Where(e => e.UserID == userID && e.Result == SessionEventResults.Ok)
+				.OrderByDescending(e => e.CreatedAt)
+				.ThenByDescending(e => e.ID)
+				.FirstOrDefaultAsync(cancellationToken);
+			return row == null ? null : new LastSession(row.CreatedAt, row.Ip, row.Country, row.Client);
+		}
+
+		// Device matches first, then accounts that only share an address, a hint for staff, never proof
+		public static async Task<List<DuplicateAccount>> GetDuplicates(AppDbContext db, long userID, CancellationToken cancellationToken = default)
+		{
+			var byDevice = await (
+				from mine in db.Devices.AsNoTracking()
+				join other in db.Devices.AsNoTracking() on new { mine.Kind, mine.ValueHmac } equals new { other.Kind, other.ValueHmac }
+				where mine.UserID == userID && other.UserID != userID
+				group other by other.UserID into matches
+				select new { UserID = matches.Key, Shared = matches.Count(), Last = matches.Max(o => o.LastSeenAt) })
+				.OrderByDescending(m => m.Shared)
+				.ThenByDescending(m => m.Last)
+				.Take(MaximumDuplicates)
+				.ToListAsync(cancellationToken);
+
+			IQueryable<string> addresses = db.SessionEvents.AsNoTracking().Where(e => e.UserID == userID && e.Ip != "").Select(e => e.Ip).Distinct();
+			var byAddress = await db.SessionEvents.AsNoTracking()
+				.Where(e => e.UserID != userID && addresses.Contains(e.Ip))
+				.GroupBy(e => e.UserID)
+				.Select(g => new { UserID = g.Key, Shared = g.Select(e => e.Ip).Distinct().Count(), Last = g.Max(e => e.CreatedAt) })
+				.OrderByDescending(m => m.Last)
+				.Take(MaximumDuplicates)
+				.ToListAsync(cancellationToken);
+
+			HashSet<long> strong = byDevice.Select(m => m.UserID).ToHashSet();
+			var matched = byDevice.Select(m => (m.UserID, Match: DuplicateMatches.Device, m.Shared, m.Last))
+				.Concat(byAddress.Where(m => !strong.Contains(m.UserID)).Select(m => (m.UserID, Match: DuplicateMatches.Ip, m.Shared, m.Last)))
+				.Take(MaximumDuplicates)
+				.ToList();
+
+			List<long> ids = matched.Select(m => m.UserID).ToList();
+			var users = await db.Users.AsNoTracking()
+				.Where(u => ids.Contains(u.ID))
+				.Select(u => new { u.ID, u.Username, u.NameTag, u.State })
+				.ToDictionaryAsync(u => u.ID, cancellationToken);
+
+			// a row of a removed account names nobody
+			return matched.Where(m => users.ContainsKey(m.UserID))
+				.Select(m => new DuplicateAccount(m.UserID, users[m.UserID].Username, users[m.UserID].NameTag, users[m.UserID].State, m.Match, m.Shared, m.Last))
+				.ToList();
 		}
 	}
 

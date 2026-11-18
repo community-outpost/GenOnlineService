@@ -12,8 +12,8 @@ The deploy is greenfield: no client of the old routes is served. The game client
 |---|---|
 | `GET Users/Me`, `POST OID` | `GET /api/v1/me` |
 | `DELETE User` (a logout) | `DELETE /api/v1/auth/session` |
-| `POST EosToken` | `POST /api/v1/me/eos_token` |
-| `POST ProvideMWToken` | `PUT /api/v1/me/linked_accounts/eos` (body `{id_token}`) |
+| `POST EosToken` | `POST /api/v1/me/linked_accounts/eos/sign_in_token` (answers `{token, expires_in}`) |
+| `POST ProvideMWToken` | `PUT /api/v1/me/linked_accounts/eos` (body `{proof}`) |
 | `POST VersionCheck`, `POST /cloud/env:prod/VersionCheck` | `GET /api/v1/compatibility?client=&version=` |
 | `GET VersionManifest` | Removed. The launcher reads executable CRCs from the CDN release manifest |
 | `GET ServiceConfig`, `GET MOTD` | `GET /api/v1/config` |
@@ -30,6 +30,12 @@ The deploy is greenfield: no client of the old routes is served. The game client
 | `GET Monitoring/VersionCheck` | `GET /-/self_check/version` |
 
 New operator routes: personal access tokens, service accounts, player roles, audit events, application settings and announcements (see `docs/api.md`). New permissions `audit.read` and `settings.manage` are held by admins.
+
+### Match ids are snowflakes
+
+New matches get 48 bit snowflake ids made by the service: 32 bits of seconds since 2026-01-01 UTC, 5 bits of worker slot, 11 bits of sequence (`docs/schema.md`, Match ids). They are JSON numbers below 2^53 like before, never 0, and larger than every older match id, so ordering by id and `GET /api/v1/matches?after_id=` keep working. Older matches keep their ids. Player and lobby ids do not change.
+
+The migration `MatchIdWorkers` adds the `match_id_workers` table with 32 free worker slots. `matches.id` keeps its identity / `AUTO_INCREMENT` in this release, so a copy from before the switch still writes matches during a handover; a later release drops it. On MySQL/MariaDB, which runs a single copy only, an explicit id raises `AUTO_INCREMENT`: nothing may insert a match without an id once the new copy runs.
 
 ### Deploy day: Epic portal
 

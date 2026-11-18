@@ -60,6 +60,7 @@ public static class AuditTargetKinds
 	public const string Lobby = "lobby";
 	public const string Flag = "flag";
 	public const string FlagRevision = "flag_revision";
+	public const string AnticheatReport = "anticheat_report";
 }
 
 public static class ModerationActions
@@ -70,6 +71,8 @@ public static class ModerationActions
 	public const string Mute = "mute";
 	public const string Unmute = "unmute";
 	public const string Rename = "rename";
+	// staff replaced an inappropriate name with a placeholder; the player chooses a new one (S17)
+	public const string NameReset = "name_reset";
 	public const string RoleGrant = "role_grant";
 	public const string RoleRevoke = "role_revoke";
 	public const string MessageDelete = "message_delete";
@@ -80,6 +83,10 @@ public static class ModerationActions
 	public const string SettingUpdate = "setting_update";
 	public const string Announcement = "announcement";
 	public const string ConnectionLookup = "connection_lookup";
+
+	// A staff member opened the sign-ins, devices and addresses of a player
+	public const string PlayerInspect = "player_inspect";
+	public const string AnticheatReview = "anticheat_review";
 }
 
 public static class ModerationSources
@@ -309,7 +316,7 @@ namespace Database
 		}
 
 		// Newest first, below afterID when set; every filter is optional
-		public static async Task<List<AuditLogEntry>> GetAuditEvents(AppDbContext db, Int64? actorID, Int64? targetID, string? action, Int64? afterID, int limit)
+		public static async Task<List<AuditLogEntry>> GetAuditEvents(AppDbContext db, Int64? actorID, Int64? targetID, string? action, Int64? afterID, int limit, string? targetKind = null)
 		{
 			IQueryable<AuditLogEntry> query = db.AuditLog.AsNoTracking();
 			if (actorID != null)
@@ -320,6 +327,10 @@ namespace Database
 			if (targetID != null)
 			{
 				query = query.Where(e => e.TargetID == targetID);
+			}
+			if (targetKind != null)
+			{
+				query = query.Where(e => e.TargetKind == targetKind);
 			}
 			if (action != null)
 			{
@@ -494,6 +505,29 @@ namespace Database
 				db.ChangeTracker.Clear();
 			}
 			return active;
+		}
+
+		// One row per actor and player inside the window, written before the personal data is read, true when a row was written
+		public static async Task<bool> LogInspection(AppDbContext db, ModerationActor actor, Int64 target, DateTime now, TimeSpan window)
+		{
+			DateTime since = now - window;
+			bool logged = await db.AuditLog.AsNoTracking().AnyAsync(e => e.TargetKind == AuditTargetKinds.User && e.TargetID == target
+				&& e.Action == ModerationActions.PlayerInspect && e.ActorKind == actor.Kind && e.ActorID == actor.UserID && e.CreatedAt > since);
+			if (logged)
+			{
+				return false;
+			}
+
+			db.AuditLog.Add(UserEntry(actor, ModerationActions.PlayerInspect, target, null, null, now));
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			finally
+			{
+				db.ChangeTracker.Clear();
+			}
+			return true;
 		}
 
 		// Writes one audit row for a non user target and throws on failure, for actions that must not happen unlogged

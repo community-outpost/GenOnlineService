@@ -291,7 +291,7 @@ namespace GenOnlineService
 
 			(ApiToken token, string secret) = await ApiTokenAdmin.Rotate(db, settings, s_actor, old,
 				() => overlap = ApiTokenAdmin.CheckOverlap(parsed.Options.GetValueOrDefault("--overlap-minutes")),
-				() => parsed.Options.TryGetValue("--expires", out string? expiresText) ? ParseExpiry(expiresText) : null);
+				() => parsed.Options.TryGetValue("--expires", out string? expiresText) ? ParseExpiry(expiresText) : null, bFromHost: true);
 
 			Console.WriteLine($"Token {token.ID} replaces {old.ID}, which stops {(overlap == 0 ? "now" : $"in {overlap} minutes")}. The new token is shown once:");
 			Console.WriteLine(secret);

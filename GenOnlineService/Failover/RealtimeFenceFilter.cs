@@ -21,7 +21,8 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace GenOnlineService.Failover
 {
-	// A fenced copy runs no hub method and opens no connection: the caller is closed with server.restarting and reconnects to the active copy
+	// A fenced copy runs no hub method and opens no connection: a method caller is closed with server.restarting, a new connection is refused
+	// like on a standby (ServerSwitching, then service.unavailable); both reconnect to the active copy
 	public sealed class RealtimeFenceFilter : IHubFilter
 	{
 		private readonly Func<bool> m_fenced;
@@ -50,7 +51,14 @@ namespace GenOnlineService.Failover
 				return;
 			}
 
-			await CloseAsync(context.Context);
+			// a fenced copy serves no one, the caller goes to the copy that does
+			HubConnectionContext? transport = RealtimeLifetimeManager.Get(context.Context.ConnectionId);
+			if (transport != null)
+			{
+				await RealtimeAdmission.CloseAsync(transport, RealtimeAdmission.Standby());
+				return;
+			}
+			context.Context.Abort();
 		}
 
 		private static async Task CloseAsync(HubCallerContext caller)

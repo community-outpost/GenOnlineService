@@ -66,6 +66,8 @@ namespace GenOnlineService.Rest
 
 		// elo: all-time ELO of visible players with at least one rated match, highest first, ties by user id;
 		// rank is the position in that order, offset paged with ?page=&per_page=
+		[EndpointSummary("Reads a leaderboard.")]
+		[ProducesResponseType<LeaderboardResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/leaderboards/{id}")]
 		public async Task<IActionResult> Get(string id)
 		{

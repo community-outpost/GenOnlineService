@@ -1,0 +1,937 @@
+@* The staff player page: the page header (nav-02) with the moderation actions, stat cards (dashboard-01) for the ratings,
+   and tabs of cards with data tables (data-01) for sessions, sanctions, roles, recent matches (paged from
+   /api/v1/matches/search, as Matches.razor) and the personal data. Sanctions go through the
+   sanction rules of the service, the personal data needs players.inspect, granting and revoking roles roles.manage
+   under the host's rank rule, and the account menu's password and two-factor resets accounts.support; a new password
+   shows once, in a dialog with a copy button *@
+@page "/admin/players/{Id:long}"
+@inject PortalApi Api
+@inject ToastService Toasts
+
+<PageTitle>@(m_player?.FullName ?? "Player") · Generals Online</PageTitle>
+
+@if (m_error != null)
+{
+    @if (m_error == "not_found")
+    {
+        <Refusal Title="@($"No player {Id}")" Description="No account has this id." Icon="user-x" />
+    }
+    else
+    {
+        <Refusal Title="The player could not load" Description="@PortalText.Error(m_error)" Icon="circle-alert" />
+    }
+}
+else if (m_player == null)
+{
+    <div class="bb:space-y-4">
+        <div class="bb:flex bb:items-center bb:gap-4">
+            <BbSkeleton Class="bb:h-16 bb:w-16" />
+            <div class="bb:flex-1 bb:space-y-2">
+                <BbSkeleton Class="bb:h-8 bb:w-full bb:max-w-sm" />
+                <BbSkeleton Class="bb:h-4 bb:w-full bb:max-w-md" />
+            </div>
+        </div>
+        <div class="go-stats">
+            @for (int i = 0; i < 4; i++)
+            {
+                <BbSkeleton Class="go-skeleton-card" />
+            }
+        </div>
+        <BbSkeleton Class="go-skeleton-panel" />
+    </div>
+}
+else
+{
+    PortalPlayer player = m_player;
+    int activeSanctions = player.Sanctions.Count(s => s.Active);
+    <PageHeader Description="@($"Player id {player.Id} · created {PortalText.Date(player.CreatedAt)} · last sign-in {PortalText.Date(player.LastSignInAt)}")">
+        <Title>
+            <span class="bb:flex bb:items-center bb:gap-4">
+                <BbAvatar Class="bb:h-12 bb:w-12">
+                    <BbAvatarFallback>@PortalText.Initials(player.Name)</BbAvatarFallback>
+                </BbAvatar>
+                <span data-testid="player-name">@player.Name<span class="bb:text-muted-foreground">#@player.Tag</span></span>
+            </span>
+        </Title>
+        <Below>
+            <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2 bb:pt-1">
+                <BbBadge Variant="@PortalBadges.OfPlayerState(player.State)">@player.State</BbBadge>
+                <BbBadge Variant="@(player.Online ? BadgeVariant.Secondary : BadgeVariant.Outline)">
+                    <BbBadgeIcon Name="@(player.Online ? "wifi" : "wifi-off")" />
+                    @(player.Online ? "online" : "offline")
+                </BbBadge>
+                @if (player.Sanctions.Any(s => s.Active && s.Type == "ban"))
+                {
+                    <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="gavel" />banned</BbBadge>
+                }
+                @if (player.Sanctions.Any(s => s.Active && s.Type == "mute"))
+                {
+                    <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="mic-off" />muted</BbBadge>
+                }
+                @if (player.Roles.Count == 0)
+                {
+                    <BbBadge Variant="BadgeVariant.Outline">player</BbBadge>
+                }
+                @foreach (string role in player.Roles)
+                {
+                    <BbBadge Variant="BadgeVariant.Soft"><BbBadgeIcon Name="shield" />@role</BbBadge>
+                }
+            </div>
+        </Below>
+        <Actions>
+            @if (Session.Can(PortalPermissions.AuditRead))
+            {
+                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" Href="@PortalRoutes.AuditOf(player.Id)" data-testid="player-audit">
+                    <LucideIcon Name="scroll-text" Class="bb:h-4 bb:w-4" />
+                    Audit log
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.Kick))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("kick"))" Disabled="@(!player.Online)">
+                    <LucideIcon Name="log-out" Class="bb:h-4 bb:w-4" />
+                    Kick
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.Mute))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("mute"))">
+                    <LucideIcon Name="mic-off" Class="bb:h-4 bb:w-4" />
+                    Mute
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.Rename))
+            {
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("rename"))" Disabled="@(!player.CanRename)">
+                    <LucideIcon Name="pencil" Class="bb:h-4 bb:w-4" />
+                    Rename
+                </BbButton>
+                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("reset_name"))" Disabled="@(!player.CanRename)" data-testid="reset-name">
+                    <LucideIcon Name="eraser" Class="bb:h-4 bb:w-4" />
+                    Reset name
+                </BbButton>
+            }
+            @if (Session.Can(PortalPermissions.AccountsSupport))
+            {
+                <BbDropdownMenu>
+                    <BbDropdownMenuTrigger>
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-testid="account-menu">
+                            <LucideIcon Name="key-round" Class="bb:h-4 bb:w-4" />
+                            Account
+                            <LucideIcon Name="chevron-down" Class="bb:h-4 bb:w-4" />
+                        </BbButton>
+                    </BbDropdownMenuTrigger>
+                    <BbDropdownMenuContent Align="PopoverAlign.End">
+                        <BbDropdownMenuItem OnClick="@(_ => Open("password_reset"))" data-testid="reset-password">
+                            <LucideIcon Name="key-round" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Reset password
+                        </BbDropdownMenuItem>
+                        <BbDropdownMenuItem OnClick="@(_ => Open("two_factor_reset"))" data-testid="reset-two-factor">
+                            <LucideIcon Name="shield-off" Class="bb:h-4 bb:w-4 bb:me-2" />
+                            Reset two-factor
+                        </BbDropdownMenuItem>
+                    </BbDropdownMenuContent>
+                </BbDropdownMenu>
+            }
+            @if (Session.Can(PortalPermissions.Ban))
+            {
+                <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" OnClick="@(() => Open("ban"))" data-testid="ban">
+                    <LucideIcon Name="gavel" Class="bb:h-4 bb:w-4" />
+                    Ban
+                </BbButton>
+            }
+        </Actions>
+    </PageHeader>
+
+    <div class="go-stats">
+        <StatCard Label="Elo rating" Value="@player.EloRating.ToString()" Icon="trophy" Hint="Quickmatch, all time" />
+        <StatCard Label="Monthly Elo" Value="@player.MonthlyEloRating.ToString()" Icon="calendar" Hint="Quickmatch, this month" />
+        <StatCard Label="Rated matches" Value="@PortalText.Count(player.EloMatches)" Icon="swords" Hint="Quickmatch games counted" />
+        <StatCard Label="Active sanctions" Value="@activeSanctions.ToString()" Icon="gavel" Attention="@(activeSanctions > 0)" Hint="@($"{player.Sanctions.Count} on record")" />
+    </div>
+
+    <BbTabs DefaultValue="activity" OnValueChange="OnTabAsync">
+        <BbTabsList>
+            <BbTabsTrigger Value="activity">Activity</BbTabsTrigger>
+            <BbTabsTrigger Value="sanctions">Sanctions (@player.Sanctions.Count)</BbTabsTrigger>
+            <BbTabsTrigger Value="roles">Roles (@player.RoleGrants.Count)</BbTabsTrigger>
+            <BbTabsTrigger Value="matches">Matches</BbTabsTrigger>
+            <BbTabsTrigger Value="signins">Sign-ins and devices</BbTabsTrigger>
+            <BbTabsTrigger Value="duplicates">Possible duplicates</BbTabsTrigger>
+            <BbTabsTrigger Value="connections">Connections</BbTabsTrigger>
+        </BbTabsList>
+
+        <BbTabsContent Value="activity" Class="bb:mt-4">
+            <div class="go-dashboard">
+                <BbCard>
+                    <BbCardHeader>
+                        <BbCardTitle As="h2">Sessions</BbCardTitle>
+                        <BbCardDescription>The clients of this player connected to the service now.</BbCardDescription>
+                    </BbCardHeader>
+                    <BbCardContent>
+                        @if (player.Sessions.Count == 0)
+                        {
+                            <BbEmpty Size="EmptySize.Small" Title="Not connected" Description="No registered session.">
+                                <Icon>
+                                    <LucideIcon Name="plug-zap" />
+                                </Icon>
+                            </BbEmpty>
+                        }
+                        else
+                        {
+                            <div class="go-list">
+                                @foreach (PortalPlayerSession session in player.Sessions)
+                                {
+                                    <div class="go-list-item">
+                                        <LucideIcon Name="@(session.Kind == "game" ? "gamepad-2" : session.Kind == "chat" ? "message-square" : "rocket")" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        <span class="bb:flex-1 bb:text-sm"><span class="go-capitalize">@session.Kind</span> <span class="bb:font-mono bb:text-xs bb:text-muted-foreground">@session.ClientId</span></span>
+                                        <span class="bb:text-xs bb:text-muted-foreground">since @PortalText.Date(session.RegisteredAt)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @if (player.LobbyId is long lobbyID)
+                        {
+                            <p class="bb:mt-4 bb:text-sm">In lobby <BbLink Href="@PortalRoutes.LobbyPage(lobbyID)" Class="bb:font-mono" data-testid="player-lobby">@lobbyID</BbLink>.</p>
+                        }
+                    </BbCardContent>
+                </BbCard>
+
+                <BbCard>
+                    <BbCardHeader>
+                        <BbCardTitle As="h2">Last seen</BbCardTitle>
+                        <BbCardDescription>The address of the newest session, from the personal data.</BbCardDescription>
+                    </BbCardHeader>
+                    <BbCardContent>
+                        @if (m_inspection is PortalInspection seen)
+                        {
+                            <p class="bb:text-sm" data-testid="last-address">
+                                Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@(seen.LastCountry != null ? $" ({seen.LastCountry})" : "")@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
+                            </p>
+                        }
+                        else
+                        {
+                            <InspectionNote Permitted="@Session.Can(PortalPermissions.PlayersInspect)" Error="@m_inspectionError" />
+                        }
+                    </BbCardContent>
+                </BbCard>
+            </div>
+        </BbTabsContent>
+
+        <BbTabsContent Value="sanctions" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Sanctions</BbCardTitle>
+                    <BbCardDescription>Active and past kicks, mutes and bans. The service records who acted.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    <BbDataTable TData="PortalSanction" Data="@player.Sanctions" ShowToolbar="false" ShowPagination="@(player.Sanctions.Count > 10)" InitialPageSize="10" AriaLabel="Sanctions">
+                        <Columns>
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.Type)" Header="Type">
+                                <CellTemplate Context="sanction">
+                                    <span class="bb:inline-flex bb:items-center bb:gap-2 go-capitalize">
+                                        <LucideIcon Name="@PortalBadges.IconOfSanction(sanction.Type)" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        @sanction.Type
+                                    </span>
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => StateOf(s))" Header="State">
+                                <CellTemplate Context="sanction">
+                                    <BbBadge Variant="@PortalBadges.OfSanction(sanction.Active)">@StateOf(sanction)</BbBadge>
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.Reason)" Header="Reason" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.CreatedBy != null ? s.CreatedBy.FullName : "system")" Header="By" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => PortalText.Date(s.CreatedAt))" Header="Created" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="string" Property="@(s => s.Type == "kick" ? "" : s.ExpiresAt == null ? "never" : PortalText.Date(s.ExpiresAt))" Header="Ends" />
+                            <BbDataTableColumn TData="PortalSanction" TValue="long" Property="@(s => s.Id)" Header="Actions" HeaderClass="go-sr-header">
+                                <CellTemplate Context="sanction">
+                                    @if (sanction.Active && Session.Can(sanction.Type == "mute" ? PortalPermissions.Mute : PortalPermissions.Ban))
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Open("lift", sanction))">Lift</BbButton>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                        </Columns>
+                        <EmptyTemplate>
+                            <BbEmpty Size="EmptySize.Small" Title="A clean record" Description="No sanction on record.">
+                                <Icon>
+                                    <LucideIcon Name="shield-check" />
+                                </Icon>
+                            </BbEmpty>
+                        </EmptyTemplate>
+                    </BbDataTable>
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="roles" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Staff roles</BbCardTitle>
+                    <BbCardDescription>Local roles are granted here or with the roles CLI. A role from a sign-in provider follows that provider’s sign-ins and cannot be changed here. Every change is in the audit log.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent Class="bb:space-y-4">
+                    <BbDataTable TData="PortalRoleGrant" Data="@player.RoleGrants" ShowToolbar="false" ShowPagination="false" AriaLabel="Staff roles">
+                        <Columns>
+                            <BbDataTableColumn TData="PortalRoleGrant" TValue="string" Property="@(g => g.Role)" Header="Role">
+                                <CellTemplate Context="grant">
+                                    <span class="bb:inline-flex bb:items-center bb:gap-2" data-testid="role-row">
+                                        <LucideIcon Name="shield" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                        @grant.Role
+                                    </span>
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalRoleGrant" TValue="string" Property="@(g => g.Source)" Header="Source">
+                                <CellTemplate Context="grant">
+                                    @if (grant.Local)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline">local</BbBadge>
+                                    }
+                                    else
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="link" />from <span class="go-capitalize">@grant.Provider</span></BbBadge>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                            <BbDataTableColumn TData="PortalRoleGrant" TValue="string" Property="@(g => g.Role)" Header="Actions" HeaderClass="go-sr-header">
+                                <CellTemplate Context="grant">
+                                    @if (grant.Local && player.AssignableRoles.Contains(grant.Role))
+                                    {
+                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => OpenRevoke(grant.Role))" data-testid="revoke-role">Revoke</BbButton>
+                                    }
+                                </CellTemplate>
+                            </BbDataTableColumn>
+                        </Columns>
+                        <EmptyTemplate>
+                            <BbEmpty Size="EmptySize.Small" Title="A player" Description="No staff role, local or from a sign-in provider.">
+                                <Icon>
+                                    <LucideIcon Name="shield-off" />
+                                </Icon>
+                            </BbEmpty>
+                        </EmptyTemplate>
+                    </BbDataTable>
+
+                    @if (Session.Can(PortalPermissions.RolesManage))
+                    {
+                        string[] grantable = Grantable(player);
+                        @if (player.AssignableRoles.Count == 0)
+                        {
+                            <p class="bb:text-sm bb:text-muted-foreground" data-testid="roles-out-of-reach">You can change the roles of players you outrank only, and only roles below your own rank.</p>
+                        }
+                        else if (grantable.Length > 0)
+                        {
+                            <form class="bb:flex bb:flex-wrap bb:items-end bb:gap-2" @onsubmit="GrantAsync">
+                                <div class="bb:space-y-2">
+                                    <BbLabel For="grant-role">Grant a role</BbLabel>
+                                    <BbNativeSelect TValue="string" Id="grant-role" Value="@GrantChoice(grantable)" ValueChanged="@((string value) => m_grantRole = value)" Class="bb:w-40">
+                                        @foreach (string role in grantable)
+                                        {
+                                            <option value="@role">@role</option>
+                                        }
+                                    </BbNativeSelect>
+                                </div>
+                                <BbButton Type="ButtonType.Submit" Size="ButtonSize.Small" Loading="@m_granting" data-testid="grant-role">
+                                    <LucideIcon Name="shield-plus" Class="bb:h-4 bb:w-4" />
+                                    Grant
+                                </BbButton>
+                            </form>
+                        }
+                    }
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="matches" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <div class="go-card-head">
+                        <div class="go-card-head-text">
+                            <BbCardTitle As="h2">Recent matches</BbCardTitle>
+                            <BbCardDescription>The matches of this player, running and finished, the newest first, with what each came to for this player.</BbCardDescription>
+                        </div>
+                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Href="@PortalRoutes.MatchesOf(player.Id)" data-testid="player-all-matches">
+                            <LucideIcon Name="swords" Class="bb:h-4 bb:w-4" />
+                            All matches
+                        </BbButton>
+                    </div>
+                </BbCardHeader>
+                <BbCardContent>
+                    @if (m_matchesError != null)
+                    {
+                        <BbAlert Variant="AlertVariant.Danger" Class="bb:mb-4">
+                            <Icon>
+                                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+                            </Icon>
+                            <ChildContent>
+                                <BbAlertTitle>The matches could not load</BbAlertTitle>
+                                <BbAlertDescription>@PortalText.Error(m_matchesError)</BbAlertDescription>
+                            </ChildContent>
+                        </BbAlert>
+                    }
+                    <BbDataGrid @key="player.Id" TData="PortalMatchRow" ItemsProvider="@LoadMatchesAsync" ItemKey="@(m => m.Id)" InitialPageSize="10" PageSizes="@s_matchPageSizes" AriaLabel="Recent matches" data-testid="player-matches">
+                        <Columns>
+                            <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="long" Property="@(m => m.Id)" Title="Match" Width="100px" Hideable="false">
+                                <CellTemplate>
+                                    <BbLink Href="@PortalRoutes.MatchPage(context.Id)" Class="bb:font-mono" data-testid="match-link">@context.Id</BbLink>
+                                </CellTemplate>
+                            </BbDataGridPropertyColumn>
+                            <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="DateTime" Property="@(m => m.StartedAt)" Title="Started" Width="140px">
+                                <CellTemplate>
+                                    <span title="@(PortalText.Date(context.StartedAt) + " UTC")">@PortalText.Recent(context.StartedAt, m_matchesNow)</span>
+                                </CellTemplate>
+                            </BbDataGridPropertyColumn>
+                            <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => PortalText.Duration(m.DurationS))" Title="Length" Width="100px">
+                                <CellTemplate>
+                                    @if (context.DurationS is long seconds)
+                                    {
+                                        <span class="go-num">@PortalText.Duration(seconds)</span>
+                                    }
+                                    else
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Secondary"><span class="go-dot" aria-hidden="true"></span>running</BbBadge>
+                                    }
+                                </CellTemplate>
+                            </BbDataGridPropertyColumn>
+                            <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => MatchTypeOf(m.Type))" Title="Type" Width="120px">
+                                <CellTemplate>
+                                    <span class="@(context.Type == null ? "go-muted" : "")">@MatchTypeOf(context.Type)</span>
+                                </CellTemplate>
+                            </BbDataGridPropertyColumn>
+                            <BbDataGridPropertyColumn TData="PortalMatchRow" TProp="string" Property="@(m => m.Map.Name)" Title="Map">
+                                <CellTemplate>
+                                    @context.Map.Name
+                                    @if (!context.Map.Official)
+                                    {
+                                        <span class="go-muted"> (unofficial)</span>
+                                    }
+                                </CellTemplate>
+                            </BbDataGridPropertyColumn>
+                            <BbDataGridTemplateColumn TData="PortalMatchRow" Title="Result" Width="130px">
+                                <ChildContent Context="match">
+                                    @switch (match.ResultFor(player.Id))
+                                    {
+                                        case "won":
+                                            <span class="go-result-won" data-testid="match-result">
+                                                <LucideIcon Name="trophy" Class="bb:h-4 bb:w-4 go-icon-inline" />
+                                                won
+                                            </span>
+                                            break;
+                                        case "lost":
+                                            <span data-testid="match-result">lost</span>
+                                            break;
+                                        case string other:
+                                            <span class="go-muted" data-testid="match-result">@other</span>
+                                            break;
+                                    }
+                                </ChildContent>
+                            </BbDataGridTemplateColumn>
+                            <BbDataGridTemplateColumn TData="PortalMatchRow" Title="Flags" Width="150px">
+                                <ChildContent Context="match">
+                                    <div class="go-cell-badges">
+                                        @foreach (string flag in match.Flags)
+                                        {
+                                            <BbBadge Variant="@(flag == "no_result" ? BadgeVariant.Outline : BadgeVariant.SoftDestructive)">@MatchFlagOf(flag)</BbBadge>
+                                        }
+                                    </div>
+                                </ChildContent>
+                            </BbDataGridTemplateColumn>
+                        </Columns>
+                        <EmptyTemplate>
+                            <BbEmpty Size="EmptySize.Small" Title="No matches yet" Description="This player has not played a match.">
+                                <Icon>
+                                    <LucideIcon Name="swords" />
+                                </Icon>
+                            </BbEmpty>
+                        </EmptyTemplate>
+                        <LoadingTemplate>
+                            <p class="bb:p-4 bb:text-sm bb:text-muted-foreground" role="status">Loading…</p>
+                        </LoadingTemplate>
+                    </BbDataGrid>
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="signins" Class="bb:mt-4">
+            @if (m_inspection is PortalInspection inspection)
+            {
+                <div class="bb:space-y-4">
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">Sign-ins</BbCardTitle>
+                            <BbCardDescription>The accounts at sign-in providers linked to this player.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <BbDataTable TData="PortalIdentity" Data="@inspection.Identities" ShowToolbar="false" ShowPagination="false" AriaLabel="Sign-ins">
+                                <Columns>
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => i.Provider)" Header="Provider" CellClass="go-capitalize" />
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => i.ExternalId)" Header="External id">
+                                        <CellTemplate Context="identity">
+                                            @if (identity.ProfileUrl != null)
+                                            {
+                                                <BbLink Href="@identity.ProfileUrl" Target="_blank" ShowExternalIcon="true"><span class="bb:font-mono">@identity.ExternalId</span></BbLink>
+                                            }
+                                            else
+                                            {
+                                                <span class="bb:font-mono">@identity.ExternalId</span>
+                                            }
+                                        </CellTemplate>
+                                    </BbDataTableColumn>
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => PortalText.Date(i.LinkedAt))" Header="Linked" />
+                                    <BbDataTableColumn TData="PortalIdentity" TValue="string" Property="@(i => PortalText.Date(i.LastUsedAt))" Header="Last used" />
+                                </Columns>
+                                <EmptyTemplate>
+                                    <BbEmpty Size="EmptySize.Small" Title="No sign-in linked" Description="This player signs in with a password only, or not at all." />
+                                </EmptyTemplate>
+                            </BbDataTable>
+                        </BbCardContent>
+                    </BbCard>
+
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">Devices</BbCardTitle>
+                            <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows, never the value itself.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <BbDataTable TData="PortalDevice" Data="@inspection.Devices" ShowToolbar="false" ShowPagination="@(inspection.Devices.Count > 10)" InitialPageSize="10" AriaLabel="Devices">
+                                <Columns>
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Kind)" Header="Kind" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.Fingerprint)" Header="Fingerprint" CellClass="bb:font-mono" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => PortalText.Date(d.FirstSeenAt))" Header="First seen" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => PortalText.Date(d.LastSeenAt))" Header="Last seen" />
+                                    <BbDataTableColumn TData="PortalDevice" TValue="string" Property="@(d => d.LastIp)" Header="Last address" CellClass="bb:font-mono" />
+                                </Columns>
+                                <EmptyTemplate>
+                                    <BbEmpty Size="EmptySize.Small" Title="No device on record" />
+                                </EmptyTemplate>
+                            </BbDataTable>
+                        </BbCardContent>
+                    </BbCard>
+
+                    <BbCard>
+                        <BbCardHeader>
+                            <BbCardTitle As="h2">IP addresses</BbCardTitle>
+                            <BbCardDescription>The addresses of the sessions of the last 90 days.</BbCardDescription>
+                        </BbCardHeader>
+                        <BbCardContent>
+                            <BbDataTable TData="PortalAddress" Data="@inspection.Addresses" ShowToolbar="false" ShowPagination="@(inspection.Addresses.Count > 10)" InitialPageSize="10" AriaLabel="IP addresses">
+                                <Columns>
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Ip)" Header="Address" CellClass="bb:font-mono" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => a.Country)" Header="Country" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Date(a.FirstSeenAt))" Header="First seen" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="string" Property="@(a => PortalText.Date(a.LastSeenAt))" Header="Last seen" />
+                                    <BbDataTableColumn TData="PortalAddress" TValue="int" Property="@(a => a.Events)" Header="Sessions" />
+                                </Columns>
+                                <EmptyTemplate>
+                                    <BbEmpty Size="EmptySize.Small" Title="No session on record" />
+                                </EmptyTemplate>
+                            </BbDataTable>
+                        </BbCardContent>
+                    </BbCard>
+                </div>
+            }
+            else
+            {
+                <BbCard>
+                    <BbCardContent Class="bb:pt-6">
+                        <InspectionNote Permitted="@Session.Can(PortalPermissions.PlayersInspect)" Error="@m_inspectionError" />
+                    </BbCardContent>
+                </BbCard>
+            }
+        </BbTabsContent>
+
+        <BbTabsContent Value="duplicates" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Possible duplicate accounts</BbCardTitle>
+                    <BbCardDescription>Other accounts seen on the same device (strong) or only on the same address (weak). A match is a hint: validate it manually before acting.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    @if (m_inspection is PortalInspection found)
+                    {
+                        <BbDataTable TData="PortalDuplicate" Data="@found.Duplicates" ShowToolbar="false" ShowPagination="@(found.Duplicates.Count > 10)" InitialPageSize="10" AriaLabel="Possible duplicate accounts">
+                            <Columns>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.FullName)" Header="Player">
+                                    <CellTemplate Context="duplicate">
+                                        <BbLink Href="@PortalRoutes.PlayerPage(duplicate.Id)">@duplicate.FullName</BbLink>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.State)" Header="State">
+                                    <CellTemplate Context="duplicate">
+                                        <BbBadge Variant="@PortalBadges.OfPlayerState(duplicate.State)">@duplicate.State</BbBadge>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.Match == "device" ? $"{d.Shared} shared device value(s)" : $"{d.Shared} shared address(es)")" Header="Match" />
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => d.Match)" Header="Confidence">
+                                    <CellTemplate Context="duplicate">
+                                        <BbBadge Variant="@(duplicate.Match == "device" ? BadgeVariant.SoftDestructive : BadgeVariant.Outline)">@(duplicate.Match == "device" ? "strong" : "weak")</BbBadge>
+                                    </CellTemplate>
+                                </BbDataTableColumn>
+                                <BbDataTableColumn TData="PortalDuplicate" TValue="string" Property="@(d => PortalText.Date(d.LastSeenAt))" Header="Last seen" />
+                            </Columns>
+                            <EmptyTemplate>
+                                <BbEmpty Size="EmptySize.Small" Title="No duplicates" Description="No other account shares a device or an address.">
+                                    <Icon>
+                                        <LucideIcon Name="users" />
+                                    </Icon>
+                                </BbEmpty>
+                            </EmptyTemplate>
+                        </BbDataTable>
+                    }
+                    else
+                    {
+                        <InspectionNote Permitted="@Session.Can(PortalPermissions.PlayersInspect)" Error="@m_inspectionError" />
+                    }
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+
+        <BbTabsContent Value="connections" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Connection reports</BbCardTitle>
+                    <BbCardDescription>The connection attempts this player reported and the ones other players reported to this player, the newest first. Opening the tab is in the audit log.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    @if (m_connectionsError != null)
+                    {
+                        <BbAlert Variant="AlertVariant.Danger" Class="bb:mb-4">
+                            <Icon>
+                                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+                            </Icon>
+                            <ChildContent>
+                                <BbAlertTitle>The connection reports could not load</BbAlertTitle>
+                                <BbAlertDescription>@PortalText.Error(m_connectionsError)</BbAlertDescription>
+                            </ChildContent>
+                        </BbAlert>
+                    }
+                    @if (m_connections == null)
+                    {
+                        <FeedSkeleton />
+                    }
+                    else
+                    {
+                        <ConnectionReportTable Reports="@m_connections.Reports" ShowLobby="true" />
+                    }
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
+    </BbTabs>
+
+    <BbDialog @bind-Open="m_dialogOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>@TitleOf(player)</BbDialogTitle>
+                <BbDialogDescription>@DescriptionOf()</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                @if (m_action == "rename")
+                {
+                    <div class="bb:space-y-2">
+                        <BbLabel For="new-name">New display name</BbLabel>
+                        <BbInput Id="new-name" @bind-Value="m_name" autocomplete="off" spellcheck="false" />
+                    </div>
+                }
+                @if (m_action == "mute" || m_action == "ban")
+                {
+                    <div class="bb:space-y-2">
+                        <BbLabel For="duration">Duration</BbLabel>
+                        <BbNativeSelect TValue="string" Id="duration" @bind-Value="m_duration" Class="bb:w-full">
+                            @foreach ((string seconds, string text) in m_action == "mute" ? s_muteDurations : s_banDurations)
+                            {
+                                <option value="@seconds">@text</option>
+                            }
+                        </BbNativeSelect>
+                    </div>
+                }
+                @if (m_action != "revoke_role")
+                {
+                    <div class="bb:space-y-2">
+                        <BbLabel For="reason">Reason@(ReasonRequired ? "" : " (optional)")</BbLabel>
+                        <BbTextarea Id="reason" @bind-Value="m_reason" Placeholder="Kept in the audit log…" autocomplete="off" />
+                    </div>
+                }
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_dialogOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton Variant="@(m_action is "ban" or "revoke_role" or "reset_name" or "password_reset" or "two_factor_reset" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" Disabled="@(ReasonRequired && m_action != "ban" && String.IsNullOrWhiteSpace(m_reason))" data-testid="confirm">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog Open="@(m_password != null)" OpenChanged="@((bool open) => { if (!open) m_password = null; })">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Copy the new password now</BbDialogTitle>
+                <BbDialogDescription>The new password of @player.FullName</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-4">
+                <BbAlert Variant="AlertVariant.Warning">
+                    <Icon>
+                        <LucideIcon Name="triangle-alert" Class="bb:h-4 bb:w-4" />
+                    </Icon>
+                    <ChildContent>
+                        <BbAlertTitle>This is the only time the password is shown</BbAlertTitle>
+                        <BbAlertDescription>Give it only to the owner of the account, in a private message after checking who they are, never in a public channel. Ask them to change it after signing in. Once this dialog closes, a lost password can only be reset again.</BbAlertDescription>
+                    </ChildContent>
+                </BbAlert>
+                <div class="bb:flex bb:items-center bb:gap-2">
+                    <BbInput Value="@m_password" readonly Class="bb:font-mono bb:flex-1" AriaLabel="The new password" data-testid="password-secret" />
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="CopyPasswordAsync" data-testid="copy-password">
+                        <LucideIcon Name="copy" Class="bb:h-4 bb:w-4" />
+                        Copy
+                    </BbButton>
+                </div>
+            </div>
+            <BbDialogFooter>
+                <BbButton OnClick="@(() => m_password = null)" data-testid="password-done">I passed it on</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+}
+
+@code {
+    private static readonly (string Seconds, string Text)[] s_muteDurations =
+    {
+        ("3600", "1 hour"), ("86400", "1 day"), ("604800", "7 days"), ("2592000", "30 days")
+    };
+
+    // An empty value is a ban without an end
+    private static readonly (string Seconds, string Text)[] s_banDurations =
+    {
+        ("86400", "1 day"), ("604800", "7 days"), ("2592000", "30 days"), ("", "Permanent")
+    };
+
+    [Parameter]
+    public long Id { get; set; }
+
+    private PortalPlayer? m_player;
+    private PortalInspection? m_inspection;
+    // the Connections tab loads when it is first opened, the host audits that read
+    private PortalConnectionReports? m_connections;
+    private string? m_connectionsError;
+    private string? m_error;
+    private string? m_inspectionError;
+
+    private bool m_dialogOpen;
+    private bool m_saving;
+    private string m_action = "kick";
+    private PortalSanction? m_lifting;
+    private string? m_name;
+    private string? m_duration;
+    private string? m_reason;
+    private string? m_role;
+    private string? m_grantRole;
+    private bool m_granting;
+
+    // The new password of a reset, until the dialog that shows it once closes
+    private string? m_password;
+
+    // A ban and the account resets carry a reason for the audit log
+    private bool ReasonRequired => m_action is "ban" or "password_reset" or "two_factor_reset";
+
+    // the Matches tab: 10 or 20 rows a page
+    private static readonly int[] s_matchPageSizes = { 10, 20 };
+    private string? m_matchesError;
+    private DateTime m_matchesNow = DateTime.UtcNow;
+
+    // The layout renders pages only once the session is known
+    private PortalSessionInfo Session => Api.Session!;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        m_player = null;
+        m_inspection = null;
+        m_inspectionError = null;
+        m_connections = null;
+        m_connectionsError = null;
+        await LoadAsync();
+
+        // the host audits this read, so it runs once per opened page and not after each action
+        if (m_player != null && Session.Can(PortalPermissions.PlayersInspect))
+        {
+            PortalAnswer<PortalInspection> answer = await Api.GetInspectionAsync(Id);
+            m_inspection = answer.Value;
+            m_inspectionError = answer.Ok ? null : answer.Error;
+        }
+    }
+
+    private async Task OnTabAsync(string? tab)
+    {
+        if (tab != "connections" || m_connections != null)
+        {
+            return;
+        }
+        PortalAnswer<PortalConnectionReports> answer = await Api.GetPlayerConnectionsAsync(Id);
+        m_connections = answer.Value ?? new PortalConnectionReports();
+        m_connectionsError = answer.Ok ? null : answer.Error;
+    }
+
+    private async Task LoadAsync()
+    {
+        PortalAnswer<PortalPlayer> answer = await Api.GetPlayerAsync(Id);
+        m_player = answer.Value;
+        m_error = answer.Ok ? null : answer.Error;
+    }
+
+    // The player's matches, a page at a time; a failed page shows the alert above the grid
+    private async ValueTask<BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalMatchRow>> LoadMatchesAsync(BlazorBlueprint.Primitives.DataGrid.DataGridRequest request)
+    {
+        int count = request.Count ?? s_matchPageSizes[0];
+        PortalAnswer<PortalMatchPage> answer = await Api.ListMatchesAsync(PortalMatchQuery.OfPlayer(Id), request.StartIndex, count, request.CancellationToken);
+        m_matchesNow = DateTime.UtcNow;
+        string? error = answer.Ok ? null : answer.Error;
+        if (error != m_matchesError)
+        {
+            m_matchesError = error;
+            StateHasChanged();
+        }
+
+        PortalMatchPage page = answer.Value ?? new PortalMatchPage();
+        // past the host's count the grid learns of one more page at a time
+        int total = page.Total ?? request.StartIndex + page.Matches.Count + (page.HasNext ? count : 0);
+        return new BlazorBlueprint.Primitives.DataGrid.DataGridResult<PortalMatchRow> { Items = page.Matches.ToList(), TotalItemCount = total };
+    }
+
+    private static string MatchTypeOf(string? type) => type switch
+    {
+        "quick_match" => "Quick match",
+        "custom" => "Custom lobby",
+        _ => "unknown"
+    };
+
+    private static string MatchFlagOf(string flag) => flag switch
+    {
+        "no_result" => "no result",
+        "anticheat" => "anti-cheat",
+        _ => flag
+    };
+
+    private static string StateOf(PortalSanction sanction) => sanction.Active ? "active" : sanction.LiftedAt != null ? "lifted" : sanction.Type == "kick" ? "done" : "expired";
+
+    private string TitleOf(PortalPlayer player) => m_action switch
+    {
+        "lift" => $"Lift the {m_lifting?.Type} of {player.FullName}",
+        "revoke_role" => $"Revoke {m_role} from {player.FullName}",
+        "rename" => $"Rename {player.FullName}",
+        "reset_name" => $"Reset the name of {player.FullName}",
+        "password_reset" => $"Reset the password of {player.FullName}",
+        "two_factor_reset" => $"Turn off two-factor sign-in of {player.FullName}",
+        _ => $"{char.ToUpperInvariant(m_action[0])}{m_action.Substring(1)} {player.FullName}"
+    };
+
+    private string DescriptionOf() => m_action switch
+    {
+        "kick" => "Closes the connections of the player. The player may connect again at once.",
+        "mute" => "The player stays connected and cannot send chat messages until the mute ends.",
+        "ban" => "The player cannot play until the ban ends or is lifted. A ban needs a reason.",
+        "rename" => "Replaces an offensive name. The tag stays.",
+        "reset_name" => "A placeholder replaces the name and every sign-in of the player ends now. The player picks a new name at the next sign-in.",
+        "password_reset" => "A new random password replaces the current one at once and is shown to you once. The old password stops working, a lockout ends and website sign-ins end within a minute; game sign-ins made before stay. Only do this after checking that you are talking to the owner of the account.",
+        "two_factor_reset" => "Two-factor sign-in turns off at once: the authenticator app and every recovery code are removed, the password stays. A lockout ends and website sign-ins end within a minute. The player can set it up again. Only do this after checking that you are talking to the owner of the account.",
+        "revoke_role" => "The player loses this role and its permissions at once. The change is in the audit log.",
+        _ => "The sanction ends now and stays on record."
+    };
+
+    private void Open(string action, PortalSanction? sanction = null)
+    {
+        m_action = action;
+        m_lifting = sanction;
+        m_name = m_player?.Name;
+        m_duration = action == "mute" ? s_muteDurations[0].Seconds : s_banDurations[0].Seconds;
+        m_reason = null;
+        m_dialogOpen = true;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        string? reason = String.IsNullOrWhiteSpace(m_reason) ? null : m_reason.Trim();
+        long? duration = long.TryParse(m_duration, out long seconds) ? seconds : null;
+
+        m_saving = true;
+        if (m_action == "password_reset")
+        {
+            PortalAnswer<PortalPasswordReset> reset = await Api.ResetPasswordAsync(Id, reason);
+            m_saving = false;
+            m_dialogOpen = false;
+            if (reset.Ok)
+            {
+                m_password = reset.Value!.Password;
+            }
+            else
+            {
+                Toasts.Error(PortalText.Error(reset.Error), "Not done");
+            }
+            return;
+        }
+
+        PortalOutcome outcome = m_action switch
+        {
+            "revoke_role" => await Api.RevokeRoleAsync(Id, m_role!),
+            "lift" => await Api.LiftSanctionAsync(m_lifting!.Id, reason),
+            "rename" => await Api.RenamePlayerAsync(Id, m_name, reason),
+            "reset_name" => await Api.ResetNameAsync(Id, reason),
+            "two_factor_reset" => await Api.ResetTwoFactorAsync(Id, reason),
+            "kick" => await Api.CreateSanctionAsync(Id, m_action, null, reason),
+            _ => await Api.CreateSanctionAsync(Id, m_action, duration, reason)
+        };
+        m_saving = false;
+        m_dialogOpen = false;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success("The change is saved and in the audit log.", "Done");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Not done");
+        }
+        await LoadAsync();
+    }
+
+    private async Task CopyPasswordAsync()
+    {
+        if (m_password != null && await Api.CopyAsync(m_password))
+        {
+            Toasts.Success("The password is on the clipboard.", "Copied");
+        }
+    }
+
+    // Revoking asks first; the dialog carries no reason, the roles routes take none
+    private void OpenRevoke(string role)
+    {
+        m_role = role;
+        Open("revoke_role");
+    }
+
+    // The roles the caller may grant that the player does not hold locally yet
+    private static string[] Grantable(PortalPlayer player) => player.AssignableRoles.Where(role => !player.RoleGrants.Any(g => g.Local && g.Role == role)).ToArray();
+
+    // The chosen role, or the first one offered until a choice is made
+    private string GrantChoice(string[] grantable) => m_grantRole != null && grantable.Contains(m_grantRole) ? m_grantRole : grantable[0];
+
+    private async Task GrantAsync()
+    {
+        string[] grantable = m_player == null ? [] : Grantable(m_player);
+        if (grantable.Length == 0)
+        {
+            return;
+        }
+
+        string role = GrantChoice(grantable);
+        m_granting = true;
+        PortalOutcome outcome = await Api.GrantRoleAsync(Id, role);
+        m_granting = false;
+        m_grantRole = null;
+
+        if (outcome.Ok)
+        {
+            Toasts.Success($"{role} is granted and in the audit log.", "Done");
+        }
+        else
+        {
+            Toasts.Error(PortalText.Error(outcome.Error), "Not done");
+        }
+        await LoadAsync();
+    }
+}

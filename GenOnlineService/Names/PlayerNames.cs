@@ -22,31 +22,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GenOnlineService.Names
 {
-	// Every rename (PATCH /api/v1/me, PATCH /api/v1/players/:id, the Discord bot), AccountsSettings.NameOwner picks who performs it
+	// Every rename (PATCH /api/v1/me, PATCH /api/v1/players/:id, the Discord bot): this environment owns names and tags
 	public sealed class PlayerNames
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
-		private readonly AccountsSettings m_accounts;
-		private readonly KeycloakRenameClient m_plugin;
-		private readonly KeycloakChangeLog? m_changeLog;
 
-		public PlayerNames(IDbContextFactory<AppDbContext> dbFactory, AccountsSettings accounts, KeycloakRenameClient plugin, KeycloakChangeLog? changeLog = null)
+		public PlayerNames(IDbContextFactory<AppDbContext> dbFactory)
 		{
 			m_dbFactory = dbFactory;
-			m_accounts = accounts;
-			m_plugin = plugin;
-			m_changeLog = changeLog;
 		}
 
 		// The player renames themselves, the tag stays
 		public async Task<Result<Empty>> RenameSelfAsync(Int64 me, string? requested)
 		{
-			NameOwner owner = m_accounts.NameOwner;
-			if (owner == NameOwner.Managed)
-			{
-				return Result.Fail(ErrorCodes.NameManaged);
-			}
-
 			string name = requested ?? String.Empty;
 			Failure? invalid = CheckRules(me, name);
 			if (invalid != null)
@@ -54,8 +42,46 @@ namespace GenOnlineService.Names
 				return invalid.Value;
 			}
 
-			(Result<Empty> result, _) = await RenameAsync(owner, me, name, $"user:{me}", $"player:{me}", null);
+			(Result<Empty> result, _) = await RenameAsync(me, name, $"user:{me}");
 			return result;
+		}
+
+		// The player chooses the name they owe (S17), with the rules of a rename; a taken tag draws a free one instead
+		public async Task<Result<Empty>> ChooseAsync(Int64 me, string? requested)
+		{
+			string name = (requested ?? String.Empty).Trim();
+			Failure? invalid = CheckRules(me, name);
+			if (invalid != null)
+			{
+				return invalid.Value;
+			}
+			// the placeholder's own shape would settle the debt and still look owed
+			if (Database.DisplayNames.IsPlaceholderShaped(name))
+			{
+				return Result.Fail(ErrorCodes.NameReserved, new { Word = "player" });
+			}
+
+			bool found;
+			NameChange? change;
+			try
+			{
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+				(found, change) = await Database.DisplayNames.Choose(db, me, name, $"user:{me}");
+			}
+			catch (NameTagsExhaustedException)
+			{
+				return Result.Fail(ErrorCodes.NameTaken);
+			}
+
+			if (!found)
+			{
+				return Result.NotFound("user");
+			}
+			if (change != null)
+			{
+				await RealtimeNames.PublishOne(change);
+			}
+			return Result.Success();
 		}
 
 		// Staff replace an offensive name: moderation.rename (checked by the caller), the rank rule and an audit_log row
@@ -66,12 +92,6 @@ namespace GenOnlineService.Names
 			if (failure != null)
 			{
 				return failure.Value;
-			}
-
-			NameOwner owner = m_accounts.NameOwner;
-			if (owner == NameOwner.Managed)
-			{
-				return Result.Fail(ErrorCodes.NameManaged);
 			}
 
 			string name = requested ?? String.Empty;
@@ -91,9 +111,7 @@ namespace GenOnlineService.Names
 				return Result.NotFound("user");
 			}
 
-			// the Discord bot speaks as discord:<id>, everyone else as the player
-			string pluginActor = actor.Kind == AuditActorKinds.Discord ? actor.Name : $"player:{actor.UserID}";
-			(Result<Empty> result, bool renamed) = await RenameAsync(owner, target, name, actor.Name, pluginActor, reason);
+			(Result<Empty> result, bool renamed) = await RenameAsync(target, name, actor.Name);
 
 			// renaming to the current name changes nothing and leaves no audit row
 			if (result.Ok && renamed)
@@ -107,6 +125,47 @@ namespace GenOnlineService.Names
 				});
 			}
 			return result;
+		}
+
+		// Staff flag an inappropriate name (S17): moderation.rename (checked by the caller) and the rank rule, then a neutral
+		// placeholder, the player owes a new name and every sign-in ends, so the next one asks at once; audited with both names.
+		// live is false outside the running service (the CLI), which can only revoke the stored sign-ins.
+		public async Task<Result<Empty>> ResetNameByStaffAsync(Database.ModerationActor actor, Int64 target, string? reason, bool live = true)
+		{
+			int actorRank = actor.UserID is Int64 actorID ? StaffRoles.Rank(actorID) : StaffRoles.AdminRank;
+			Failure? failure = CheckStaff(actor.UserID, actorRank, target, StaffRoles.Rank(target), reason);
+			if (failure != null)
+			{
+				return failure.Value;
+			}
+
+			NameChange? change;
+			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
+			{
+				change = await Database.DisplayNames.ResetName(db, target, actor.Name);
+				if (change == null)
+				{
+					return Result.NotFound("user");
+				}
+
+				await Database.Moderation.LogAction(db, actor, ModerationActions.NameReset, AuditTargetKinds.User, target, String.IsNullOrEmpty(reason) ? null : reason, new
+				{
+					from = Database.DisplayNames.Format(change.OldName, change.OldTag),
+					to = Database.DisplayNames.Format(change.NewName, change.NewTag)
+				});
+
+				if (!live)
+				{
+					await SignInRevocation.RevokeStored(db, target);
+				}
+			}
+
+			if (live)
+			{
+				await RealtimeNames.PublishOne(change);
+				await SessionRevocation.RevokeUser(target, false, "name reset");
+			}
+			return Result.Success();
 		}
 
 		// The rank rule and the reason limit of every staff action, staff never act on themselves
@@ -147,13 +206,8 @@ namespace GenOnlineService.Names
 		}
 
 		// Renamed is true when the name actually changed
-		private async Task<(Result<Empty> Result, bool Renamed)> RenameAsync(NameOwner owner, Int64 userID, string name, string changedBy, string pluginActor, string? reason)
+		private async Task<(Result<Empty> Result, bool Renamed)> RenameAsync(Int64 userID, string name, string changedBy)
 		{
-			if (owner == NameOwner.Plugin)
-			{
-				return await RenameThroughPluginAsync(userID, name, changedBy, pluginActor, reason);
-			}
-
 			LocalRenameOutcome outcome;
 			NameChange? change;
 			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
@@ -173,40 +227,6 @@ namespace GenOnlineService.Names
 
 			await RealtimeNames.PublishOne(change!);
 			return (Result.Success(), true);
-		}
-
-		// Prod applies the plugin's answer at once and leaves last_seq to the change-log consumer, whose entry carries the same state.
-		// With the change log the answer is applied under its last_seq row lock, so a racing push of the same seq writes nothing.
-		private async Task<(Result<Empty> Result, bool Renamed)> RenameThroughPluginAsync(Int64 userID, string name, string changedBy, string pluginActor, string? reason)
-		{
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
-			{
-				if (!await Database.Users.Exists(db, userID))
-				{
-					return (Result.NotFound("user"), false);
-				}
-			}
-
-			PluginRenameResult answer = await m_plugin.RenameAsync(userID, name, pluginActor, reason);
-			if (!answer.Ok)
-			{
-				return (answer.Failure!.Value, false);
-			}
-
-			if (m_changeLog != null)
-			{
-				// the change log publishes after its commit
-				await m_changeLog.ApplyAnswer(userID, answer.Name, answer.Tag, changedBy);
-				return (Result.Success(), answer.Seq != null);
-			}
-
-			IReadOnlyList<NameChange> changes;
-			await using (AppDbContext db = await m_dbFactory.CreateDbContextAsync())
-			{
-				changes = await Database.DisplayNames.ApplyUpstream(db, userID, answer.Name, answer.Tag, changedBy);
-			}
-			RealtimeNames.Publish(changes);
-			return (Result.Success(), answer.Seq != null);
 		}
 	}
 }

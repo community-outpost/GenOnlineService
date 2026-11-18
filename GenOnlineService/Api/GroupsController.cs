@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.OpenApi;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,9 @@ namespace GenOnlineService.Api
 			m_dbFactory = dbFactory;
 		}
 
+		[EndpointSummary("Creates a chat group owned by the caller.")]
+		[ProducesResponseType<CreateGroupResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(CreateGroupRequest))]
 		[HttpPost("~/api/v1/groups")]
 		public async Task<IActionResult> Create()
 		{
@@ -45,6 +49,9 @@ namespace GenOnlineService.Api
 			return ApiResults.Answer(await GroupActions.CreateAsync(m_dbFactory, Me, body ?? new CreateGroupRequest()));
 		}
 
+		[EndpointSummary("Adds members to a chat group.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(AddGroupMembersRequest))]
 		[HttpPost("~/api/v1/groups/{groupID:long}/members")]
 		public async Task<IActionResult> AddMembers(long groupID)
 		{
@@ -57,9 +64,14 @@ namespace GenOnlineService.Api
 		}
 
 		// The caller's own id leaves the group
+		[EndpointSummary("Removes a member from a chat group, or leaves it.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
 		[HttpDelete("~/api/v1/groups/{groupID:long}/members/{userID:long}")]
 		public async Task<IActionResult> RemoveMember(long groupID, long userID) => ApiResults.NoContent(await GroupActions.RemoveMemberAsync(m_dbFactory, Me, groupID, userID));
 
+		[EndpointSummary("Renames a chat group or clears its name.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(RenameGroupRequest))]
 		[HttpPatch("~/api/v1/groups/{groupID:long}")]
 		public async Task<IActionResult> Rename(long groupID)
 		{

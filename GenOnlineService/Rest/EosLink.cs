@@ -29,9 +29,12 @@ namespace GenOnlineService.Rest
 {
 	public enum EosLinkOutcome { Linked, InUse, Locked }
 
-	// Validates the Epic ID token of PUT /api/v1/me/linked_accounts/eos and maps every refusal to its code
+	// Validates the Epic Connect ID token that PUT /api/v1/me/linked_accounts/eos takes as proof and maps every refusal to its code
 	public static class EosLink
 	{
+		// The provider name of the linked-account routes
+		public const string Provider = "eos";
+
 		private static readonly ILogger s_log = AppLog.For(typeof(EosLink));
 
 		public static string? GetClaimValue(ClaimsPrincipal principal, string claimType)
@@ -273,24 +276,18 @@ namespace GenOnlineService.Rest
 			public string E { get; set; } = String.Empty;
 		}
 
-		// A missing body or an empty id_token is invalid_argument {field: id_token}
-		public static Failure? ValidateRequest(LinkEosRequest? body)
-		{
-			return String.IsNullOrEmpty(body?.IdToken) ? Result.Invalid("id_token") : null;
-		}
-
 		// A rejected token is the caller's fault, a JWKS fetch that fails is ours; any other exception is not handled here
 		public static Failure? FailureOfValidation(Exception ex)
 		{
 			if (ex is SecurityTokenException || ex is ArgumentException)
 			{
-				return Result.Fail(RestCodes.EosInvalidToken);
+				return LinkedAccounts.InvalidProof(Provider);
 			}
 
 			if (ex is HttpRequestException || ex is TaskCanceledException || ex is JsonException
 				|| ex is CryptographicException || ex is NotSupportedException || ex is InvalidOperationException)
 			{
-				return Result.Fail(RestCodes.ServiceUnavailable, new { What = "eos" });
+				return LinkedAccounts.Unavailable(Provider);
 			}
 
 			return null;
@@ -299,13 +296,13 @@ namespace GenOnlineService.Rest
 		// Every binding refusal is one code; the reason goes to the log only
 		public static Failure? FailureOfBinding(string? bindingError)
 		{
-			return bindingError == null ? null : Result.Fail(RestCodes.EosAccountMismatch);
+			return bindingError == null ? null : LinkedAccounts.Mismatch(Provider);
 		}
 
 		public static Failure? FailureOf(EosLinkOutcome outcome) => outcome switch
 		{
-			EosLinkOutcome.InUse => Result.Fail(RestCodes.EosAccountInUse),
-			EosLinkOutcome.Locked => Result.Fail(RestCodes.EosAccountLocked),
+			EosLinkOutcome.InUse => LinkedAccounts.InUse(Provider),
+			EosLinkOutcome.Locked => LinkedAccounts.Locked(Provider),
 			_ => null
 		};
 
@@ -323,7 +320,7 @@ namespace GenOnlineService.Rest
 			if (settings == null)
 			{
 				s_log.LogError("Middleware config needs jwks_endpoint, audience, issuer and deployment_id");
-				return Result.Fail(RestCodes.ServiceUnavailable, new { What = "eos" });
+				return LinkedAccounts.Unavailable(Provider);
 			}
 
 			ClaimsPrincipal validatedClaims;
@@ -333,7 +330,7 @@ namespace GenOnlineService.Rest
 			}
 			catch (Exception ex) when (FailureOfValidation(ex) is Failure failure)
 			{
-				if (failure.Code == RestCodes.EosInvalidToken)
+				if (failure.Code == RestCodes.LinkedAccountInvalidProof)
 				{
 					s_log.LogInformation("Rejected middleware token for user {UserId}: {Reason}", userID, ex.GetType().Name);
 				}
@@ -348,7 +345,7 @@ namespace GenOnlineService.Rest
 			string? mwUserID = GetClaimValue(validatedClaims, "sub");
 			if (String.IsNullOrEmpty(mwUserID))
 			{
-				return Result.Fail(RestCodes.EosInvalidToken);
+				return LinkedAccounts.InvalidProof(Provider);
 			}
 
 			string? bindingError = CheckEpicAccountBinding(validatedClaims, settings, userID);

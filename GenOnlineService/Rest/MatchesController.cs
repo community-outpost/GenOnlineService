@@ -16,6 +16,8 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -70,19 +72,24 @@ namespace GenOnlineService.Rest
 
 	// Match history for operators and stats sites, as the legacy MatchHistory routes
 	[ApiController]
-	[Authorize(Policy = PermissionPolicies.Prefix + Permissions.MatchHistoryRead)]
+	[Authorize]
 	public sealed class MatchesController : ControllerBase
 	{
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+		private readonly IAuthorizationService m_authorization;
 
-		public MatchesController(IDbContextFactory<AppDbContext> dbFactory)
+		public MatchesController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization)
 		{
 			m_dbFactory = dbFactory;
+			m_authorization = authorization;
 		}
 
 		// Keyset paged finished matches. With after_id or since: matches with an id above after_id that finished at or after since,
 		// lowest id first, and a Link rel=next with after_id=<last id> when the page is full. With neither: the newest page,
 		// highest id first and without a Link; a reader continues forward with after_id=<highest id of that page>.
+		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.MatchHistoryRead)]
+		[EndpointSummary("Lists finished matches.")]
+		[ProducesResponseType<MatchListResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/matches")]
 		public async Task<IActionResult> List()
 		{
@@ -103,10 +110,22 @@ namespace GenOnlineService.Rest
 			return RestResults.Ok(new MatchListResponse { Matches = entries.Select(entry => MatchResponse.Of(entry, tags)).ToArray() });
 		}
 
-		// One match, finished or running
+		// One match, finished or running: match_history.read, or any staff permission through the sign-in cookie, so the
+		// staff pages open a match as the first staff area did (A1); a bearer caller still needs match_history.read
+		[AllowSignInCookie]
+		[EndpointSummary("Reads one match.")]
+		[EndpointDescription("With the sign-in cookie any staff member (moderation.kick, moderation.mute or moderation.ban) may read it.")]
+		[ProducesResponseType<MatchResponse>(StatusCodes.Status200OK)]
+		[ApiPermission(Permissions.MatchHistoryRead)]
 		[HttpGet("~/api/v1/matches/{matchID:long}")]
 		public async Task<IActionResult> Get(long matchID)
 		{
+			if (!(await m_authorization.AuthorizeAsync(User, PermissionPolicies.For(Permissions.MatchHistoryRead))).Succeeded
+				&& !(ApiAuthentication.IsSignInCookie(User) && await StaffAccess.IsStaffAsync(m_authorization, User)))
+			{
+				return RestResults.Fail(Result.Forbidden(Permissions.MatchHistoryRead));
+			}
+
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(HttpContext.RequestAborted);
 			MatchHistory_Entry? entry = await Database.MatchHistory.LoadMatchHistoryEntryAsync(db, matchID, HttpContext.RequestAborted);
 			return entry == null ? RestResults.NotFound("match") : RestResults.Ok(MatchResponse.Of(entry, await TagsOf(db, MatchResponse.UserIdsOf(entry))));

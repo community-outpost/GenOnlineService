@@ -30,14 +30,6 @@ public static class ConnectionReportOutcomes
 	public static readonly string[] All = { ConnectedDirect, ConnectedRelay, Failed, Disconnected };
 }
 
-public static class ConnectionReportTransports
-{
-	public const string Gns = "gns";
-	public const string Eos = "eos";
-
-	public static readonly string[] All = { Gns, Eos };
-}
-
 // The states an event may name: the outcomes plus the two in-progress states
 public static class ConnectionReportStates
 {
@@ -86,7 +78,7 @@ public class ConnectionReportConfiguration : IEntityTypeConfiguration<Connection
 		builder.Property(e => e.TargetUserID).HasColumnName("target_user_id");
 		builder.Property(e => e.Attempt).HasColumnName("attempt");
 		builder.Property(e => e.Outcome).HasColumnName("outcome").HasMaxLength(16);
-		builder.Property(e => e.Transport).HasColumnName("transport").HasMaxLength(8);
+		builder.Property(e => e.Transport).HasColumnName("transport").HasMaxLength(32);
 		builder.Property(e => e.IpVersion).HasColumnName("ip_version");
 		builder.Property(e => e.Events).HasColumnName("events");
 		builder.Property(e => e.CreatedAt).HasColumnName("created_at");
@@ -193,6 +185,33 @@ namespace Database
 				.OrderBy(r => r.ID)
 				.Take(limit)
 				.ToListAsync(cancellationToken);
+		}
+
+		public sealed record Pair(long Low, long High, IReadOnlyList<ConnectionReport> Reports);
+
+		// The reports of a lobby pair by pair, the lower user id first: user a to b, then b to a, attempt by attempt
+		public static List<Pair> InPairs(IEnumerable<ConnectionReport> rows)
+		{
+			return rows
+				.GroupBy(r => (Low: Math.Min(r.ReporterID, r.TargetUserID), High: Math.Max(r.ReporterID, r.TargetUserID)))
+				.OrderBy(g => g.Key.Low).ThenBy(g => g.Key.High)
+				.Select(g => new Pair(g.Key.Low, g.Key.High, g.OrderBy(r => r.Attempt).ThenBy(r => r.ReporterID == g.Key.Low ? 0 : 1).ToList()))
+				.ToList();
+		}
+
+		// One connection_lookup row per actor and target inside the window, written before the reports are read, true when a row was written
+		public static async Task<bool> LogLookup(AppDbContext db, ModerationActor actor, string targetKind, long target, string by, DateTime now, TimeSpan window)
+		{
+			DateTime since = now - window;
+			bool logged = await db.AuditLog.AsNoTracking().AnyAsync(e => e.TargetKind == targetKind && e.TargetID == target
+				&& e.Action == ModerationActions.ConnectionLookup && e.ActorKind == actor.Kind && e.ActorID == actor.UserID && e.CreatedAt > since);
+			if (logged)
+			{
+				return false;
+			}
+
+			await Moderation.AddAuditEntry(db, actor, ModerationActions.ConnectionLookup, targetKind, target, null, new { by });
+			return true;
 		}
 
 		// Runs hourly with the chat purge

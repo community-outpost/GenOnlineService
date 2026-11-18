@@ -16,6 +16,7 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService.Api;
 using GenOnlineService.Identity;
 using GenOnlineService.Realtime;
 using Microsoft.EntityFrameworkCore;
@@ -68,12 +69,18 @@ namespace GenOnlineService.Rest
 		// A gopat- token never manages tokens, and neither does a session of a game, launcher or chat client (design section 9, v2)
 		public static ApiTokenCallers CallerOf(ClaimsPrincipal user) => CallerOf(user, clientID => ClientRegistry.FindEnabled(clientID)?.Kind);
 
-		// clientKind maps the session's client_id to the registered client kind; only an app client counts as a web session
+		// clientKind maps the session's client_id to the registered client kind; only an app client counts as a web session,
+		// and so does the staff pages' sign-in cookie, which only the routes marked [AllowSignInCookie] accept
 		public static ApiTokenCallers CallerOf(ClaimsPrincipal user, Func<string?, string?> clientKind)
 		{
 			if (user.Identities.Any(i => i.IsAuthenticated && i.AuthenticationType == TokenPrincipal.AuthenticationType))
 			{
 				return ApiTokenCallers.Token;
+			}
+
+			if (ApiAuthentication.IsSignInCookie(user))
+			{
+				return RealtimeClaims.UserID(user) > 0 ? ApiTokenCallers.WebSession : ApiTokenCallers.None;
 			}
 
 			ClaimsIdentity? session = user.Identities.FirstOrDefault(i => i.IsAuthenticated && i.AuthenticationType == SessionTokenHandler.AuthenticationType);
@@ -326,13 +333,20 @@ namespace GenOnlineService.Rest
 				: ApiTokenOwner.User(token.OwnerUserID!.Value);
 		}
 
-		// Same scopes and allow-list, the old token stops after the overlap; a null expiry keeps the old lifetime
-		public static async Task<(ApiToken Token, string Secret)> Rotate(AppDbContext db, ApiTokenSettings settings, ApiTokenActor actor, ApiToken old, Func<int> readOverlap, Func<DateTime?> readExpiresAt)
+		// Same scopes and allow-list, the old token stops after the overlap; a null expiry keeps the old lifetime. A token with
+		// a privileged scope is rotated only from the host, as it is minted
+		public static async Task<(ApiToken Token, string Secret)> Rotate(AppDbContext db, ApiTokenSettings settings, ApiTokenActor actor, ApiToken old, Func<int> readOverlap, Func<DateTime?> readExpiresAt, bool bFromHost)
 		{
 			DateTime now = DateTime.UtcNow;
 			if (old.ExpiresAt <= now || old.RevokedAt != null)
 			{
 				throw new ApiTokenAdminException($"Token {old.ID} is revoked, expired or already rotated; rotate its replacement or create a new one.", Result.Fail(RestCodes.Conflict));
+			}
+
+			string? privileged = bFromHost ? null : ApiTokenFormat.ParseScopes(old.Scopes).FirstOrDefault(Permissions.IsPrivileged);
+			if (privileged != null)
+			{
+				throw Forbidden(privileged, $"{privileged} is privileged; tokens carrying it are rotated through the CLI on the host.");
 			}
 
 			int overlap = readOverlap();
@@ -430,6 +444,21 @@ namespace GenOnlineService.Rest
 
 			db.ServiceAccountPermissions.Remove(existing);
 			db.AuditLog.Add(Audit(actor, "sa_revoke", AuditTargetKinds.ServiceAccount, account.ID, new { permission }));
+			return true;
+		}
+
+		// Stages the new description and its sa_update entry for the caller's SaveChanges; false when it does not change
+		public static bool StageDescription(AppDbContext db, ApiTokenActor actor, ServiceAccount account, string description)
+		{
+			CheckDescription(description);
+			if (account.Description == description)
+			{
+				return false;
+			}
+
+			string old = account.Description;
+			account.Description = description;
+			db.AuditLog.Add(Audit(actor, "sa_update", AuditTargetKinds.ServiceAccount, account.ID, new { name = account.Name, old_description = old, description }));
 			return true;
 		}
 

@@ -73,6 +73,7 @@ public abstract partial class AppDbContext : DbContext
 	public DbSet<User> Users => Set<User>();
 	public DbSet<UserUsernameHistory> UserUsernameHistory => Set<UserUsernameHistory>();
 	public DbSet<UserIdentity> Identities => Set<UserIdentity>();
+	public DbSet<UserRecoveryCode> UserRecoveryCodes => Set<UserRecoveryCode>();
 	public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
 	public DbSet<Client> Clients => Set<Client>();
 	public DbSet<ClientBuild> ClientBuilds => Set<ClientBuild>();
@@ -101,7 +102,9 @@ public abstract partial class AppDbContext : DbContext
 	// Lobbies
 	public DbSet<ConnectionReport> ConnectionReports => Set<ConnectionReport>();
 	public DbSet<LobbyIdCounter> LobbyIdCounters => Set<LobbyIdCounter>();
+	public DbSet<MatchIdWorker> MatchIdWorkers => Set<MatchIdWorker>();
 	public DbSet<RealtimeLease> RealtimeLeases => Set<RealtimeLease>();
+	public DbSet<GameSessionRow> GameSessions => Set<GameSessionRow>();
 
 	// Players and devices
 	public DbSet<PlayerRating> PlayerRatings => Set<PlayerRating>();
@@ -121,6 +124,7 @@ public abstract partial class AppDbContext : DbContext
 	public DbSet<AnticheatModuleReport> AnticheatModuleReports => Set<AnticheatModuleReport>();
 	public DbSet<AnticheatNewAccountGame> AnticheatNewAccountGames => Set<AnticheatNewAccountGame>();
 	public DbSet<AnticheatProbeReport> AnticheatProbeReports => Set<AnticheatProbeReport>();
+	public DbSet<AnticheatQuickMatchReport> AnticheatQuickMatchReports => Set<AnticheatQuickMatchReport>();
 
 	// Machine tokens
 	public DbSet<ServiceAccount> ServiceAccounts => Set<ServiceAccount>();
@@ -199,6 +203,7 @@ public abstract partial class AppDbContext : DbContext
 		}
 		modelBuilder.ApplyConfiguration(new UserUsernameHistoryConfiguration());
 		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
+		modelBuilder.ApplyConfiguration(new UserRecoveryCodeConfiguration());
 		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientBuildConfiguration());
@@ -216,7 +221,9 @@ public abstract partial class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ChatGroupMemberConfiguration());
 		modelBuilder.ApplyConfiguration(new ConnectionReportConfiguration());
 		modelBuilder.ApplyConfiguration(new LobbyIdCounterConfiguration());
+		modelBuilder.ApplyConfiguration(new MatchIdWorkerConfiguration());
 		modelBuilder.ApplyConfiguration(new RealtimeLeaseConfiguration());
+		modelBuilder.ApplyConfiguration(new GameSessionRowConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerRatingConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerStatConfiguration());
 		modelBuilder.ApplyConfiguration(new PlayerPreferenceConfiguration());
@@ -230,6 +237,7 @@ public abstract partial class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new AnticheatModuleReportConfiguration());
 		modelBuilder.ApplyConfiguration(new AnticheatNewAccountGameConfiguration());
 		modelBuilder.ApplyConfiguration(new AnticheatProbeReportConfiguration());
+		modelBuilder.ApplyConfiguration(new AnticheatQuickMatchReportConfiguration());
 		modelBuilder.ApplyConfiguration(new ServiceAccountConfiguration());
 		modelBuilder.ApplyConfiguration(new ServiceAccountPermissionConfiguration());
 		modelBuilder.ApplyConfiguration(new ApiTokenConfiguration());

@@ -36,6 +36,14 @@ namespace GenOnlineService.Api
 				return;
 			}
 
+			// the realtime upgrade reaches the hub, which closes it after the handshake with unauthorized or moderation.banned (RealtimeAdmission):
+			// behind the tunnel a 401 or 403 here would reach the client only as a 502. SignalR checks the hub's class-level [Authorize] only here, so RealtimeAdmittedFilter is what keeps a refused connection from running hub methods
+			if ((authorizeResult.Challenged || authorizeResult.Forbidden) && Realtime.RealtimeAdmission.IsRealtimeUpgrade(context))
+			{
+				await next(context);
+				return;
+			}
+
 			// a missing or refused token goes through the scheme challenge, which writes the 401 or banned body
 			await m_default.HandleAsync(next, context, policy, authorizeResult);
 		}

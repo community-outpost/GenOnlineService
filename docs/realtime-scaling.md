@@ -17,6 +17,7 @@ Nothing extra. `Realtime:backplane` defaults to `none`: hub messages and close r
 - Kicks, bans and revocations are close requests (`RealtimeControl.RequestClose`). The copy that issues one closes its own matching sessions first, then publishes it; every other copy closes only its own matching sessions with the same close record (`moderation.kicked` or `moderation.banned` after the `ModerationNotice`, `auth.revoked`). A sign-in revocation closes only the connections of that sign-in on every copy.
 - A kick of a user this copy does not hold waits up to 2 seconds for another copy to confirm it closed a session, otherwise it answers `moderation.target_offline` as before.
 - Lobby ids come from the `lobby_ids` counter row in the database. Each copy reserves a block of 100 ids with one atomic update and reserves the next block in the background when 20 are left, so no restart and no other copy ever hands out the same lobby id again. The ids left in a block when a copy stops are skipped. A database outage fails only the `CreateLobby` that needs a new block.
+- Match ids are 48 bit snowflakes (`docs/schema.md`, Match ids). Each copy holds one of 32 worker slots in `match_id_workers` and writes ahead the last second it may use, so a copy taking a slot after a restart or a takeover starts after it. A match only needs the database for its slot about once a minute; when no slot can be reserved the match runs without a history row, as before when the insert failed.
 
 ## Active and standby copies
 

@@ -142,7 +142,7 @@ public class DisplayNameProbeTests
 		await using AppDbContext db = probe.Open();
 		User user = await AddUser(db, "Before", 7);
 
-		IReadOnlyList<NameChange> changes = await DisplayNames.ApplyUpstream(db, user.ID, "After", "0042", "upstream:keycloak");
+		IReadOnlyList<NameChange> changes = await DisplayNames.ApplyUpstream(db, user.ID, "After", "0042", "upstream:prod");
 
 		NameChange change = Assert.Single(changes);
 		Assert.Equal(new NameChange(user.ID, "Before", 7, "After", 42), change);
@@ -151,10 +151,10 @@ public class DisplayNameProbeTests
 		Assert.Equal(("After", "AFTER", "after", 42), (stored.Username, stored.UsernameNormalized, stored.NameKey, stored.NameTag));
 		Assert.NotNull(stored.RenamedAt);
 		UserUsernameHistory history = await db.UserUsernameHistory.SingleAsync(h => h.UserID == user.ID);
-		Assert.Equal(("Before", (int?)7, "upstream:keycloak"), (history.Username, history.NameTag, history.ChangedBy));
+		Assert.Equal(("Before", (int?)7, "upstream:prod"), (history.Username, history.NameTag, history.ChangedBy));
 
 		// the same copy again changes nothing and writes no history
-		Assert.Empty(await DisplayNames.ApplyUpstream(db, user.ID, "After", "42", "upstream:keycloak"));
+		Assert.Empty(await DisplayNames.ApplyUpstream(db, user.ID, "After", "42", "upstream:prod"));
 		Assert.Equal(1, await db.UserUsernameHistory.CountAsync(h => h.UserID == user.ID));
 	}
 
@@ -168,7 +168,7 @@ public class DisplayNameProbeTests
 		User stale = await AddUser(db, "Shared", 5);
 		User user = await AddUser(db, "Other", 9);
 
-		IReadOnlyList<NameChange> changes = await DisplayNames.ApplyUpstream(db, user.ID, "shared", "5", "upstream:keycloak");
+		IReadOnlyList<NameChange> changes = await DisplayNames.ApplyUpstream(db, user.ID, "shared", "5", "upstream:prod");
 
 		Assert.Equal(2, changes.Count);
 		db.ChangeTracker.Clear();
@@ -191,7 +191,7 @@ public class DisplayNameProbeTests
 		User stale = await AddUser(db, "B0b", 5);
 		User user = await AddUser(db, "Other", 9);
 
-		IReadOnlyList<NameChange> changes = await DisplayNames.ApplyUpstream(db, user.ID, "Bob", "5", "upstream:keycloak");
+		IReadOnlyList<NameChange> changes = await DisplayNames.ApplyUpstream(db, user.ID, "Bob", "5", "upstream:prod");
 
 		Assert.Equal(2, changes.Count);
 		db.ChangeTracker.Clear();
@@ -233,7 +233,7 @@ public class DisplayNameProbeTests
 
 		foreach ((string? name, string? tag) in new (string?, string?)[] { ("X", "0"), ("X", "10000"), ("X", "abc"), ("X", null), (null, "12"), ("Bad\0", "12"), (new string('a', 33), "12") })
 		{
-			Assert.Empty(await DisplayNames.ApplyUpstream(db, user.ID, name, tag, "upstream:keycloak"));
+			Assert.Empty(await DisplayNames.ApplyUpstream(db, user.ID, name, tag, "upstream:prod"));
 		}
 
 		db.ChangeTracker.Clear();

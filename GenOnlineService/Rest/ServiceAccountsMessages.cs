@@ -21,8 +21,11 @@ using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Rest
 {
-	// A service account with the permissions granted to it; disabled_at is null while it is active
+	// A service account with the permissions granted to it; disabled_at is null while it is active. active_tokens counts the
+	// tokens neither revoked nor expired, a rotated token inside its overlap included; last_token_used_at is the latest use
+	// of any of its tokens
 	[ApiFixture("post-service_accounts.response")]
+	[ApiFixture("get-service_accounts-item.response")]
 	public sealed record ServiceAccountInfo
 	{
 		public long Id { get; init; }
@@ -31,6 +34,8 @@ namespace GenOnlineService.Rest
 		public DateTime CreatedAt { get; init; }
 		public DateTime? DisabledAt { get; init; }
 		public IReadOnlyList<string> Permissions { get; init; } = [];
+		public int ActiveTokens { get; init; }
+		public DateTime? LastTokenUsedAt { get; init; }
 	}
 
 	[ApiFixture("get-service_accounts.response")]
@@ -55,10 +60,13 @@ namespace GenOnlineService.Rest
 		public IReadOnlyList<string>? Remove { get; init; }
 	}
 
-	// Each part is optional; privileged permissions are never granted here, only through the CLI
+	// Each part is optional; privileged permissions are never granted here, only through the CLI. An empty description
+	// clears it
 	[ApiFixture("patch-service_accounts.request")]
 	public sealed record UpdateServiceAccountRequest
 	{
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Description { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public ServiceAccountGrantChanges? Grants { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

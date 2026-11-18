@@ -21,7 +21,8 @@ using System.Text.Json.Serialization;
 
 namespace GenOnlineService.Rest
 {
-	// A token as its owner sees it; never the secret or its hash. revoked_at in the future is the end of a rotation overlap
+	// A token as its owner sees it; never the secret or its hash. revoked_at in the future is the end of a rotation overlap;
+	// allowed_ips is empty when any address may use the token
 	[ApiFixture("get-personal_access_tokens-self.response")]
 	public sealed record PersonalAccessTokenInfo
 	{
@@ -34,6 +35,7 @@ namespace GenOnlineService.Rest
 		public string? LastUsedIp { get; init; }
 		public DateTime? RevokedAt { get; init; }
 		public string TokenLast4 { get; init; } = "";
+		public IReadOnlyList<string> AllowedIps { get; init; } = [];
 	}
 
 	[ApiFixture("get-personal_access_tokens.response")]
@@ -56,6 +58,7 @@ namespace GenOnlineService.Rest
 		public string? LastUsedIp { get; init; }
 		public DateTime? RevokedAt { get; init; }
 		public string TokenLast4 { get; init; } = "";
+		public IReadOnlyList<string> AllowedIps { get; init; } = [];
 		public string Token { get; init; } = "";
 	}
 

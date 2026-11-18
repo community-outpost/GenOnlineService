@@ -50,17 +50,18 @@ namespace GenOnlineService.Rest
 		public IReadOnlyList<MeSession> Sessions { get; init; } = [];
 	}
 
-	[ApiFixture("post-me-eos_token.response")]
-	public sealed record EosTokenResponse
+	// A short-lived token the platform plugin signs the player in with; expires_in in seconds
+	[ApiFixture("post-me-linked_accounts-sign_in_token.response")]
+	public sealed record SignInTokenResponse
 	{
-		public string EosToken { get; init; } = "";
+		public string Token { get; init; } = "";
 		public int ExpiresIn { get; init; }
 	}
 
-	// The Epic ID token of the EOS account to link
-	[ApiFixture("put-me-linked_accounts-eos.request")]
-	public sealed record LinkEosRequest
+	// The provider's own proof of the account to link; for eos the Epic Connect ID token
+	[ApiFixture("put-me-linked_accounts.request")]
+	public sealed record LinkAccountRequest
 	{
-		public string? IdToken { get; init; }
+		public string? Proof { get; init; }
 	}
 }

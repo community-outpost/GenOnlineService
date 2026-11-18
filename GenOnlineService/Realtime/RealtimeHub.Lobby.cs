@@ -34,6 +34,7 @@ namespace GenOnlineService.Realtime
 		private const int MaxNewModulesPerScan = 256;
 
 		// Reconnects rejoin the lobby group, get the current state and the lobby chat, then signalling restarts for the unconnected pairs
+		// once the transports of the new connection arrived
 		private async partial Task RestoreLobbyAsync(UserSession session)
 		{
 			if (session.GetSessionType() != EUserSessionType.GameClient || session.currentLobbyID == -1)
@@ -49,7 +50,23 @@ namespace GenOnlineService.Realtime
 
 			await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroups.Lobby(lobby.LobbyID));
 			await SendLobbySnapshotAsync(lobby, session.m_UserID);
-			await lobby.ResendSignallingAfterReconnectAsync(session.m_UserID);
+			session.MarkSignallingResendPending();
+			await ResendSignallingIfDueAsync(session);
+		}
+
+		// Runs the pending reconnect resend once the reconnecting member's SetPeerTransports of this connection arrived
+		private async Task ResendSignallingIfDueAsync(UserSession session)
+		{
+			if (!session.TakeSignallingResend())
+			{
+				return;
+			}
+
+			Lobby? lobby = m_lobbyManager.GetLobby(session.currentLobbyID);
+			if (lobby != null)
+			{
+				await lobby.ResendSignallingAfterReconnectAsync(session.m_UserID);
+			}
 		}
 
 		// LobbyState with the caller's start data, then the lobby chat as ChannelHistory
@@ -328,6 +345,11 @@ namespace GenOnlineService.Realtime
 			bool changes = request.Side != null || request.Color != null || request.StartPosition != null || request.Team.HasValue;
 			return ChangeLobbyAsync(hostOnly: false, resetsReady: changes, async (lobby, member) =>
 			{
+				if (RealtimeLobbies.RefuseArmySelection(lobby, [request.Side]) is Failure locked)
+				{
+					await ReportQuickMatchRuleAsync(lobby, nameof(UpdateMySlot), [request.Side]);
+					return locked;
+				}
 				// the observer seat follows the host's setting, as in the original game
 				if (request.Side == ClientFeatures.ObserverSide && !lobby.AllowObservers)
 				{
@@ -422,15 +444,20 @@ namespace GenOnlineService.Realtime
 				if (patch.Team.HasValue && patch.Team.Value < 0) return Invalid("slots.team");
 			}
 
-			return ChangeLobbyAsync(hostOnly: true, resetsReady: request.Slots.Count > 0, (lobby, member) =>
+			return ChangeLobbyAsync(hostOnly: true, resetsReady: request.Slots.Count > 0, async (lobby, member) =>
 			{
-				// an observer seat is checked for every slot first, so a refused patch changes nothing
+				// sides and observer seats are checked for every slot first, so a refused patch changes nothing
+				if (RealtimeLobbies.RefuseArmySelection(lobby, request.Slots.Select(patch => patch.Side)) is Failure locked)
+				{
+					await ReportQuickMatchRuleAsync(lobby, nameof(UpdateSlots), request.Slots.Select(patch => patch.Side));
+					return locked;
+				}
 				foreach (SlotPatch patch in request.Slots.Where(p => p.Side == ClientFeatures.ObserverSide))
 				{
 					LobbyMember? target = lobby.GetMemberFromSlot(patch.Index);
 					if (!lobby.AllowObservers || (target != null && target.IsAI()))
 					{
-						return Task.FromResult<Failure?>(Result.Invalid("slots.side"));
+						return Result.Invalid("slots.side");
 					}
 				}
 				foreach (SlotPatch patch in request.Slots)
@@ -446,7 +473,7 @@ namespace GenOnlineService.Realtime
 					if (patch.StartPosition is int startPosition) target.UpdateStartPos(startPosition);
 					if (patch.Team.HasValue) target.UpdateTeam(patch.Team.Value ?? -1);
 				}
-				return Task.FromResult<Failure?>(null);
+				return null;
 			});
 		}
 
@@ -600,13 +627,19 @@ namespace GenOnlineService.Realtime
 
 		// 5.6 Peer networking
 
-		public Task SetPeerTransports(SetPeerTransportsRequest request)
+		public async Task SetPeerTransports(SetPeerTransportsRequest request)
 		{
-			if (RequireAccess(ESessionAccessType.Gameplay) == null)
+			if (RequireAccess(ESessionAccessType.Gameplay) != null)
 			{
-				Session.SetPeerTransports(request.Transports);
+				return;
 			}
-			return Task.CompletedTask;
+
+			// a call of a connection that was superseded after it passed the check above stores nothing
+			RealtimeConnection connection = Connection;
+			if (connection.OwnerSession.SetPeerTransports(connection, request.Transports))
+			{
+				await ResendSignallingIfDueAsync(connection.OwnerSession);
+			}
 		}
 
 		public Task RequestSignalling(RequestSignallingRequest request)
@@ -801,6 +834,25 @@ namespace GenOnlineService.Realtime
 			});
 
 			return failure is Failure failed ? failed : Result.Success();
+		}
+
+		// Keeps a refused quick match request for staff review, once per player and lobby; the caller is not told
+		private async Task ReportQuickMatchRuleAsync(Lobby lobby, string method, IEnumerable<int?> sides)
+		{
+			Int64 userID = UserID;
+			if (!lobby.TryMarkQuickMatchRuleReported(userID))
+			{
+				return;
+			}
+			try
+			{
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+				await Database.AntiCheat.FlagAccountForReview_QuickMatchRules(db, RealtimeLobbies.QuickMatchRuleReportOf(lobby, userID, method, sides, DateTime.UtcNow));
+			}
+			catch (Exception ex)
+			{
+				m_log.LogError(ex, "Keeping the refused {Method} of {UserID} in lobby {LobbyID} for review failed", method, userID, lobby.LobbyID);
+			}
 		}
 
 		private static Task<Result<Empty>> Invalid(string field) => Task.FromResult<Result<Empty>>(Result.Invalid(field));

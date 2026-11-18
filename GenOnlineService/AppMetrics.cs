@@ -216,7 +216,7 @@ namespace GenOnlineService
             Volatile.Write(ref s_externalPublicationBacklogAgeSeconds, Math.Max(0, age.TotalSeconds));
         }
 
-        // One count per accepted connection report, the labels are the validated wire values
+        // One count per accepted connection report; transport is already bounded to gns, a supported provider or other
         public static void RecordConnectionOutcome(string outcome, string transport, int ipVersion)
         {
             s_connectionOutcomes.Add(1, new TagList { { "outcome", outcome }, { "transport", transport }, { "ip_version", ipVersion == 6 ? "6" : "4" } });

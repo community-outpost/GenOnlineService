@@ -134,6 +134,10 @@ namespace GenOnlineService.Realtime
 	{
 		public string Name { get; init; } = "";
 		public bool Official { get; init; }
+
+		// the map path of the lobby's LobbyState, so a joiner can tell JoinLobby whether it has the map; optional on the wire
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public string? Path { get; init; }
 	}
 
 	public sealed record LobbySummarySettings
@@ -697,14 +701,10 @@ namespace GenOnlineService.Realtime
 		public long UserId { get; init; }
 		public int PreferredPort { get; init; }
 		public string MiddlewareId { get; init; } = "";
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public int? Attempt { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public string? Transport { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public bool? Relay { get; init; }
-		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-		public int? TimeoutS { get; init; }
+		public int Attempt { get; init; }
+		public string Transport { get; init; } = "";
+		public bool Relay { get; init; }
+		public int TimeoutS { get; init; }
 	}
 
 	public sealed record DisconnectPeerEvent

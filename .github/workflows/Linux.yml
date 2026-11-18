@@ -2,7 +2,7 @@ name: Linux (x64 + arm64)
 
 on:
   push:
-    branches: [ "main", "arctic/integration/**" ]
+    branches: [ "main", "release/*", "arctic/integration/**" ]
   pull_request:
 
 jobs:

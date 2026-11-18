@@ -1,0 +1,41 @@
+@* Why the personal data of a player is not shown: the permission is missing, or its read failed *@
+
+@if (!Permitted)
+{
+    <BbAlert Variant="AlertVariant.Info">
+        <Icon>
+            <LucideIcon Name="lock" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>Sign-ins, devices and addresses</BbAlertTitle>
+            <BbAlertDescription>These parts need the players.inspect permission, which administrators hold.</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+else if (Error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>Sign-ins, devices and addresses could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(Error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+else
+{
+    <div class="bb:space-y-2">
+        <BbSkeleton Class="bb:h-4 bb:w-full bb:max-w-md" />
+        <BbSkeleton Class="bb:h-4 bb:w-full bb:max-w-sm" />
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool Permitted { get; set; }
+
+    [Parameter]
+    public string? Error { get; set; }
+}

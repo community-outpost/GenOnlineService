@@ -40,7 +40,8 @@ namespace GenOnlineService.Tests
 			TargetUserId = 7,
 			Outcome = "connected_relay",
 			Transport = "gns",
-			IpVersion = 4
+			IpVersion = 4,
+			Attempt = 1
 		};
 
 		private static ConnectionReportEvent Event(string state, long ms) => new ConnectionReportEvent { State = state, TMs = ms };
@@ -53,7 +54,7 @@ namespace GenOnlineService.Tests
 		}
 
 		[Fact]
-		public void ValidReportBecomesTheStoredRowWithAttemptOne()
+		public void ValidReportBecomesTheStoredRow()
 		{
 			Result<ConnectionReport> result = ConnectionReportValidation.Validate(Valid() with { Events = [Event("connecting", 0), Event("connected_relay", 5100)] }, Reporter, Lobby, WasMember);
 
@@ -133,11 +134,37 @@ namespace GenOnlineService.Tests
 		}
 
 		[Theory]
-		[InlineData("udp")]
-		[InlineData(null)]
-		public void TransportIsGnsOrEos(string? transport)
+		[InlineData("gns")]
+		[InlineData("eos")]
+		[InlineData("steam")]
+		[InlineData("plugin_2")]
+		public void TransportIsGnsOrAPluginTransportName(string transport)
 		{
-			Assert.True(ConnectionReportValidation.Validate(Valid() with { Transport = "eos" }, Reporter, Lobby, WasMember).Ok);
+			Result<ConnectionReport> result = ConnectionReportValidation.Validate(Valid() with { Transport = transport }, Reporter, Lobby, WasMember);
+			Assert.True(result.Ok);
+			Assert.Equal(transport, result.Data!.Transport);
+		}
+
+		// storage keeps the reported name, the metric tag is gns, a supported provider or other
+		[Theory]
+		[InlineData("gns", "gns")]
+		[InlineData("eos", "eos")]
+		[InlineData("abc", "other")]
+		[InlineData("steam", "other")]
+		[InlineData("other", "other")]
+		public void TheMetricTagIsGnsASupportedProviderOrOther(string transport, string tag)
+		{
+			Assert.Equal(tag, ConnectionReportValidation.MetricTransport(transport, ["eos"]));
+		}
+
+		[Theory]
+		[InlineData("Bad!")]
+		[InlineData("EOS")]
+		[InlineData("")]
+		[InlineData("abcdefghijklmnopqrstuvwxyz0123456")]
+		[InlineData(null)]
+		public void TransportWithOtherSyntaxIsInvalid(string? transport)
+		{
 			Assert.Equal("transport", FieldOf(ConnectionReportValidation.Validate(Valid() with { Transport = transport }, Reporter, Lobby, WasMember)));
 		}
 
@@ -154,7 +181,8 @@ namespace GenOnlineService.Tests
 		[Theory]
 		[InlineData(0)]
 		[InlineData(-2)]
-		public void AttemptIsAtLeastOne(int attempt)
+		[InlineData(null)]
+		public void AttemptIsRequiredAndAtLeastOne(int? attempt)
 		{
 			Assert.Equal("attempt", FieldOf(ConnectionReportValidation.Validate(Valid() with { Attempt = attempt }, Reporter, Lobby, WasMember)));
 		}

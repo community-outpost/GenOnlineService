@@ -73,9 +73,29 @@ namespace GenOnlineService
 		}
 	}
 
+	// The members of a lobby a handover moved come back together; a pair whose two members both come back is restarted once
+	internal static class HandoverSignallingSettings
+	{
+		private const int DefaultGraceMs = 2000;
+
+		// how long the first member of such a pair waits for the other member's SetPeerTransports before the pair restarts anyway
+		internal static int GraceMs
+		{
+			get
+			{
+				int value = Program.g_Config?.GetSection("Realtime:failover").GetValue("handover_signalling_grace_ms", DefaultGraceMs) ?? DefaultGraceMs;
+				return value > 0 ? value : DefaultGraceMs;
+			}
+		}
+	}
+
 	public partial class Lobby
 	{
 		private static readonly ILogger s_log = AppLog.For(typeof(Lobby));
+
+		// The clock of the handover signalling grace and the game connection StartSignalling goes to, replaced by tests
+		internal TimeProvider Clock { get; set; } = TimeProvider.System;
+		internal Func<LobbyMember, IRealtimeClient> GameClientOf { get; set; } = RealtimeLobbies.GameOf;
 
 		public Int64 LobbyID { get; private set; } = -1;
 		public Int64 Owner { get; private set; } = -1;
@@ -623,10 +643,10 @@ namespace GenOnlineService
 			}
 		}
 
-		private void SendStartSignallingToMember(LobbyMember recipient, LobbyMember peer, PeerStepValues? values)
+		private void SendStartSignallingToMember(LobbyMember recipient, LobbyMember peer, PeerStepValues values)
 		{
 			ForgetConnection(recipient.UserID, peer.UserID);
-			RealtimeOut.Fire(RealtimeLobbies.GameOf(recipient).StartSignalling(StartSignallingFor(recipient, peer, values)));
+			RealtimeOut.Fire(GameClientOf(recipient).StartSignalling(StartSignallingFor(recipient, peer, values)));
 		}
 
 		// The connection order state of each pair of members, read and changed only under the lobby gate
@@ -636,14 +656,24 @@ namespace GenOnlineService
 		private static IReadOnlyList<string>? TransportsOf(LobbyMember member) =>
 			member.GetSession().TryGetTarget(out UserSession? session) ? session?.PeerTransports : null;
 
+		// Step 2 needs both account ids at the provider, so only the registered linked-account providers count as plugin transports;
+		// read lazily, so a pair where a member listed no transports never resolves them
+		private static IEnumerable<string> LinkedAccountProviderNames()
+		{
+			foreach (GenOnlineService.Rest.ILinkedAccountProvider provider in ServiceLocator.Services.GetServices<GenOnlineService.Rest.ILinkedAccountProvider>())
+			{
+				yield return provider.Name;
+			}
+		}
+
 		// Restarts the pair on both clients with one more attempt, advancing to the next step when asked
 		private void RestartPairLocked(LobbyMember a, LobbyMember b, bool advance)
 		{
 			IReadOnlyList<string>? transportsA = TransportsOf(a);
 			IReadOnlyList<string>? transportsB = TransportsOf(b);
-			m_PeerPairs.Restart(a.UserID, b.UserID, advance, ConnectionOrder.BothListEos(transportsA, transportsB));
+			m_PeerPairs.Restart(a.UserID, b.UserID, advance, ConnectionOrder.SharedTransport(transportsA, transportsB, LinkedAccountProviderNames()) != null);
 			MarkLiveDirty();
-			PeerStepValues? values = PairValuesLocked(a, b, transportsA, transportsB);
+			PeerStepValues values = PairValuesLocked(a, b, transportsA, transportsB);
 			SendStartSignallingToMember(a, b, values);
 			SendStartSignallingToMember(b, a, values);
 		}
@@ -660,14 +690,14 @@ namespace GenOnlineService
 
 			IReadOnlyList<string>? transportsSource = TransportsOf(source);
 			IReadOnlyList<string>? transportsTarget = TransportsOf(target);
-			if (m_PeerPairs.Request(sourceUserID, targetUserID, failedAttempt, ConnectionOrder.BothListEos(transportsSource, transportsTarget)) == null)
+			if (m_PeerPairs.Request(sourceUserID, targetUserID, failedAttempt, ConnectionOrder.SharedTransport(transportsSource, transportsTarget, LinkedAccountProviderNames()) != null) == null)
 			{
 				return Task.CompletedTask;
 			}
 
 			// both peers restart the handshake towards each other with the same values
 			MarkLiveDirty();
-			PeerStepValues? values = PairValuesLocked(source, target, transportsSource, transportsTarget);
+			PeerStepValues values = PairValuesLocked(source, target, transportsSource, transportsTarget);
 			ForgetConnection(sourceUserID, targetUserID);
 			RealtimeOut.Fire(caller.StartSignalling(StartSignallingFor(source, target, values)));
 			RealtimeOut.Fire(RealtimeOut.UserGame(targetUserID).StartSignalling(StartSignallingFor(target, source, values)));
@@ -721,12 +751,17 @@ namespace GenOnlineService
 			}
 		}
 
-		// A reconnect during setup restarts every pair of the member that has not reported connected, both peers get StartSignalling
+		// A reconnect during setup restarts every pair of the member that has not reported connected, both peers get StartSignalling.
+		// A pair whose two members both come back from the same handover restarts once: after the second SetPeerTransports,
+		// or when the grace of the first one expires
 		internal Task ResendSignallingAfterReconnectAsync(Int64 userID) => RunExclusiveAsync(() =>
 		{
 			LobbyMember? member = GetMemberFromUserID(userID);
+			bool returning = member != null && IsReturningFromHandoverLocked(member);
+			m_HandoverReturning.Remove(userID);
 			if (member == null || (State != ELobbyState.GAME_SETUP && State != ELobbyState.COUNTDOWN))
 			{
+				EndHandoverSignallingIfDoneLocked();
 				return Task.CompletedTask;
 			}
 
@@ -738,33 +773,176 @@ namespace GenOnlineService
 					continue;
 				}
 
+				(Int64, Int64) pair = PairKey(userID, peer.UserID);
+				bool peerReturning = IsReturningFromHandoverLocked(peer);
+				// only a member still on the connection it came back on skips a pair the handover already restarted,
+				// any newer connection restarts its pairs as an ordinary reconnect does
+				if (returning && m_HandoverRestartedPairs.Contains(pair))
+				{
+					continue;
+				}
+
+				if (returning && peerReturning)
+				{
+					DeferHandoverPairLocked(pair);
+					continue;
+				}
+
+				CancelDeferredHandoverPairLocked(pair);
 				s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} after a reconnect", LobbyID, userID, peer.UserID);
 				RestartPairLocked(member, peer, false);
+
+				// an ordinary reconnect's restart is not the handover's one, so the other member's return restarts the pair again
+				if (returning)
+				{
+					m_HandoverRestartedPairs.Add(pair);
+				}
+				else
+				{
+					m_HandoverRestartedPairs.Remove(pair);
+				}
 			}
+
+			EndHandoverSignallingIfDoneLocked();
 			return Task.CompletedTask;
 		});
 
-		// The step values of a pair from one snapshot of both transport lists, null for the old shape, under the lobby gate
-		private PeerStepValues? PairValuesLocked(LobbyMember a, LobbyMember b, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
-		{
-			if (transportsA == null || transportsB == null)
-			{
-				m_PeerPairs.Current(a.UserID, b.UserID);
-				return null;
-			}
-			bool bothEos = ConnectionOrder.BothListEos(transportsA, transportsB);
-			PeerPairState state = m_PeerPairs.Settle(a.UserID, b.UserID, bothEos);
-			MarkLiveDirty();
+		// The members who took their restored seat on this copy, each with the connection that took it, until their reconnect resend ran.
+		// The handover signalling state is read and changed only under the lobby gate
+		private readonly Dictionary<Int64, object?> m_HandoverReturning = new();
 
-			// eos reaches a peer by its middleware id, so without both ids this send uses the next step and the stored step stays
-			bool idsKnown = !String.IsNullOrEmpty(a.MiddlewareUserID) && !String.IsNullOrEmpty(b.MiddlewareUserID);
-			return ConnectionOrder.ValuesOf(state, bothEos && idsKnown);
+		// Pairs whose first member back waits for the other one's SetPeerTransports, until the grace expires
+		private readonly Dictionary<(Int64, Int64), DeferredHandoverPair> m_HandoverDeferredPairs = new();
+
+		// Pairs already restarted for the members coming back from the current handover
+		private readonly HashSet<(Int64, Int64)> m_HandoverRestartedPairs = new();
+
+		private sealed class DeferredHandoverPair
+		{
+			public ITimer? Timer;
 		}
 
-		private PeerStepValues? PairValuesLocked(LobbyMember a, LobbyMember b) => PairValuesLocked(a, b, TransportsOf(a), TransportsOf(b));
+		private static (Int64, Int64) PairKey(Int64 userA, Int64 userB) => (Math.Min(userA, userB), Math.Max(userA, userB));
 
-		// Tells a member how to reach the given peer with the values both peers of the pair get, the old shape leaves the four fields out
-		private StartSignallingEvent StartSignallingFor(LobbyMember recipient, LobbyMember peer, PeerStepValues? values)
+		internal void NoteHandoverReturnLocked(UserSession session) => m_HandoverReturning[session.m_UserID] = session.PeerTransportsConnection;
+
+		// Coming back from the handover: the member took its restored seat here and is still on that connection,
+		// whose SetPeerTransports has not arrived yet or whose reconnect resend has not run yet
+		private bool IsReturningFromHandoverLocked(LobbyMember member) =>
+			m_HandoverReturning.TryGetValue(member.UserID, out object? connection)
+			&& member.GetSession().TryGetTarget(out UserSession? session) && session != null && !session.IsRetired
+			&& ReferenceEquals(session.PeerTransportsConnection, connection);
+
+		private void DeferHandoverPairLocked((Int64, Int64) pair)
+		{
+			if (m_HandoverDeferredPairs.ContainsKey(pair))
+			{
+				return;
+			}
+
+			s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} waits for the other member back from the handover", LobbyID, pair.Item1, pair.Item2);
+			DeferredHandoverPair deferred = new();
+			m_HandoverDeferredPairs[pair] = deferred;
+
+			// the timer must not capture this flow, which holds the lobby gate: its callback takes the gate itself
+			using (ExecutionContext.SuppressFlow())
+			{
+				deferred.Timer = Clock.CreateTimer(_ => _ = RestartDeferredHandoverPairAsync(pair, deferred), null, TimeSpan.FromMilliseconds(HandoverSignallingSettings.GraceMs), Timeout.InfiniteTimeSpan);
+			}
+		}
+
+		// True when the pair waited for its second member, whose restart now covers it
+		private bool CancelDeferredHandoverPairLocked((Int64, Int64) pair)
+		{
+			if (!m_HandoverDeferredPairs.Remove(pair, out DeferredHandoverPair? deferred))
+			{
+				return false;
+			}
+
+			deferred.Timer?.Dispose();
+			return true;
+		}
+
+		// The grace expired before the second member's SetPeerTransports: the pair restarts once for whoever is still connected.
+		// A lobby moving away when it fires restarts nothing; if that move is cancelled, the late member's own return restarts the pair
+		private async Task RestartDeferredHandoverPairAsync((Int64, Int64) pair, DeferredHandoverPair deferred)
+		{
+			try
+			{
+				await RunExclusiveAsync(() =>
+				{
+					if (!m_HandoverDeferredPairs.TryGetValue(pair, out DeferredHandoverPair? current) || !ReferenceEquals(current, deferred))
+					{
+						return Task.CompletedTask;
+					}
+
+					CancelDeferredHandoverPairLocked(pair);
+					LobbyMember? low = GetMemberFromUserID(pair.Item1);
+					LobbyMember? high = GetMemberFromUserID(pair.Item2);
+					bool here = Volatile.Read(ref m_LiveRemoved) == 0 && !IsMovingAway;
+					if (here && low != null && high != null && (State == ELobbyState.GAME_SETUP || State == ELobbyState.COUNTDOWN) && !IsPairConnected(pair.Item1, pair.Item2))
+					{
+						s_log.LogDebug("Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} after the handover grace", LobbyID, pair.Item1, pair.Item2);
+						RestartPairLocked(low, high, false);
+						m_HandoverRestartedPairs.Add(pair);
+					}
+
+					EndHandoverSignallingIfDoneLocked();
+					return Task.CompletedTask;
+				});
+			}
+			catch (Exception ex)
+			{
+				s_log.LogWarning(ex, "Lobby {LobbyId}: re-signalling {SourceUserId} <-> {TargetUserId} after the handover grace failed", LobbyID, pair.Item1, pair.Item2);
+			}
+		}
+
+		// A member who left is no longer expected back, its waiting pairs are dropped
+		private void ForgetHandoverReturnLocked(Int64 userID)
+		{
+			m_HandoverReturning.Remove(userID);
+			foreach ((Int64, Int64) pair in m_HandoverDeferredPairs.Keys.Where(pair => pair.Item1 == userID || pair.Item2 == userID).ToArray())
+			{
+				CancelDeferredHandoverPairLocked(pair);
+			}
+			EndHandoverSignallingIfDoneLocked();
+		}
+
+		// Members who moved on to another connection or left are no longer coming back; once nobody is and no pair waits,
+		// the handover is over and the next reconnect restarts its pairs as an ordinary one
+		private void EndHandoverSignallingIfDoneLocked()
+		{
+			foreach (Int64 userID in m_HandoverReturning.Keys.ToArray())
+			{
+				LobbyMember? member = GetMemberFromUserID(userID);
+				if (member == null || !IsReturningFromHandoverLocked(member))
+				{
+					m_HandoverReturning.Remove(userID);
+				}
+			}
+
+			if (m_HandoverReturning.Count == 0 && m_HandoverDeferredPairs.Count == 0)
+			{
+				m_HandoverRestartedPairs.Clear();
+			}
+		}
+
+		// The step values of a pair from one snapshot of both transport lists, under the lobby gate
+		private PeerStepValues PairValuesLocked(LobbyMember a, LobbyMember b, IReadOnlyList<string>? transportsA, IReadOnlyList<string>? transportsB)
+		{
+			string? shared = ConnectionOrder.SharedTransport(transportsA, transportsB, LinkedAccountProviderNames());
+			PeerPairState state = m_PeerPairs.Settle(a.UserID, b.UserID, shared != null);
+			MarkLiveDirty();
+
+			// a plugin transport reaches a peer by its middleware id, so without both ids this send uses the next step and the stored step stays
+			bool idsKnown = !String.IsNullOrEmpty(a.MiddlewareUserID) && !String.IsNullOrEmpty(b.MiddlewareUserID);
+			return ConnectionOrder.ValuesOf(state, idsKnown ? shared : null);
+		}
+
+		private PeerStepValues PairValuesLocked(LobbyMember a, LobbyMember b) => PairValuesLocked(a, b, TransportsOf(a), TransportsOf(b));
+
+		// Tells a member how to reach the given peer with the values both peers of the pair get
+		private StartSignallingEvent StartSignallingFor(LobbyMember recipient, LobbyMember peer, PeerStepValues values)
 		{
 			return new StartSignallingEvent
 			{
@@ -772,10 +950,10 @@ namespace GenOnlineService
 				UserId = peer.UserID,
 				PreferredPort = peer.Port,
 				MiddlewareId = peer.MiddlewareUserID,
-				Attempt = values?.Attempt,
-				Transport = values?.Transport,
-				Relay = values?.Relay,
-				TimeoutS = values?.TimeoutS
+				Attempt = values.Attempt,
+				Transport = values.Transport,
+				Relay = values.Relay,
+				TimeoutS = values.TimeoutS
 			};
 		}
 
@@ -1025,6 +1203,25 @@ namespace GenOnlineService
 		public string Password { get; private set; } = String.Empty;
 
 		public bool AllowObservers { get; private set; } = false;
+
+		// false for a quick match lobby whose playlist has allow_army_selection off: every side stays random
+		public bool AllowArmySelection { get; private set; } = true;
+
+		// the playlist a quick match lobby was formed from, 0 for a custom lobby
+		public int PlaylistID { get; private set; } = 0;
+
+		internal void SetQuickMatchPlaylist(int playlistID, bool allowArmySelection)
+		{
+			PlaylistID = playlistID;
+			AllowArmySelection = allowArmySelection;
+			MarkLiveDirty();
+		}
+
+		// players already kept for staff review for a refused quick match request in this lobby, so a repeat costs no database write
+		private readonly ConcurrentDictionary<Int64, byte> m_QuickMatchRuleReports = new();
+
+		internal bool TryMarkQuickMatchRuleReported(Int64 userID) => m_QuickMatchRuleReports.TryAdd(userID, 0);
+
 		public UInt32 ExeCRC { get; private set; } = 0;
 		public UInt32 IniCRC { get; private set; } = 0;
 
@@ -1559,7 +1756,7 @@ public async Task FinalizeACChecks()
 					continue;
 				}
 
-				PeerStepValues? values = PairValuesLocked(newMember, memberEntry);
+				PeerStepValues values = PairValuesLocked(newMember, memberEntry);
 				RealtimeOut.Fire(joining.StartSignalling(StartSignallingFor(newMember, memberEntry, values)));
 				RealtimeOut.Fire(joining.AnticheatRegister(AnticheatPeerFor(memberEntry)));
 
@@ -1679,6 +1876,7 @@ public async Task FinalizeACChecks()
 			ForgetConnectionsOf(member.UserID);
 			RefreshLobbyNamesLocked();
 
+			ForgetHandoverReturnLocked(member.UserID);
 			OnAfterPlayerLeftLocked(member.UserID);
 			++m_MembershipVersion;
 			InvalidateMeshCheck("membership_changed");
@@ -1988,7 +2186,7 @@ public async Task FinalizeACChecks()
 						using var scope = ServiceLocator.Services.CreateScope();
 						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 						await using var db = await factory.CreateDbContextAsync();
-						await Database.MatchHistory.CreatePlaceholderMatchHistory(db, this);
+						await Database.MatchHistory.CreatePlaceholderMatchHistory(db, this, scope.ServiceProvider.GetRequiredService<MatchIdGenerator>());
 					}
 					catch (Exception ex)
 					{

@@ -45,8 +45,8 @@ public sealed class NameTagsExhaustedException : Exception
 
 namespace Database
 {
-	// Xbox-style names: the name is not unique, name#tag is. Keycloak owns both in the official deployment and the
-	// environment copies them (ApplyUpstream); elsewhere the environment assigns the tag itself (AssignNewUser, RenameKeepingTag).
+	// Xbox-style names: the name is not unique, name#tag is. The environment assigns the tag (AssignNewUser) and renames keep it
+	// (RenameKeepingTag); ApplyUpstream copies a name and tag another environment owns (the follow-prod mirror, identity hub T8).
 	// Look-alikes count as one name everywhere: the plugin's key (NameKey) is unique with the tag (ux_users_name_key_name_tag).
 	public static class DisplayNames
 	{
@@ -161,7 +161,7 @@ namespace Database
 			return changes;
 		}
 
-		// ApplyUpstream inside the caller's transaction (the Keycloak change log); a unique violation is the caller's to retry
+		// ApplyUpstream inside the caller's transaction; a unique violation is the caller's to retry
 		public static async Task<IReadOnlyList<NameChange>> ApplyUpstreamInTransaction(AppDbContext db, Int64 userID, string? name, string? tagText, string changedBy)
 		{
 			if (!IsStorable(name) || !Int32.TryParse(tagText, NumberStyles.None, CultureInfo.InvariantCulture, out int tag) || tag < MinTag || tag > MaxTag)
@@ -199,6 +199,82 @@ namespace Database
 			changes.Add(Record(db, user, name, tag, changedBy));
 			await db.SaveChangesAsync();
 			return changes;
+		}
+
+		// The neutral name of an account that still owes a chosen one (S17): "Player" and six digits, so pending accounts
+		// spread over many names and never run out of tags
+		public static string Placeholder() => "Player" + Random.Shared.Next(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
+
+		// "Player" and six digits in any case: the shape of Placeholder, which a player cannot choose as the name they owe
+		public static bool IsPlaceholderShaped(string name)
+			=> name.Length == 12 && name.StartsWith("Player", StringComparison.OrdinalIgnoreCase) && name.AsSpan(6).IndexOfAnyExceptInRange('0', '9') < 0;
+
+		// The name a player owes, chosen: the tag stays when the new name is free with it, otherwise a free one is drawn, so the
+		// choice never fails on a taken tag. Settles name_required_at even when the name is unchanged. False when the user is gone.
+		public static async Task<(bool Found, NameChange? Change)> Choose(AppDbContext db, Int64 userID, string name, string changedBy)
+		{
+			for (int attempt = 1; ; attempt++)
+			{
+				User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID);
+				if (user == null)
+				{
+					return (false, null);
+				}
+
+				NameChange? change = null;
+				if (!String.Equals(user.Username, name, StringComparison.Ordinal))
+				{
+					string key = NameKey.Of(name);
+					string normalized = NameNormalizer.Normalize(name);
+					int tag = user.NameTag;
+					if (await db.Users.AnyAsync(u => u.ID != userID && u.NameTag == tag && (u.NameKey == key || u.UsernameNormalized == normalized)))
+					{
+						tag = await FreeTag(db, name, userID);
+					}
+					change = Record(db, user, name, tag, changedBy);
+				}
+				user.NameRequiredAt = null;
+
+				try
+				{
+					await db.SaveChangesAsync();
+					return (true, change);
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				{
+					// another player took the name with that tag at the same moment; draw again
+					db.ChangeTracker.Clear();
+				}
+			}
+		}
+
+		// Staff reset an inappropriate name: a placeholder with a free tag, the player owes a new name, and the security stamp
+		// changes so website sessions end. Null when the user is gone.
+		public static async Task<NameChange?> ResetName(AppDbContext db, Int64 userID, string changedBy)
+		{
+			for (int attempt = 1; ; attempt++)
+			{
+				User? user = await db.Users.AsTracking().FirstOrDefaultAsync(u => u.ID == userID);
+				if (user == null)
+				{
+					return null;
+				}
+
+				string placeholder = Placeholder();
+				NameChange change = Record(db, user, placeholder, await FreeTag(db, placeholder, userID), changedBy);
+				user.NameRequiredAt = DateTime.UtcNow;
+				user.SecurityStamp = Guid.NewGuid().ToString("N");
+
+				try
+				{
+					await db.SaveChangesAsync();
+					return change;
+				}
+				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < 3)
+				{
+					db.ChangeTracker.Clear();
+				}
+			}
 		}
 
 		// A rename where the environment owns names (self-hosted): the tag is static, and the new name with that tag must be
@@ -258,6 +334,8 @@ namespace Database
 			user.NameTag = tag;
 			user.RenamedAt = now;
 			user.UpdatedAt = now;
+			// any new name settles one the player owed; a staff name reset owes it again afterwards
+			user.NameRequiredAt = null;
 			return change;
 		}
 

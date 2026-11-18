@@ -39,6 +39,8 @@ namespace GenOnlineService.Rest
 		}
 
 		// service_config is the client.* flags of the live revision, evaluated for the caller and grouped by key
+		[EndpointSummary("Reads the service configuration a game client needs.")]
+		[ProducesResponseType<ConfigResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/config")]
 		public async Task<IActionResult> Get()
 		{
