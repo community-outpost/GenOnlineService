@@ -233,9 +233,13 @@ A session is in at most one channel at a time, like Battle.net classic: joining 
 |---|---|---|---|
 | `JoinChannel` | `{channel_id}` | Result | Then `ChannelMembers`, then `ChannelHistory`. A parent channel resolves to its default child; `ChannelMembers.channel_id` is the channel actually joined. Leaving a channel happens by joining another or `LeaveChannel` |
 | `LeaveChannel` | `{}` | Result | |
-| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters |
+| `SendMessage` | `{channel_id, type, content}` | Result `{message_id}` | `type` `chat` or `action`; `announcement` only for the host in `lobby:` channels. `dm:` requires mutual friendship, except for staff messaging (section 6.2); a message to an offline recipient is stored and answers ok. `group:` requires membership. Content 1 to 512 characters. The text rules check every message (section 5.1a): a blocked word answers `chat.blocked` and nothing is stored or delivered; a flagged word is masked with `*`, and the masked text is what is stored, delivered (`MessageCreate.content`), kept in history and relayed |
 | `GetHistory` | `{channel_id, before?: message_id, limit}` | Result `{messages: [Message], has_more}` | `channel:`, `dm:`, `group:` and `lobby:` (current members of that lobby) only; the `limit` messages just older than `before`, or the newest when it is absent, returned oldest first like `ChannelHistory`; `has_more` is true when older messages exist; `limit` 1 to 100 |
 | `MarkRead` | `{channel_id}` | Result | Marks the whole conversation read, up to the newest message the service holds at that moment; `Conversations` then shows `unread` 0 for it. The user's other connections get `ReadMarker`. `dm:` and `group:` conversations the caller is part of, otherwise `not_found {what: channel}` or `group.not_member` |
+
+#### 5.1a Text rules
+
+Display names, lobby names and chat messages pass the text rules: word lists in English and Arabic with a severity per word (`block` or `flag`) and a category (`slur`, `sexual`, `profanity`, `insult`, and for names only `impersonation` and `reserved`), exception words that stay allowed although they contain a listed word (Scunthorpe), and one rule workflow per input kind that decides the outcome. Before matching, the text is folded: Unicode compatibility forms (NFKD), case, diacritics, Arabic tashkeel and tatweel and invisible format characters drop out, Arabic letter variants read as one letter (alef forms, ya and alef maqsura, ta marbuta and ha), Cyrillic and Greek look-alikes read as Latin, leetspeak reads as letters (`0` o, `1` i or l, `3` e, `4` a, `5` s, `7` t, `@` a, `$` s), repeated letters read once (a listed word with a doubled letter still needs it doubled), and a Latin word with Arabizi digits (`2` `3` `5` `6` `7` `8` `9`) also reads as Arabic. A display name reads as one word, every separator dropped; elsewhere spaces part words, and a row of single characters (`f u c k`, `f.u.c.k`) joins into one. A word matches as a whole word (an Arabic word may carry the article or a conjunction in front) or anywhere in a word, unless an exception word covers the match. The default rules: a display name with an impersonation, reserved or blocked word answers `name.reserved {word}`, a lobby name with a blocked word answers `name.reserved {word}` to `CreateLobby`, a chat message with a blocked word answers `chat.blocked`, and a chat message with a flagged word is delivered masked. Staff change the words, exceptions and rules on the staff pages (`docs/api.md`, text rules); every service copy applies a change within about 5 seconds.
 
 Group chats are small private conversations, like group direct messages in Discord. Groups are created and managed over REST (section 10.1); their messages use `SendMessage` to `group:<id>`.
 
@@ -247,7 +251,7 @@ Game sessions only. Any change other than ready, has-map, force-ready and kick c
 |---|---|---|---|
 | `WatchLobbyList` | `{}` | Result `{lobbies: [LobbySummary]}` | any game session; subscribes to `LobbyListUpsert` and `LobbyListRemove` |
 | `UnwatchLobbyList` | `{}` | Result | |
-| `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password: string or null, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128 |
+| `CreateLobby` | `{name, map: {name, path, official}, max_players, visibility, password: string or null, preferred_port, settings: {starting_cash, limit_superweapons, vanilla_teams, track_stats, allow_observers, max_camera_height}}` | Result `{lobby_id, turn: {username, token}}` | any game session; name and map name up to 255 characters, map path up to 512, password up to 128. A name with a blocked word of the text rules answers `name.reserved {word}` (section 5.1a) |
 | `JoinLobby` | `{lobby_id, password: string or null, preferred_port, has_map}` | Result `{turn: {username, token}}` | any game session; quick match lobbies only for the matched players. Before the Result the joiner gets `LobbyState`, then `ChannelHistory` for `lobby:<id>` |
 | `LeaveLobby` | `{}` | Result | member |
 | `UpdateLobby` | `{map?: {name, path, official, max_players}, settings?: {starting_cash?, limit_superweapons?, max_camera_height?}, visibility?}` | Result | host; only the fields present change. A new `max_players` opens or closes slots |
@@ -433,6 +437,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `chat.rate_limited` | `{retry_after_ms}` | `SendMessage` to a `channel:` channel only (3 messages per 9 s today); `lobby:`, `dm:` and `group:` are not limited, in a lobby the host can kick instead |
 | `chat.too_long` | `{max}` | `SendMessage` |
 | `chat.muted` | `{expires_at?}` | `SendMessage` |
+| `chat.blocked` | | `SendMessage`: the text rules block the message (section 5.1a); nothing is stored or delivered |
 | `report.duplicate` | | `POST /api/v1/reports` when the caller already reported that message, or has an open report on that player |
 | `match.result_closed` | | `PUT /api/v1/matches/:id/results/me` more than 24 hours after the match finished (after it started when it has no end) |
 | `chat.not_friends` | | `SendMessage` to `dm:`, `POST /api/v1/groups`, `POST /api/v1/groups/:id/members` |
@@ -442,7 +447,7 @@ Codes are stable strings; clients localize them. Every failed `Result` and every
 | `name.length` | `{min, max}` | `PATCH /api/v1/me` |
 | `name.invalid_characters` | | `PATCH /api/v1/me` |
 | `name.whitespace` | | `PATCH /api/v1/me` |
-| `name.reserved` | `{word}` | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the name contains a word from the reserved list (case-insensitive, anywhere in the name), the same list the Keycloak plugin uses; `word` is the listed word in lowercase |
+| `name.reserved` | `{word}` | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the name contains a word the text rules refuse (section 5.1a): an impersonation or reserved word (the Keycloak plugin's list is among them and still refuses every name it refused) or a blocked word, also disguised; `word` is the listed word in lowercase. `CreateLobby` answers it for a lobby name with a blocked word |
 | `name.taken` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id`: the new name together with the player's tag is already taken |
 | `name.managed` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` in an environment where Keycloak owns names and this environment may not rename (test and dev of the official deployment) |
 | `name.unavailable` | | `PATCH /api/v1/me`, `PATCH /api/v1/players/:id` when the service that owns names (the Keycloak plugin) cannot be reached or fails (HTTP 503). Nothing changed; the client may retry later |

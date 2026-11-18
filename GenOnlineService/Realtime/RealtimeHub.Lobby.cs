@@ -133,6 +133,11 @@ namespace GenOnlineService.Realtime
 			}
 
 			if (!IsValidText(request.Name, LobbyNameMaxLength)) return Result.Invalid("name");
+			// the text rules (S7) refuse a lobby name with a blocked word as a display name is refused
+			if (TextRules.TextChecks.LobbyNameRefusal(request.Name) is Failure disallowed)
+			{
+				return disallowed;
+			}
 			if (request.Map == null) return Result.Invalid("map");
 			if (!IsValidText(request.Map.Name, MapNameMaxLength)) return Result.Invalid("map.name");
 			if (!IsValidText(request.Map.Path, MapPathMaxLength)) return Result.Invalid("map.path");
