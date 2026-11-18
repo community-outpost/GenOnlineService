@@ -2015,7 +2015,12 @@ namespace GenOnlineService
 			};
 
 			m_s3client = new AmazonS3Client(access_key, secret_key, config);
+			s_store = new GenOnlineService.Service.S3MatchDataStore(m_s3client, bucket_name);
 		}
+
+		// The bucket the service reads and writes itself, null while match data uploads are off
+		public static GenOnlineService.Service.IMatchDataStore? Store => s_store;
+		private static GenOnlineService.Service.IMatchDataStore? s_store;
 
 		private static void GetS3Config(out int TTL, out string access_key, out string secret_key, out string bucket_name, out string endpoint)
 		{

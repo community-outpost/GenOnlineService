@@ -101,6 +101,15 @@ audit_log                 -- append-only, purged 2 years after created_at
   actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token' | 'client'),
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
   index (target_kind, target_id), index (created_at)
+
+sanction_evidence         -- retention: the row and its object go 90 days after the sanction ended (lifted or expired),
+                          -- or when the sanction is gone; an object another sanction still holds stays
+  id, sanction_id, user_id, match_id, object_key varchar(256), created_at, created_by_id bigint null
+  unique (sanction_id, object_key), index (object_key)
+  -- a screenshot a sanction relies on: screenshots/ objects expire after 90 days (filer TTL), so staff copy the
+  -- sanctioned player's screenshots of a match to evidence/<same key> (no TTL, the service deletes it). The copy is a GET
+  -- then PUT of the bytes, never an S3 CopyObject, which may carry the source's TTL. No foreign key, like the other
+  -- moderation tables
                           -- source: where the action came in, for example 'api' (REST), 'realtime' (hub), 'discord', 'cli', 'import', 'startup_sweep'
 ```
 

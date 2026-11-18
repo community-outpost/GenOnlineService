@@ -143,6 +143,52 @@ namespace GenOnlineService.Api
 			return ApiResults.NoContent(await SanctionActions.LiftAsync(m_dbFactory, Me, sanctionID, body?.Reason, RequirePermissionAsync));
 		}
 
+		// Copies the sanctioned player's screenshots of a match to evidence/, kept until 90 days after the sanction ends; the
+		// caller needs the permission that gives the sanction's type
+		[AllowSignInCookie]
+		[EndpointSummary("Keeps a match's screenshots of the sanctioned player as evidence for a sanction.")]
+		[ProducesResponseType<HoldEvidenceResponse>(StatusCodes.Status200OK)]
+		[ApiRequestBody(typeof(HoldEvidenceRequest))]
+		[ApiPermission(Permissions.ModerationKick, Permissions.ModerationMute, Permissions.ModerationBan)]
+		[HttpPost("~/api/v1/sanctions/{sanctionID:long}/evidence")]
+		public async Task<IActionResult> HoldEvidence(long sanctionID)
+		{
+			(HoldEvidenceRequest? body, Failure? malformed) = await ReadBodyAsync<HoldEvidenceRequest>();
+			if (malformed != null)
+			{
+				return ApiResults.Fail(malformed.Value);
+			}
+			if (body?.MatchId is not long matchID || matchID <= 0)
+			{
+				return ApiResults.Fail(Result.Invalid("match_id"));
+			}
+
+			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+			string? type = await db.Sanctions.AsNoTracking().Where(s => s.ID == sanctionID).Select(s => s.Type).FirstOrDefaultAsync();
+			string permission = type switch
+			{
+				SanctionTypes.Ban => Permissions.ModerationBan,
+				SanctionTypes.Mute => Permissions.ModerationMute,
+				_ => Permissions.ModerationKick,
+			};
+			// a caller without the permission learns nothing about the sanction
+			if (await RequirePermissionAsync(permission) is Failure denied)
+			{
+				return ApiResults.Fail(denied);
+			}
+
+			EvidenceResult result = await Database.SanctionEvidenceStore.HoldMatchScreenshots(db, S3CredentialManager.Store, sanctionID, matchID, SanctionActions.ApiActorOf(Me), DateTime.UtcNow);
+			return result.Outcome switch
+			{
+				EvidenceOutcome.Held => ApiResults.Answer(Result.Success(new HoldEvidenceResponse { Held = result.Held, Missing = result.Missing })),
+				EvidenceOutcome.SanctionNotFound => ApiResults.Fail(Result.NotFound("sanction")),
+				EvidenceOutcome.MatchNotFound => ApiResults.Fail(Result.NotFound("match")),
+				EvidenceOutcome.NotInMatch => ApiResults.Fail(Result.Invalid("match_id")),
+				EvidenceOutcome.HoldOver => ApiResults.Fail(Result.Invalid("sanction_id")),
+				_ => ApiResults.Fail(Result.Fail(GenOnlineService.Rest.RestCodes.ServiceUnavailable, new { What = "match_data" })),
+			};
+		}
+
 		// The report queue of the staff pages deletes a reported message with the sign-in cookie
 		[AllowSignInCookie]
 		[EndpointSummary("Deletes a chat message for everyone.")]

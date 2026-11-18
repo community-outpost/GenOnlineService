@@ -88,6 +88,7 @@ public abstract partial class AppDbContext : DbContext
 	public DbSet<UserRole> UserRoles => Set<UserRole>();
 	public DbSet<Sanction> Sanctions => Set<Sanction>();
 	public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
+	public DbSet<SanctionEvidence> SanctionEvidence => Set<SanctionEvidence>();
 
 	// Social
 	public DbSet<Friendship> Friendships => Set<Friendship>();
@@ -238,6 +239,7 @@ public abstract partial class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new UserRoleConfiguration());
 		modelBuilder.ApplyConfiguration(new SanctionConfiguration());
 		modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
+		modelBuilder.ApplyConfiguration(new SanctionEvidenceConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendshipConfiguration());
 		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
 		modelBuilder.ApplyConfiguration(new UserBlockConfiguration());

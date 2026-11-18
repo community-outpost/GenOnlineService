@@ -94,6 +94,8 @@ public static class ModerationActions
 	// A staff member searched the accounts that used a device or network identifier, every search is a row
 	public const string InvestigateSearch = "investigate_search";
 	public const string AnticheatReview = "anticheat_review";
+	// Staff copied a match's screenshots to evidence/ for a sanction that relies on them
+	public const string SanctionEvidence = "sanction_evidence";
 }
 
 public static class ModerationSources
@@ -273,7 +275,7 @@ namespace Database
 			return Entry(actor, action, AuditTargetKinds.User, target, reason, details, now);
 		}
 
-		private static AuditLogEntry Entry(ModerationActor actor, string action, string targetKind, Int64? target, string? reason, object? details, DateTime now)
+		internal static AuditLogEntry Entry(ModerationActor actor, string action, string targetKind, Int64? target, string? reason, object? details, DateTime now)
 		{
 			return new AuditLogEntry
 			{

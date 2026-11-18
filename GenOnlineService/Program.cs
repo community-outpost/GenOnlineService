@@ -1715,6 +1715,20 @@ namespace GenOnlineService
 						{
 							app.Logger.LogError(ex, "Sanction and staff log retention purge failed");
 						}
+
+						// A copy is held until 90 days after its sanction ended; the rows of a purged sanction go too
+						try
+						{
+							int evidence = await Database.SanctionEvidenceStore.PurgeExpired(db, S3CredentialManager.Store, DateTime.UtcNow);
+							if (evidence > 0)
+							{
+								app.Logger.LogInformation("Retention purge removed {EvidenceCount} sanction evidence screenshots", evidence);
+							}
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Sanction evidence retention purge failed");
+						}
 					}, stopping);
 				});
 			}

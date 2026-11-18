@@ -2415,6 +2415,53 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("sanctions", (string)null);
                 });
 
+            modelBuilder.Entity("SanctionEvidence", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("CreatedByID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<long>("MatchID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("match_id");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("object_key");
+
+                    b.Property<long>("SanctionID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sanction_id");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("ObjectKey")
+                        .HasDatabaseName("ix_sanction_evidence_key");
+
+                    b.HasIndex("SanctionID", "ObjectKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sanction_evidence_sanction_key");
+
+                    b.ToTable("sanction_evidence", (string)null);
+                });
+
             modelBuilder.Entity("ServiceAccount", b =>
                 {
                     b.Property<long>("ID")
