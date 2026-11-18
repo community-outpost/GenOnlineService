@@ -242,7 +242,9 @@ Only prod's client also holds `genonline-rename`, the role for the plugin's rena
 
 ## 5d. The look of the pages (T19)
 
-The sign-in and account pages follow the Generals Online design system (boards Main, ChooseName, TwoFactor, CheckEmail, Refused, PhoneArabic and Account): `wwwroot/portal/tokens.css` (the `--go-*` tokens, dark only), the `gp-*` classes in `wwwroot/portal/generals.css`, self-hosted Play, IBM Plex Sans and IBM Plex Sans Arabic. `Accounts:cover_images` is a list of public paths on this service; missing means the three faction images, an empty list means no image, and an entry that is not a path on this service (an address with a host, whitespace or a quote) stops the start. The footer links come from `Agreements:terms:url`, `Agreements:privacy:url` and `Agreements:rules:url`; a document without an address has no link, and there is no Help link until a help page exists.
+The sign-in and account pages follow the Generals Online design system (boards Main, ChooseName, TwoFactor, CheckEmail, Refused, PhoneArabic and Account): `wwwroot/portal/tokens.css` (the `--go-*` tokens, dark only), the `gp-*` classes in `wwwroot/portal/generals.css`, self-hosted Play, IBM Plex Sans and IBM Plex Sans Arabic. `Accounts:cover_images` is a list of public paths on this service; missing means the three faction images, an empty list means no image, and an entry that is not a path on this service (an address with a host, whitespace or a quote) stops the start. The footer links come from `Agreements:terms:url`, `Agreements:privacy:url` and `Agreements:rules:url`; a document without an address has no link, and there is no Help link until a help page exists. Each address must be an absolute http or https URL without spaces or quotes, or the start fails.
+
+Two differences from the earlier pages are intended: the two-factor sign-in page shows one code at a time, with "Use a recovery code instead" at `?recovery=1` on the same route and the same POST, and the pages now carry Back links, a skip link and a footer with the configured Terms, Privacy and Rules links.
 
 ## 5c. Agreements (S19)
 
