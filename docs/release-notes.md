@@ -35,7 +35,7 @@ New operator routes: personal access tokens, service accounts, player roles, aud
 
 Renames no longer keep the tag. A player's tag for a name comes from a keyed hash (`Names:tag_key`) of the player id and the look-alike key of the name, so switching back to a name always brings back the same tag; a tag another player holds or has reserved moves on to the player's next one, so a rename, a chosen name and a staff rename no longer fail with `name.taken` unless every tag of the name is held or reserved. Every `name#tag` a player has held stays reserved for them. Existing players keep their current name and tag.
 
-The migration `NameReservations` adds the `name_reservations` table, and `GenOnlineService migrate` reserves the current and past pairs of existing players. Every environment outside Development needs `Names:tag_key`, a base64 secret of at least 32 bytes, or the service stops at startup. Keep it stable: a new key changes the tags of names players have never held.
+The migration `NameReservations` adds the `name_reservations` table, and `GenOnlineService migrate` reserves the current and past pairs of existing players. Run `migrate` once more after the rollout: renames by the old version during the rollout are reserved by that run. Every environment outside Development needs `Names:tag_key`, a base64 secret of at least 32 bytes, or the service stops at startup. Keep it stable: a new key changes the tags of names players have never held.
 
 ### Match ids are snowflakes
 
