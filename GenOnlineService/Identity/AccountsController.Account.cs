@@ -164,6 +164,12 @@ namespace GenOnlineService.Identity
 			}
 			body.Append(PortalLook.Card(T("Account.Linked.Title"), T("Account.Linked.Description"), linked.ToString()));
 
+			// Agreements (S19): what this account agreed to, each document's link, and the way to agree to what is owed
+			if (m_settings.Agreements.Any)
+			{
+				body.Append(await AgreementsCard(user.ID));
+			}
+
 			// the staff pages (/admin) for a holder of a staff role; the page gate there checks the permission again
 			string admin = await m_passwords.IsStaff(user.ID) ? PortalLook.LinkButton(AdminPath, T("Account.Admin"), icon: "shield", narrow: true) : String.Empty;
 			string signOut = FormStart("/users/sign_out", AccountPath) + PortalLook.Submit(T("SignOut"), outline: true, icon: "log-out", narrow: true) + "</form>";
@@ -176,5 +182,43 @@ namespace GenOnlineService.Identity
 		}
 
 		private string Day(DateTime value) => AccountsText.Day(value, Culture);
+
+		private async Task<string> AgreementsCard(Int64 userID)
+		{
+			Dictionary<string, UserAgreement> latest;
+			IReadOnlyList<AgreementDocument> owed;
+			await using (AppDbContext db = await HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContextAsync())
+			{
+				latest = await Agreements.LatestAsync(db, userID);
+				owed = await Agreements.OwedAsync(db, m_settings.Agreements, userID);
+			}
+
+			var rows = new StringBuilder();
+			foreach (AgreementDocument document in m_settings.Agreements.Required)
+			{
+				string label = T(document.Name == AgreementsSettings.Rules ? "Account.Agreements.Rules" : "Account.Agreements.Terms");
+				var content = new StringBuilder();
+				if (latest.TryGetValue(document.Name, out UserAgreement? agreed))
+				{
+					content.Append($"<bdi>{WebUtility.HtmlEncode(T("Account.Agreements.Agreed", agreed.Version, Day(agreed.AgreedAt)))}</bdi>");
+					if (owed.Contains(document))
+					{
+						content.Append(PortalLook.Badge(T("Account.Agreements.NewVersion", document.Version!), muted: true));
+					}
+				}
+				else
+				{
+					content.Append(PortalLook.Badge(T("Account.Agreements.NotAgreed"), muted: true));
+				}
+				content.Append(' ').Append(ExternalLink(document.Url!, T("Account.Agreements.Read")));
+				rows.Append(PortalLook.Row(label, content.ToString()));
+			}
+			if (m_settings.Agreements.PrivacyUrl != null)
+			{
+				rows.Append($"<p>{ExternalLink(m_settings.Agreements.PrivacyUrl, T("Agreements.PrivacyLink"))}</p>");
+			}
+			string? agree = owed.Count == 0 ? null : PortalLook.LinkButton(AgreementsUrl(AccountPath), T("Account.Agreements.Agree"), outline: false, icon: "check", narrow: true);
+			return PortalLook.Card(T("Account.Agreements.Title"), T("Account.Agreements.Description"), rows.ToString(), agree);
+		}
 	}
 }

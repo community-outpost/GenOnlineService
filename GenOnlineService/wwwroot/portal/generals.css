@@ -1266,3 +1266,26 @@ a.go-list-item:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* The agreement pages (S19): a rule card's items, and the Terms tick box */
+.go-rule-items {
+  list-style: disc;
+  padding-inline-start: 1.25rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.go-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.go-check input {
+  margin-top: 0.15rem;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--primary);
+}
