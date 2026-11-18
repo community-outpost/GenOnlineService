@@ -189,6 +189,21 @@ public class TextRulesStoreTests
 			Assert.Equal(302, (await PasswordPagesTests.SignUp(new AccountsBrowser(probe, PasswordPagesTests.Enabled()), "Scunthorpe", "fine@example.org", "a long enough password")).Status);
 
 			User user = (await PasswordPagesTests.UserByEmail(probe, "fine@example.org"))!;
+
+			// another test database left the process-wide role cache holding its admin under the same user id, as
+			// AccountSupportTests does: names.protected of that admin skips the name rules of this user
+			await using (ProbeDatabase? other = await ProbeDatabase.Create(provider))
+			{
+				(_, User admin) = await StaffAsync(other!, "Elsewhere", StaffRoles.Admin);
+				Assert.Equal(user.ID, admin.ID);
+				await using AppDbContext otherDb = other!.Open();
+				await StaffRoles.Reload(otherDb);
+			}
+			// the name rules read that cache, so this test loads the roles of its own database first
+			await using (AppDbContext db = probe.Open())
+			{
+				await StaffRoles.Reload(db);
+			}
 			var names = new Names.PlayerNames(new ProbeFactory(probe));
 			Result<Empty> renamed = await names.RenameSelfAsync(user.ID, "F.u.c.k");
 			Assert.Equal(ErrorCodes.NameReserved, renamed.Code);
