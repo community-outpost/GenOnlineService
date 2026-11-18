@@ -89,6 +89,11 @@ personal data.</li>
 <p>We back up the database, encrypted, every day. Backups are kept for about four weeks and then replaced.</p>
 <!-- TODO(operator): pgBackRest keeps 4 weekly full and 7 differential backups in a Cloudflare R2 bucket, but its endpoint is
      still a placeholder (CHANGE_ME), so the location and jurisdiction of the backups cannot be stated. -->
+
+<h3>Children</h3>
+<p>Generals Online is for players aged 16 and older. We do not knowingly keep personal data of anyone younger. If we learn
+that an account belongs to someone under 16, we close it and delete its personal data, except what we must keep to deal with
+a report or a ban.</p>
 </section>
 
 <section id="bases">
@@ -123,10 +128,10 @@ connect the game to its online services.</li>
 then sees your IP address.</li>
 <li><strong>Backblaze</strong> stores the replays and screenshots of matches, in its EU (Amsterdam) region.</li>
 <li><strong>Sentry</strong> receives error reports.</li>
-<li>Our <strong>hosting provider</strong> runs the server that holds the data.</li>
+<li>Our <strong>hosting providers</strong> run the servers that hold the data: netcup in Germany, OVHcloud in France, Germany and the
+United Kingdom, and Worldstream in the Netherlands. The United Kingdom is outside the European Economic Area; the European
+Commission has decided that it protects personal data adequately, so data can go there without further safeguards.</li>
 </ul>
-<!-- TODO(operator): the hosting provider and region are not determinable (infra/config/hosts.yaml has "site: placeholder";
-     infra/docs/new-host.md mentions an OVH VPS). Name the provider and the country here. -->
 <!-- TODO(operator): Some recipients (Discord, Google, Cloudflare, Sentry, Epic) may process data outside the European
      Economic Area. State the safeguards relied on (for example the EU-US Data Privacy Framework or standard contractual
      clauses) once confirmed with each provider. -->
