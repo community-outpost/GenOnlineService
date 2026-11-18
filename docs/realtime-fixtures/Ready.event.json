@@ -40,6 +40,7 @@
     },
     "name_min_length": 3,
     "name_max_length": 16,
-    "group_max_members": 10
+    "group_max_members": 10,
+    "mention_max": 10
   }
 }

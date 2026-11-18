@@ -68,6 +68,10 @@ namespace GenOnlineService.Realtime
 		public Member? Author { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
 		public string? Content { get; init; }
+
+		// The mentioned user ids in order of appearance (ChatMentions), null and absent on the wire when there is none
+		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+		public IReadOnlyList<long>? Mentions { get; init; }
 		public DateTime CreatedAt { get; init; }
 		[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
 		public bool Deleted { get; init; }
@@ -236,6 +240,7 @@ namespace GenOnlineService.Realtime
 		public int NameMinLength { get; init; }
 		public int NameMaxLength { get; init; }
 		public int GroupMaxMembers { get; init; }
+		public int MentionMax { get; init; }
 	}
 
 	// A group chat, members in join order with the owner included
@@ -547,6 +552,13 @@ namespace GenOnlineService.Realtime
 		public string ChannelId { get; init; } = "";
 		public IReadOnlyList<Message> Messages { get; init; } = [];
 		public bool HasMore { get; init; }
+	}
+
+	// MentionCreate: a channel message mentioned the user while none of their connections was in the channel
+	public sealed record MentionCreateEvent
+	{
+		public string ChannelId { get; init; } = "";
+		public Message Message { get; init; } = new Message();
 	}
 
 	// MessageDelete

@@ -515,6 +515,11 @@ namespace GenOnlineService.Migrations.Postgres
                         .HasColumnType("bigint")
                         .HasColumnName("match_id");
 
+                    b.Property<string>("Mentions")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("mentions");
+
                     b.Property<long?>("RecipientID")
                         .HasColumnType("bigint")
                         .HasColumnName("recipient_id");
