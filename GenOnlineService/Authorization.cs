@@ -47,6 +47,9 @@ namespace GenOnlineService
 		// Reads the sign-ins, devices, addresses and possible duplicate accounts of a player
 		public const string PlayersInspect = "players.inspect";
 
+		// Resets the password or the two-factor sign-in of a player who lost them, from the staff pages only
+		public const string AccountsSupport = "accounts.support";
+
 		// Machine permissions are held only by service accounts, never by a staff role
 		public const string UsersRevoke = "users.revoke";
 		public const string OpsDatabase = "ops.database";
@@ -55,7 +58,7 @@ namespace GenOnlineService
 
 		public static readonly IReadOnlySet<string> Human = new HashSet<string>(StringComparer.Ordinal)
 		{
-			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect
+			ModerationKick, ModerationBan, ModerationMute, ModerationRename, ChatDeleteAny, ChatMessageAnyone, ChatStaffBadge, NamesProtected, SocialUnblockable, RolesManage, ServerStats, AnnouncementsSend, TokensManage, AuditRead, SettingsManage, AnticheatReview, PlayersInspect, AccountsSupport
 		};
 
 		public static readonly IReadOnlySet<string> Machine = new HashSet<string>(StringComparer.Ordinal)
@@ -115,7 +118,8 @@ namespace GenOnlineService
 			Permissions.AuditRead,
 			Permissions.SettingsManage,
 			Permissions.AnticheatReview,
-			Permissions.PlayersInspect
+			Permissions.PlayersInspect,
+			Permissions.AccountsSupport
 		}).ToArray();
 
 		private static readonly Dictionary<string, HashSet<string>> s_rolePermissions = new(StringComparer.Ordinal)

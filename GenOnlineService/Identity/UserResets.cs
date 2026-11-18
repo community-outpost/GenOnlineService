@@ -35,7 +35,14 @@ namespace GenOnlineService.Identity
 		private const int GeneratedLength = 20;
 
 		// Sets the given password, or a new random one, and returns it
-		public static async Task<string> ResetPassword(AppDbContext db, Int64 userID, string? password, int minLength, string actor, string? reason)
+		public static Task<string> ResetPassword(AppDbContext db, Int64 userID, string? password, int minLength, string actor, string? reason)
+			=> ResetPassword(db, userID, password, minLength, CliActor(actor), reason);
+
+		public static Task ResetTwoFactor(AppDbContext db, Int64 userID, string actor, string? reason)
+			=> ResetTwoFactor(db, userID, CliActor(actor), reason);
+
+		// The CLI and the staff pages share these; the actor gives the audit row its kind, id, name and source
+		public static async Task<string> ResetPassword(AppDbContext db, Int64 userID, string? password, int minLength, Database.ModerationActor actor, string? reason)
 		{
 			User user = await Find(db, userID);
 			if (user.Email == null)
@@ -56,7 +63,7 @@ namespace GenOnlineService.Identity
 			return chosen;
 		}
 
-		public static async Task ResetTwoFactor(AppDbContext db, Int64 userID, string actor, string? reason)
+		public static async Task ResetTwoFactor(AppDbContext db, Int64 userID, Database.ModerationActor actor, string? reason)
 		{
 			User user = await Find(db, userID);
 			await using var transaction = await db.Database.BeginTransactionAsync();
@@ -80,16 +87,19 @@ namespace GenOnlineService.Identity
 			user.UpdatedAt = DateTime.UtcNow;
 		}
 
-		private static AuditLogEntry Audit(string action, Int64 userID, string actor, string? reason) => new()
+		private static Database.ModerationActor CliActor(string actor) => new() { Kind = AuditActorKinds.Cli, Name = actor, Source = ModerationSources.Cli };
+
+		private static AuditLogEntry Audit(string action, Int64 userID, Database.ModerationActor actor, string? reason) => new()
 		{
 			CreatedAt = DateTime.UtcNow,
-			ActorKind = AuditActorKinds.Cli,
-			Actor = actor.Length > 64 ? actor.Substring(0, 64) : actor,
+			ActorKind = actor.Kind,
+			ActorID = actor.UserID,
+			Actor = actor.Name.Length > 64 ? actor.Name.Substring(0, 64) : actor.Name,
 			Action = action,
 			TargetKind = AuditTargetKinds.User,
 			TargetID = userID,
 			Reason = String.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
-			Source = "cli",
+			Source = actor.Source,
 			Details = JsonSerializer.Serialize(new { })
 		};
 	}

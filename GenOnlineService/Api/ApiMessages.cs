@@ -188,6 +188,20 @@ namespace GenOnlineService.Api
 		public string? ResolutionNote { get; init; }
 	}
 
+	// POST /api/v1/players/:id/password_reset and /two_factor_reset; the reason is required
+	[ApiFixture("post-players-account_support.request")]
+	public sealed record AccountSupportRequest
+	{
+		public string? Reason { get; init; }
+	}
+
+	// The new password, in this answer only
+	[ApiFixture("post-players-password_reset.response")]
+	public sealed record PasswordResetResponse
+	{
+		public string Password { get; init; } = String.Empty;
+	}
+
 	// POST /api/v1/players/:id/reset_name
 	public sealed record ResetNameRequest
 	{
