@@ -18,6 +18,7 @@
 
 using GenOnlineService.Api;
 using GenOnlineService.Identity;
+using GenOnlineService.OpenApi;
 using GenOnlineService.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -72,6 +73,8 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Lists the agreements of the caller: the versions in force, the versions agreed and what is owed.")]
+		[ProducesResponseType<AgreementsResponse>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/me/agreements")]
 		public async Task<IActionResult> Get()
 		{
@@ -79,6 +82,9 @@ namespace GenOnlineService.Rest
 		}
 
 		[AllowSignInCookie]
+		[EndpointSummary("Agrees to the version in force of one document for the caller.")]
+		[ProducesResponseType(StatusCodes.Status204NoContent)]
+		[ApiRequestBody(typeof(AcceptAgreementRequest))]
 		[HttpPost("~/api/v1/me/agreements")]
 		public async Task<IActionResult> Accept()
 		{
