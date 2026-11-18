@@ -187,6 +187,33 @@ namespace Database
 				.ToListAsync(cancellationToken);
 		}
 
+		public sealed record Pair(long Low, long High, IReadOnlyList<ConnectionReport> Reports);
+
+		// The reports of a lobby pair by pair, the lower user id first: user a to b, then b to a, attempt by attempt
+		public static List<Pair> InPairs(IEnumerable<ConnectionReport> rows)
+		{
+			return rows
+				.GroupBy(r => (Low: Math.Min(r.ReporterID, r.TargetUserID), High: Math.Max(r.ReporterID, r.TargetUserID)))
+				.OrderBy(g => g.Key.Low).ThenBy(g => g.Key.High)
+				.Select(g => new Pair(g.Key.Low, g.Key.High, g.OrderBy(r => r.Attempt).ThenBy(r => r.ReporterID == g.Key.Low ? 0 : 1).ToList()))
+				.ToList();
+		}
+
+		// One connection_lookup row per actor and target inside the window, written before the reports are read, true when a row was written
+		public static async Task<bool> LogLookup(AppDbContext db, ModerationActor actor, string targetKind, long target, string by, DateTime now, TimeSpan window)
+		{
+			DateTime since = now - window;
+			bool logged = await db.AuditLog.AsNoTracking().AnyAsync(e => e.TargetKind == targetKind && e.TargetID == target
+				&& e.Action == ModerationActions.ConnectionLookup && e.ActorKind == actor.Kind && e.ActorID == actor.UserID && e.CreatedAt > since);
+			if (logged)
+			{
+				return false;
+			}
+
+			await Moderation.AddAuditEntry(db, actor, ModerationActions.ConnectionLookup, targetKind, target, null, new { by });
+			return true;
+		}
+
 		// Runs hourly with the chat purge
 		public static async Task<int> PurgeExpired(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
 		{

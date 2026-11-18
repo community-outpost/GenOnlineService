@@ -48,6 +48,9 @@ namespace GenOnlineService.Portal.Client
 		public const string Settings = "api/v1/application/settings";
 		public const string Announcements = "api/v1/announcements";
 		public const string Messages = "api/v1/messages";
+		public const string StaffRealtime = "api/v1/staff/realtime";
+		public const string StaffLobbies = "api/v1/staff/lobbies";
+		public const string Lobbies = "api/v1/lobbies";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -67,6 +70,8 @@ namespace GenOnlineService.Portal.Client
 		public const string ApiDocs = "/docs/api";
 		public const string SettingsPage = "/admin/settings";
 		public const string AnnouncementsPage = "/admin/announcements";
+		public const string LivePage = "/admin/live";
+		public const string LobbiesPage = "/admin/lobbies";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -76,6 +81,9 @@ namespace GenOnlineService.Portal.Client
 		public static string MatchPage(long id) => MatchesPage + "/" + id;
 
 		public static string PartnerPage(long id) => PartnersPage + "/" + id;
+
+		// a lobby's connection reports, and its members while it is still open
+		public static string LobbyPage(long id) => LobbiesPage + "/" + id;
 
 		// the match list with one player's matches
 		public static string MatchesOf(long player) => MatchesPage + "?player=" + player.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -101,6 +109,7 @@ namespace GenOnlineService.Portal.Client
 		public const string ChatDeleteAny = "chat.delete_any";
 		public const string AnnouncementsSend = "announcements.send";
 		public const string SettingsManage = "settings.manage";
+		public const string ServerStats = "server.stats";
 	}
 
 	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
@@ -772,5 +781,107 @@ namespace GenOnlineService.Portal.Client
 		// name=value pairs without the null ones, each value escaped
 		public static string Join(IEnumerable<KeyValuePair<string, object?>> arguments) =>
 			String.Join('&', arguments.Where(a => a.Value != null).Select(a => a.Key + "=" + Uri.EscapeDataString(a.Value!.ToString()!)));
+	}
+
+	// GET /api/v1/staff/realtime: the failover lease as "realtime status" prints it (null without PostgreSQL), and the
+	// players, lobbies and queues of the service copy that answered
+	public sealed record PortalRealtime
+	{
+		public PortalRealtimeCopy Copy { get; init; } = new PortalRealtimeCopy();
+		public PortalRealtimeLease? Lease { get; init; }
+		public int PlayersOnline { get; init; }
+		public int LobbiesOpen { get; init; }
+		public IReadOnlyList<PortalRealtimeQueue> Queues { get; init; } = [];
+	}
+
+	public sealed record PortalRealtimeCopy
+	{
+		public string Id { get; init; } = "";
+		public bool Serving { get; init; }
+		public bool Failover { get; init; }
+	}
+
+	// Holder and standby are null for none, expires_in_ms is null once the lease expired
+	public sealed record PortalRealtimeLease
+	{
+		public string? Holder { get; init; }
+		public long Epoch { get; init; }
+		public long? ExpiresInMs { get; init; }
+		public string? Standby { get; init; }
+		public bool HandoverRequested { get; init; }
+	}
+
+	public sealed record PortalRealtimeQueue
+	{
+		public int PlaylistId { get; init; }
+		public string Name { get; init; } = "";
+		public int Queued { get; init; }
+	}
+
+	// GET /api/v1/staff/lobbies: every live lobby in the fields of the hub's LobbyState
+	public sealed record PortalLobbyList
+	{
+		public IReadOnlyList<PortalLobby> Lobbies { get; init; } = [];
+	}
+
+	public sealed record PortalLobby
+	{
+		public long Id { get; init; }
+		public string Name { get; init; } = "";
+		public long HostId { get; init; }
+		public string Type { get; init; } = "";
+		public string State { get; init; } = "";
+		public string Visibility { get; init; } = "";
+		public bool HasPassword { get; init; }
+		public PortalMatchMap Map { get; init; } = new PortalMatchMap();
+		public string Region { get; init; } = "";
+		public long? MatchId { get; init; }
+		public DateTime CreatedAt { get; init; }
+		public IReadOnlyList<PortalSlot> Slots { get; init; } = [];
+
+		[JsonIgnore]
+		public IEnumerable<PortalSlot> Players => Slots.Where(s => s.Member != null);
+
+		[JsonIgnore]
+		public int Seats => Slots.Count(s => s.State != "closed");
+	}
+
+	public sealed record PortalSlot
+	{
+		public int Index { get; init; }
+		public string State { get; init; } = "";
+		public PortalMember? Member { get; init; }
+		public bool Ready { get; init; }
+	}
+
+	// One connection report as "connections player|lobby" prints it, a report never carries an address
+	public sealed record PortalConnectionReport
+	{
+		public long Id { get; init; }
+		public long LobbyId { get; init; }
+		public PortalMember Reporter { get; init; } = new PortalMember();
+		public PortalMember Target { get; init; } = new PortalMember();
+		public int Attempt { get; init; }
+		public string Outcome { get; init; } = "";
+		public string Transport { get; init; } = "";
+		public int IpVersion { get; init; }
+		public IReadOnlyList<PortalConnectionEvent> Events { get; init; } = [];
+		public DateTime CreatedAt { get; init; }
+		public DateTime UpdatedAt { get; init; }
+
+		// the timeline as the CLI prints it: connecting@0ms, failed@5000ms
+		[JsonIgnore]
+		public string Timeline => String.Join(", ", Events.Select(e => $"{e.State}@{e.TMs}ms"));
+	}
+
+	public sealed record PortalConnectionEvent
+	{
+		public string State { get; init; } = "";
+		public long TMs { get; init; }
+	}
+
+	public sealed record PortalConnectionReports
+	{
+		public IReadOnlyList<PortalConnectionReport> Reports { get; init; } = [];
 	}
 }

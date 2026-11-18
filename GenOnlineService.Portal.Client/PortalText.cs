@@ -50,6 +50,16 @@ namespace GenOnlineService.Portal.Client
 		// 3725 seconds reads 1:02:05
 		public static string Duration(long? seconds) => seconds is long s ? $"{s / 3600}:{s / 60 % 60:00}:{s % 60:00}" : "";
 
+		// A lobby state of the hub's LobbyState in the words of the pages
+		public static string LobbyState(string state) => state switch
+		{
+			"setup" => "setup",
+			"countdown" => "countdown",
+			"in_game" => "in a match",
+			"complete" => "finished",
+			_ => state
+		};
+
 		public static string Error(string? code) => code switch
 		{
 			null or "" => "The request failed.",

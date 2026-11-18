@@ -1,0 +1,266 @@
+@* Live operations, read only: the realtime status of "realtime status" (server.stats) and every lobby of the service copy
+   with its members, refreshed every 10 seconds until paused. Handover stays a CLI operation on the host *@
+@page "/admin/live"
+@implements IDisposable
+@inject PortalApi Api
+
+<PageTitle>Live · Generals Online</PageTitle>
+
+<PageHeader Description="The service copy and its lobbies right now. The page refreshes every 10 seconds.">
+    <Title>Live</Title>
+    <Actions>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="TogglePause" data-testid="pause">
+            <LucideIcon Name="@(m_paused ? "play" : "pause")" Class="bb:h-4 bb:w-4" />
+            @(m_paused ? "Resume" : "Pause")
+        </BbButton>
+        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="LoadAsync" Loading="@m_loading" data-testid="refresh">
+            <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+            Refresh
+        </BbButton>
+    </Actions>
+    <Below>
+        <p class="bb:text-xs bb:text-muted-foreground" role="status">
+            @(m_loadedAt == null ? "Loading…" : $"Updated {PortalText.Date(m_loadedAt)} UTC")@(m_paused ? " · paused" : "")
+        </p>
+    </Below>
+</PageHeader>
+
+@if (m_error != null)
+{
+    <BbAlert Variant="AlertVariant.Danger" Class="bb:mb-4">
+        <Icon>
+            <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+        </Icon>
+        <ChildContent>
+            <BbAlertTitle>The live view could not load</BbAlertTitle>
+            <BbAlertDescription>@PortalText.Error(m_error)</BbAlertDescription>
+        </ChildContent>
+    </BbAlert>
+}
+
+<div class="go-stats">
+    <StatCard Label="Players online" Value="@CountOf(m_realtime?.PlayersOnline)" Icon="users" Hint="Connected to this copy" TestId="stat-players" />
+    <StatCard Label="Lobbies open" Value="@CountOf(m_lobbies?.Lobbies.Count)" Icon="door-open" Hint="Waiting or in a match" TestId="stat-lobbies" />
+    @if (CanStats)
+    {
+        <StatCard Label="In the queue" Value="@CountOf(m_realtime?.Queues.Sum(q => q.Queued))" Icon="hourglass" Hint="Waiting for a quick match" TestId="stat-queued" />
+        <StatCard Label="Lease epoch" Value="@(m_realtime == null ? null : m_realtime.Lease?.Epoch.ToString() ?? "n/a")" Icon="shield" Hint="@LeaseHint()" TestId="stat-epoch" />
+    }
+</div>
+
+<div class="go-dashboard">
+    @if (CanStats)
+    {
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Realtime status</BbCardTitle>
+                <BbCardDescription>The failover lease as realtime status shows it, and the copy that answered this page.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                @if (m_realtime is PortalRealtime status)
+                {
+                    <div class="go-list" data-testid="realtime">
+                        <div class="go-list-item">
+                            <LucideIcon Name="server" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                            <span class="bb:flex-1 bb:text-sm">This copy <span class="bb:font-mono">@status.Copy.Id</span></span>
+                            <BbBadge Variant="@(status.Copy.Serving ? BadgeVariant.Soft : BadgeVariant.Outline)">@(status.Copy.Serving ? "serving" : "standby")</BbBadge>
+                        </div>
+                        @if (status.Lease is PortalRealtimeLease lease)
+                        {
+                            <div class="go-list-item">
+                                <LucideIcon Name="crown" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                <span class="bb:flex-1 bb:text-sm">Holder <span class="bb:font-mono">@(lease.Holder ?? "none")</span></span>
+                                <BbBadge Variant="@(lease.ExpiresInMs != null ? BadgeVariant.Secondary : BadgeVariant.SoftDestructive)">@(lease.ExpiresInMs is long ms ? $"expires in {ms} ms" : "expired")</BbBadge>
+                            </div>
+                            <div class="go-list-item">
+                                <LucideIcon Name="server-cog" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                <span class="bb:flex-1 bb:text-sm">Standby <span class="bb:font-mono">@(lease.Standby ?? "none")</span></span>
+                                @if (lease.HandoverRequested)
+                                {
+                                    <BbBadge Variant="BadgeVariant.Soft">handover requested</BbBadge>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="go-list-item">
+                                <LucideIcon Name="info" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                <span class="bb:flex-1 bb:text-sm go-muted">No failover lease: more than one service copy runs on PostgreSQL only.</span>
+                            </div>
+                        }
+                    </div>
+                    <p class="bb:mt-2 bb:text-xs bb:text-muted-foreground">A planned handover runs on the host: GenOnlineService realtime handover.</p>
+                }
+                else
+                {
+                    <FeedSkeleton />
+                }
+            </BbCardContent>
+        </BbCard>
+
+        <BbCard>
+            <BbCardHeader>
+                <BbCardTitle As="h2">Quick match queues</BbCardTitle>
+                <BbCardDescription>Players waiting per playlist on this copy.</BbCardDescription>
+            </BbCardHeader>
+            <BbCardContent>
+                @if (m_realtime is PortalRealtime queues)
+                {
+                    <div class="go-list" data-testid="queues">
+                        @foreach (PortalRealtimeQueue queue in queues.Queues)
+                        {
+                            <div class="go-list-item">
+                                <LucideIcon Name="hourglass" Class="bb:h-4 bb:w-4 bb:text-muted-foreground" />
+                                <span class="bb:flex-1 bb:text-sm">@queue.Name</span>
+                                <BbBadge Variant="@(queue.Queued > 0 ? BadgeVariant.Soft : BadgeVariant.Outline)" Class="go-count">@PortalText.Count(queue.Queued)</BbBadge>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <FeedSkeleton />
+                }
+            </BbCardContent>
+        </BbCard>
+    }
+</div>
+
+<BbCard Class="bb:mt-4">
+    <BbCardHeader>
+        <BbCardTitle As="h2">Lobbies</BbCardTitle>
+        <BbCardDescription>Every lobby of this copy, of every build, quick match and friends-only lobbies included. Open a lobby for its connection reports.</BbCardDescription>
+    </BbCardHeader>
+    <BbCardContent>
+        @if (m_lobbies == null)
+        {
+            <FeedSkeleton />
+        }
+        else
+        {
+            <BbDataTable TData="PortalLobby" Data="@m_lobbies.Lobbies" ShowToolbar="false" ShowPagination="@(m_lobbies.Lobbies.Count > 20)" InitialPageSize="20" AriaLabel="Lobbies" data-testid="lobbies">
+                <Columns>
+                    <BbDataTableColumn TData="PortalLobby" TValue="long" Property="@(l => l.Id)" Header="Lobby">
+                        <CellTemplate Context="lobby">
+                            <BbLink Href="@PortalRoutes.LobbyPage(lobby.Id)" Class="bb:font-mono" data-testid="lobby-link">@lobby.Id</BbLink>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalLobby" TValue="string" Property="@(l => l.Name)" Header="Name" />
+                    <BbDataTableColumn TData="PortalLobby" TValue="string" Property="@(l => l.State)" Header="State">
+                        <CellTemplate Context="lobby">
+                            <div class="go-cell-badges">
+                                <BbBadge Variant="@(lobby.State == "in_game" ? BadgeVariant.Secondary : BadgeVariant.Outline)">@PortalText.LobbyState(lobby.State)</BbBadge>
+                                @if (lobby.Type == "quick_match")
+                                {
+                                    <BbBadge Variant="BadgeVariant.Outline">quick match</BbBadge>
+                                }
+                                @if (lobby.Visibility == "friends")
+                                {
+                                    <BbBadge Variant="BadgeVariant.Outline">friends</BbBadge>
+                                }
+                                @if (lobby.HasPassword)
+                                {
+                                    <BbBadge Variant="BadgeVariant.Outline">password</BbBadge>
+                                }
+                            </div>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalLobby" TValue="string" Property="@(l => l.Map.Name)" Header="Map" />
+                    <BbDataTableColumn TData="PortalLobby" TValue="string" Property="@(l => l.Region)" Header="Region" />
+                    <BbDataTableColumn TData="PortalLobby" TValue="int" Property="@(l => l.Players.Count())" Header="Players">
+                        <CellTemplate Context="lobby">
+                            <div class="go-cell-players">
+                                @foreach (PortalSlot slot in lobby.Players)
+                                {
+                                    <BbLink Href="@PortalRoutes.PlayerPage(slot.Member!.Id)">@slot.Member.FullName</BbLink>
+                                }
+                                <span class="go-muted">@lobby.Players.Count() of @lobby.Seats</span>
+                            </div>
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalLobby" TValue="string" Property="@(l => l.MatchId.ToString())" Header="Match">
+                        <CellTemplate Context="lobby">
+                            @if (lobby.MatchId is long match)
+                            {
+                                <BbLink Href="@PortalRoutes.MatchPage(match)" Class="bb:font-mono" data-testid="match-link">@match</BbLink>
+                            }
+                            else
+                            {
+                                <span class="go-muted">none</span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalLobby" TValue="string" Property="@(l => PortalText.Ago(l.CreatedAt, m_now))" Header="Created" CellClass="go-nowrap" />
+                </Columns>
+                <EmptyTemplate>
+                    <BbEmpty Size="EmptySize.Small" Title="No lobbies" Description="Nobody has a lobby open on this copy." />
+                </EmptyTemplate>
+            </BbDataTable>
+        }
+    </BbCardContent>
+</BbCard>
+
+@code {
+    private static readonly TimeSpan s_refresh = TimeSpan.FromSeconds(10);
+
+    private PortalRealtime? m_realtime;
+    private PortalLobbyList? m_lobbies;
+    private string? m_error;
+    private bool m_loading;
+    private bool m_paused;
+    private DateTime? m_loadedAt;
+    private DateTime m_now = DateTime.UtcNow;
+    private readonly CancellationTokenSource m_stop = new();
+
+    private bool CanStats => Api.Session?.Can(PortalPermissions.ServerStats) == true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = RefreshLoopAsync();
+    }
+
+    // a paused page skips the ticks, a click on Refresh still loads
+    private async Task RefreshLoopAsync()
+    {
+        using var timer = new PeriodicTimer(s_refresh);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(m_stop.Token))
+            {
+                if (!m_paused && !m_loading)
+                {
+                    await InvokeAsync(LoadAsync);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        m_loading = true;
+        Task<PortalAnswer<PortalLobbyList>> lobbies = Api.GetLobbiesAsync(m_stop.Token);
+        PortalAnswer<PortalRealtime>? realtime = CanStats ? await Api.GetRealtimeAsync(m_stop.Token) : null;
+        PortalAnswer<PortalLobbyList> lobbyAnswer = await lobbies;
+        m_loading = false;
+        m_now = DateTime.UtcNow;
+        m_loadedAt = m_now;
+        m_error = !lobbyAnswer.Ok ? lobbyAnswer.Error : realtime is { Ok: false } failed ? failed.Error : null;
+        m_lobbies = lobbyAnswer.Value ?? m_lobbies;
+        m_realtime = realtime?.Value ?? m_realtime;
+        StateHasChanged();
+    }
+
+    private void TogglePause() => m_paused = !m_paused;
+
+    // null until the first answer, so the card shows a skeleton
+    private string? CountOf(int? value) => value is int count ? PortalText.Count(count) : m_error != null ? "?" : null;
+
+    private string LeaseHint() => m_realtime?.Lease is PortalRealtimeLease lease ? $"Held by {lease.Holder ?? "nobody"}" : "No lease without PostgreSQL";
+
+    // the token stays valid for a load still in flight, only the loop stops
+    public void Dispose() => m_stop.Cancel();
+}

@@ -125,6 +125,15 @@ namespace GenOnlineService.Portal.Client
 
 		public Task<PortalAnswer<PortalMatch>> GetMatchAsync(long matchID) => GetAsync<PortalMatch>($"{PortalRoutes.Matches}/{matchID}");
 
+		public Task<PortalAnswer<PortalRealtime>> GetRealtimeAsync(CancellationToken cancellationToken = default) => GetAsync<PortalRealtime>(PortalRoutes.StaffRealtime, cancellationToken);
+
+		public Task<PortalAnswer<PortalLobbyList>> GetLobbiesAsync(CancellationToken cancellationToken = default) => GetAsync<PortalLobbyList>(PortalRoutes.StaffLobbies, cancellationToken);
+
+		// The host writes an audit row for these reads, once an hour per staff member and player or lobby
+		public Task<PortalAnswer<PortalConnectionReports>> GetPlayerConnectionsAsync(long userID) => GetAsync<PortalConnectionReports>($"{PortalRoutes.Players}/{userID}/connection_reports");
+
+		public Task<PortalAnswer<PortalConnectionReports>> GetLobbyConnectionsAsync(long lobbyID) => GetAsync<PortalConnectionReports>($"{PortalRoutes.Lobbies}/{lobbyID}/connection_reports");
+
 		// The match list, newest first; past 10,000 rows the host does not count, the page then only knows whether one follows
 		public async Task<PortalAnswer<PortalMatchPage>> ListMatchesAsync(PortalMatchQuery query, int start, int count, CancellationToken cancellationToken)
 		{

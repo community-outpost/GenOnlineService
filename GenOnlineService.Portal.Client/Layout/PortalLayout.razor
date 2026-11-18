@@ -37,6 +37,12 @@
                                 <span>Overview</span>
                             </BbSidebarMenuButton>
                         </BbSidebarMenuItem>
+                        <BbSidebarMenuItem>
+                            <BbSidebarMenuButton Href="@PortalRoutes.LivePage" Tooltip="Live lobbies and status">
+                                <LucideIcon Name="activity" Class="bb:h-4 bb:w-4" />
+                                <span>Live</span>
+                            </BbSidebarMenuButton>
+                        </BbSidebarMenuItem>
                     </BbSidebarMenu>
                 </BbSidebarGroup>
                 <BbSidebarGroup>
@@ -341,6 +347,16 @@
                 break;
             case "audit":
                 yield return ("Audit log", null);
+                break;
+            case "live":
+                yield return ("Live", null);
+                break;
+            case "lobbies":
+                yield return ("Live", item == null ? null : PortalRoutes.LivePage);
+                if (item != null)
+                {
+                    yield return ("Lobby " + item, null);
+                }
                 break;
             case "partners":
                 yield return ("Partners", item == null ? null : PortalRoutes.PartnersPage);

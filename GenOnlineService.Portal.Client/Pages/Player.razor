@@ -127,7 +127,7 @@ else
         <StatCard Label="Active sanctions" Value="@activeSanctions.ToString()" Icon="gavel" Attention="@(activeSanctions > 0)" Hint="@($"{player.Sanctions.Count} on record")" />
     </div>
 
-    <BbTabs DefaultValue="activity">
+    <BbTabs DefaultValue="activity" OnValueChange="OnTabAsync">
         <BbTabsList>
             <BbTabsTrigger Value="activity">Activity</BbTabsTrigger>
             <BbTabsTrigger Value="sanctions">Sanctions (@player.Sanctions.Count)</BbTabsTrigger>
@@ -135,6 +135,7 @@ else
             <BbTabsTrigger Value="matches">Matches</BbTabsTrigger>
             <BbTabsTrigger Value="signins">Sign-ins and devices</BbTabsTrigger>
             <BbTabsTrigger Value="duplicates">Possible duplicates</BbTabsTrigger>
+            <BbTabsTrigger Value="connections">Connections</BbTabsTrigger>
         </BbTabsList>
 
         <BbTabsContent Value="activity" Class="bb:mt-4">
@@ -168,7 +169,7 @@ else
                         }
                         @if (player.LobbyId is long lobbyID)
                         {
-                            <p class="bb:mt-4 bb:text-sm">In lobby <span class="bb:font-mono">@lobbyID</span>.</p>
+                            <p class="bb:mt-4 bb:text-sm">In lobby <BbLink Href="@PortalRoutes.LobbyPage(lobbyID)" Class="bb:font-mono" data-testid="player-lobby">@lobbyID</BbLink>.</p>
                         }
                     </BbCardContent>
                 </BbCard>
@@ -561,6 +562,37 @@ else
                 </BbCardContent>
             </BbCard>
         </BbTabsContent>
+
+        <BbTabsContent Value="connections" Class="bb:mt-4">
+            <BbCard>
+                <BbCardHeader>
+                    <BbCardTitle As="h2">Connection reports</BbCardTitle>
+                    <BbCardDescription>The connection attempts this player reported and the ones other players reported to this player, the newest first. Opening the tab is in the audit log.</BbCardDescription>
+                </BbCardHeader>
+                <BbCardContent>
+                    @if (m_connectionsError != null)
+                    {
+                        <BbAlert Variant="AlertVariant.Danger" Class="bb:mb-4">
+                            <Icon>
+                                <LucideIcon Name="circle-alert" Class="bb:h-4 bb:w-4" />
+                            </Icon>
+                            <ChildContent>
+                                <BbAlertTitle>The connection reports could not load</BbAlertTitle>
+                                <BbAlertDescription>@PortalText.Error(m_connectionsError)</BbAlertDescription>
+                            </ChildContent>
+                        </BbAlert>
+                    }
+                    @if (m_connections == null)
+                    {
+                        <FeedSkeleton />
+                    }
+                    else
+                    {
+                        <ConnectionReportTable Reports="@m_connections.Reports" ShowLobby="true" />
+                    }
+                </BbCardContent>
+            </BbCard>
+        </BbTabsContent>
     </BbTabs>
 
     <BbDialog @bind-Open="m_dialogOpen">
@@ -622,6 +654,9 @@ else
 
     private PortalPlayer? m_player;
     private PortalInspection? m_inspection;
+    // the Connections tab loads when it is first opened, the host audits that read
+    private PortalConnectionReports? m_connections;
+    private string? m_connectionsError;
     private string? m_error;
     private string? m_inspectionError;
 
@@ -649,6 +684,8 @@ else
         m_player = null;
         m_inspection = null;
         m_inspectionError = null;
+        m_connections = null;
+        m_connectionsError = null;
         await LoadAsync();
 
         // the host audits this read, so it runs once per opened page and not after each action
@@ -658,6 +695,17 @@ else
             m_inspection = answer.Value;
             m_inspectionError = answer.Ok ? null : answer.Error;
         }
+    }
+
+    private async Task OnTabAsync(string? tab)
+    {
+        if (tab != "connections" || m_connections != null)
+        {
+            return;
+        }
+        PortalAnswer<PortalConnectionReports> answer = await Api.GetPlayerConnectionsAsync(Id);
+        m_connections = answer.Value ?? new PortalConnectionReports();
+        m_connectionsError = answer.Ok ? null : answer.Error;
     }
 
     private async Task LoadAsync()
