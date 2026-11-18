@@ -38,16 +38,17 @@ namespace GenOnlineService.Identity
 	// dark only, Play and IBM Plex Sans served from this service. The boards are the design's Main (sign in), ChooseName
 	// (name, rules, ready), TwoFactor, CheckEmail, Refused, PhoneArabic and Account. The pages need no script: the language
 	// menu and the account menu are <details>. Every file is linked by its fingerprinted address (PortalAssets). The
-	// staff area (PortalDocument) keeps its own stylesheets and only shares generals.css, so it never uses these classes.
+	// staff area (PortalDocument) links the same tokens, fonts and generals.css around Blazor Blueprint's stylesheet and
+	// the design's Blueprint theme, and styles its components with its own go-* classes.
 	public static class PortalLook
 	{
-		// The staff pages' stylesheets; the sign-in and account pages no longer load the first two
+		// The staff pages' stylesheets besides the tokens and fonts; the sign-in and account pages do not load the first two
 		public const string ThemePath = "/portal/theme.css";
 		public const string StylesheetPath = "/_content/BlazorBlueprint.Components/blazorblueprint.css";
 		public const string GeneralsPath = "/portal/generals.css";
-		// The design system's tokens (--go-*), linked first on every sign-in and account page
+		// The design system's tokens (--go-*), linked first on every page, the staff pages included
 		public const string TokensPath = "/portal/tokens.css";
-		// Their self-hosted fonts, linked after the tokens and before generals.css (which the staff area shares)
+		// Their self-hosted fonts, linked after the tokens on every page; generals.css declares no font of its own
 		public const string FontsPath = "/portal/fonts.css";
 		// Generals Online's radar-van logo (the project's own), top left of every page, and GameReplays' mark on its button
 		public const string LogoPath = "/portal/logo.svg";

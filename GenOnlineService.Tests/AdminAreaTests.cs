@@ -357,11 +357,13 @@ public class AdminAreaTests
 			await StaffRoles.Reload(db);
 		}
 
-		// the WebAssembly shell, dark only, with the three stylesheets of the sign-in pages in their order
+		// the WebAssembly shell, dark only, on the design system: its tokens and fonts, the design's Blueprint theme, Blueprint's
+		// stylesheet and generals.css, in that order so the design's values win
 		PageResponse page = await moderator.Get("/admin/reports");
 		Assert.Equal(200, page.Status);
 		Assert.Contains("<html lang=\"en\" class=\"dark\">", page.Body);
-		Assert.Matches(new Regex(Regex.Escape(PortalLook.ThemePath) + ".*" + Regex.Escape(PortalLook.StylesheetPath) + ".*" + Regex.Escape(PortalLook.GeneralsPath), RegexOptions.Singleline), page.Body);
+		string[] sheets = Regex.Matches(page.Body, "<link rel=\"stylesheet\" href=\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
+		Assert.Equal(new[] { PortalLook.TokensPath, PortalLook.FontsPath, PortalLook.ThemePath, PortalLook.StylesheetPath, PortalLook.GeneralsPath }, sheets);
 		Assert.Contains("_framework/blazor.web.js", page.Body);
 		Assert.DoesNotContain("theme-init.js", page.Body);
 		Assert.Equal("DENY", page.FrameOptions);

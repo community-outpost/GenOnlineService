@@ -1,140 +1,81 @@
-/* The stock neutral shadcn theme of Blazor Blueprint, copied unchanged from the theme.css of its demo (Apache 2.0), minus the Tailwind build block */
+/* The staff area's Blazor Blueprint theme: a copy of genonline-design dist/portal/theme.css, unchanged below this line. */
+
+/* Generated from tokens/tokens.json by `npm run build`. Do not edit by hand.
+ * Generals Online theme for Blazor Blueprint (shadcn variable names). Dark only.
+ * Replaces the stock neutral theme in wwwroot/portal/theme.css. The page must also load the
+ * Play and IBM Plex Sans Arabic fonts (400/600/700); this file only names them. */
 
 @layer base {
-  /* Light Mode (Default) */
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.1450 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.1450 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.1450 0 0);
-  --primary: oklch(0.2050 0 0);
-  --primary-foreground: oklch(0.9850 0 0);
-  --secondary: oklch(0.9700 0 0);
-  --secondary-foreground: oklch(0.2050 0 0);
-  --muted: oklch(0.9700 0 0);
-  --muted-foreground: oklch(0.5560 0 0);
-  --accent: oklch(0.9700 0 0);
-  --accent-foreground: oklch(0.2050 0 0);
-  --destructive: oklch(0.5770 0.2450 27.3250);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.9220 0 0);
-  --input: oklch(0.9220 0 0);
-  --ring: oklch(0.7080 0 0);
-  --chart-1: oklch(0.8100 0.1000 252);
-  --chart-2: oklch(0.6200 0.1900 260);
-  --chart-3: oklch(0.5500 0.2200 263);
-  --chart-4: oklch(0.4900 0.2200 264);
-  --chart-5: oklch(0.4200 0.1800 266);
-  --sidebar: oklch(0.9850 0 0);
-  --sidebar-foreground: oklch(0.1450 0 0);
-  --sidebar-primary: oklch(0.2050 0 0);
-  --sidebar-primary-foreground: oklch(0.9850 0 0);
-  --sidebar-accent: oklch(0.9700 0 0);
-  --sidebar-accent-foreground: oklch(0.2050 0 0);
-  --sidebar-border: oklch(0.9220 0 0);
-  --sidebar-ring: oklch(0.7080 0 0);
-  --alert-success: oklch(0.55 0.20 142);
-  --alert-success-foreground: oklch(0.30 0.09 142);
-  --alert-success-bg: oklch(0.993 0.003 142);
-  --alert-info: oklch(0.50 0.20 255);
-  --alert-info-foreground: oklch(0.30 0.10 255);
-  --alert-info-bg: oklch(0.993 0.003 255);
-  --alert-warning: oklch(0.68 0.18 55);
-  --alert-warning-foreground: oklch(0.35 0.10 55);
-  --alert-warning-bg: oklch(0.995 0.003 55);
-  --alert-danger: oklch(0.55 0.22 27);
-  --alert-danger-foreground: oklch(0.30 0.12 27);
-  --alert-danger-bg: oklch(0.993 0.003 27);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --radius: 0.625rem;
+:root,
+.dark {
+  color-scheme: dark;
+  --background: #0B1114;
+  --foreground: #F2EDE0;
+  --card: #141C1F;
+  --card-foreground: #F2EDE0;
+  --popover: #1A2427;
+  --popover-foreground: #F2EDE0;
+  --primary: #E3BA6C;
+  --primary-foreground: #0D151B;
+  --secondary: #223034;
+  --secondary-foreground: #F2EDE0;
+  --muted: #1A2427;
+  --muted-foreground: #A9A396;
+  --accent: #223034;
+  --accent-foreground: #F2EDE0;
+  --destructive: #C9302C;
+  --destructive-foreground: #F2EDE0;
+  --border: #2C3B3F;
+  --input: #6E7C86;
+  --ring: rgb(227 186 108 / 0.55);
+  --chart-1: #E3BA6C;
+  --chart-2: #7CC46D;
+  --chart-3: #F7DB9C;
+  --chart-4: #BF9048;
+  --chart-5: #C9584A;
+  --sidebar: #080D0F;
+  --sidebar-foreground: #D9D3C5;
+  --sidebar-primary: #E3BA6C;
+  --sidebar-primary-foreground: #0D151B;
+  --sidebar-accent: rgb(227 186 108 / 0.1);
+  --sidebar-accent-foreground: #F2EDE0;
+  --sidebar-border: #1A2326;
+  --sidebar-ring: rgb(227 186 108 / 0.55);
+  --alert-success: #7CC46D;
+  --alert-success-foreground: #F2EDE0;
+  --alert-success-bg: rgb(124 196 109 / 0.14);
+  --alert-info: #D9D3C5;
+  --alert-info-foreground: #F2EDE0;
+  --alert-info-bg: #223034;
+  --alert-warning: #E3BA6C;
+  --alert-warning-foreground: #F2EDE0;
+  --alert-warning-bg: rgb(227 186 108 / 0.1);
+  --alert-danger: #C9584A;
+  --alert-danger-foreground: #F1B2A6;
+  --alert-danger-bg: rgb(201 88 74 / 0.14);
+  --font-sans: "IBM Plex Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-display: Play, "IBM Plex Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --radius: 4px;
+  --font-serif: ui-serif, Georgia, serif;
   --shadow-x: 0;
   --shadow-y: 1px;
   --shadow-blur: 3px;
   --shadow-spread: 0px;
-  --shadow-opacity: 0.1;
-  --shadow-color: oklch(0 0 0);
-  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
-  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
-  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --shadow-opacity: 0.4;
+  --shadow-color: rgb(0 0 0);
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: none;
+  --shadow-lg: 0 6px 14px -2px rgb(0 0 0 / 0.5);
+  --shadow-xl: 0 12px 24px -4px rgb(0 0 0 / 0.55);
+  --shadow-2xl: 0 24px 48px -8px rgb(0 0 0 / 0.6);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 }
 
-.dark {
-  --background: oklch(0.1450 0 0);
-  --foreground: oklch(0.9850 0 0);
-  --card: oklch(0.2050 0 0);
-  --card-foreground: oklch(0.9850 0 0);
-  --popover: oklch(0.2690 0 0);
-  --popover-foreground: oklch(0.9850 0 0);
-  --primary: oklch(0.9220 0 0);
-  --primary-foreground: oklch(0.2050 0 0);
-  --secondary: oklch(0.2690 0 0);
-  --secondary-foreground: oklch(0.9850 0 0);
-  --muted: oklch(0.2690 0 0);
-  --muted-foreground: oklch(0.7080 0 0);
-  --accent: oklch(0.3710 0 0);
-  --accent-foreground: oklch(0.9850 0 0);
-  --destructive: oklch(0.7040 0.1910 22.2160);
-  --destructive-foreground: oklch(0.9850 0 0);
-  --border: oklch(0.2750 0 0);
-  --input: oklch(0.3250 0 0);
-  --ring: oklch(0.5560 0 0);
-  --chart-1: oklch(0.8100 0.1000 252);
-  --chart-2: oklch(0.6200 0.1900 260);
-  --chart-3: oklch(0.5500 0.2200 263);
-  --chart-4: oklch(0.4900 0.2200 264);
-  --chart-5: oklch(0.4200 0.1800 266);
-  --sidebar: oklch(0.2050 0 0);
-  --sidebar-foreground: oklch(0.9850 0 0);
-  --sidebar-primary: oklch(0.4880 0.2430 264.3760);
-  --sidebar-primary-foreground: oklch(0.9850 0 0);
-  --sidebar-accent: oklch(0.2690 0 0);
-  --sidebar-accent-foreground: oklch(0.9850 0 0);
-  --sidebar-border: oklch(0.2750 0 0);
-  --sidebar-ring: oklch(0.4390 0 0);
-  --alert-success: oklch(0.60 0.18 142);
-  --alert-success-foreground: oklch(0.90 0.06 142);
-  --alert-success-bg: oklch(0.18 0.008 142);
-  --alert-info: oklch(0.55 0.18 255);
-  --alert-info-foreground: oklch(0.90 0.05 255);
-  --alert-info-bg: oklch(0.18 0.008 255);
-  --alert-warning: oklch(0.65 0.16 55);
-  --alert-warning-foreground: oklch(0.92 0.06 55);
-  --alert-warning-bg: oklch(0.19 0.008 55);
-  --alert-danger: oklch(0.55 0.20 27);
-  --alert-danger-foreground: oklch(0.90 0.06 27);
-  --alert-danger-bg: oklch(0.18 0.008 27);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --radius: 0.625rem;
-  --shadow-x: 0;
-  --shadow-y: 1px;
-  --shadow-blur: 3px;
-  --shadow-spread: 0px;
-  --shadow-opacity: 0.1;
-  --shadow-color: oklch(0 0 0);
-  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
-  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
-  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
-}
-
-  /* Global Element Styles */
   * {
     border-color: var(--border);
   }

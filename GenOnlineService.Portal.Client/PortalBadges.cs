@@ -23,7 +23,7 @@ namespace GenOnlineService.Portal.Client
 	// One badge colour per state on every page, so "open" or "banned" looks the same on the dashboard and in the tables
 	public static class PortalBadges
 	{
-		// Muted, as GitLab's: the stone surface for a settled state, the outline for a set-aside one, the accent tint only for
+		// Muted, as GitLab's: the raised surface for a settled state, the outline for a set-aside one, the accent tint only for
 		// what waits for staff and the muted red only for what restricts a player. The palette variants (SoftSuccess,
 		// SoftWarning, SoftInfo) would bring Tailwind's green, amber and blue back, so they are not used.
 		public static BadgeVariant OfReport(string status) => status switch
@@ -33,6 +33,9 @@ namespace GenOnlineService.Portal.Client
 			_ => BadgeVariant.Outline
 		};
 
+		// Live is something happening now: a player online, a running match. It is the Soft variant with the go-badge-live
+		// class, which turns it green and round, the one badge colour the design keeps for live
+		public const BadgeVariant Live = BadgeVariant.Soft;
 		public static BadgeVariant OfPlayerState(string state) => state == "active" ? BadgeVariant.Secondary : BadgeVariant.SoftDestructive;
 
 		public static BadgeVariant OfSanction(bool active) => active ? BadgeVariant.SoftDestructive : BadgeVariant.Outline;

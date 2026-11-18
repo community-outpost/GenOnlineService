@@ -57,10 +57,14 @@ else
         <Below>
             <div class="bb:flex bb:flex-wrap bb:items-center bb:gap-2 bb:pt-1">
                 <BbBadge Variant="@PortalBadges.OfPlayerState(player.State)">@player.State</BbBadge>
-                <BbBadge Variant="@(player.Online ? BadgeVariant.Secondary : BadgeVariant.Outline)">
-                    <BbBadgeIcon Name="@(player.Online ? "wifi" : "wifi-off")" />
-                    @(player.Online ? "online" : "offline")
-                </BbBadge>
+                @if (player.Online)
+                {
+                    <BbBadge Variant="@PortalBadges.Live" Class="go-badge-live"><span class="go-dot" aria-hidden="true"></span>online</BbBadge>
+                }
+                else
+                {
+                    <BbBadge Variant="BadgeVariant.Outline"><BbBadgeIcon Name="wifi-off" />offline</BbBadge>
+                }
                 @if (player.Sanctions.Any(s => s.Active && s.Type == "ban"))
                 {
                     <BbBadge Variant="BadgeVariant.SoftDestructive"><BbBadgeIcon Name="gavel" />banned</BbBadge>
@@ -943,7 +947,7 @@ else
                 @if (m_action == "rename")
                 {
                     <div class="bb:space-y-2">
-                        <BbLabel For="new-name">New display name</BbLabel>
+                        <BbLabel For="new-name">New player name</BbLabel>
                         <BbInput Id="new-name" @bind-Value="m_name" autocomplete="off" spellcheck="false" />
                     </div>
                 }

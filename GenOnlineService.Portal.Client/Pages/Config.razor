@@ -1,7 +1,9 @@
-@* The game config: the fields the game reads from GET /api/v1/config (client.*) and the ones the service reads (service.*),
-   as database flags. Staff edit a draft, read its changes against the live revision, publish it with a note, read the
-   revision history and roll back to any revision; export and import take a flagd file. flags.manage only; every change is
-   in the audit log *@
+@* The game config as a settings page: the fields the game reads from GET /api/v1/config (client.*) and the ones the
+   service reads (service.*), as database flags. The groups are a sub-menu at the start with a search above it, and the
+   chosen group is a form with one row per field. A change saves to the draft at once, a changed row carries a dot and a
+   way back to the live value, and targeting, the answer and the scope open in a side panel. While the draft differs
+   from live a bar leads to the review panel, which publishes the reviewed draft with a note. History, export, import and
+   the draft reset sit in the header. flags.manage only, and every change is in the audit log *@
 @page "/admin/config"
 @using System.Globalization
 @using System.Text
@@ -12,15 +14,42 @@
 
 <PageTitle>Game config · Generals Online</PageTitle>
 
-<PageHeader Description="The settings the game and the service read, as a draft that goes live when it is published. Each change is in the audit log.">
+<PageHeader Description="@HeaderText()">
     <Title>Game config</Title>
     <Actions>
         @if (m_draft != null)
         {
-            <BbButton Variant="ButtonVariant.Outline" OnClick="LoadAsync" data-testid="reload">
-                <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
-                Reload
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="OpenHistoryAsync" data-testid="history">
+                <LucideIcon Name="history" Class="bb:h-4 bb:w-4" />
+                History
             </BbButton>
+            <BbDropdownMenu>
+                <BbDropdownMenuTrigger>
+                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" data-testid="more">
+                        More
+                        <LucideIcon Name="chevron-down" Class="bb:h-4 bb:w-4" />
+                    </BbButton>
+                </BbDropdownMenuTrigger>
+                <BbDropdownMenuContent Align="PopoverAlign.End" Class="go-admin-menu">
+                    <BbDropdownMenuItem OnClick="@(_ => ExportAsync(m_draft.Revision))" Disabled="@(m_draft.Revision == 0)" data-testid="export">
+                        <LucideIcon Name="download" Class="bb:h-4 bb:w-4" />
+                        Export the live revision
+                    </BbDropdownMenuItem>
+                    <BbDropdownMenuItem OnClick="@(_ => OpenImport())" data-testid="open-import">
+                        <LucideIcon Name="upload" Class="bb:h-4 bb:w-4" />
+                        Import a file
+                    </BbDropdownMenuItem>
+                    <BbDropdownMenuSeparator />
+                    <BbDropdownMenuItem OnClick="@(_ => LoadAsync())" data-testid="reload">
+                        <LucideIcon Name="refresh-cw" Class="bb:h-4 bb:w-4" />
+                        Reload
+                    </BbDropdownMenuItem>
+                    <BbDropdownMenuItem OnClick="@(_ => m_confirmReset = true)" Disabled="@(Pending() == 0)" data-testid="reset">
+                        <LucideIcon Name="undo-2" Class="bb:h-4 bb:w-4" />
+                        Reset draft
+                    </BbDropdownMenuItem>
+                </BbDropdownMenuContent>
+            </BbDropdownMenu>
         }
     </Actions>
 </PageHeader>
@@ -47,267 +76,174 @@ else if (m_draft == null)
 }
 else
 {
-    int pending = m_draft.Flags.Count(f => f.Status != "unchanged");
-    <div class="go-stats bb:mb-4">
-        <StatCard Label="Live revision" Value="@(m_draft.Revision == 0 ? "none" : "#" + m_draft.Revision)" Icon="git-commit-horizontal" Hint="What the game reads now" />
-        <StatCard Label="Draft changes" Value="@PortalText.Count(pending)" Icon="file-pen-line" Attention="@(pending > 0)" Hint="@(pending > 0 ? "Not live until published" : "The draft matches the live revision")" />
-        <StatCard Label="Fields" Value="@PortalText.Count(m_draft.Flags.Count(f => !f.Archived))" Icon="sliders-horizontal" Hint="@($"{m_draft.Flags.Count(f => f.Archived)} archived")" />
-    </div>
-
-    <BbTabs DefaultValue="draft" OnValueChange="OnTabAsync">
-        <BbTabsList>
-            <BbTabsTrigger Value="draft">Draft</BbTabsTrigger>
-            <BbTabsTrigger Value="changes">Changes (@pending)</BbTabsTrigger>
-            <BbTabsTrigger Value="history">History</BbTabsTrigger>
-            <BbTabsTrigger Value="files">Export and import</BbTabsTrigger>
-        </BbTabsList>
-
-        <BbTabsContent Value="draft" Class="bb:mt-4">
-            <div class="go-filterbar bb:mb-4">
-                <BbInput Type="InputType.Search" @bind-Value="m_search" UpdateTiming="UpdateTiming.Immediate" Placeholder="Find a field by name or key…" AriaLabel="Find a field" Class="go-filterbar-search" autocomplete="off" spellcheck="false" />
-                <BbNativeSelect TValue="string" @bind-Value="m_group" AriaLabel="Group" Class="go-select">
-                    <option value="">Every group</option>
-                    @foreach (string group in Groups())
-                    {
-                        <option value="@group">@group</option>
-                    }
-                </BbNativeSelect>
-            </div>
-            <div class="go-dashboard">
-                @foreach (IGrouping<string, PortalDraftFlag> group in Shown())
+    <div class="go-settings">
+        <nav class="go-settings-nav" aria-label="Config groups">
+            <BbInput Type="InputType.Search" @bind-Value="m_search" UpdateTiming="UpdateTiming.Immediate" Placeholder="Find a field…" AriaLabel="Find a field by name or key" autocomplete="off" spellcheck="false" data-testid="config-search" />
+            <ul>
+                @foreach (string group in Groups())
                 {
-                    <BbCard>
-                        <BbCardHeader>
-                            <BbCardTitle As="h2">@group.Key</BbCardTitle>
-                            <BbCardDescription>@PortalText.Count(group.Count()) fields</BbCardDescription>
-                        </BbCardHeader>
-                        <BbCardContent>
-                            <div class="go-list">
-                                @foreach (PortalDraftFlag draft in group)
-                                {
-                                    PortalFlag flag = draft.Flag;
-                                    <div class="go-list-item" data-testid="flag-@flag.Key">
-                                        <div class="bb:flex-1 bb:min-w-0 bb:space-y-1">
-                                            <div class="bb:flex bb:items-center bb:gap-2 bb:flex-wrap">
-                                                <span class="bb:font-medium">@flag.Label</span>
-                                                @if (draft.Status != "unchanged")
-                                                {
-                                                    <BbBadge Variant="@(draft.Status == "archived" ? BadgeVariant.SoftDestructive : BadgeVariant.Soft)">@draft.Status</BbBadge>
-                                                }
-                                                @if (!flag.Enabled)
-                                                {
-                                                    <BbBadge Variant="BadgeVariant.Outline">left out</BbBadge>
-                                                }
-                                                @if (flag.Scope == "service")
-                                                {
-                                                    <BbBadge Variant="BadgeVariant.Outline">service</BbBadge>
-                                                }
-                                            </div>
-                                            <p class="bb:text-xs bb:text-muted-foreground bb:font-mono bb:break-all">@flag.Key</p>
-                                            @if (!String.IsNullOrEmpty(flag.Description))
-                                            {
-                                                <p class="bb:text-sm bb:text-muted-foreground">@flag.Description</p>
-                                            }
-                                            <p class="bb:text-xs bb:text-muted-foreground">@PortalFlagText.TypeText(flag)</p>
-                                            @if (flag.Rules.Count > 0)
-                                            {
-                                                <div class="go-chips">
-                                                    @foreach (PortalFlagRule rule in flag.Rules)
-                                                    {
-                                                        <BbBadge Variant="BadgeVariant.Outline">@PortalFlagText.RuleText(flag, rule)</BbBadge>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                        <span class="bb:font-mono bb:text-sm go-nowrap">@(flag.Custom != null ? "custom targeting" : PortalFlagText.Display(flag, flag.Value))</span>
-                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => Edit(draft))" data-testid="@($"edit-{flag.Key}")">Edit</BbButton>
-                                    </div>
-                                }
-                            </div>
-                        </BbCardContent>
-                    </BbCard>
-                }
-                @if (!Shown().Any())
-                {
-                    <BbEmpty Title="No field matches" Description="Change the search or the group." />
-                }
-            </div>
-        </BbTabsContent>
-
-        <BbTabsContent Value="changes" Class="bb:mt-4">
-            <div class="go-dashboard">
-                <BbCard>
-                    <BbCardHeader>
-                        <BbCardTitle As="h2">Changes against revision @m_draft.Revision</BbCardTitle>
-                        <BbCardDescription>What players and the service get once the draft is published.</BbCardDescription>
-                    </BbCardHeader>
-                    <BbCardContent>
-                        @if (m_changes == null)
-                        {
-                            <FeedSkeleton />
-                        }
-                        else if (m_changes.Changes.Count == 0)
-                        {
-                            <BbEmpty Size="EmptySize.Small" Title="No changes" Description="The draft matches the live revision." />
-                        }
-                        else
-                        {
-                            <FlagChangeList Changes="@m_changes.Changes" />
-                        }
-                    </BbCardContent>
-                </BbCard>
-                @if (m_changes?.Changes.Count > 0)
-                {
-                    <BbCard>
-                        <BbCardHeader>
-                            <BbCardTitle As="h2">Publish</BbCardTitle>
-                            <BbCardDescription>The draft becomes revision @(m_draft.Revision + 1). Game clients pick it up the next time they read their config.</BbCardDescription>
-                        </BbCardHeader>
-                        <BbCardContent Class="bb:space-y-4">
-                            <div class="bb:space-y-2">
-                                <BbLabel For="publish-note">Note</BbLabel>
-                                <BbTextarea Id="publish-note" @bind-Value="m_comment" UpdateTiming="UpdateTiming.Immediate" MaxLength="@MaximumComment" Placeholder="Why this changes…" autocomplete="off" data-testid="publish-note" />
-                            </div>
-                            <div class="bb:flex bb:gap-2 bb:flex-wrap">
-                                <BbButton OnClick="@(() => m_confirmPublish = true)" data-testid="publish">
-                                    <LucideIcon Name="upload" Class="bb:h-4 bb:w-4" />
-                                    Publish
-                                </BbButton>
-                                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_confirmReset = true)" data-testid="reset">Discard the draft</BbButton>
-                            </div>
-                        </BbCardContent>
-                    </BbCard>
-                }
-            </div>
-        </BbTabsContent>
-
-        <BbTabsContent Value="history" Class="bb:mt-4">
-            <BbCard>
-                <BbCardHeader>
-                    <BbCardTitle As="h2">Revisions</BbCardTitle>
-                    <BbCardDescription>Every publish and rollback, newest first. A rollback publishes the chosen revision again as a new one.</BbCardDescription>
-                </BbCardHeader>
-                <BbCardContent>
-                    @if (m_revisions == null)
-                    {
-                        <FeedSkeleton />
-                    }
-                    else
-                    {
-                        <div class="go-list">
-                            @foreach (PortalFlagRevision revision in m_revisions)
+                    int changed = m_draft.Flags.Count(f => f.Flag.Group == group && f.Status != "unchanged");
+                    <li>
+                        <button type="button" class="go-settings-group" aria-current="@(Searching() || group != CurrentGroup() ? null : "true")" @onclick="@(() => ChooseGroup(group))" data-testid="group-@group">
+                            <span class="go-settings-group-name">@group</span>
+                            @if (changed > 0)
                             {
-                                <div class="bb:space-y-2" data-testid="revision-@revision.Number">
-                                    <div class="go-list-item">
-                                        <div class="bb:flex-1 bb:min-w-0 bb:space-y-1">
-                                            <div class="bb:flex bb:items-center bb:gap-2 bb:flex-wrap">
-                                                <span class="bb:font-medium">Revision @revision.Number</span>
-                                                @if (revision.Live)
-                                                {
-                                                    <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="circle-check" />live</BbBadge>
-                                                }
-                                                @if (revision.RollbackOf is int of)
-                                                {
-                                                    <BbBadge Variant="BadgeVariant.Outline">rollback to @of</BbBadge>
-                                                }
-                                            </div>
-                                            <p class="bb:text-xs bb:text-muted-foreground">@revision.CreatedBy · @PortalText.Date(revision.CreatedAt)</p>
-                                            @if (!String.IsNullOrEmpty(revision.Comment))
-                                            {
-                                                <p class="bb:text-sm" style="white-space: pre-wrap; overflow-wrap: anywhere">@revision.Comment</p>
-                                            }
-                                        </div>
-                                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => ToggleAsync(revision.Number))">@(m_open.Contains(revision.Number) ? "Hide changes" : "Changes")</BbButton>
-                                        <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => ExportAsync(revision.Number))">Export</BbButton>
-                                        @if (!revision.Live)
-                                        {
-                                            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => AskRollback(revision.Number))" data-testid="@($"rollback-{revision.Number}")">Roll back</BbButton>
-                                        }
-                                    </div>
-                                    @if (m_open.Contains(revision.Number))
+                                <span class="go-settings-count" aria-label="@($"{changed} unpublished")">@changed</span>
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+        </nav>
+
+        <div class="go-settings-body">
+            @foreach (IGrouping<string, PortalDraftFlag> group in Shown())
+            {
+                <section class="go-settings-section" aria-labelledby="@($"group-title-{group.Key}")">
+                    <h2 id="@($"group-title-{group.Key}")" class="go-settings-title">@group.Key</h2>
+                    @foreach (PortalDraftFlag draft in group)
+                    {
+                        PortalFlag flag = draft.Flag;
+                        bool changed = draft.Status != "unchanged";
+                        <div class="go-setting" data-testid="flag-@flag.Key">
+                            <div class="go-setting-text">
+                                <div class="go-setting-label">
+                                    @if (changed)
                                     {
-                                        <div class="bb:p-4">
-                                            @if (!m_revisionChanges.TryGetValue(revision.Number, out PortalFlagChanges? changes))
-                                            {
-                                                <FeedSkeleton />
-                                            }
-                                            else if (changes.Changes.Count == 0)
-                                            {
-                                                <p class="bb:text-sm bb:text-muted-foreground">No field changed against revision @changes.From.</p>
-                                            }
-                                            else
-                                            {
-                                                <FlagChangeList Changes="@changes.Changes" />
-                                            }
-                                        </div>
+                                        <span class="go-setting-dot" aria-hidden="true"></span>
+                                    }
+                                    <label for="@($"flag-{flag.Key}")">@flag.Label</label>
+                                    @if (changed)
+                                    {
+                                        <span class="go-sr-only">, @StatusText(draft.Status)</span>
                                     }
                                 </div>
-                            }
+                                <p class="go-setting-key">@flag.Key</p>
+                                @if (!String.IsNullOrEmpty(flag.Description))
+                                {
+                                    <p class="go-setting-help">@flag.Description</p>
+                                }
+                                <div class="go-chips">
+                                    @if (draft.Status == "archived")
+                                    {
+                                        <BbBadge Variant="BadgeVariant.SoftDestructive">archived</BbBadge>
+                                    }
+                                    else if (draft.Status == "added")
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Soft">new</BbBadge>
+                                    }
+                                    @if (!flag.Enabled)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline">left out</BbBadge>
+                                    }
+                                    @if (flag.Scope == "service")
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline">service</BbBadge>
+                                    }
+                                    @foreach (PortalFlagRule rule in flag.Rules)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Secondary">@PortalFlagText.RuleText(flag, rule)</BbBadge>
+                                    }
+                                </div>
+                                @if (changed && CanRevert(draft))
+                                {
+                                    <button type="button" class="go-setting-revert" @onclick="@(() => RevertAsync(draft))" disabled="@m_rowBusy.Contains(flag.Key)" data-testid="@($"revert-{flag.Key}")">Revert to live</button>
+                                }
+                                @if (m_rowErrors.TryGetValue(flag.Key, out string? problem))
+                                {
+                                    <p class="go-setting-error" role="alert" data-testid="@($"error-{flag.Key}")">@problem</p>
+                                }
+                            </div>
+                            <div class="go-setting-control">
+                                @if (draft.Archived)
+                                {
+                                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => RestoreRowAsync(draft))" Disabled="@m_rowBusy.Contains(flag.Key)">Restore</BbButton>
+                                }
+                                else if (flag.Custom != null)
+                                {
+                                    <span class="go-setting-custom">Custom targeting, edited in an exported file</span>
+                                }
+                                else
+                                {
+                                    @switch (flag.Type)
+                                    {
+                                        case "bool":
+                                            <BbSwitch Id="@($"flag-{flag.Key}")" Checked="@(flag.Value.ValueKind == JsonValueKind.True)" CheckedChanged="@((bool on) => SaveValueAsync(draft, on ? "true" : "false"))" Disabled="@m_rowBusy.Contains(flag.Key)" />
+                                            break;
+                                        case "choice":
+                                            <BbNativeSelect TValue="string" Id="@($"flag-{flag.Key}")" Value="@PortalFlagText.TextOf(flag, flag.Value)" ValueChanged="@((string v) => SaveValueAsync(draft, v))" Class="go-setting-input">
+                                                @foreach (PortalFlagChoice choice in flag.Choices ?? [])
+                                                {
+                                                    <option value="@choice.Value.GetRawText()">@choice.Label</option>
+                                                }
+                                            </BbNativeSelect>
+                                            break;
+                                        case "int":
+                                        case "number":
+                                            <span class="go-setting-number">
+                                                <BbInput Id="@($"flag-{flag.Key}")" Type="InputType.Number" Value="@PortalFlagText.TextOf(flag, flag.Value)" ValueChanged="@((string? v) => SaveValueAsync(draft, v ?? ""))" UpdateTiming="UpdateTiming.OnChange" AriaInvalid="@(m_rowErrors.ContainsKey(flag.Key) ? true : null)" Class="go-setting-input" autocomplete="off" />
+                                                @if (flag.Unit != null)
+                                                {
+                                                    <span class="go-setting-unit">@flag.Unit</span>
+                                                }
+                                            </span>
+                                            break;
+                                        default:
+                                            <BbInput Id="@($"flag-{flag.Key}")" Value="@PortalFlagText.TextOf(flag, flag.Value)" ValueChanged="@((string? v) => SaveValueAsync(draft, v ?? ""))" UpdateTiming="UpdateTiming.OnChange" AriaInvalid="@(m_rowErrors.ContainsKey(flag.Key) ? true : null)" MaxLength="@(flag.Max is double max ? (int)max : null)" Class="go-setting-input" autocomplete="off" spellcheck="false" />
+                                            break;
+                                    }
+                                }
+                                <BbDropdownMenu>
+                                    <BbDropdownMenuTrigger>
+                                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" AriaLabel="@($"More for {flag.Label}")" data-testid="@($"edit-{flag.Key}")">
+                                            <LucideIcon Name="ellipsis" Class="bb:h-4 bb:w-4" />
+                                        </BbButton>
+                                    </BbDropdownMenuTrigger>
+                                    <BbDropdownMenuContent Align="PopoverAlign.End" Class="go-admin-menu">
+                                        <BbDropdownMenuItem OnClick="@(_ => Edit(draft))">
+                                            <LucideIcon Name="sliders-horizontal" Class="bb:h-4 bb:w-4" />
+                                            Targeting and options
+                                        </BbDropdownMenuItem>
+                                        @if (!draft.Archived && !draft.UsedByService)
+                                        {
+                                            <BbDropdownMenuItem OnClick="@(_ => ArchiveRowAsync(draft))">
+                                                <LucideIcon Name="archive" Class="bb:h-4 bb:w-4" />
+                                                Archive
+                                            </BbDropdownMenuItem>
+                                        }
+                                    </BbDropdownMenuContent>
+                                </BbDropdownMenu>
+                            </div>
                         </div>
                     }
-                </BbCardContent>
-            </BbCard>
-        </BbTabsContent>
+                </section>
+            }
+            @if (!Shown().Any())
+            {
+                <BbEmpty Title="No field matches" Description="Change the search, or pick a group." />
+            }
+        </div>
+    </div>
 
-        <BbTabsContent Value="files" Class="bb:mt-4">
-            <div class="go-dashboard">
-                <BbCard>
-                    <BbCardHeader>
-                        <BbCardTitle As="h2">Export</BbCardTitle>
-                        <BbCardDescription>A revision as a flagd file (flagd.dev), with the labels, limits and rules staff see. Pick Export on a revision in History for an older one.</BbCardDescription>
-                    </BbCardHeader>
-                    <BbCardContent Class="bb:space-y-4">
-                        @if (m_export == null)
-                        {
-                            <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => ExportAsync(m_draft.Revision))" Disabled="@(m_draft.Revision == 0)">Export the live revision</BbButton>
-                        }
-                        else
-                        {
-                            <p class="bb:text-sm">Revision @m_exportNumber</p>
-                            <BbTextarea Value="@m_export" readonly Class="bb:font-mono bb:text-xs" aria-label="The exported flagd file" />
-                            <div class="bb:flex bb:gap-2 bb:flex-wrap bb:items-center">
-                                <a href="@ExportUrl()" download="@($"genonline-flags-{m_exportNumber}.json")" class="bb:text-sm" data-testid="download">Download the file</a>
-                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="CopyExportAsync">Copy</BbButton>
-                            </div>
-                        }
-                    </BbCardContent>
-                </BbCard>
-                <BbCard>
-                    <BbCardHeader>
-                        <BbCardTitle As="h2">Import</BbCardTitle>
-                        <BbCardDescription>A flagd file replaces the whole draft: fields it leaves out are archived. Nothing goes live until the draft is published.</BbCardDescription>
-                    </BbCardHeader>
-                    <BbCardContent Class="bb:space-y-4">
-                        <div class="bb:space-y-2">
-                            <BbLabel For="import-file">File</BbLabel>
-                            <InputFile id="import-file" accept=".json,application/json" OnChange="ReadFileAsync" />
-                        </div>
-                        <div class="bb:space-y-2">
-                            <BbLabel For="import-text">Or paste it</BbLabel>
-                            <BbTextarea Id="import-text" @bind-Value="m_import" UpdateTiming="UpdateTiming.Immediate" Placeholder="{&quot;flags&quot;: {…}}" Class="bb:font-mono bb:text-xs" AriaInvalid="@(m_importError != null ? true : null)" autocomplete="off" spellcheck="false" />
-                            @if (m_importError != null)
-                            {
-                                <p class="bb:text-sm bb:text-destructive">@m_importError</p>
-                            }
-                        </div>
-                        <BbButton OnClick="AskImport" Disabled="@String.IsNullOrWhiteSpace(m_import)" data-testid="import">Import as the draft</BbButton>
-                    </BbCardContent>
-                </BbCard>
-            </div>
-        </BbTabsContent>
-    </BbTabs>
+    @if (Pending() > 0)
+    {
+        <div class="go-publish-bar" role="status" data-testid="publish-bar">
+            <span><strong>@PortalText.Count(Pending())</strong> unpublished @(Pending() == 1 ? "change" : "changes")</span>
+            <BbButton Size="ButtonSize.Small" OnClick="OpenReviewAsync" data-testid="review">Review and publish</BbButton>
+        </div>
+    }
 
-    <BbDialog @bind-Open="m_editOpen">
-        <BbDialogContent>
+    <BbSheet @bind-Open="m_editOpen">
+        <BbSheetContent Class="go-panel">
             @if (m_editing != null)
             {
                 PortalFlag flag = m_editing.Flag;
-                <BbDialogHeader>
-                    <BbDialogTitle>@flag.Label</BbDialogTitle>
-                    <BbDialogDescription>@(flag.Description ?? flag.Key)</BbDialogDescription>
-                </BbDialogHeader>
-                <div class="bb:space-y-4">
-                    <p class="bb:text-xs bb:text-muted-foreground bb:font-mono bb:break-all">@flag.Key · @PortalFlagText.TypeText(flag)</p>
+                <BbSheetHeader>
+                    <BbSheetTitle>@flag.Label</BbSheetTitle>
+                    <BbSheetDescription>@(flag.Description ?? "One field of the game config.")</BbSheetDescription>
+                </BbSheetHeader>
+                <div class="go-panel-body">
+                    <p class="go-setting-key">@flag.Key · @PortalFlagText.TypeText(flag) · read by @(flag.Scope == "service" ? "the service" : "the game")</p>
                     @if (m_editing.Archived)
                     {
                         <p class="bb:text-sm">This field is archived: it leaves the next revision. Restore it to edit it.</p>
@@ -334,7 +270,7 @@ else
                             <p class="bb:text-xs bb:text-muted-foreground">The first rule that matches the player gives its value, everyone else gets the value above. A percentage rule comes last.</p>
                             @foreach (RuleEdit rule in m_rules)
                             {
-                                <div class="bb:rounded-md bb:border bb:p-3 bb:space-y-2">
+                                <div class="go-panel-rule">
                                     <div class="bb:flex bb:gap-2 bb:items-center">
                                         <BbNativeSelect TValue="string" @bind-Value="rule.Kind" AriaLabel="Rule kind" Class="go-select">
                                             <option value="role">Players with a role</option>
@@ -342,7 +278,7 @@ else
                                             <option value="country">Players from a country</option>
                                             <option value="percentage">A share of players</option>
                                         </BbNativeSelect>
-                                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => m_rules.Remove(rule))" AriaLabel="Remove the rule">
+                                        <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Icon" OnClick="@(() => m_rules.Remove(rule))" AriaLabel="Remove the rule">
                                             <LucideIcon Name="trash-2" Class="bb:h-4 bb:w-4" />
                                         </BbButton>
                                     </div>
@@ -362,10 +298,10 @@ else
                     }
                     @if (m_editError != null)
                     {
-                        <p class="bb:text-sm bb:text-destructive" data-testid="edit-error">@m_editError</p>
+                        <p class="go-setting-error" role="alert" data-testid="edit-error">@m_editError</p>
                     }
                 </div>
-                <BbDialogFooter>
+                <BbSheetFooter Class="go-panel-footer">
                     @if (m_editing.Archived)
                     {
                         <BbButton OnClick="RestoreAsync" Loading="@m_saving">Restore</BbButton>
@@ -374,7 +310,7 @@ else
                     {
                         @if (!m_editing.UsedByService)
                         {
-                            <BbButton Variant="ButtonVariant.Outline" OnClick="ArchiveAsync" Disabled="@m_saving">Archive</BbButton>
+                            <BbButton Variant="ButtonVariant.Ghost" OnClick="ArchiveAsync" Disabled="@m_saving">Archive</BbButton>
                         }
                         <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_editOpen = false)" Disabled="@m_saving">Cancel</BbButton>
                         @if (flag.Custom == null)
@@ -382,33 +318,182 @@ else
                             <BbButton OnClick="SaveAsync" Loading="@m_saving" data-testid="save">Save to the draft</BbButton>
                         }
                     }
-                </BbDialogFooter>
+                </BbSheetFooter>
             }
-        </BbDialogContent>
-    </BbDialog>
+        </BbSheetContent>
+    </BbSheet>
 
-    <BbDialog @bind-Open="m_confirmPublish">
-        <BbDialogContent>
-            <BbDialogHeader>
-                <BbDialogTitle>Publish the draft?</BbDialogTitle>
-                <BbDialogDescription>@PortalText.Count(m_changes?.Changes.Count ?? 0) fields change for every game client and the service. A rollback brings the old values back.</BbDialogDescription>
-            </BbDialogHeader>
-            <BbDialogFooter>
-                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_confirmPublish = false)" Disabled="@m_busy">Cancel</BbButton>
-                <BbButton OnClick="PublishAsync" Loading="@m_busy" data-testid="confirm-publish">Publish</BbButton>
-            </BbDialogFooter>
-        </BbDialogContent>
-    </BbDialog>
+    <BbSheet @bind-Open="m_reviewOpen">
+        <BbSheetContent Class="go-panel go-panel-wide">
+            <BbSheetHeader>
+                <BbSheetTitle>Review and publish</BbSheetTitle>
+                <BbSheetDescription>What players and the service get once the draft becomes revision @(m_draft.Revision + 1). Game clients pick it up the next time they read their config.</BbSheetDescription>
+            </BbSheetHeader>
+            <div class="go-panel-body">
+                @if (m_review == null)
+                {
+                    <FeedSkeleton />
+                }
+                else if (m_review.Changes.Count == 0)
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="No changes" Description="The draft matches the live revision." />
+                }
+                else
+                {
+                    <FlagChangeList Changes="@m_review.Changes" />
+                    <div class="bb:space-y-2">
+                        <BbLabel For="publish-note">Note</BbLabel>
+                        <BbTextarea Id="publish-note" @bind-Value="m_comment" UpdateTiming="UpdateTiming.Immediate" MaxLength="@MaximumComment" Placeholder="Why this changes…" autocomplete="off" data-testid="publish-note" />
+                    </div>
+                }
+            </div>
+            <BbSheetFooter Class="go-panel-footer">
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_reviewOpen = false)" Disabled="@m_busy">Cancel</BbButton>
+                <BbButton OnClick="PublishAsync" Loading="@m_busy" Disabled="@(m_review == null || m_review.Changes.Count == 0)" data-testid="publish">
+                    <LucideIcon Name="upload" Class="bb:h-4 bb:w-4" />
+                    Publish
+                </BbButton>
+            </BbSheetFooter>
+        </BbSheetContent>
+    </BbSheet>
+
+    <BbSheet @bind-Open="m_historyOpen">
+        <BbSheetContent Class="go-panel go-panel-wide">
+            <BbSheetHeader>
+                <BbSheetTitle>History</BbSheetTitle>
+                <BbSheetDescription>Every publish and rollback, newest first. A rollback publishes the chosen revision again as a new one.</BbSheetDescription>
+            </BbSheetHeader>
+            <div class="go-panel-body">
+                @if (m_revisions == null)
+                {
+                    <FeedSkeleton />
+                }
+                else if (m_revisions.Count == 0)
+                {
+                    <BbEmpty Size="EmptySize.Small" Title="No revision yet" Description="The first publish makes revision 1." />
+                }
+                else
+                {
+                    <div class="go-table-frame">
+                        <table aria-label="Revisions">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Revision</th>
+                                    <th scope="col">Published</th>
+                                    <th scope="col">Note</th>
+                                    <th scope="col"><span class="go-sr-only">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (PortalFlagRevision revision in m_revisions)
+                                {
+                                    <tr data-testid="revision-@revision.Number">
+                                        <td>
+                                            <div class="go-cell-badges">
+                                                <span class="go-num">#@revision.Number</span>
+                                                @if (revision.Live)
+                                                {
+                                                    <BbBadge Variant="BadgeVariant.Secondary"><BbBadgeIcon Name="circle-check" />live</BbBadge>
+                                                }
+                                                @if (revision.RollbackOf is int of)
+                                                {
+                                                    <BbBadge Variant="BadgeVariant.Outline">rollback to @of</BbBadge>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td><span class="go-nowrap">@PortalText.Date(revision.CreatedAt)</span><br /><span class="go-muted">@revision.CreatedBy</span></td>
+                                        <td><span class="go-clamp" title="@revision.Comment">@revision.Comment</span></td>
+                                        <td>
+                                            <div class="go-row-actions">
+                                                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => ToggleAsync(revision.Number))">@(m_open.Contains(revision.Number) ? "Hide changes" : "Changes")</BbButton>
+                                                <BbButton Variant="ButtonVariant.Ghost" Size="ButtonSize.Small" OnClick="@(() => ExportAsync(revision.Number))">Export</BbButton>
+                                                @if (!revision.Live)
+                                                {
+                                                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="@(() => AskRollback(revision.Number))" data-testid="@($"rollback-{revision.Number}")">Roll back</BbButton>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    @if (m_open.Contains(revision.Number))
+                                    {
+                                        <tr>
+                                            <td colspan="4">
+                                                @if (!m_revisionChanges.TryGetValue(revision.Number, out PortalFlagChanges? changes))
+                                                {
+                                                    <FeedSkeleton />
+                                                }
+                                                else if (changes.Changes.Count == 0)
+                                                {
+                                                    <p class="bb:text-sm bb:text-muted-foreground">No field changed against revision @changes.From.</p>
+                                                }
+                                                else
+                                                {
+                                                    <FlagChangeList Changes="@changes.Changes" />
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </BbSheetContent>
+    </BbSheet>
+
+    <BbSheet @bind-Open="m_exportOpen">
+        <BbSheetContent Class="go-panel go-panel-wide">
+            <BbSheetHeader>
+                <BbSheetTitle>Export revision @m_exportNumber</BbSheetTitle>
+                <BbSheetDescription>The revision as a flagd file (flagd.dev), with the labels, limits and rules staff see.</BbSheetDescription>
+            </BbSheetHeader>
+            <div class="go-panel-body">
+                <BbTextarea Value="@m_export" readonly Class="bb:font-mono bb:text-xs go-panel-code" aria-label="The exported flagd file" />
+            </div>
+            <BbSheetFooter Class="go-panel-footer">
+                <BbButton Variant="ButtonVariant.Outline" OnClick="CopyExportAsync">Copy</BbButton>
+                <a href="@ExportUrl()" download="@($"genonline-flags-{m_exportNumber}.json")" class="go-panel-link" data-testid="download">Download the file</a>
+            </BbSheetFooter>
+        </BbSheetContent>
+    </BbSheet>
+
+    <BbSheet @bind-Open="m_importOpen">
+        <BbSheetContent Class="go-panel go-panel-wide">
+            <BbSheetHeader>
+                <BbSheetTitle>Import a file</BbSheetTitle>
+                <BbSheetDescription>A flagd file replaces the whole draft: fields it leaves out are archived. Nothing goes live until the draft is published.</BbSheetDescription>
+            </BbSheetHeader>
+            <div class="go-panel-body">
+                <div class="bb:space-y-2">
+                    <BbLabel For="import-file">File</BbLabel>
+                    <InputFile id="import-file" accept=".json,application/json" OnChange="ReadFileAsync" />
+                </div>
+                <div class="bb:space-y-2">
+                    <BbLabel For="import-text">Or paste it</BbLabel>
+                    <BbTextarea Id="import-text" @bind-Value="m_import" UpdateTiming="UpdateTiming.Immediate" Placeholder="{&quot;flags&quot;: {…}}" Class="bb:font-mono bb:text-xs go-panel-code" AriaInvalid="@(m_importError != null ? true : null)" autocomplete="off" spellcheck="false" />
+                    @if (m_importError != null)
+                    {
+                        <p class="go-setting-error" role="alert">@m_importError</p>
+                    }
+                </div>
+            </div>
+            <BbSheetFooter Class="go-panel-footer">
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_importOpen = false)">Cancel</BbButton>
+                <BbButton OnClick="AskImport" Disabled="@String.IsNullOrWhiteSpace(m_import)" data-testid="import">Import as the draft</BbButton>
+            </BbSheetFooter>
+        </BbSheetContent>
+    </BbSheet>
 
     <BbDialog @bind-Open="m_confirmReset">
         <BbDialogContent>
             <BbDialogHeader>
-                <BbDialogTitle>Discard the draft?</BbDialogTitle>
+                <BbDialogTitle>Reset the draft?</BbDialogTitle>
                 <BbDialogDescription>Every field goes back to revision @m_draft.Revision. The changes cannot be brought back.</BbDialogDescription>
             </BbDialogHeader>
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_confirmReset = false)" Disabled="@m_busy">Cancel</BbButton>
-                <BbButton OnClick="ResetAsync" Loading="@m_busy">Discard</BbButton>
+                <BbButton Variant="ButtonVariant.Destructive" OnClick="ResetAsync" Loading="@m_busy" data-testid="confirm-reset">Reset draft</BbButton>
             </BbDialogFooter>
         </BbDialogContent>
     </BbDialog>
@@ -455,12 +540,15 @@ else
     private PortalFlagDraft? m_draft;
     private string? m_error;
     private string? m_search;
-    private string m_group = "";
-    private string m_tab = "draft";
+    private string? m_group;
     private PortalFlagChanges? m_changes;
+    private readonly Dictionary<string, string> m_rowErrors = new(StringComparer.Ordinal);
+    private readonly HashSet<string> m_rowBusy = new(StringComparer.Ordinal);
+
     private List<PortalFlagRevision>? m_revisions;
     private readonly HashSet<int> m_open = new();
     private readonly Dictionary<int, PortalFlagChanges> m_revisionChanges = new();
+    private bool m_historyOpen;
 
     private PortalDraftFlag? m_editing;
     private bool m_editOpen;
@@ -470,8 +558,11 @@ else
     private string? m_editError;
     private bool m_saving;
 
+    // the changes and the draft etag the review panel shows, so Publish sends exactly what staff read
+    private PortalFlagChanges? m_review;
+    private string? m_reviewEtag;
+    private bool m_reviewOpen;
     private string? m_comment;
-    private bool m_confirmPublish;
     private bool m_confirmReset;
     private bool m_busy;
 
@@ -481,8 +572,10 @@ else
 
     private string? m_export;
     private int m_exportNumber;
+    private bool m_exportOpen;
     private string? m_import;
     private string? m_importError;
+    private bool m_importOpen;
     private bool m_confirmImport;
 
     // The layout renders pages only once the session is known
@@ -511,14 +604,23 @@ else
         PortalAnswer<PortalFlagDraft> answer = await Api.GetFlagsAsync();
         m_draft = answer.Value;
         m_error = answer.Ok ? null : answer.Error;
-        m_changes = null;
         m_revisions = null;
         m_revisionChanges.Clear();
         m_open.Clear();
         if (m_draft != null)
         {
             await LoadChangesAsync();
-            await OnTabAsync(m_tab);
+        }
+    }
+
+    // The draft and its changes again after a change, keeping the chosen group, the search and the open panels
+    private async Task RefreshAsync()
+    {
+        PortalAnswer<PortalFlagDraft> answer = await Api.GetFlagsAsync();
+        if (answer.Value != null)
+        {
+            m_draft = answer.Value;
+            await LoadChangesAsync();
         }
     }
 
@@ -528,31 +630,91 @@ else
         m_changes = answer.Value ?? new PortalFlagChanges();
     }
 
-    // The history loads when its tab opens, and again after a reload while it is open
-    private async Task OnTabAsync(string tab)
+    private string HeaderText()
+        => m_draft == null || m_draft.Revision == 0
+            ? "The settings the game and the service read. A change saves to the draft, which goes live when it is published."
+            : $"The settings the game and the service read. A change saves to the draft, which goes live when it is published. Live: revision {m_draft.Revision}.";
+
+    private int Pending() => m_draft?.Flags.Count(f => f.Status != "unchanged") ?? 0;
+
+    private static string StatusText(string status) => status switch
     {
-        m_tab = tab;
-        if (tab == "history" && m_revisions == null)
-        {
-            PortalAnswer<List<PortalFlagRevision>> answer = await Api.ListFlagRevisionsAsync();
-            m_revisions = answer.Value ?? new List<PortalFlagRevision>();
-            if (!answer.Ok)
-            {
-                Toasts.Error(PortalText.Error(answer.Error), "The history could not load");
-            }
-        }
-    }
+        "added" => "new in the draft",
+        "archived" => "archived in the draft",
+        _ => "changed in the draft"
+    };
 
     private IEnumerable<string> Groups() => m_draft!.Flags.Select(f => f.Flag.Group).Distinct().Order(StringComparer.Ordinal);
 
-    // The draft fields the search and the group leave, grouped in the order of the keys
+    private string CurrentGroup() => m_group ?? Groups().FirstOrDefault() ?? "";
+
+    private bool Searching() => !String.IsNullOrWhiteSpace(m_search);
+
+    private void ChooseGroup(string group)
+    {
+        m_group = group;
+        m_search = null;
+    }
+
+    // The chosen group, or every field the search finds in the order of the groups
     private IEnumerable<IGrouping<string, PortalDraftFlag>> Shown()
     {
         string term = m_search?.Trim() ?? "";
+        string group = CurrentGroup();
         return m_draft!.Flags
-            .Where(f => m_group.Length == 0 || f.Flag.Group == m_group)
+            .Where(f => term.Length > 0 || f.Flag.Group == group)
             .Where(f => term.Length == 0 || f.Flag.Label.Contains(term, StringComparison.OrdinalIgnoreCase) || f.Flag.Key.Contains(term, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(f => f.Flag.Group);
+            .GroupBy(f => f.Flag.Group)
+            .OrderBy(g => g.Key, StringComparer.Ordinal);
+    }
+
+    // A row saves its new value to the draft at once, with the field's version as If-Match
+    private async Task SaveValueAsync(PortalDraftFlag draft, string text)
+    {
+        PortalFlag flag = draft.Flag;
+        if (!PortalFlagText.TryParse(flag, text, out JsonElement value, out string? problem))
+        {
+            m_rowErrors[flag.Key] = problem ?? "This value does not fit the field.";
+            return;
+        }
+        await RowAsync(flag.Key, () => Api.SaveFlagAsync(flag with { Value = value }, draft.Version), "Saved to the draft");
+    }
+
+    private Task ArchiveRowAsync(PortalDraftFlag draft) => RowAsync(draft.Flag.Key, () => Api.ArchiveFlagAsync(draft.Flag.Key, draft.Version), "Archived in the draft");
+
+    private Task RestoreRowAsync(PortalDraftFlag draft) => RowAsync(draft.Flag.Key, () => Api.RestoreFlagAsync(draft.Flag.Key, draft.Version), "Restored in the draft");
+
+    // A changed field goes back to the live revision: its live definition again, an archived one restored, a new one archived
+    private bool CanRevert(PortalDraftFlag draft) => draft.Status switch
+    {
+        "archived" => true,
+        "added" => !draft.UsedByService,
+        _ => LiveOf(draft.Flag.Key) != null
+    };
+
+    private PortalFlag? LiveOf(string key) => m_changes?.Changes.FirstOrDefault(c => c.Key == key)?.Before;
+
+    private Task RevertAsync(PortalDraftFlag draft) => draft.Status switch
+    {
+        "archived" => RestoreRowAsync(draft),
+        "added" => ArchiveRowAsync(draft),
+        _ => RowAsync(draft.Flag.Key, () => Api.SaveFlagAsync(LiveOf(draft.Flag.Key)!, draft.Version), "Back to the live value")
+    };
+
+    private async Task RowAsync(string key, Func<Task<PortalFlagOutcome<PortalDraftFlag>>> change, string done)
+    {
+        m_rowBusy.Add(key);
+        m_rowErrors.Remove(key);
+        PortalFlagOutcome<PortalDraftFlag> outcome = await change();
+        m_rowBusy.Remove(key);
+        if (!outcome.Ok)
+        {
+            m_rowErrors[key] = PortalText.FlagError(outcome.Error, outcome.Field);
+            await RefreshAsync();
+            return;
+        }
+        Toasts.Success("Publish the draft to make it live.", done);
+        await RefreshAsync();
     }
 
     private void Edit(PortalDraftFlag draft)
@@ -637,20 +799,30 @@ else
         }
         m_editOpen = false;
         Toasts.Success("Publish the draft to make it live.", done);
-        await LoadAsync();
+        await RefreshAsync();
+    }
+
+    // The review panel reads the draft and its changes afresh and keeps that draft's etag for Publish
+    private async Task OpenReviewAsync()
+    {
+        m_review = null;
+        m_reviewOpen = true;
+        await RefreshAsync();
+        m_review = m_changes;
+        m_reviewEtag = m_draft?.DraftEtag;
     }
 
     private async Task PublishAsync()
     {
         m_busy = true;
-        PortalFlagOutcome<PortalFlagRevision> outcome = await Api.PublishFlagsAsync(String.IsNullOrWhiteSpace(m_comment) ? null : m_comment.Trim(), m_draft!.DraftEtag);
+        PortalFlagOutcome<PortalFlagRevision> outcome = await Api.PublishFlagsAsync(String.IsNullOrWhiteSpace(m_comment) ? null : m_comment.Trim(), m_reviewEtag ?? m_draft!.DraftEtag);
         m_busy = false;
-        m_confirmPublish = false;
         if (!outcome.Ok)
         {
             Toasts.Error(PortalText.FlagError(outcome.Error, outcome.Field), "Not published");
             return;
         }
+        m_reviewOpen = false;
         m_comment = null;
         Toasts.Success($"Revision {outcome.Value!.Number} is live.", "Published");
         await LoadAsync();
@@ -664,11 +836,26 @@ else
         m_confirmReset = false;
         if (!outcome.Ok)
         {
-            Toasts.Error(PortalText.FlagError(outcome.Error, outcome.Field), "Not discarded");
+            Toasts.Error(PortalText.FlagError(outcome.Error, outcome.Field), "Not reset");
             return;
         }
-        Toasts.Success("The draft matches the live revision again.", "Discarded");
+        Toasts.Success("The draft matches the live revision again.", "Draft reset");
         await LoadAsync();
+    }
+
+    // The history loads when its panel opens
+    private async Task OpenHistoryAsync()
+    {
+        m_historyOpen = true;
+        if (m_revisions == null)
+        {
+            PortalAnswer<List<PortalFlagRevision>> answer = await Api.ListFlagRevisionsAsync();
+            m_revisions = answer.Value ?? new List<PortalFlagRevision>();
+            if (!answer.Ok)
+            {
+                Toasts.Error(PortalText.Error(answer.Error), "The history could not load");
+            }
+        }
     }
 
     private async Task ToggleAsync(int number)
@@ -710,6 +897,7 @@ else
             return;
         }
         Toasts.Success($"Revision {outcome.Value!.Number} holds revision {m_rollback} again and is live.", "Rolled back");
+        m_historyOpen = false;
         await LoadAsync();
     }
 
@@ -723,7 +911,8 @@ else
         }
         m_export = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
         m_exportNumber = number;
-        Toasts.Success("The file is under Export and import.", $"Revision {number} exported");
+        m_historyOpen = false;
+        m_exportOpen = true;
     }
 
     private string ExportUrl() => "data:application/json;charset=utf-8," + Uri.EscapeDataString(m_export ?? "");
@@ -738,6 +927,12 @@ else
         {
             Toasts.Error("The browser refused the clipboard. Select the text and copy it.", "Not copied");
         }
+    }
+
+    private void OpenImport()
+    {
+        m_importError = null;
+        m_importOpen = true;
     }
 
     private async Task ReadFileAsync(InputFileChangeEventArgs e)
@@ -782,7 +977,8 @@ else
             return;
         }
         m_import = null;
-        Toasts.Success("Read the changes, then publish the draft.", "Imported");
+        m_importOpen = false;
+        Toasts.Success("Review the changes, then publish the draft.", "Imported");
         await LoadAsync();
     }
 

@@ -17,6 +17,7 @@
 */
 
 using GenOnlineService.Identity;
+using GenOnlineService.Portal.Client;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Text.Json;
@@ -96,22 +97,21 @@ public class PortalLookTests
 		Assert.DoesNotContain("http", generals.Split("*/", 2)[1]);
 	}
 
-	// The staff area (/admin) shares generals.css and its fonts: the file holds exactly the four @font-face rules it held before
-	// the sign-in pages moved to the design system (IBM Plex Sans Latin1 at 300, 400, 500 and 600), and the new faces live in
-	// fonts.css, which only the new pages link
+	// Every page, the staff area (/admin) included, loads its fonts from fonts.css: generals.css holds no @font-face, so the
+	// staff area reads Play and IBM Plex Sans at the design's weights (400, 600, 700) like the sign-in pages
 	[Fact]
-	public void TheSharedStylesheetKeepsOnlyTheStaffAreasFontFaces()
+	public void TheFontsLiveOnlyInTheFontsStylesheet()
 	{
 		string css = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
-		string[] faces = Regex.Matches(css, @"@font-face\s*\{[^}]*\}").Select(m => Regex.Replace(m.Value, @"\s+", " ")).ToArray();
-		Assert.Equal(4, faces.Length);
-		foreach ((string weight, string file) in new[] { ("300", "Light"), ("400", "Regular"), ("500", "Medium"), ("600", "SemiBold") })
-		{
-			Assert.Contains(faces, f => f.Contains("font-family: \"IBM Plex Sans\";") && f.Contains($"font-weight: {weight};") && f.Contains($"url(\"/portal/fonts/IBMPlexSans-{file}-Latin1.woff2\")"));
-		}
+		Assert.DoesNotMatch(@"@font-face", css);
+		Assert.DoesNotContain("Latin1", css);
 		string fonts = File.ReadAllText(FileOf(PortalLook.FontsPath));
 		Assert.Contains("font-family: \"Play\"", fonts);
 		Assert.Contains("font-family: \"IBM Plex Sans Arabic\"", fonts);
+		foreach (string weight in new[] { "400", "600", "700" })
+		{
+			Assert.Matches("font-family: \"IBM Plex Sans\"; font-style: normal; font-weight: " + weight + ";", fonts);
+		}
 		Assert.DoesNotContain("Latin1", fonts);
 	}
 
@@ -146,6 +146,26 @@ public class PortalLookTests
 		Assert.Matches(@"\.gp-cover\s*\{[^}]*filter: grayscale\(1\);[^}]*opacity: 0\.45", mine);
 		Assert.Matches(@"\.gp :focus-visible[^{]*\{\s*outline: 2px solid var\(--go-color-accent-hover\);\s*outline-offset: 3px", mine);
 		Assert.Contains("prefers-reduced-motion: reduce", mine);
+	}
+
+	// The staff rules use the tokens too: from the staff shell to the sign-in pages no colour is written, every rule places
+	// things by the start and end of a line, the focus ring is the shared one, and the live badge is the design's green
+	[Fact]
+	public void TheStaffRulesUseTheTokens()
+	{
+		string css = File.ReadAllText(FileOf(PortalLook.GeneralsPath));
+		int start = css.IndexOf("The staff pages (/admin): the shell of the design's Admin board", StringComparison.Ordinal);
+		int end = css.IndexOf("The sign-in and account pages on the Generals Online design system", StringComparison.Ordinal);
+		Assert.True(start > 0 && end > start);
+		string staff = css[start..end];
+		Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,8}\b|rgb\(", staff);
+		foreach (System.Text.RegularExpressions.Match rule in Regex.Matches(staff, @"[^{}]+\{([^}]*)\}"))
+		{
+			Assert.DoesNotMatch(@"(^|[\s;-])(left|right)\s*:|-(left|right)\s*:|text-align:\s*(left|right)", rule.Groups[1].Value);
+		}
+		Assert.Matches(@"\.dark :focus-visible[^{]*\{\s*outline: 2px solid var\(--go-color-accent-hover\);\s*outline-offset: 3px", staff);
+		Assert.Matches(@"\.go-badge-live \{[^}]*background: var\(--go-color-status-live-tint\);\s*color: var\(--go-color-status-live\)", staff);
+		Assert.Contains("prefers-reduced-motion: reduce", staff);
 	}
 
 	private static readonly (string, string, string)[] s_providers = [("/a", "discord", "Discord"), ("/b", "steam", "Steam"), ("/c", "google", "Google"), ("/d", "gamereplays", "GameReplays")];
@@ -417,5 +437,67 @@ public class PortalLookTests
 		Assert.Contains("class=\"gp-card gp-card-wizard\"", welcome.Body);
 		Assert.Contains("<ol class=\"gp-steps\"", welcome.Body);
 		AssertPage(welcome);
+	}
+}
+
+// The message of the day editor reads each line as WOLWelcomeMenu.cpp in the game does: the colour prefix, the double
+// backslash, the trim, the blank line and the cut of a prefix that is no colour code
+public class PortalMotdTests
+{
+	[Fact]
+	public void AColourPrefixColoursTheWholeLineAndIsStripped()
+	{
+		PortalMotdLine line = PortalMotd.ParseLine(@"\ffff7f2fTournament tonight");
+		Assert.Equal("Tournament tonight", line.Text);
+		Assert.Equal((255, 255, 127, 47), ((int)line.Alpha, (int)line.Red, (int)line.Green, (int)line.Blue));
+		Assert.Equal("ffff7f2f", line.Code);
+		Assert.Equal(PortalMotdProblem.None, line.Problem);
+		Assert.Equal("rgb(255 0 0 / 1)", PortalMotd.ParseLine(@"\FFFF0000Red").Css);
+	}
+
+	[Fact]
+	public void TwoBackslashesShowOneAndLinesAreTrimmed()
+	{
+		PortalMotdLine escaped = PortalMotd.ParseLine(@"  \\ffff0000 is how red starts  ");
+		Assert.Equal(@"\ffff0000 is how red starts", escaped.Text);
+		Assert.Null(escaped.Code);
+		Assert.Equal((255, 255, 255, 255), ((int)escaped.Alpha, (int)escaped.Red, (int)escaped.Green, (int)escaped.Blue));
+		Assert.Equal("Welcome", PortalMotd.ParseLine("\tWelcome \r").Text);
+	}
+
+	[Fact]
+	public void AnEmptyLineIsABlankRowAndCountsFillIn()
+	{
+		IReadOnlyList<PortalMotdLine> lines = PortalMotd.Parse("{0} players online\r\n\r\n   \nBye", 1234);
+		Assert.Equal(new[] { "1234 players online", " ", " ", "Bye" }, lines.Select(l => l.Text));
+		Assert.Empty(PortalMotd.Parse("", 1));
+		// the same format rule as the service, a broken template kept as it is
+		foreach (string template in new[] { "{0} online", "braces {{ kept }}", "broken {1", "plain" })
+		{
+			Assert.Equal(GenOnlineService.Rest.ConfigSources.FormatMotd(template, 7), PortalMotd.Fill(template, 7));
+		}
+	}
+
+	[Fact]
+	public void APrefixThatIsNoColourCodeIsCutAndWarned()
+	{
+		PortalMotdLine invalid = PortalMotd.ParseLine(@"\Welcome to Generals Online");
+		Assert.Equal(PortalMotdProblem.InvalidCode, invalid.Problem);
+		Assert.Equal("to Generals Online", invalid.Text);
+		Assert.Null(invalid.Code);
+		PortalMotdLine bare = PortalMotd.ParseLine(@"\ffff0000");
+		Assert.Equal(PortalMotdProblem.CodeWithoutText, bare.Problem);
+		Assert.Equal(@"\ffff0000", bare.Text);
+	}
+
+	[Fact]
+	public void TheEditorWritesAndRemovesThePrefix()
+	{
+		Assert.Equal(@"\ffff7f2fNews", PortalMotd.WithCode("News", "FFFF7F2F"));
+		Assert.Equal(@"\ffff0000News", PortalMotd.WithCode(@"\ffff7f2fNews", "ffff0000"));
+		Assert.Equal("News", PortalMotd.WithCode(@"\ffff7f2fNews", null));
+		Assert.Equal(@"\\path", PortalMotd.WithCode(@"\ffff7f2f\path", null));
+		Assert.Equal(@"\ffff7f2f\path", PortalMotd.WithCode(@"\\path", "ffff7f2f"));
+		Assert.Equal(new[] { "ffff7f2f", "ffff0000" }, PortalMotd.CodesOf("\\ffff7f2fA\nB\n\\FFFF0000C\n\\ffff7f2fD"));
 	}
 }
