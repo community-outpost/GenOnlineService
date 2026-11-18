@@ -56,7 +56,12 @@ internal sealed class AdminBrowser
 	private readonly Dictionary<string, string> m_cookies = new();
 
 	// extra settings add to the accounts settings, such as a registered client
-	public AdminBrowser(ProbeDatabase probe, params (string Key, string Value)[] extra)
+	public AdminBrowser(ProbeDatabase probe, params (string Key, string Value)[] extra) : this(probe, (Action<IServiceCollection>?)null, extra)
+	{
+	}
+
+	// configure adds to the host's services, such as the LobbyManager the live lobby reads use
+	public AdminBrowser(ProbeDatabase probe, Action<IServiceCollection>? configure, params (string Key, string Value)[] extra)
 	{
 		Dictionary<string, string?> values = new(PasswordPagesTests.Enabled(extra)) { ["Accounts:ephemeral_keys"] = "true", ["Core:enforce_https"] = "false" };
 		IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
@@ -84,6 +89,7 @@ internal sealed class AdminBrowser
 		services.AddSingleton<IAuthorizationHandler, ProbeRolesHandler>();
 		services.AddSingleton<IAuthorizationHandler, TokenPermissionHandler>();
 		PortalSetup.AddPortal(services);
+		configure?.Invoke(services);
 		m_services = services.BuildServiceProvider();
 
 		var app = new ApplicationBuilder(m_services);
