@@ -440,7 +440,7 @@ namespace GenOnlineService.Identity
 				await CloseRealtime(userID, null);
 			}
 
-			s_log.LogInformation("Revoked {Count} authorization(s) of user {UserId}: {Reason}", revoked.Count, userID, reason);
+			s_log.LogInformation("Revoked {Count} still valid authorization(s) of user {UserId}, dropped their game sessions and closed their realtime connections: {Reason}", revoked.Count, userID, reason);
 			return revoked.Count;
 		}
 

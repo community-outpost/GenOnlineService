@@ -282,6 +282,96 @@ public class AccountSupportTests
 		Assert.Equal(0, await db.ServiceAccountPermissions.CountAsync(p => p.ServiceAccountID == id));
 	}
 
+	// A personal gopat- token of a staff account, as a staff web session mints it
+	private static async Task<(string Secret, long ID)> PersonalToken(ProbeDatabase probe, long ownerID, string scope)
+	{
+		string secret = ApiTokenFormat.Generate();
+		await using AppDbContext db = probe.Open();
+		var token = new ApiToken
+		{
+			OwnerUserID = ownerID,
+			Name = "personal-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+			TokenHash = ApiTokenFormat.Hash(secret),
+			TokenLast4 = ApiTokenFormat.Last4(secret),
+			Scopes = scope,
+			CreatedBy = "user:" + ownerID,
+			CreatedAt = DateTime.UtcNow,
+			ExpiresAt = DateTime.UtcNow.AddDays(1)
+		};
+		db.ApiTokens.Add(token);
+		await db.SaveChangesAsync();
+		await ApiTokenCache.Reload(db);
+		return (secret, token.ID);
+	}
+
+	private static async Task<int> UseToken(ProbeDatabase probe, string secret)
+		=> (await new AdminBrowser(probe).Get("/api/v1/personal_access_tokens/self", new Dictionary<string, string> { ["Authorization"] = "Bearer " + secret })).Status;
+
+	private static int TokensRevokedIn(AuditLogEntry entry) => JsonDocument.Parse(entry.Details!).RootElement.GetProperty("tokens_revoked").GetInt32();
+
+	// a taken-over staff account loses its personal tokens with a reset, from the staff pages and from the CLI alike
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AResetRevokesThePersonalTokensOfTheAccount(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		(_, User warden) = await StaffAsync(probe, "Warden", StaffRoles.Moderator);
+		(_, User keeper) = await StaffAsync(probe, "Keeper", StaffRoles.Moderator);
+		await ReloadRoles(probe);
+		(string wardenToken, long wardenTokenID) = await PersonalToken(probe, warden.ID, Permissions.ModerationKick);
+		(string keeperToken, long keeperTokenID) = await PersonalToken(probe, keeper.ID, Permissions.ModerationKick);
+		Assert.Equal(200, await UseToken(probe, wardenToken));
+		Assert.Equal(200, await UseToken(probe, keeperToken));
+
+		Assert.Equal(200, (await admin.SendJson("POST", $"/api/v1/players/{warden.ID}/password_reset", new { reason = "taken over" }, await admin.Csrf())).Status);
+		Assert.Equal(401, await UseToken(probe, wardenToken));
+		Assert.Equal(200, await UseToken(probe, keeperToken));
+
+		await using (AppDbContext db = probe.Open())
+		{
+			await UserResets.ResetTwoFactor(db, keeper.ID, "cli:operator", "taken over");
+		}
+		Assert.Equal(401, await UseToken(probe, keeperToken));
+
+		await using AppDbContext check = probe.Open();
+		Assert.All(await check.ApiTokens.Where(t => t.ID == wardenTokenID || t.ID == keeperTokenID).ToListAsync(), t => Assert.NotNull(t.RevokedAt));
+		Assert.Equal(1, TokensRevokedIn(Assert.Single(await AuditOf(probe, "password_reset"))));
+		Assert.Equal(1, TokensRevokedIn(Assert.Single(await AuditOf(probe, "two_factor_reset"))));
+		Assert.Equal(2, (await AuditOf(probe, "token_revoke")).Count(e => e.TargetID == wardenTokenID || e.TargetID == keeperTokenID));
+	}
+
+	// the verifier's probes: a staff game session never reaches the routes, a foreign page is refused before anything
+	// happens, and the answer with the password is never cached
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task OnlyTheStaffPagesOwnOriginReachesTheResets(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AdminBrowser admin, _) = await StaffAsync(probe, "Chief", StaffRoles.Admin);
+		(AdminBrowser staffGame, User gamer) = await GamePlayerAsync(probe, "Gamer");
+		(string access, _) = await GameSignIn(staffGame);
+		await AdminArea.Grant(probe, "gamer@example.org", StaffRoles.Admin);
+		User plain = await PlayerAsync(probe, "Plain");
+		await ReloadRoles(probe);
+		string path = $"/api/v1/players/{plain.ID}/password_reset";
+
+		// an admin's game session holds accounts.support, and still only the cookie reaches the reset
+		PageResponse game = await staffGame.SendJson("POST", path, new { reason = "x" }, new Dictionary<string, string> { ["Authorization"] = "Bearer " + access });
+		Assert.Equal(403, game.Status);
+
+		Dictionary<string, string> foreign = new(await admin.Csrf()) { ["Origin"] = "http://evil.example" };
+		Assert.Equal(403, (await admin.SendJson("POST", path, new { reason = "x" }, foreign)).Status);
+		Assert.Equal(plain.PasswordHash, (await Stored(probe, plain.ID)).PasswordHash);
+		Assert.Empty(await AuditOf(probe, "password_reset"));
+
+		PageResponse reset = await admin.SendJson("POST", path, new { reason = "lost it" }, await admin.Csrf());
+		Assert.Equal(200, reset.Status);
+		Assert.Contains("no-store", reset.Headers!.CacheControl.ToString());
+	}
+
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task AnAdminResetsAPasswordThroughTheCookieAudited(string provider)

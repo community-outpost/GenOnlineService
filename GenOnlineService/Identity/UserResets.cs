@@ -25,7 +25,7 @@ namespace GenOnlineService.Identity
 {
 	// The operator's way back into an email + password account without mail: a new password, or the end of two-factor
 	// sign-in. Each ends the lockout, rotates the security stamp (website sessions stop within a minute), revokes every
-	// sign-in of the account with its refresh tokens and game sessions, and is audited.
+	// sign-in of the account with its refresh tokens and game sessions and every personal token it owns, and is audited.
 	public static class UserResets
 	{
 		public const string PasswordResetAction = "password_reset";
@@ -61,11 +61,11 @@ namespace GenOnlineService.Identity
 			await using var transaction = await db.Database.BeginTransactionAsync();
 			user.PasswordHash = new PasswordHasher<User>().HashPassword(user, chosen);
 			Unlock(user);
-			int revoked = await RevokeSignIns(db, userID);
-			db.AuditLog.Add(Audit(PasswordResetAction, userID, actor, reason, revoked));
+			(int signIns, int tokens) = await RevokeSignIns(db, userID, actor, PasswordResetAction);
+			db.AuditLog.Add(Audit(PasswordResetAction, userID, actor, reason, signIns, tokens));
 			await db.SaveChangesAsync();
 			await transaction.CommitAsync();
-			await EndLive(userID, live, "password reset");
+			await EndLive(db, userID, live, tokens, "password reset");
 			return chosen;
 		}
 
@@ -76,26 +76,46 @@ namespace GenOnlineService.Identity
 			user.TwoFactorEnabled = false;
 			user.AuthenticatorKey = null;
 			Unlock(user);
-			int revoked = await RevokeSignIns(db, userID);
-			db.AuditLog.Add(Audit(TwoFactorResetAction, userID, actor, reason, revoked));
+			(int signIns, int tokens) = await RevokeSignIns(db, userID, actor, TwoFactorResetAction);
+			db.AuditLog.Add(Audit(TwoFactorResetAction, userID, actor, reason, signIns, tokens));
 			await db.SaveChangesAsync();
 			await db.UserRecoveryCodes.Where(c => c.UserID == userID).ExecuteDeleteAsync();
 			await transaction.CommitAsync();
-			await EndLive(userID, live, "two-factor reset");
+			await EndLive(db, userID, live, tokens, "two-factor reset");
 		}
 
-		// Every stored sign-in and its tokens end, and the stored game sessions go, so no copy of the service and no
-		// refresh accepts them again; returns the number of sign-ins revoked
-		private static async Task<int> RevokeSignIns(AppDbContext db, Int64 userID)
+		// Every stored sign-in and its tokens end, the stored game sessions go and every personal gopat- token of the
+		// account is revoked (each with its token_revoke row), so no copy of the service and no refresh accepts them again;
+		// returns the number of sign-ins and of personal tokens revoked
+		private static async Task<(int SignIns, int Tokens)> RevokeSignIns(AppDbContext db, Int64 userID, Database.ModerationActor actor, string action)
 		{
-			int revoked = await SignInRevocation.RevokeStored(db, userID);
+			int signIns = await SignInRevocation.RevokeStored(db, userID);
 			await Database.GameSessionStore.DeleteUser(db, userID, null);
-			return revoked;
+
+			DateTime now = DateTime.UtcNow;
+			List<ApiToken> owned = await db.ApiTokens.AsTracking()
+				.Where(t => t.OwnerUserID == userID && (t.RevokedAt == null || t.RevokedAt > now) && t.ExpiresAt > now)
+				.ToListAsync();
+			var tokenActor = new Rest.ApiTokenActor(actor.Kind, actor.UserID, actor.Name, actor.Source);
+			int tokens = 0;
+			foreach (ApiToken token in owned)
+			{
+				if (await Rest.ApiTokenAdmin.Revoke(db, tokenActor, token, action))
+				{
+					tokens++;
+				}
+			}
+			return (signIns, tokens);
 		}
 
-		// The running service also forgets the game sessions it caches and closes the realtime connections with auth.revoked
-		private static async Task EndLive(Int64 userID, bool live, string reason)
+		// The token cache of this process follows at once, other copies on their reconcile tick; the running service also
+		// forgets the game sessions it caches and closes the realtime connections with auth.revoked
+		private static async Task EndLive(AppDbContext db, Int64 userID, bool live, int tokens, string reason)
 		{
+			if (tokens > 0)
+			{
+				await ApiTokenCache.Reload(db);
+			}
 			if (live)
 			{
 				await SessionRevocation.RevokeUser(userID, false, reason);
@@ -115,7 +135,7 @@ namespace GenOnlineService.Identity
 
 		private static Database.ModerationActor CliActor(string actor) => new() { Kind = AuditActorKinds.Cli, Name = actor, Source = ModerationSources.Cli };
 
-		private static AuditLogEntry Audit(string action, Int64 userID, Database.ModerationActor actor, string? reason, int signInsRevoked) => new()
+		private static AuditLogEntry Audit(string action, Int64 userID, Database.ModerationActor actor, string? reason, int signInsRevoked, int tokensRevoked) => new()
 		{
 			CreatedAt = DateTime.UtcNow,
 			ActorKind = actor.Kind,
@@ -126,7 +146,7 @@ namespace GenOnlineService.Identity
 			TargetID = userID,
 			Reason = String.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
 			Source = actor.Source,
-			Details = JsonSerializer.Serialize(new { sign_ins_revoked = signInsRevoked })
+			Details = JsonSerializer.Serialize(new { sign_ins_revoked = signInsRevoked, tokens_revoked = tokensRevoked })
 		};
 	}
 }

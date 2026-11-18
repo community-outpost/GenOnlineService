@@ -128,7 +128,7 @@ namespace GenOnlineService.Rest
 			}
 		}
 
-		// Known, not machine on a user, privileged only from the host, and never more than the owner holds
+		// Known, never staff only, not machine on a user, privileged only from the host, and never more than the owner holds
 		public static void CheckScopes(string ownerKind, IReadOnlyList<string> scopes, IReadOnlySet<string> held, string ownerLabel, bool bFromHost)
 		{
 			if (scopes.Count == 0)
@@ -139,6 +139,12 @@ namespace GenOnlineService.Rest
 			foreach (string scope in scopes)
 			{
 				RequirePermission(scope, "scopes");
+			}
+
+			string? staffOnly = scopes.FirstOrDefault(Permissions.IsStaffOnly);
+			if (staffOnly != null)
+			{
+				throw Forbidden(staffOnly, $"{staffOnly} works through the staff pages only, so no token carries it.");
 			}
 
 			if (ownerKind == ApiTokenOwnerKinds.User)

@@ -57,6 +57,15 @@ namespace GenOnlineService.Tests
 			Assert.Equal("user:7 does not hold moderation.ban; a token never grants more than its owner holds.", ex.Message);
 		}
 
+		// a staff-only permission works through the staff pages only, so no token carries it, a personal one included
+		[Fact]
+		public void StaffOnlyScopeIsForbiddenOnEveryToken()
+		{
+			var held = new HashSet<string>(StringComparer.Ordinal) { Permissions.AccountsSupport };
+			Assert.Equal("{\"error\":\"forbidden\",\"params\":{\"permission\":\"accounts.support\"}}", Body(() => ApiTokenAdmin.CheckScopes(ApiTokenOwnerKinds.User, [Permissions.AccountsSupport], held, "user:7", bFromHost: false)));
+			Assert.Equal("{\"error\":\"forbidden\",\"params\":{\"permission\":\"accounts.support\"}}", Body(() => ApiTokenAdmin.CheckScopes(ApiTokenOwnerKinds.User, [Permissions.AccountsSupport], held, "user:7", bFromHost: true)));
+		}
+
 		[Fact]
 		public void UnknownScopeIsInvalid()
 		{
