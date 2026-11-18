@@ -75,6 +75,15 @@
                                 <span>Matches</span>
                             </BbSidebarMenuButton>
                         </BbSidebarMenuItem>
+                        @if (staff.Can(PortalPermissions.PlayersInspect))
+                        {
+                            <BbSidebarMenuItem>
+                                <BbSidebarMenuButton Href="@PortalRoutes.InvestigatePage" Tooltip="Find accounts by device or address">
+                                    <LucideIcon Name="scan-search" Class="bb:h-4 bb:w-4" />
+                                    <span>Investigate</span>
+                                </BbSidebarMenuButton>
+                            </BbSidebarMenuItem>
+                        }
                     </BbSidebarMenu>
                 </BbSidebarGroup>
                 @if (staff.Can(PortalPermissions.AnticheatReview))
@@ -347,6 +356,9 @@
                 break;
             case "audit":
                 yield return ("Audit log", null);
+                break;
+            case "investigate":
+                yield return ("Investigate", null);
                 break;
             case "live":
                 yield return ("Live", null);

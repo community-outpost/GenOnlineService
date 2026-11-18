@@ -2099,6 +2099,9 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasIndex("UserID", "CreatedAt")
                         .HasDatabaseName("ix_session_events_user_created");
 
+                    b.HasIndex("Country", "UserID", "CreatedAt")
+                        .HasDatabaseName("ix_session_events_country_user");
+
                     b.ToTable("session_events", (string)null);
                 });
 

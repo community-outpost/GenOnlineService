@@ -107,6 +107,9 @@ public class SessionEventConfiguration : IEntityTypeConfiguration<SessionEvent>
 		// Finds the other accounts seen on an address for the staff duplicate check
 		builder.HasIndex(e => new { e.Ip, e.UserID }).HasDatabaseName("ix_session_events_ip_user");
 
+		// Finds the accounts seen in a country for the staff investigation search
+		builder.HasIndex(e => new { e.Country, e.UserID, e.CreatedAt }).HasDatabaseName("ix_session_events_country_user");
+
 		builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16);
