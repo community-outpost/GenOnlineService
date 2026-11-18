@@ -41,6 +41,7 @@ A rule document is a graph of nodes and edges, in JSON with snake case keys:
   edges from one output run every node they reach.
 - Each node may carry `position {x, y}` for the editor; the service keeps it as given.
 - `step` is reserved for later step nodes and is refused for now.
+- A property the document does not know, such as a misspelt `duration` for `duration_s`, is refused with its path.
 
 ### Validation on save
 
@@ -129,7 +130,8 @@ Safety rules hold in every mode:
   `staff_exempt` and nothing else.
 - A second match of the same rule, player and trigger inside the duplicate window (`AutomatedRules:duplicate_window_s`,
   600 by default) records nothing and acts on nothing.
-- A player already banned is not banned again, one already muted is not muted again. A ban goes first, so a kick after
+- A player already banned is not banned again, one already muted is not muted again. The check and the new sanction
+  run under a row lock on the player in the database, so two evaluations at once, on one copy or two, add one at most. A ban goes first, so a kick after
   it is not needed; a kick of a player who is offline does nothing.
 - The circuit breaker: an Enforce rule that already acted `AutomatedRules:breaker_actions_per_hour` times in the last
   hour (20 by default) switches itself to Flag, with a `rule_breaker` audit row, and the match that tripped it goes to
@@ -155,6 +157,9 @@ A preview shows who a rule would match now, before staff switch it on: `POST /ap
 the count and the first 25 matching players with the actions the rule would reach and the facts that decided it. It
 stops after 5000 players or 10 seconds (`complete` false, `timed_out` true for the time limit), takes no action and
 writes no match; only a `rule_preview` audit row with the trigger and the counts.
+
+Preview and sweep have no event, so the event fields (`event.*`) read as empty there: `not_equals` and `is_empty` on an
+event field match every player, and every other operator on one matches nobody.
 
 A sweep runs one rule's current version over every player as trigger `sweep`, in its mode, with every safety rule of a
 normal match: `POST /api/v1/staff/rules/:id/sweep` starts it, `GET` reads its progress `{rule_id, rule_version, state,

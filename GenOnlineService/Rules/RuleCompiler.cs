@@ -37,7 +37,16 @@ namespace GenOnlineService.Rules
 		public const int MaximumListItems = 100;
 		public const int MaximumTextLength = 256;
 
-		private static readonly JsonSerializerOptions s_json = RealtimeJson.Create();
+		// The realtime options, except that a property the document does not know is refused, so a misspelt field is
+		// never stored as if it were absent
+		private static readonly JsonSerializerOptions s_json = Options();
+
+		private static JsonSerializerOptions Options()
+		{
+			JsonSerializerOptions options = RealtimeJson.Create();
+			options.UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow;
+			return options;
+		}
 
 		public static string Serialize(RuleDocument document) => JsonSerializer.Serialize(document, s_json);
 
@@ -61,7 +70,9 @@ namespace GenOnlineService.Rules
 			}
 			catch (JsonException ex)
 			{
-				return (null, [new RuleProblem(String.IsNullOrEmpty(ex.Path) || ex.Path == "$" ? "document" : ex.Path.TrimStart('$', '.'), "not the expected shape")]);
+				string path = String.IsNullOrEmpty(ex.Path) || ex.Path == "$" ? "document" : ex.Path.TrimStart('$', '.');
+				bool unknown = ex.Message.Contains("could not be mapped", StringComparison.Ordinal);
+				return (null, [new RuleProblem(path, unknown ? "not a known property" : "not the expected shape")]);
 			}
 			if (document == null)
 			{

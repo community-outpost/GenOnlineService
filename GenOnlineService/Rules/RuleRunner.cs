@@ -230,8 +230,9 @@ namespace GenOnlineService.Rules
 				if (await ApplyAsync(environment, rule, ev, SanctionType.Ban, ban))
 				{
 					taken.Add(RuleActionKinds.Ban);
-					banned = true;
 				}
+				// another evaluation may have banned the player meanwhile, so no kick follows either way
+				banned = true;
 			}
 			if (Pick(RuleActionKinds.Mute) is RuleNode mute && await Database.Moderation.GetActiveMute(db, ev.UserID) == null)
 			{
@@ -261,7 +262,7 @@ namespace GenOnlineService.Rules
 		private static async Task<bool> ApplyAsync(RuleEnvironment environment, CompiledRule rule, RuleEvent ev, SanctionType type, RuleNode action)
 		{
 			Result<CreateSanctionResponse> applied = await SanctionActions.ApplyAsync(environment.Factory, rule.Actor, ev.UserID, type, action.DurationS, action.Reason);
-			if (!applied.Ok && applied.Code != ErrorCodes.ModerationTargetOffline)
+			if (!applied.Ok && applied.Code != ErrorCodes.ModerationTargetOffline && applied.Code != GenOnlineService.Rest.RestCodes.Conflict)
 			{
 				s_log.LogWarning("Automated rule {RuleId} could not {Action} user {UserId}: {Code}", rule.RuleID, action.Action, ev.UserID, applied.Code);
 			}

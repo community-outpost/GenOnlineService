@@ -120,6 +120,9 @@ namespace GenOnlineService.Rules
 		private static readonly ILogger s_log = AppLog.For(typeof(RuleSweeps));
 		private static readonly ConcurrentDictionary<Int64, RuleSweepProgress> s_sweeps = new();
 
+		// The rules whose sweep is starting, claimed before any await so two starts never both pass
+		private static readonly ConcurrentDictionary<Int64, byte> s_starting = new();
+
 		// The lease check, which a test replaces
 		internal static Func<bool> Serving { get; set; } = () => RealtimeFailover.Serving;
 
@@ -134,14 +137,30 @@ namespace GenOnlineService.Rules
 			{
 				return Result.Fail(GenOnlineService.Rest.RestCodes.ServiceUnavailable);
 			}
+			if (!s_starting.TryAdd(ruleID, 0))
+			{
+				return Result.Fail(GenOnlineService.Rest.RestCodes.Conflict, new { What = "sweep" });
+			}
+			try
+			{
+				if (Get(ruleID) is RuleSweepProgress running && running.State == RuleSweepStates.Running)
+				{
+					return Result.Fail(GenOnlineService.Rest.RestCodes.Conflict, new { What = "sweep" });
+				}
+				return await StartClaimedAsync(environment, db, actor, ruleID);
+			}
+			finally
+			{
+				s_starting.TryRemove(ruleID, out _);
+			}
+		}
+
+		private static async Task<Result<RuleSweepProgress>> StartClaimedAsync(RuleEnvironment environment, AppDbContext db, Database.ModerationActor actor, Int64 ruleID)
+		{
 			AutomatedRule? rule = await RuleStore.GetAsync(db, ruleID);
 			if (rule == null || rule.ArchivedAt != null)
 			{
 				return Result.NotFound("rule");
-			}
-			if (Get(ruleID) is RuleSweepProgress running && running.State == RuleSweepStates.Running)
-			{
-				return Result.Fail(GenOnlineService.Rest.RestCodes.Conflict, new { What = "sweep" });
 			}
 			AutomatedRuleVersion version = (await RuleStore.GetVersionAsync(db, ruleID, rule.CurrentVersion))!;
 			CompiledRule compiled = CompiledRule.Compile(rule.ID, rule.CurrentVersion, rule.Mode, RuleDocuments.Deserialize(version.Document));
