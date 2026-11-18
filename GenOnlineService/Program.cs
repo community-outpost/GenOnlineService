@@ -1539,7 +1539,7 @@ namespace GenOnlineService
 			}
 
 			app.MapControllers();
-			// /openapi/v1.json and the viewer at /docs/api
+			// /api/openapi/v1.json and the viewer at /api/docs, which /api leads to
 			GenOnlineService.OpenApi.ApiDocs.MapApiDocs(app, builder.Configuration);
 			if (accountsSettings.Enabled)
 			{
