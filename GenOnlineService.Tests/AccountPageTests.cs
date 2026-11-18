@@ -73,7 +73,7 @@ public class AccountPageTests
 		});
 		Assert.Equal(302, created.Status);
 		Assert.Equal("/profile", created.Location);
-		Assert.Contains("href=\"/profile\" class=\"go-logo\"", page.Body);
+		Assert.Contains("href=\"/profile\" class=\"gp-logo\"", page.Body);
 	}
 
 	// the name with its tag, the player id, the address and whether two-factor sign-in is on, a link to set it up, sign out
@@ -87,7 +87,7 @@ public class AccountPageTests
 
 		PageResponse page = await browser.Get("/profile");
 		Assert.Equal(200, page.Status);
-		Assert.Contains($"Viewer<span class=\"go-tag\">#{Database.DisplayNames.FormatTag(user.NameTag)}</span>", page.Body);
+		Assert.Contains($"Viewer<span class=\"gp-tag\">#{Database.DisplayNames.FormatTag(user.NameTag)}</span>", page.Body);
 		Assert.Contains($"Player id {user.ID}", page.Body);
 		Assert.Contains("viewer@example.org", page.Body);
 		Assert.Contains("Two-factor sign-in is off.", page.Body);
@@ -184,7 +184,8 @@ public class AccountPageTests
 
 		PageResponse staffPage = await staff.Get("/profile");
 		Assert.Equal(200, staffPage.Status);
-		Assert.Contains("href=\"/admin/reports\"", staffPage.Body);
-		Assert.Contains(">Admin</a>", staffPage.Body);
+		// the account menu's "Staff tools" link opens the staff area's start page
+		Assert.Contains("<a href=\"/admin\">", staffPage.Body);
+		Assert.Contains("Staff tools</a>", staffPage.Body);
 	}
 }

@@ -75,6 +75,7 @@ public abstract partial class AppDbContext : DbContext
 	public DbSet<NameReservation> NameReservations => Set<NameReservation>();
 	public DbSet<UserIdentity> Identities => Set<UserIdentity>();
 	public DbSet<UserRecoveryCode> UserRecoveryCodes => Set<UserRecoveryCode>();
+	public DbSet<UserAgreement> UserAgreements => Set<UserAgreement>();
 	public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
 	public DbSet<Client> Clients => Set<Client>();
 	public DbSet<ClientBuild> ClientBuilds => Set<ClientBuild>();
@@ -222,6 +223,7 @@ public abstract partial class AppDbContext : DbContext
 		}
 		modelBuilder.ApplyConfiguration(new UserIdentityConfiguration());
 		modelBuilder.ApplyConfiguration(new UserRecoveryCodeConfiguration());
+		modelBuilder.ApplyConfiguration(new UserAgreementConfiguration());
 		modelBuilder.ApplyConfiguration(new ApplicationSettingConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientConfiguration());
 		modelBuilder.ApplyConfiguration(new ClientBuildConfiguration());

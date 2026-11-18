@@ -211,6 +211,33 @@ public class UserRecoveryCodeConfiguration : IEntityTypeConfiguration<UserRecove
 	}
 }
 
+// A version of a document the player agreed to (S19): rules or terms. Add-only; the key keeps each version once.
+public class UserAgreement
+{
+	public const int DocumentMaxLength = 16;
+
+	public Int64 UserID { get; set; }
+	public string Document { get; set; } = String.Empty;
+	public string Version { get; set; } = String.Empty;
+	public DateTime AgreedAt { get; set; }
+}
+
+public class UserAgreementConfiguration : IEntityTypeConfiguration<UserAgreement>
+{
+	public void Configure(EntityTypeBuilder<UserAgreement> builder)
+	{
+		builder.ToTable("user_agreements");
+
+		builder.HasKey(e => new { e.UserID, e.Document, e.Version });
+		builder.HasOne<User>().WithMany().HasForeignKey(e => e.UserID).OnDelete(DeleteBehavior.Cascade);
+
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.Document).HasColumnName("document").HasMaxLength(UserAgreement.DocumentMaxLength);
+		builder.Property(e => e.Version).HasColumnName("version").HasMaxLength(GenOnlineService.Identity.AgreementDocument.VersionMaxLength);
+		builder.Property(e => e.AgreedAt).HasColumnName("agreed_at");
+	}
+}
+
 public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 {
 	public void Configure(EntityTypeBuilder<UserIdentity> builder)

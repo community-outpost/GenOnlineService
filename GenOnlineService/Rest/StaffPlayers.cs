@@ -276,13 +276,14 @@ namespace GenOnlineService.Rest
 		}
 
 		// The account with its sessions, ratings and sanctions, nothing here is personal data beyond the public profile
-		public static async Task<Result<PortalPlayer>> GetAsync(IDbContextFactory<AppDbContext> dbFactory, long userID, CancellationToken cancellationToken = default)
+		public static async Task<Result<PortalPlayer>> GetAsync(IDbContextFactory<AppDbContext> dbFactory, long userID, CancellationToken cancellationToken = default, AgreementsSettings? agreements = null)
 		{
 			User? user;
 			EloData elo;
 			List<UserRole> roleRows;
 			Dictionary<long, (string? Kind, long? By, string? Reason)> lifts;
 			Dictionary<long, (string Name, int Tag)> lifters;
+			Dictionary<string, UserAgreement> agreed;
 			await using (AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken))
 			{
 				user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.ID == userID, cancellationToken);
@@ -300,6 +301,7 @@ namespace GenOnlineService.Rest
 					.ToListAsync(cancellationToken))
 					.ToDictionary(s => s.ID, s => (s.LiftedByKind, s.LiftedByID, String.IsNullOrEmpty(s.LiftReason) ? null : s.LiftReason));
 				lifters = await Database.DisplayNames.GetBulk(db, lifts.Values.Where(l => l.Kind == AuditActorKinds.User && l.By != null).Select(l => l.By!.Value).ToHashSet());
+				agreed = await Agreements.LatestAsync(db, userID, cancellationToken);
 			}
 
 			Result<SanctionsResponse> sanctions = await SanctionActions.ListAsync(dbFactory, userID, activeOnly: false);
@@ -329,6 +331,14 @@ namespace GenOnlineService.Rest
 				LastSignInAt = user.LastSignInAt,
 				Roles = StaffRoles.RolesOf(userID).Order(StringComparer.Ordinal).ToList(),
 				Online = WebSocketManager.GetSharedDataForUser(userID) != null,
+				Agreements = (agreements?.Required ?? Enumerable.Empty<AgreementDocument>()).Select(d => new PortalAgreement
+				{
+					Document = d.Name,
+					Version = d.Version!,
+					AgreedVersion = agreed.GetValueOrDefault(d.Name)?.Version,
+					AgreedAt = agreed.GetValueOrDefault(d.Name)?.AgreedAt,
+					Current = agreed.GetValueOrDefault(d.Name)?.Version == d.Version
+				}).ToList(),
 				LobbyId = lobbyID == -1 ? null : lobbyID,
 				Sessions = sessions,
 				EloRating = elo.Rating,
@@ -426,10 +436,13 @@ namespace GenOnlineService.Rest
 		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
 		private readonly IAuthorizationService m_authorization;
 
-		public StaffPlayersController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization)
+		private readonly AccountsSettings m_accounts;
+
+		public StaffPlayersController(IDbContextFactory<AppDbContext> dbFactory, IAuthorizationService authorization, AccountsSettings accounts)
 		{
 			m_dbFactory = dbFactory;
 			m_authorization = authorization;
+			m_accounts = accounts;
 		}
 
 		// Without a query every account, most recently signed in first; with filters, sorting and paging in the database (T17f)
@@ -481,7 +494,7 @@ namespace GenOnlineService.Rest
 			{
 				return RestResults.Fail(Result.Forbidden(Permissions.ModerationKick));
 			}
-			Result<PortalPlayer> player = await StaffPlayerActions.GetAsync(m_dbFactory, userID, HttpContext.RequestAborted);
+			Result<PortalPlayer> player = await StaffPlayerActions.GetAsync(m_dbFactory, userID, HttpContext.RequestAborted, m_accounts.Agreements);
 			if (player.Ok && (await m_authorization.AuthorizeAsync(User, PermissionPolicies.For(Permissions.RolesManage))).Succeeded)
 			{
 				// the roles this caller may change here, by the rank rule of the roles routes

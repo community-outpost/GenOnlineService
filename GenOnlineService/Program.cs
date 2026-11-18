@@ -890,11 +890,13 @@ namespace GenOnlineService
 			return true;
 		}
 
-		// An UpstreamUnavailableException is an expected outage: one Warning line without the stack trace, the next run retries
+		// An UpstreamUnavailableException is an expected outage: one Warning line without the stack trace, the next run retries.
+		// An ObjectDisposedException once stopping fired is the service shutting down under the job, logged at Debug.
 		internal static async Task RunObservedBackgroundJobAsync(
 			string jobName,
 			ILogger logger,
-			Func<Task> operation)
+			Func<Task> operation,
+			CancellationToken stopping = default)
 		{
 			bool succeeded = true;
 			using Activity? activity = AppMetrics.StartActivity(
@@ -916,7 +918,14 @@ namespace GenOnlineService
 			{
 				succeeded = false;
 				AppMetrics.RecordException(activity, ex);
-				logger.LogError(ex, "Background job {JobName} failed", jobName);
+				if (GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+				{
+					logger.LogDebug(ex, "Background job {JobName} failed", jobName);
+				}
+				else
+				{
+					logger.LogError(ex, "Background job {JobName} failed", jobName);
+				}
 			}
 
 			AppMetrics.RecordBackgroundJob(jobName, succeeded);
@@ -1585,56 +1594,35 @@ namespace GenOnlineService
 
 
 
+			// The background timers restart after each tick until the service stops, then they are stopped and disposed
+			CancellationToken stopping = app.Lifetime.ApplicationStopping;
+
 			// cleanup
-			System.Timers.Timer timerCleanup = new System.Timers.Timer(5000); // 5s tick
-			timerCleanup.AutoReset = false;
-			timerCleanup.Elapsed += async (sender, e) =>
+			GenOnlineService.Service.SelfRestartingTimer.Start(5000, stopping, app.Logger, "Service cleanup timer failed", async () => // 5s tick
 			{
-				try
+				await RunObservedBackgroundJobAsync("service_cleanup", app.Logger, async () =>
 				{
-					await RunObservedBackgroundJobAsync("service_cleanup", app.Logger, async () =>
-					{
-						await WebSocketManager.CheckForTimeouts();
+					await WebSocketManager.CheckForTimeouts();
 
-						var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-						int numLobbies = lobbyManager.GetNumLobbies();
-						AppMetrics.RecordServiceSnapshot(numLobbies, WebSocketManager.GetNumberOfUsersOnline());
-						await lobbyManager.Cleanup();
+					var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+					int numLobbies = lobbyManager.GetNumLobbies();
+					AppMetrics.RecordServiceSnapshot(numLobbies, WebSocketManager.GetNumberOfUsersOnline());
+					await lobbyManager.Cleanup();
 
-					});
-				}
-				finally
-				{
-					timerCleanup.Start();
-				}
-			};
-			timerCleanup.Start();
+				}, stopping);
+			});
 
 			// tick lobby
 			// Nothing in the tick needs finer than 50ms resolution: initial lobby syncs are spaced 200ms apart, mesh check
 			// snapshots/retries/window are 1s/3s/8s, probes are 30s+, and the dirty-flag coalescing only adds up to one
 			// interval of latency. 5ms made every lobby spin ~200x/s while idle.
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(c_LobbyTickIntervalMS);
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(c_LobbyTickIntervalMS, stopping, app.Logger, "Lobby tick timer failed", async () =>
 				{
-					try
-					{
-						var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
-						await lobbyManager.Tick();
-						WebSocketManager.Tick();
-					}
-					catch (Exception ex)
-					{
-						app.Logger.LogError(ex, "Lobby tick timer failed");
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+					var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+					await lobbyManager.Tick();
+					WebSocketManager.Tick();
+				});
 			}
 
 			// lobby destroy loop - this is separate from the main lobby tick to prevent the tick from being blocked by cleanup
@@ -1645,169 +1633,125 @@ namespace GenOnlineService
 
             // tick matchmaking (done at lower frequency)
             {
-				System.Timers.Timer timerTick = new System.Timers.Timer(1000); // 1s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(1000, stopping, app.Logger, "Matchmaking tick timer failed", async () => // 1s tick
 				{
-					try
-					{
-						await MatchmakingManager.Tick();
-					}
-					catch (Exception ex)
-					{
-						app.Logger.LogError(ex, "Matchmaking tick timer failed");
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+					await MatchmakingManager.Tick();
+				});
 			}
 
 			// Faction win rates are recomputed from today's finished matches every minute
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(60000); // 60s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(60000, stopping, app.Logger, "Faction stats timer failed", async () => // 60s tick
 				{
-					try
+					await RunObservedBackgroundJobAsync("faction_stats_refresh", app.Logger, async () =>
 					{
-						await RunObservedBackgroundJobAsync("faction_stats_refresh", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await Database.FactionStats.Refresh(db, DateTime.UtcNow);
-						});
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await Database.FactionStats.Refresh(db, DateTime.UtcNow);
+					}, stopping);
+				});
 			}
 
 			// Devices, session events, chat messages and resolved reports past their retention are purged hourly
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(TimeSpan.FromHours(1).TotalMilliseconds);
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(TimeSpan.FromHours(1).TotalMilliseconds, stopping, app.Logger, "Retention purge timer failed", async () =>
 				{
-					try
+					await RunObservedBackgroundJobAsync("retention_purge", app.Logger, async () =>
 					{
-						await RunObservedBackgroundJobAsync("retention_purge", app.Logger, async () =>
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						try
 						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							try
+							var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
+							if (devices > 0 || sessionEvents > 0)
 							{
-								var (devices, sessionEvents) = await Database.Retention.Purge(db, DateTime.UtcNow);
-								if (devices > 0 || sessionEvents > 0)
-								{
-									app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
-								}
+								app.Logger.LogInformation("Retention purge removed {DeviceCount} devices and {SessionEventCount} session events", devices, sessionEvents);
 							}
-							catch (Exception ex)
-							{
-								app.Logger.LogError(ex, "Device and session event retention purge failed");
-							}
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Device and session event retention purge failed");
+						}
 
-							// Runs on its own so a device purge failure never skips it
-							try
+						// Runs on its own so a device purge failure never skips it
+						try
+						{
+							var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
+							if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0 || chat.ConnectionReports > 0)
 							{
-								var chat = await Database.Chat.PurgeExpired(db, DateTime.UtcNow);
-								if (chat.Messages > 0 || chat.ReadMarkers > 0 || chat.Reports > 0 || chat.ConnectionReports > 0)
-								{
-									app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers, {ChatReportCount} resolved reports and {ConnectionReportCount} connection reports", chat.Messages, chat.ReadMarkers, chat.Reports, chat.ConnectionReports);
-								}
+								app.Logger.LogInformation("Retention purge removed {ChatMessageCount} chat messages, {ChatReadMarkerCount} read markers, {ChatReportCount} resolved reports and {ConnectionReportCount} connection reports", chat.Messages, chat.ReadMarkers, chat.Reports, chat.ConnectionReports);
 							}
-							catch (Exception ex)
-							{
-								app.Logger.LogError(ex, "Chat retention purge failed");
-							}
-						});
-					}
-					finally
-					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+						}
+						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
+						{
+							app.Logger.LogError(ex, "Chat retention purge failed");
+						}
+					}, stopping);
+				});
 			}
 
 			// Pick up bans and staff roles changed in the database
 			{
-				System.Timers.Timer timerTick = new System.Timers.Timer(5000); // 5s tick
-				timerTick.AutoReset = false;
-				timerTick.Elapsed += async (sender, e) =>
+				GenOnlineService.Service.SelfRestartingTimer.Start(5000, stopping, app.Logger, "Access control reload timer failed", async () => // 5s tick
 				{
-					try
+					await RunObservedBackgroundJobAsync("access_control_reload", app.Logger, async () =>
 					{
-						await RunObservedBackgroundJobAsync("access_control_reload", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await AccessControl.Reload(db);
-						});
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await AccessControl.Reload(db);
+					}, stopping);
 
-						// a disabled client is noticed here and its authorizations are revoked
-						await RunObservedBackgroundJobAsync("client_registry_reload", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await ClientRegistry.Reload(db);
-						});
-
-						// a separate job, so a failed ban reconcile never keeps a revoked role in place
-						await RunObservedBackgroundJobAsync("staff_roles_reload", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await StaffRoles.Reload(db);
-						});
-
-						// a copy that missed a catalog change on the backplane picks it up here
-						await RunObservedBackgroundJobAsync("catalog_reload", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);
-						});
-
-						await RunObservedBackgroundJobAsync("api_tokens_reload", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await ApiTokenCache.Reload(db);
-							await ApiTokenCache.FlushLastUsed(db);
-							await ApiTokenCache.Housekeeping(db, ApiTokenSettings.Read(builder.Configuration));
-						});
-
-						// a change of the word lists or rules made on another copy is picked up here
-						await RunObservedBackgroundJobAsync("text_rules_reload", app.Logger, async () =>
-						{
-							using var scope = app.Services.CreateScope();
-							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-							await using var db = await factory.CreateDbContextAsync();
-							await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
-						});
-
-						await RunObservedBackgroundJobAsync("oauth_prune", app.Logger, () => OAuthMaintenance.PruneDaily(app.Services));
-					}
-					finally
+					// a disabled client is noticed here and its authorizations are revoked
+					await RunObservedBackgroundJobAsync("client_registry_reload", app.Logger, async () =>
 					{
-						timerTick.Start();
-					}
-				};
-				timerTick.Start();
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await ClientRegistry.Reload(db);
+					}, stopping);
+
+					// a separate job, so a failed ban reconcile never keeps a revoked role in place
+					await RunObservedBackgroundJobAsync("staff_roles_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await StaffRoles.Reload(db);
+					}, stopping);
+
+					// a copy that missed a catalog change on the backplane picks it up here
+					await RunObservedBackgroundJobAsync("catalog_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await GenOnlineService.Catalog.CatalogSignals.ReloadAllAsync(db);
+					}, stopping);
+
+					await RunObservedBackgroundJobAsync("api_tokens_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await ApiTokenCache.Reload(db);
+						await ApiTokenCache.FlushLastUsed(db);
+						await ApiTokenCache.Housekeeping(db, ApiTokenSettings.Read(builder.Configuration));
+					}, stopping);
+
+					// a change of the word lists or rules made on another copy is picked up here
+					await RunObservedBackgroundJobAsync("text_rules_reload", app.Logger, async () =>
+					{
+						using var scope = app.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await GenOnlineService.TextRules.TextChecks.ReloadAsync(db);
+					}, stopping);
+
+					await RunObservedBackgroundJobAsync("oauth_prune", app.Logger, () => OAuthMaintenance.PruneDaily(app.Services), stopping);
+				});
 			}
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) =>

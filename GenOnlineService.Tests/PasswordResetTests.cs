@@ -107,7 +107,9 @@ public class PasswordResetTests
 
 		Assert.Equal(200, known.Status);
 		Assert.Equal(known.Status, unknown.Status);
-		Assert.Equal(known.Body, unknown.Body);
+		// the same page for both, but for the cover image, which is picked at random per visit
+		static string WithoutCover(string body) => System.Text.RegularExpressions.Regex.Replace(body, @"faction-[a-z]+\.[a-z0-9]+\.webp", "faction");
+		Assert.Equal(WithoutCover(known.Body), WithoutCover(unknown.Body));
 		Assert.Contains("If an account uses this address, we sent it a link to choose a new password.", known.Body);
 
 		EmailMessage sent = Assert.Single(mail.Sent);

@@ -244,6 +244,22 @@ Every applied push or pull entry logs one Information line with its seq and play
 
 Only prod's client also holds `genonline-rename`, the role for the plugin's rename endpoint: a compromised test or dev environment then cannot rename prod players. Calling that endpoint from `PATCH /api/v1/me` and the staff rename is the hub session's part.
 
+## 5d. The look of the pages (T19)
+
+The sign-in and account pages follow the Generals Online design system (boards Main, ChooseName, TwoFactor, CheckEmail, Refused, PhoneArabic and Account): `wwwroot/portal/tokens.css` (the `--go-*` tokens, dark only), the `gp-*` classes in `wwwroot/portal/generals.css`, self-hosted Play, IBM Plex Sans and IBM Plex Sans Arabic. `Accounts:cover_images` is a list of public paths on this service; missing means the three faction images, an empty list means no image, and an entry that is not a path on this service (an address with a host, whitespace or a quote) stops the start. The footer links come from `Agreements:terms:url`, `Agreements:privacy:url` and `Agreements:rules:url`; a document without an address has no link, and there is no Help link until a help page exists. Each address must be an absolute http or https URL without spaces or quotes, or the start fails.
+
+Two differences from the earlier pages are intended: the two-factor sign-in page shows one code at a time, with "Use a recovery code instead" at `?recovery=1` on the same route and the same POST, and the pages now carry Back links, a skip link and a footer with the configured Terms, Privacy and Rules links.
+
+## 5c. Agreements (S19)
+
+Each account agrees to the current version of two documents, the Rules of Engagement (`rules`) and the Terms of Service (`terms`); the Privacy Policy is only linked. Versions, days and links are configuration (`Agreements:rules:version|date|url`, `Agreements:terms:version|date|url`, `Agreements:privacy:url`). A document without a version is not required, and with neither version nothing is gated, so self-hosters and tests sign in as before. A version without its url, or a date that is not `yyyy-MM-dd`, stops the start. A wording-only fix keeps the version; a new version asks every player again.
+
+- **Storage:** `user_agreements` (user_id, document, version, agreed_at; key user_id + document + version), add-only. A document is owed while its current version has no row for the account. Each new row writes an `agreement_accepted` audit row (actor and target the player, details `{document, version}`); agreeing again stores nothing.
+- **First sign-in:** choose a name (5a) -> agree to the rule cards one by one -> tick the Terms -> start playing. `/oauth/authorize` checks the account in this order: email confirmed (section 7), staff two-factor set up, name chosen, agreements; each sends the player to its page and back (`interaction_required` with `prompt=none`). Provider and password accounts are treated alike.
+- **The pages (`/users/agreements`):** six rule cards (ids `respect`, `chat`, `fair_play`, `match`, `accounts`, `service`, for later sanction work to name a section), each with its intro, its items, "Read the full rules" and Agree; then the Terms step with the Terms and Privacy links, a tick box and Start playing. Only owed documents are shown: with only the Terms owed the cards are skipped, with only the rules owed the Terms step is. A player who had agreed to an older version reads "The rules changed on <date>" before the first card. Every post carries the antiforgery token; nothing is recorded before the last step's post, which carries the rules version the cards were agreed under and the tick.
+- **The refresh rule:** the game client's refresh grant (a client registered with a session type, `SessionRevocation.IsGameClient`) is refused with `invalid_grant` while an agreement is owed only when the player has no live game connection on this copy of the service (`WebSocketManager`, the check behind "online" on the staff player page). That is the client's login with a saved sign-in: on `invalid_grant` it deletes the saved sign-in and opens the browser, where authorize leads through the pages. Mid-session a refused refresh would log the player out ("Authentication with the Generals Online servers failed."), possibly in a lobby or a match, so a refresh while connected passes and the player agrees at the next login. Edge case: a player whose connection dropped and who refreshes while reconnecting is sent to the browser. The name-reset refresh rule (5a) is unchanged and applies whether or not the player is connected.
+- **Website:** the sign-in cookie keeps working on `/api/v1/me/agreements`, so `/profile` shows each document's agreed version and day and links to the pages while one is owed. Staff see the agreed versions on the player page (`staff_view`).
+
 ## 6. Tokens
 
 | Token | Issuer | Format | Lifetime | Notes |
@@ -320,7 +336,7 @@ To rotate the data protection certificate, list the new certificate first and ke
 
 ```
 /users/sign_in, /users/sign_up, /users/sign_out, /users/password, /users/confirmation   (HTML)
-/users/sign_up/welcome (choose a name), /profile (the player page), /profile/two_factor_auth   (HTML)
+/users/sign_up/welcome (choose a name), /users/agreements (rules and terms), /profile (the player page), /profile/two_factor_auth   (HTML)
 /users/two_factor, /profile/applications, /profile/identities                            (HTML)
 /users/auth/:provider, /users/auth/:provider/callback                                     (upstream sign-in)
 /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect, /oauth/userinfo         (OpenIddict)

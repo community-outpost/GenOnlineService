@@ -74,6 +74,8 @@ identities                id, user_id, provider varchar(32), extern_uid varchar(
                           unique (provider, extern_uid), unique (user_id, provider): one identity per provider per user
 user_recovery_codes       id, user_id, code_hash varchar(64), created_at, used_at null
                           -- two-factor recovery codes: SHA-256 hex only, each used once; new codes replace the old
+user_agreements           user_id fk users (cascade), document varchar(16), version varchar(32), agreed_at
+                          -- each version of rules or terms the player agreed to (S19); add-only, pk (user_id, document, version)
 oauth_applications, oauth_authorizations, oauth_scopes, oauth_tokens   -- OpenIddict, renamed via its options
 ```
 

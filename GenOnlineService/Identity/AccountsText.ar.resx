@@ -387,4 +387,297 @@
   <data name="Reset.Done.Body" xml:space="preserve">
     <value>سجّل الدخول بكلمة المرور الجديدة. انتهت جميع جلسات تسجيل الدخول الأخرى لهذا الحساب.</value>
   </data>
+  <data name="Agreements.Card.Description" xml:space="preserve">
+    <value>Rule {0} of {1}</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Agree" xml:space="preserve">
+    <value>Agree</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.ReadRules" xml:space="preserve">
+    <value>Read the full rules</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.RulesChanged" xml:space="preserve">
+    <value>The rules changed on {0}.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.RulesChangedNoDate" xml:space="preserve">
+    <value>The rules changed.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.TermsChanged" xml:space="preserve">
+    <value>The Terms of Service changed on {0}.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.TermsChangedNoDate" xml:space="preserve">
+    <value>The Terms of Service changed.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Terms.Title" xml:space="preserve">
+    <value>Terms of Service</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Terms.Description" xml:space="preserve">
+    <value>One last step before you play.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Terms.Intro" xml:space="preserve">
+    <value>Read the Terms of Service and the Privacy Policy before you start playing.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Terms.Tick" xml:space="preserve">
+    <value>I agree to the Terms of Service</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Terms.Required" xml:space="preserve">
+    <value>Tick the box to agree to the Terms of Service.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.TermsLink" xml:space="preserve">
+    <value>Terms of Service</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.PrivacyLink" xml:space="preserve">
+    <value>Privacy Policy</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Start" xml:space="preserve">
+    <value>Start playing</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.Title" xml:space="preserve">
+    <value>Respect</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.Intro" xml:space="preserve">
+    <value>Treat every player with respect, whether they are your teammate, your opponent or new to the game.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.1" xml:space="preserve">
+    <value>No racism, hate or discrimination.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.2" xml:space="preserve">
+    <value>No politics or religion.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.3" xml:space="preserve">
+    <value>No harassment.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.4" xml:space="preserve">
+    <value>No threats.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.respect.5" xml:space="preserve">
+    <value>No doxxing.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.chat.Title" xml:space="preserve">
+    <value>Chat, names and clan tags</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.chat.Intro" xml:space="preserve">
+    <value>Keep chat readable and your name fit for everyone to see.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.chat.1" xml:space="preserve">
+    <value>No spamming.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.chat.2" xml:space="preserve">
+    <value>No disruptive behaviour.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.chat.3" xml:space="preserve">
+    <value>No offensive names or clan tags.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.fair_play.Title" xml:space="preserve">
+    <value>Fair play</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.fair_play.Intro" xml:space="preserve">
+    <value>Win with your own skill.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.fair_play.1" xml:space="preserve">
+    <value>No cheating.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.fair_play.2" xml:space="preserve">
+    <value>No smurfing.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.fair_play.3" xml:space="preserve">
+    <value>No win trading or boosting.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.fair_play.4" xml:space="preserve">
+    <value>No throwing.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.match.Title" xml:space="preserve">
+    <value>Match behaviour</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.match.Intro" xml:space="preserve">
+    <value>Play the match through.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.match.1" xml:space="preserve">
+    <value>No quitting on purpose.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.match.2" xml:space="preserve">
+    <value>No bug or disconnect abuse.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.match.3" xml:space="preserve">
+    <value>Respect the host and lobby rules.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.accounts.Title" xml:space="preserve">
+    <value>Accounts</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.accounts.Intro" xml:space="preserve">
+    <value>Your account is yours, and you are responsible for what happens on it.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.accounts.1" xml:space="preserve">
+    <value>No sharing accounts.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.accounts.2" xml:space="preserve">
+    <value>No impersonation.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.accounts.3" xml:space="preserve">
+    <value>No ban evasion.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.service.Title" xml:space="preserve">
+    <value>The service</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.service.Intro" xml:space="preserve">
+    <value>Generals Online is run by volunteers. Help us keep it running.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.service.1" xml:space="preserve">
+    <value>No attacks on the service.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Rules.service.2" xml:space="preserve">
+    <value>Found a security problem? Tell us privately.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Title" xml:space="preserve">
+    <value>Agreements</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Description" xml:space="preserve">
+    <value>The rules and terms you agreed to on this environment.</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Rules" xml:space="preserve">
+    <value>Rules of Engagement</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Terms" xml:space="preserve">
+    <value>Terms of Service</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Agreed" xml:space="preserve">
+    <value>Version {0}, agreed on {1}</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.NotAgreed" xml:space="preserve">
+    <value>Not agreed</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.NewVersion" xml:space="preserve">
+    <value>Version {0} waits for your agreement</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Read" xml:space="preserve">
+    <value>Read</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Account.Agreements.Agree" xml:space="preserve">
+    <value>Agree now</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Footer.Rules" xml:space="preserve">
+    <value>قواعد الاشتباك</value>
+  </data>
+  <data name="Footer.Label" xml:space="preserve">
+    <value>الوثائق</value>
+  </data>
+  <data name="Steps.Label" xml:space="preserve">
+    <value>الخطوات</value>
+  </data>
+  <data name="Steps.Name" xml:space="preserve">
+    <value>الاسم</value>
+  </data>
+  <data name="Steps.Rules" xml:space="preserve">
+    <value>القواعد</value>
+  </data>
+  <data name="Steps.Ready" xml:space="preserve">
+    <value>جاهز</value>
+  </data>
+  <data name="BackToSignIn" xml:space="preserve">
+    <value>العودة إلى تسجيل الدخول</value>
+  </data>
+  <data name="Account.Back" xml:space="preserve">
+    <value>العودة إلى حسابك</value>
+  </data>
+  <data name="Account.Area" xml:space="preserve">
+    <value>حسابك</value>
+  </data>
+  <data name="Account.EditProfile" xml:space="preserve">
+    <value>تعديل الملف الشخصي</value>
+  </data>
+  <data name="Account.MenuLabel" xml:space="preserve">
+    <value>قائمة الحساب، {0}</value>
+  </data>
+  <data name="TwoFactor.UseRecovery" xml:space="preserve">
+    <value>استخدم رمز الاسترداد بدلاً من ذلك</value>
+  </data>
+  <data name="TwoFactor.NoApp" xml:space="preserve">
+    <value>لا يمكنك الوصول إلى تطبيقك؟</value>
+  </data>
+  <data name="TwoFactor.UseApp" xml:space="preserve">
+    <value>استخدم تطبيق المصادقة بدلاً من ذلك</value>
+  </data>
+  <data name="TwoFactor.CodeHint" xml:space="preserve">
+    <value>يتغير الرمز كل 30 ثانية.</value>
+  </data>
+  <data name="TwoFactor.RecoveryHint" xml:space="preserve">
+    <value>يعمل كل رمز استرداد مرة واحدة فقط.</value>
+  </data>
+  <data name="SignIn.Heading" xml:space="preserve">
+    <value>تسجيل الدخول إلى Generals Online</value>
+  </data>
+  <data name="SignIn.Or" xml:space="preserve">
+    <value>أو</value>
+  </data>
+  <data name="Name.TagLabel" xml:space="preserve">
+    <value>وسمك هو {0}</value>
+  </data>
+  <data name="Name.Seen" xml:space="preserve">
+    <value>يراك الآخرون باسم {0}.</value>
+  </data>
+  <data name="Name.Range" xml:space="preserve">
+    <value>من {0} إلى {1} حرفًا.</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>رجوع</value>
+  </data>
+  <data name="Account.StaffTools" xml:space="preserve">
+    <value>أدوات الطاقم</value>
+  </data>
 </root>

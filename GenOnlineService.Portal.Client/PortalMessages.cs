@@ -445,8 +445,22 @@ namespace GenOnlineService.Portal.Client
 		// False where the sign-in provider owns the names
 		public bool CanRename { get; init; }
 
+		// Each configured agreement (rules, terms) with what the player agreed; empty without Agreements:* versions
+		public IReadOnlyList<PortalAgreement> Agreements { get; init; } = [];
+
 		[JsonIgnore]
 		public string FullName => Tag == null ? Name : Name + "#" + Tag;
+	}
+
+	// A document in force and the latest version of it the player agreed to (null: not agreed)
+	public sealed record PortalAgreement
+	{
+		public string Document { get; init; } = "";
+		public string Version { get; init; } = "";
+		public string? AgreedVersion { get; init; }
+		public DateTime? AgreedAt { get; init; }
+		// true when the agreed version is the one in force
+		public bool Current { get; init; }
 	}
 
 	public sealed record PortalRoleGrant

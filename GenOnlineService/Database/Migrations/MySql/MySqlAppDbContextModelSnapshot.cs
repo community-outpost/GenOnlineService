@@ -2500,6 +2500,31 @@ namespace GenOnlineService.Migrations.MySql
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("UserAgreement", b =>
+                {
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Document")
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("document");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("version");
+
+                    b.Property<DateTime>("AgreedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("agreed_at");
+
+                    b.HasKey("UserID", "Document", "Version");
+
+                    b.ToTable("user_agreements", (string)null);
+                });
+
             modelBuilder.Entity("UserBlock", b =>
                 {
                     b.Property<long>("UserId")
@@ -2767,6 +2792,15 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasOne("ServiceAccount", null)
                         .WithMany()
                         .HasForeignKey("ServiceAccountID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("UserAgreement", b =>
+                {
+                    b.HasOne("User", null)
+                        .WithMany()
+                        .HasForeignKey("UserID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
