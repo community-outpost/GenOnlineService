@@ -709,7 +709,7 @@
     <value>Remove friend</value>
   </data>
   <data name="Social.Friends.MenuNote" xml:space="preserve">
-    <value>The menu on each friend holds Remove friend.</value>
+    <value>The menu on each friend holds Remove friend and Block.</value>
   </data>
   <data name="Social.Done.Sent" xml:space="preserve">
     <value>Friend request sent.</value>
@@ -740,5 +740,44 @@
   </data>
   <data name="Social.Error.TooMany" xml:space="preserve">
     <value>Too many tries. Please wait a few minutes and try again.</value>
+  </data>
+  <data name="Social.Blocked.Title" xml:space="preserve">
+    <value>Blocked players</value>
+  </data>
+  <data name="Social.Blocked.Intro" xml:space="preserve">
+    <value>Players you blocked here or in the game. Unblock them any time; they are not told either way.</value>
+  </data>
+  <data name="Social.Block.Title" xml:space="preserve">
+    <value>Block a player</value>
+  </data>
+  <data name="Social.Block.Hint" xml:space="preserve">
+    <value>Their full name with the tag, or their player id.</value>
+  </data>
+  <data name="Social.Block.Submit" xml:space="preserve">
+    <value>Block</value>
+  </data>
+  <data name="Social.Blocked.Meta" xml:space="preserve">
+    <value>Blocked</value>
+  </data>
+  <data name="Social.Unblock" xml:space="preserve">
+    <value>Unblock</value>
+  </data>
+  <data name="Social.Blocked.EmptyTitle" xml:space="preserve">
+    <value>No blocked players</value>
+  </data>
+  <data name="Social.Blocked.EmptyBody" xml:space="preserve">
+    <value>Players you block show up here. You can unblock them any time.</value>
+  </data>
+  <data name="Social.Blocked.ReportNote" xml:space="preserve">
+    <value>Someone breaking the rules? Blocking only hides them for you. Report them in the game so a moderator can act.</value>
+  </data>
+  <data name="Social.Friend.Block" xml:space="preserve">
+    <value>Block</value>
+  </data>
+  <data name="Social.Done.Blocked" xml:space="preserve">
+    <value>Player blocked.</value>
+  </data>
+  <data name="Social.Done.Unblocked" xml:space="preserve">
+    <value>Player unblocked.</value>
   </data>
 </root>

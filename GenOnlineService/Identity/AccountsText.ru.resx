@@ -789,7 +789,7 @@
     <comment>needs native review</comment>
   </data>
   <data name="Social.Friends.MenuNote" xml:space="preserve">
-    <value>В меню каждого друга есть пункт «Удалить из друзей».</value>
+    <value>В меню каждого друга есть пункты «Удалить из друзей» и «Заблокировать».</value>
     <comment>needs native review</comment>
   </data>
   <data name="Social.Done.Sent" xml:space="preserve">
@@ -830,6 +830,58 @@
   </data>
   <data name="Social.Error.TooMany" xml:space="preserve">
     <value>Слишком много попыток. Подождите несколько минут и повторите.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Title" xml:space="preserve">
+    <value>Заблокированные игроки</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Intro" xml:space="preserve">
+    <value>Игроки, которых вы заблокировали здесь или в игре. Разблокировать можно в любой момент; они об этом не узнают.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Title" xml:space="preserve">
+    <value>Заблокировать игрока</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Hint" xml:space="preserve">
+    <value>Полное имя с тегом или ID игрока.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Submit" xml:space="preserve">
+    <value>Заблокировать</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Meta" xml:space="preserve">
+    <value>Заблокирован</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Unblock" xml:space="preserve">
+    <value>Разблокировать</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyTitle" xml:space="preserve">
+    <value>Нет заблокированных игроков</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyBody" xml:space="preserve">
+    <value>Заблокированные вами игроки появятся здесь. Их можно разблокировать в любой момент.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.ReportNote" xml:space="preserve">
+    <value>Кто-то нарушает правила? Блокировка скрывает игрока только для вас. Пожалуйтесь на него в игре, чтобы модератор мог принять меры.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Block" xml:space="preserve">
+    <value>Заблокировать</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Blocked" xml:space="preserve">
+    <value>Игрок заблокирован.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Unblocked" xml:space="preserve">
+    <value>Игрок разблокирован.</value>
     <comment>needs native review</comment>
   </data>
 </root>

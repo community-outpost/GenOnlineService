@@ -337,7 +337,8 @@ To rotate the data protection certificate, list the new certificate first and ke
 ```
 /users/sign_in, /users/sign_up, /users/sign_out, /users/password, /users/confirmation   (HTML)
 /users/sign_up/welcome (choose a name), /users/agreements (rules and terms), /profile (the player page), /profile/two_factor_auth   (HTML)
-/profile/friends (friends and requests; POST add, accept, decline, cancel, remove)                                  (HTML)
+/profile/friends (friends and requests; POST add, accept, decline, cancel, remove, block)                           (HTML)
+/profile/blocked (blocked players; POST add, remove)                                                               (HTML)
 /users/two_factor, /profile/applications, /profile/identities                            (HTML)
 /users/auth/:provider, /users/auth/:provider/callback                                     (upstream sign-in)
 /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect, /oauth/userinfo         (OpenIddict)

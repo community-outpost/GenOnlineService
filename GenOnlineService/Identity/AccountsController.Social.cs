@@ -35,6 +35,7 @@ namespace GenOnlineService.Identity
 	public sealed partial class AccountsController
 	{
 		public const string FriendsPath = "/profile/friends";
+		public const string BlockedPath = "/profile/blocked";
 		private const string PlayerField = "player";
 		private const string UserField = "user_id";
 		private const string AnswerField = "r";
@@ -48,6 +49,8 @@ namespace GenOnlineService.Identity
 			["declined"] = ("Social.Done.Declined", true),
 			["cancelled"] = ("Social.Done.Cancelled", true),
 			["removed"] = ("Social.Done.Removed", true),
+			["blocked"] = ("Social.Done.Blocked", true),
+			["unblocked"] = ("Social.Done.Unblocked", true),
 			["neutral"] = ("Social.Error.Neutral", false),
 			["full"] = ("Social.Error.Full", false),
 			["self"] = ("Social.Error.Self", false),
@@ -56,7 +59,8 @@ namespace GenOnlineService.Identity
 		};
 
 		// The answers each page can show: one that belongs to the other page is not shown
-		private static readonly HashSet<string> s_friendsAnswers = new(StringComparer.Ordinal) { "sent", "accepted", "declined", "cancelled", "removed", "neutral", "full", "self", "gone", "toomany" };
+		private static readonly HashSet<string> s_friendsAnswers = new(StringComparer.Ordinal) { "sent", "accepted", "declined", "cancelled", "removed", "blocked", "neutral", "full", "self", "gone", "toomany" };
+		private static readonly HashSet<string> s_blockedAnswers = new(StringComparer.Ordinal) { "blocked", "unblocked", "neutral", "self", "gone", "toomany" };
 
 		private IDbContextFactory<AppDbContext> Db => HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>();
 
@@ -89,7 +93,11 @@ namespace GenOnlineService.Identity
 			}
 
 			string answer = await act(user);
-			return answer == "toomany" ? await FriendsView(429, user, answer) : LocalRedirect($"{page}?{AnswerField}={answer}");
+			if (answer == "toomany")
+			{
+				return page == BlockedPath ? await BlockedView(429, user, answer) : await FriendsView(429, user, answer);
+			}
+			return LocalRedirect($"{page}?{AnswerField}={answer}");
 		}
 
 		// Adding a friend and blocking look a player up by what a person typed, so they share one limit for each account: a
@@ -104,14 +112,14 @@ namespace GenOnlineService.Identity
 
 		// An action on a player a page listed, by the id its row's form posts. What the action refuses is told as a page that
 		// changed (a request that is no longer there), except a friends list that is full, which is told as it is.
-		private static async Task<string> SocialRow(string? id, Func<long, Task<Result<Empty>>> act, string done)
+		private static async Task<string> SocialRow(string? id, Func<long, Task<Result<Empty>>> act, string done, string refused = "gone")
 		{
 			if (!Int64.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out long target) || target <= 0)
 			{
 				return "gone";
 			}
 			Result<Empty> result = await act(target);
-			return result.Ok ? done : result.Code == ErrorCodes.SocialFriendListFull ? "full" : "gone";
+			return result.Ok ? done : result.Code == ErrorCodes.SocialFriendListFull ? "full" : refused;
 		}
 
 		// A button in a list row: a form that posts the player's id to the action
@@ -162,6 +170,10 @@ namespace GenOnlineService.Identity
 
 		[HttpPost("~" + FriendsPath + "/remove")]
 		public Task<IActionResult> FriendsRemove([FromForm(Name = UserField)] string? id) => SocialPost(FriendsPath, user => SocialRow(id, target => SocialActions.RemoveFriendAsync(Db, user.ID, target), "removed"));
+
+		// The block in a friend's menu, by the id its form posts; what SocialActions refuses (an admin) is the neutral answer
+		[HttpPost("~" + FriendsPath + "/block")]
+		public Task<IActionResult> FriendsBlock([FromForm(Name = UserField)] string? id) => SocialPost(FriendsPath, user => SocialRow(id, target => SocialActions.BlockAsync(Db, user.ID, target), "blocked", refused: "neutral"));
 
 		private string PresenceOf(FriendMember friend)
 		{
@@ -230,7 +242,8 @@ namespace GenOnlineService.Identity
 			foreach (FriendMember friend in lists.Friends.Where(f => names.ContainsKey(f.Id)).OrderByDescending(f => f.Online).ThenBy(f => names[f.Id].Name, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.Id))
 			{
 				(string name, int tag) = names[friend.Id];
-				string menu = RowForm(FriendsPath + "/remove", friend.Id, PortalLook.MenuItem(T("Social.Friend.Remove"), "user-x"));
+				string menu = RowForm(FriendsPath + "/remove", friend.Id, PortalLook.MenuItem(T("Social.Friend.Remove"), "user-x"))
+					+ RowForm(FriendsPath + "/block", friend.Id, PortalLook.MenuItem(T("Social.Friend.Block"), "ban"));
 				friendRows.Add(PortalLook.Person(name, "#" + Database.DisplayNames.FormatTag(tag), PresenceOf(friend), PortalLook.MoreMenu(T("Social.Friend.More", Database.DisplayNames.Format(name, tag)), menu)));
 			}
 			string friendContent = friendRows.Count == 0
@@ -239,6 +252,75 @@ namespace GenOnlineService.Identity
 			body.Append(PortalLook.Card(T("Social.Friends.List.Title"), T("Social.Friends.List.Description", friendRows.Count, SocialActions.FriendsLimit), friendContent));
 
 			return await AccountDocument(status, user, T("Social.Friends.Title"), FriendsPath, body.ToString());
+		}
+
+		// ===== Blocked players =====
+
+		[HttpGet("~" + BlockedPath)]
+		public async Task<IActionResult> BlockedPage([FromQuery(Name = AnswerField)] string? answer)
+		{
+			(User? user, IActionResult? redirect) = await SocialUser(BlockedPath);
+			return user == null ? redirect! : await BlockedView(200, user, answer);
+		}
+
+		// Blocking by name or id. What SocialActions refuses (an unknown player, an admin, a player who cannot be blocked) is the
+		// one neutral answer, as for adding a friend.
+		[HttpPost("~" + BlockedPath + "/add")]
+		public Task<IActionResult> BlockedAdd([FromForm(Name = PlayerField)] string? player) => SocialPost(BlockedPath, async user =>
+		{
+			if (!SocialTryConsume(user))
+			{
+				return "toomany";
+			}
+			long? target = await FindPlayer(player);
+			if (target == null)
+			{
+				return "neutral";
+			}
+			if (target == user.ID)
+			{
+				return "self";
+			}
+			return (await SocialActions.BlockAsync(Db, user.ID, target.Value)).Ok ? "blocked" : "neutral";
+		});
+
+		[HttpPost("~" + BlockedPath + "/remove")]
+		public Task<IActionResult> BlockedRemove([FromForm(Name = UserField)] string? id) => SocialPost(BlockedPath, user => SocialRow(id, target => SocialActions.UnblockAsync(Db, user.ID, target), "unblocked"));
+
+		private async Task<ContentResult> BlockedView(int status, User user, string? code)
+		{
+			(string? message, bool success) = SocialAnswer(code, s_blockedAnswers);
+			SocialLists lists;
+			Dictionary<long, (string Name, int Tag)> names;
+			Dictionary<long, DateTime> blockedAt;
+			await using (AppDbContext db = await Db.CreateDbContextAsync())
+			{
+				lists = await SocialActions.ListsAsync(db, user.ID);
+				names = await Database.DisplayNames.GetBulk(db, lists.Blocked.Select(m => m.Id).ToList());
+				blockedAt = await db.Blocks.AsNoTracking().Where(b => b.UserId == user.ID).ToDictionaryAsync(b => b.BlockedUserId, b => b.CreatedAt);
+			}
+
+			var body = new StringBuilder();
+			body.Append(PortalLook.Intro(T("Social.Blocked.Intro")));
+			if (message != null)
+			{
+				body.Append(PortalLook.Alert(message, success));
+			}
+			body.Append(PortalLook.PlayerForm(PostForm(BlockedPath + "/add", "gp-add"), "blk", PlayerField, T("Social.Block.Title"), T("Social.Add.Placeholder"), T("Social.Block.Hint"), PortalLook.ActionButton(T("Social.Block.Submit"), "secondary")));
+
+			List<string> rows = new();
+			foreach (Member blocked in lists.Blocked.Where(m => names.ContainsKey(m.Id)).OrderByDescending(m => blockedAt.GetValueOrDefault(m.Id)).ThenBy(m => m.Id))
+			{
+				(string name, int tag) = names[blocked.Id];
+				rows.Add(PortalLook.Person(name, "#" + Database.DisplayNames.FormatTag(tag), RequestMeta("Social.Blocked.Meta", blockedAt.GetValueOrDefault(blocked.Id)),
+					RowForm(BlockedPath + "/remove", blocked.Id, PortalLook.ActionButton(T("Social.Unblock"), "outline"))));
+			}
+			body.Append(rows.Count == 0
+				? PortalLook.Empty("inbox", T("Social.Blocked.EmptyTitle"), T("Social.Blocked.EmptyBody"))
+				: PortalLook.People(rows));
+			body.Append($"<p class=\"gp-hint gp-note\">{WebUtility.HtmlEncode(T("Social.Blocked.ReportNote"))}</p>");
+
+			return await AccountDocument(status, user, T("Social.Blocked.Title"), BlockedPath, body.ToString());
 		}
 	}
 }

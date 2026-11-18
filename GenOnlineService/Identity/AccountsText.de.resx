@@ -789,7 +789,7 @@
     <comment>needs native review</comment>
   </data>
   <data name="Social.Friends.MenuNote" xml:space="preserve">
-    <value>Das Menü bei jedem Freund enthält „Freund entfernen“.</value>
+    <value>Das Menü bei jedem Freund enthält „Freund entfernen“ und „Blockieren“.</value>
     <comment>needs native review</comment>
   </data>
   <data name="Social.Done.Sent" xml:space="preserve">
@@ -830,6 +830,58 @@
   </data>
   <data name="Social.Error.TooMany" xml:space="preserve">
     <value>Zu viele Versuche. Bitte warte ein paar Minuten und versuche es erneut.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Title" xml:space="preserve">
+    <value>Blockierte Spieler</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Intro" xml:space="preserve">
+    <value>Spieler, die du hier oder im Spiel blockiert hast. Du kannst sie jederzeit entsperren; sie erfahren in keinem Fall davon.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Title" xml:space="preserve">
+    <value>Spieler blockieren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Hint" xml:space="preserve">
+    <value>Der vollständige Name mit Tag oder die Spieler-ID.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Submit" xml:space="preserve">
+    <value>Blockieren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Meta" xml:space="preserve">
+    <value>Blockiert</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Unblock" xml:space="preserve">
+    <value>Entsperren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyTitle" xml:space="preserve">
+    <value>Keine blockierten Spieler</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyBody" xml:space="preserve">
+    <value>Spieler, die du blockierst, erscheinen hier. Du kannst sie jederzeit entsperren.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.ReportNote" xml:space="preserve">
+    <value>Jemand verstößt gegen die Regeln? Blockieren blendet ihn nur für dich aus. Melde ihn im Spiel, damit ein Moderator eingreifen kann.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Block" xml:space="preserve">
+    <value>Blockieren</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Blocked" xml:space="preserve">
+    <value>Spieler blockiert.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Unblocked" xml:space="preserve">
+    <value>Spieler entsperrt.</value>
     <comment>needs native review</comment>
   </data>
 </root>

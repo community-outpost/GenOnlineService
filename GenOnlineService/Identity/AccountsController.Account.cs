@@ -190,7 +190,8 @@ namespace GenOnlineService.Identity
 			(string, string, string)[] sections =
 			[
 				(AccountPath, T("Account.Profile.Title"), "user"),
-				(FriendsPath, T("Social.Friends.Title"), "users")
+				(FriendsPath, T("Social.Friends.Title"), "users"),
+				(BlockedPath, T("Social.Blocked.Title"), "ban")
 			];
 			return new ContentResult
 			{

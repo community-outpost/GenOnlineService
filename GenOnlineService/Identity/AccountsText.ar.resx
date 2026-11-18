@@ -789,7 +789,7 @@
     <comment>needs native review</comment>
   </data>
   <data name="Social.Friends.MenuNote" xml:space="preserve">
-    <value>تحتوي قائمة كل صديق على «إزالة الصديق».</value>
+    <value>تحتوي قائمة كل صديق على «إزالة الصديق» و«حظر».</value>
     <comment>needs native review</comment>
   </data>
   <data name="Social.Done.Sent" xml:space="preserve">
@@ -830,6 +830,58 @@
   </data>
   <data name="Social.Error.TooMany" xml:space="preserve">
     <value>محاولات كثيرة جدًا. انتظر بضع دقائق ثم حاول مجددًا.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Title" xml:space="preserve">
+    <value>اللاعبون المحظورون</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Intro" xml:space="preserve">
+    <value>اللاعبون الذين حظرتهم هنا أو في اللعبة. يمكنك إلغاء الحظر في أي وقت؛ ولن يُبلَّغوا في الحالتين.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Title" xml:space="preserve">
+    <value>حظر لاعب</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Hint" xml:space="preserve">
+    <value>اسمه الكامل مع الوسم، أو معرّف اللاعب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Block.Submit" xml:space="preserve">
+    <value>حظر</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.Meta" xml:space="preserve">
+    <value>محظور</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Unblock" xml:space="preserve">
+    <value>إلغاء الحظر</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyTitle" xml:space="preserve">
+    <value>لا يوجد لاعبون محظورون</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.EmptyBody" xml:space="preserve">
+    <value>اللاعبون الذين تحظرهم يظهرون هنا. يمكنك إلغاء حظرهم في أي وقت.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Blocked.ReportNote" xml:space="preserve">
+    <value>هل يخالف أحدهم القواعد؟ الحظر يخفيه عنك أنت فقط. أبلغ عنه داخل اللعبة ليتمكن مشرف من التصرف.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Friend.Block" xml:space="preserve">
+    <value>حظر</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Blocked" xml:space="preserve">
+    <value>تم حظر اللاعب.</value>
+    <comment>needs native review</comment>
+  </data>
+  <data name="Social.Done.Unblocked" xml:space="preserve">
+    <value>تم إلغاء حظر اللاعب.</value>
     <comment>needs native review</comment>
   </data>
 </root>

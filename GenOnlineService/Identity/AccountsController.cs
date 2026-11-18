@@ -123,6 +123,10 @@ namespace GenOnlineService.Identity
 			{
 				return FriendsPath;
 			}
+			if (path.StartsWith(BlockedPath + "/", StringComparison.Ordinal))
+			{
+				return BlockedPath;
+			}
 			if (path.StartsWith("/users/auth/", StringComparison.Ordinal) || path == "/users/sign_out")
 			{
 				return "/users/sign_in";
