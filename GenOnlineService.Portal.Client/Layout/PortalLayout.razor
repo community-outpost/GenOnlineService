@@ -98,7 +98,7 @@
                         </BbSidebarMenu>
                     </BbSidebarGroup>
                 }
-                @if (staff.Can(PortalPermissions.AnnouncementsSend) || staff.Can(PortalPermissions.SettingsManage))
+                @if (staff.Can(PortalPermissions.AnnouncementsSend) || staff.Can(PortalPermissions.SettingsManage) || staff.Can(PortalPermissions.TextRulesManage))
                 {
                     <BbSidebarGroup>
                         <BbSidebarGroupLabel>Community</BbSidebarGroupLabel>
@@ -118,6 +118,15 @@
                                     <BbSidebarMenuButton Href="@PortalRoutes.SettingsPage" Tooltip="Message of the day">
                                         <LucideIcon Name="message-square-text" Class="bb:h-4 bb:w-4" />
                                         <span>Message of the day</span>
+                                    </BbSidebarMenuButton>
+                                </BbSidebarMenuItem>
+                            }
+                            @if (staff.Can(PortalPermissions.TextRulesManage))
+                            {
+                                <BbSidebarMenuItem>
+                                    <BbSidebarMenuButton Href="@PortalRoutes.TextRulesPage" Tooltip="Text rules">
+                                        <LucideIcon Name="spell-check" Class="bb:h-4 bb:w-4" />
+                                        <span>Text rules</span>
                                     </BbSidebarMenuButton>
                                 </BbSidebarMenuItem>
                             }
@@ -370,6 +379,9 @@
                 break;
             case "settings":
                 yield return ("Message of the day", null);
+                break;
+            case "text-rules":
+                yield return ("Text rules", null);
                 break;
             case "anticheat":
                 yield return ("Anti-cheat", null);

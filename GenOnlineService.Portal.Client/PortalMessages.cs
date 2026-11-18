@@ -51,6 +51,7 @@ namespace GenOnlineService.Portal.Client
 		public const string StaffRealtime = "api/v1/staff/realtime";
 		public const string StaffLobbies = "api/v1/staff/lobbies";
 		public const string Lobbies = "api/v1/lobbies";
+		public const string TextRules = "api/v1/staff/text_rules";
 		public const string SignIn = "users/sign_in";
 		public const string SignOut = "users/sign_out";
 
@@ -72,6 +73,7 @@ namespace GenOnlineService.Portal.Client
 		public const string AnnouncementsPage = "/admin/announcements";
 		public const string LivePage = "/admin/live";
 		public const string LobbiesPage = "/admin/lobbies";
+		public const string TextRulesPage = "/admin/text-rules";
 
 		public static string PlayerPage(long id) => PlayersPage + "/" + id;
 
@@ -111,6 +113,7 @@ namespace GenOnlineService.Portal.Client
 		public const string SettingsManage = "settings.manage";
 		public const string ServerStats = "server.stats";
 		public const string AccountsSupport = "accounts.support";
+		public const string TextRulesManage = "textrules.manage";
 	}
 
 	// The permissions of partner service accounts: the machine permissions the staff pages grant, and the privileged ones
@@ -133,7 +136,8 @@ namespace GenOnlineService.Portal.Client
 			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
 			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
 			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
-			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
+			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "text_term_add", "text_term_update",
+			"text_term_remove", "text_exception_add", "text_exception_remove", "text_workflow_update", "text_rules_seed"
 		];
 	}
 
@@ -890,5 +894,128 @@ namespace GenOnlineService.Portal.Client
 	public sealed record PortalConnectionReports
 	{
 		public IReadOnlyList<PortalConnectionReport> Reports { get; init; } = [];
+	}
+
+	// The text rules page (/admin/text-rules) of GET /api/v1/staff/text_rules/*: words, exceptions, rule workflows, the test
+	public sealed record PortalTextTerm
+	{
+		public long Id { get; init; }
+		public string Term { get; init; } = "";
+		public string Language { get; init; } = "";
+		public string Category { get; init; } = "";
+		public string Severity { get; init; } = "";
+		public string Match { get; init; } = "";
+		public string Source { get; init; } = "";
+		public string UpdatedBy { get; init; } = "";
+		public DateTime UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalTextTerms
+	{
+		public int Total { get; init; }
+		public IReadOnlyList<PortalTextTerm> Terms { get; init; } = [];
+	}
+
+	// A new word sends every field, an edit only the ones that change
+	public sealed record PortalTextTermRequest
+	{
+		public string? Term { get; init; }
+		public string? Language { get; init; }
+		public string? Category { get; init; }
+		public string? Severity { get; init; }
+		public string? Match { get; init; }
+	}
+
+	public sealed record PortalTextException
+	{
+		public long Id { get; init; }
+		public string Term { get; init; } = "";
+		public string Language { get; init; } = "";
+		public string Source { get; init; } = "";
+		public string UpdatedBy { get; init; } = "";
+		public DateTime UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalTextExceptions
+	{
+		public IReadOnlyList<PortalTextException> Exceptions { get; init; } = [];
+	}
+
+	public sealed record PortalTextRule
+	{
+		public string Name { get; init; } = "";
+		public string Expression { get; init; } = "";
+		public string Outcome { get; init; } = "";
+		public bool Enabled { get; init; } = true;
+	}
+
+	public sealed record PortalTextWorkflowDefinition
+	{
+		public IReadOnlyList<PortalTextRule> Rules { get; init; } = [];
+	}
+
+	public sealed record PortalTextWorkflow
+	{
+		public string Kind { get; init; } = "";
+		public PortalTextWorkflowDefinition Definition { get; init; } = new PortalTextWorkflowDefinition();
+		public IReadOnlyList<string> Outcomes { get; init; } = [];
+		public IReadOnlyList<string> Fields { get; init; } = [];
+		public string UpdatedBy { get; init; } = "";
+		public DateTime? UpdatedAt { get; init; }
+	}
+
+	public sealed record PortalTextWorkflows
+	{
+		public IReadOnlyList<PortalTextWorkflow> Workflows { get; init; } = [];
+	}
+
+	public sealed record PortalTextTestReading
+	{
+		public string Name { get; init; } = "";
+		public string Text { get; init; } = "";
+	}
+
+	public sealed record PortalTextTestHit
+	{
+		public string Term { get; init; } = "";
+		public string Language { get; init; } = "";
+		public string Category { get; init; } = "";
+		public string Severity { get; init; } = "";
+		public string Reading { get; init; } = "";
+		public string Text { get; init; } = "";
+	}
+
+	public sealed record PortalTextTest
+	{
+		public string Kind { get; init; } = "";
+		public string Outcome { get; init; } = "";
+		public string? Rule { get; init; }
+		public string? Masked { get; init; }
+		public IReadOnlyList<PortalTextTestReading> Readings { get; init; } = [];
+		public IReadOnlyList<PortalTextTestHit> Hits { get; init; } = [];
+	}
+
+	// The choices of the text rules, as the host's TextKinds, TextLanguages, TextCategories, TextSeverities and TextMatchModes
+	public static class PortalTextChoices
+	{
+		public static readonly IReadOnlyList<(string Value, string Title)> Kinds = [("display_name", "Display name"), ("lobby_name", "Lobby name"), ("chat", "Chat message")];
+		public static readonly IReadOnlyList<(string Value, string Title)> Languages = [("en", "English"), ("ar", "Arabic")];
+		public static readonly IReadOnlyList<string> Categories = ["slur", "sexual", "profanity", "insult", "impersonation", "reserved"];
+		public static readonly IReadOnlyList<string> Severities = ["block", "flag"];
+		public static readonly IReadOnlyList<string> Matches = ["word", "anywhere", "literal"];
+
+		public static string KindTitle(string kind) => Kinds.FirstOrDefault(k => k.Value == kind).Title ?? kind;
+	}
+
+	// An error answer with its reason, as a refused rule workflow carries it in params.reason
+	public sealed record PortalReasonError
+	{
+		public string Error { get; init; } = "";
+		public PortalReasonParams? Params { get; init; }
+	}
+
+	public sealed record PortalReasonParams
+	{
+		public string? Reason { get; init; }
 	}
 }

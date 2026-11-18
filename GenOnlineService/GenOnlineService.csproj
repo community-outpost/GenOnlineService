@@ -24,6 +24,8 @@
 	<ItemGroup>
 		<!-- The UTS #39 confusables table behind the look-alike key of display names (NameKey) -->
 		<EmbeddedResource Include="Resources\confusables.txt" LogicalName="GenOnlineService.Resources.confusables.txt" />
+		<!-- The seed word lists of the text rules (TextRuleSeeds), written into the database on the first start -->
+		<EmbeddedResource Include="data\textrules\*.txt" LogicalName="GenOnlineService.data.textrules.%(Filename)%(Extension)" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -97,6 +99,8 @@
     <!-- The OpenAPI document of /api/v1 (/api/openapi/v1.json) and its viewer at /api/docs, which serves its own assets -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.18.7" />
+    <!-- The rule workflows of the text checks (TextRules): which outcome a display name, lobby name or chat message gets -->
+    <PackageReference Include="RulesEngine" Version="6.0.1" />
   </ItemGroup>
 
   <ItemGroup>

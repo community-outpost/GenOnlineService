@@ -127,6 +127,11 @@ public abstract class AppDbContext : DbContext
 	public DbSet<ServiceAccountPermission> ServiceAccountPermissions => Set<ServiceAccountPermission>();
 	public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
+	// Text rules (S7)
+	public DbSet<GenOnlineService.TextRules.TextRuleTerm> TextRuleTerms => Set<GenOnlineService.TextRules.TextRuleTerm>();
+	public DbSet<GenOnlineService.TextRules.TextRuleException> TextRuleExceptions => Set<GenOnlineService.TextRules.TextRuleException>();
+	public DbSet<GenOnlineService.TextRules.TextRuleWorkflow> TextRuleWorkflows => Set<GenOnlineService.TextRules.TextRuleWorkflow>();
+
 	// ASP.NET Core data protection key ring, shared by every copy
 	public DbSet<GenOnlineService.Identity.DataProtectionKeyRow> DataProtectionKeys => Set<GenOnlineService.Identity.DataProtectionKeyRow>();
 
@@ -232,6 +237,9 @@ public abstract class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ServiceAccountConfiguration());
 		modelBuilder.ApplyConfiguration(new ServiceAccountPermissionConfiguration());
 		modelBuilder.ApplyConfiguration(new ApiTokenConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleTermConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleExceptionConfiguration());
+		modelBuilder.ApplyConfiguration(new GenOnlineService.TextRules.TextRuleWorkflowConfiguration());
 		OpenIddictModel.Configure(modelBuilder);
 	}
 }
