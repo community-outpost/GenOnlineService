@@ -112,7 +112,7 @@ namespace GenOnlineService.Portal.Client
 			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
 			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
 			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
-			"token_revoke", "sa_create", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
+			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
 			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add"
 		];
 	}
@@ -656,7 +656,8 @@ namespace GenOnlineService.Portal.Client
 			DateTime.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _) ? text : null;
 	}
 
-	// A partner: a service account with the permissions granted to it, as /api/v1/service_accounts answers
+	// A partner: a service account with the permissions granted to it and what its tokens add up to, as
+	// /api/v1/service_accounts answers
 	public sealed record PortalPartner
 	{
 		public long Id { get; init; }
@@ -665,6 +666,8 @@ namespace GenOnlineService.Portal.Client
 		public DateTime CreatedAt { get; init; }
 		public DateTime? DisabledAt { get; init; }
 		public IReadOnlyList<string> Permissions { get; init; } = [];
+		public int ActiveTokens { get; init; }
+		public DateTime? LastTokenUsedAt { get; init; }
 	}
 
 	public sealed record PortalPartnerPage
@@ -684,6 +687,8 @@ namespace GenOnlineService.Portal.Client
 		public string? LastUsedIp { get; init; }
 		public DateTime? RevokedAt { get; init; }
 		public string TokenLast4 { get; init; } = "";
+		// empty when any address may use the token
+		public IReadOnlyList<string> AllowedIps { get; init; } = [];
 
 		// Revoked, rotated past its overlap, or expired
 		public bool IsActive(DateTime utcNow) => ExpiresAt > utcNow && (RevokedAt == null || RevokedAt > utcNow);
@@ -715,9 +720,10 @@ namespace GenOnlineService.Portal.Client
 		public IReadOnlyList<string>? Remove { get; init; }
 	}
 
-	// Each part is optional; the null ones are left out of the body
+	// Each part is optional; the null ones are left out of the body, an empty description clears it
 	public sealed record PortalUpdatePartnerRequest
 	{
+		public string? Description { get; init; }
 		public PortalGrantChanges? Grants { get; init; }
 		public bool? Disabled { get; init; }
 	}

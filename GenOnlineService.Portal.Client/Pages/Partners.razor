@@ -1,5 +1,5 @@
 @* The partners: the page header (nav-02) with "New partner", stat cards (dashboard-01) and a data table (data-01) of the
-   service accounts of GET /api/v1/service_accounts with their tokens. tokens.manage only; a new partner gets the machine
+   service accounts of GET /api/v1/service_accounts with their active tokens and last token use. tokens.manage only; a new partner gets the machine
    permissions the staff pages may grant, privileged ones stay with the CLI on the host *@
 @page "/admin/partners"
 @inject PortalApi Api
@@ -40,9 +40,9 @@ else if (m_error != null)
 else
 {
     <div class="go-stats">
-        <StatCard Label="Partners" Value="@m_rows?.Count.ToString()" Icon="handshake" Hint="Service accounts" />
-        <StatCard Label="Enabled" Value="@m_rows?.Count(r => r.Partner.DisabledAt == null).ToString()" Icon="circle-check" Hint="May call the API" />
-        <StatCard Label="Active tokens" Value="@m_rows?.Sum(r => r.ActiveTokens).ToString()" Icon="key-round" Hint="Not revoked or expired" />
+        <StatCard Label="Partners" Value="@m_partners?.Count.ToString()" Icon="handshake" Hint="Service accounts" />
+        <StatCard Label="Enabled" Value="@m_partners?.Count(p => p.DisabledAt == null).ToString()" Icon="circle-check" Hint="May call the API" />
+        <StatCard Label="Active tokens" Value="@m_partners?.Sum(p => p.ActiveTokens).ToString()" Icon="key-round" Hint="Not revoked or expired" />
     </div>
 
     <BbCard>
@@ -51,23 +51,23 @@ else
             <BbCardDescription>Privileged permissions (ops.database, users.revoke) and their tokens are granted only with the CLI on the host.</BbCardDescription>
         </BbCardHeader>
         <BbCardContent>
-            @if (m_rows == null)
+            @if (m_partners == null)
             {
                 <FeedSkeleton />
             }
             else
             {
-                <BbDataTable TData="PartnerRow" Data="@m_rows" ShowToolbar="false" ShowPagination="false" AriaLabel="Partners">
+                <BbDataTable TData="PortalPartner" Data="@m_partners" ShowToolbar="false" ShowPagination="false" AriaLabel="Partners">
                     <Columns>
-                        <BbDataTableColumn TData="PartnerRow" TValue="string" Property="@(r => r.Partner.Name)" Header="Name">
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.Name)" Header="Name">
                             <CellTemplate Context="row">
-                                <BbLink Href="@PortalRoutes.PartnerPage(row.Partner.Id)" data-testid="partner-row">@row.Partner.Name</BbLink>
+                                <BbLink Href="@PortalRoutes.PartnerPage(row.Id)" data-testid="partner-row">@row.Name</BbLink>
                             </CellTemplate>
                         </BbDataTableColumn>
-                        <BbDataTableColumn TData="PartnerRow" TValue="string" Property="@(r => r.Partner.Description ?? "")" Header="Description" CellClass="bb:text-muted-foreground" />
-                        <BbDataTableColumn TData="PartnerRow" TValue="string" Property="@(r => r.Partner.DisabledAt == null ? "enabled" : "disabled")" Header="Status">
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.Description ?? "")" Header="Description" CellClass="bb:text-muted-foreground" />
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.DisabledAt == null ? "enabled" : "disabled")" Header="Status">
                             <CellTemplate Context="row">
-                                @if (row.Partner.DisabledAt == null)
+                                @if (row.DisabledAt == null)
                                 {
                                     <BbBadge Variant="BadgeVariant.Secondary">enabled</BbBadge>
                                 }
@@ -77,18 +77,18 @@ else
                                 }
                             </CellTemplate>
                         </BbDataTableColumn>
-                        <BbDataTableColumn TData="PartnerRow" TValue="string" Property="@(r => String.Join(", ", r.Partner.Permissions))" Header="Permissions">
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => String.Join(", ", p.Permissions))" Header="Permissions">
                             <CellTemplate Context="row">
                                 <span class="go-cell-badges">
-                                    @foreach (string permission in row.Partner.Permissions)
+                                    @foreach (string permission in row.Permissions)
                                     {
                                         <BbBadge Variant="@(PortalPartnerPermissions.IsPrivileged(permission) ? BadgeVariant.SoftDestructive : BadgeVariant.Outline)" Class="bb:font-mono">@permission</BbBadge>
                                     }
                                 </span>
                             </CellTemplate>
                         </BbDataTableColumn>
-                        <BbDataTableColumn TData="PartnerRow" TValue="string" Property="@(r => r.TokenText)" Header="Tokens" CellClass="go-nowrap" />
-                        <BbDataTableColumn TData="PartnerRow" TValue="string" Property="@(r => PortalText.Date(r.LastUsedAt))" Header="Last token use" CellClass="go-nowrap" />
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => p.ActiveTokens.ToString())" Header="Active tokens" CellClass="go-nowrap" />
+                        <BbDataTableColumn TData="PortalPartner" TValue="string" Property="@(p => PortalText.Date(p.LastTokenUsedAt))" Header="Last token use" CellClass="go-nowrap" />
                     </Columns>
                     <EmptyTemplate>
                         <BbEmpty Size="EmptySize.Small" Title="No partners yet" Description="Create a partner, then give it a token.">
@@ -141,13 +141,7 @@ else
 }
 
 @code {
-    // A partner with what its tokens add up to
-    private sealed record PartnerRow(PortalPartner Partner, int ActiveTokens, int AllTokens, DateTime? LastUsedAt)
-    {
-        public string TokenText => $"{ActiveTokens} active of {AllTokens}";
-    }
-
-    private List<PartnerRow>? m_rows;
+    private List<PortalPartner>? m_partners;
     private string? m_error;
     private bool m_createOpen;
     private bool m_saving;
@@ -166,23 +160,12 @@ else
         }
     }
 
-    // The accounts, then the tokens of each at once; tens of partners
+    // The host counts each partner's active tokens and last token use
     private async Task LoadAsync()
     {
         PortalAnswer<List<PortalPartner>> answer = await Api.ListPartnersAsync();
-        if (!answer.Ok)
-        {
-            m_error = answer.Error;
-            return;
-        }
-
-        DateTime now = DateTime.UtcNow;
-        PortalAnswer<List<PortalPartnerToken>>[] tokens = await Task.WhenAll(answer.Value!.Select(p => Api.ListPartnerTokensAsync(p.Id)));
-        m_rows = answer.Value!.Select((partner, i) =>
-        {
-            List<PortalPartnerToken> owned = tokens[i].Value ?? [];
-            return new PartnerRow(partner, owned.Count(t => t.IsActive(now)), owned.Count, owned.Max(t => t.LastUsedAt));
-        }).ToList();
+        m_error = answer.Ok ? null : answer.Error;
+        m_partners = answer.Value;
     }
 
     private void OpenCreate()

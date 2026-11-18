@@ -1,4 +1,4 @@
-@* One partner: the page header (nav-02) with disable and enable, stat cards (dashboard-01), the permissions granted and the
+@* One partner: the page header (nav-02) with the description edit, disable and enable, stat cards (dashboard-01), the permissions granted and the
    tokens in data tables (data-01). A new or rotated token's secret shows once, in a dialog with a copy button. tokens.manage
    only; privileged permissions and their tokens stay with the CLI on the host *@
 @page "/admin/partners/{Id:long}"
@@ -39,7 +39,6 @@ else
 {
     PortalPartner partner = m_partner;
     DateTime now = DateTime.UtcNow;
-    int active = m_tokens.Count(t => t.IsActive(now));
     <PageHeader Description="@(partner.Description ?? "No description.")">
         <Title>
             <span class="bb:font-mono" data-testid="partner-name">@partner.Name</span>
@@ -58,6 +57,10 @@ else
             </div>
         </Below>
         <Actions>
+            <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="OpenDescription" data-testid="edit-description">
+                <LucideIcon Name="pencil" Class="bb:h-4 bb:w-4" />
+                Edit description
+            </BbButton>
             @if (partner.DisabledAt == null)
             {
                 <BbButton Variant="ButtonVariant.Destructive" Size="ButtonSize.Small" OnClick="@(() => Open("disable"))" data-testid="disable-partner">
@@ -77,8 +80,8 @@ else
 
     <div class="go-stats">
         <StatCard Label="Permissions" Value="@partner.Permissions.Count.ToString()" Icon="shield" Hint="Granted to the account" />
-        <StatCard Label="Active tokens" Value="@active.ToString()" Icon="key-round" Hint="@($"{m_tokens.Count} on record")" />
-        <StatCard Label="Last token use" Value="@(m_tokens.Max(t => t.LastUsedAt) is DateTime used ? PortalText.Recent(used, now) : "never")" Icon="activity" Hint="Any of its tokens" />
+        <StatCard Label="Active tokens" Value="@partner.ActiveTokens.ToString()" Icon="key-round" Hint="@($"{m_tokens.Count} on record")" />
+        <StatCard Label="Last token use" Value="@(partner.LastTokenUsedAt is DateTime used ? PortalText.Recent(used, now) : "never")" Icon="activity" Hint="Any of its tokens" />
         <StatCard Label="Next expiry" Value="@(m_tokens.Where(t => t.IsActive(now)).Select(t => (DateTime?)t.ExpiresAt).Min() is DateTime next ? PortalText.Day(next) : "none")" Icon="calendar" Hint="Of the active tokens" Attention="@m_tokens.Any(t => t.IsActive(now) && t.ExpiresAt < now.AddDays(14))" />
     </div>
 
@@ -189,6 +192,23 @@ else
                             <BbBadge Variant="@(token.IsActive(now) ? BadgeVariant.Secondary : BadgeVariant.Outline)">@StatusOf(token, now)</BbBadge>
                         </CellTemplate>
                     </BbDataTableColumn>
+                    <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => String.Join(", ", t.AllowedIps))" Header="Allowed addresses">
+                        <CellTemplate Context="token">
+                            @if (token.AllowedIps.Count == 0)
+                            {
+                                <span class="bb:text-muted-foreground">any</span>
+                            }
+                            else
+                            {
+                                <span class="go-cell-badges">
+                                    @foreach (string range in token.AllowedIps)
+                                    {
+                                        <BbBadge Variant="BadgeVariant.Outline" Class="bb:font-mono">@range</BbBadge>
+                                    }
+                                </span>
+                            }
+                        </CellTemplate>
+                    </BbDataTableColumn>
                     <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => PortalText.Date(t.CreatedAt))" Header="Created" CellClass="go-nowrap" />
                     <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => PortalText.Date(t.ExpiresAt))" Header="Expires" CellClass="go-nowrap" />
                     <BbDataTableColumn TData="PortalPartnerToken" TValue="string" Property="@(t => PortalText.Date(t.LastUsedAt))" Header="Last used" CellClass="go-nowrap">
@@ -248,6 +268,23 @@ else
             <BbDialogFooter>
                 <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_confirmOpen = false)" Disabled="@m_saving">Cancel</BbButton>
                 <BbButton Variant="@(m_action is "disable" or "revoke" or "remove" ? ButtonVariant.Destructive : ButtonVariant.Default)" OnClick="ConfirmAsync" Loading="@m_saving" data-testid="confirm">Confirm</BbButton>
+            </BbDialogFooter>
+        </BbDialogContent>
+    </BbDialog>
+
+    <BbDialog @bind-Open="m_descriptionOpen">
+        <BbDialogContent>
+            <BbDialogHeader>
+                <BbDialogTitle>Description of @partner.Name</BbDialogTitle>
+                <BbDialogDescription>Who runs the partner and what it does, at most 256 characters. An empty description clears it. The change is in the audit log.</BbDialogDescription>
+            </BbDialogHeader>
+            <div class="bb:space-y-2">
+                <BbLabel For="partner-description">Description</BbLabel>
+                <BbTextarea Id="partner-description" @bind-Value="m_description" autocomplete="off" />
+            </div>
+            <BbDialogFooter>
+                <BbButton Variant="ButtonVariant.Outline" OnClick="@(() => m_descriptionOpen = false)" Disabled="@m_saving">Cancel</BbButton>
+                <BbButton OnClick="SaveDescriptionAsync" Loading="@m_saving" data-testid="save-description">Save</BbButton>
             </BbDialogFooter>
         </BbDialogContent>
     </BbDialog>
@@ -351,6 +388,8 @@ else
     private string? m_error;
 
     private bool m_confirmOpen;
+    private bool m_descriptionOpen;
+    private string? m_description;
     private bool m_tokenOpen;
     private bool m_saving;
     private bool m_granting;
@@ -495,6 +534,25 @@ else
     {
         PortalAnswer<PortalPartner> answer = await Api.UpdatePartnerAsync(Id, change);
         return answer.Ok ? PortalOutcome.Success : new PortalOutcome(false, answer.Error);
+    }
+
+    private void OpenDescription()
+    {
+        m_description = m_partner?.Description;
+        m_descriptionOpen = true;
+    }
+
+    private async Task SaveDescriptionAsync()
+    {
+        m_saving = true;
+        PortalOutcome outcome = await UpdateAsync(new PortalUpdatePartnerRequest { Description = m_description?.Trim() ?? "" });
+        m_saving = false;
+        if (outcome.Ok)
+        {
+            m_descriptionOpen = false;
+        }
+        Report(outcome.Ok, outcome.Error, "The description is saved and in the audit log.");
+        await LoadAsync();
     }
 
     private void OpenNewToken()
