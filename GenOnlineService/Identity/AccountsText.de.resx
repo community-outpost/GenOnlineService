@@ -309,4 +309,82 @@
   <data name="Mail.PasswordReset.Subject" xml:space="preserve">
     <value>Setze dein Generals-Online-Passwort zurück</value>
   </data>
+  <data name="SignIn.Forgot" xml:space="preserve">
+    <value>Passwort vergessen?</value>
+  </data>
+  <data name="Link.Invalid.Title" xml:space="preserve">
+    <value>Link ungültig</value>
+  </data>
+  <data name="Link.SendNew" xml:space="preserve">
+    <value>Neuen Link senden</value>
+  </data>
+  <data name="Mail.TooMany" xml:space="preserve">
+    <value>Es wurden zu viele E-Mails angefordert. Bitte versuche es in ein paar Minuten noch einmal.</value>
+  </data>
+  <data name="Mail.SendFailed" xml:space="preserve">
+    <value>Die E-Mail konnte nicht gesendet werden. Bitte versuche es später noch einmal.</value>
+  </data>
+  <data name="CheckEmail.Title" xml:space="preserve">
+    <value>Sieh in deine E-Mails</value>
+  </data>
+  <data name="Confirm.Invalid" xml:space="preserve">
+    <value>Dieser Bestätigungslink ist ungültig oder abgelaufen.</value>
+  </data>
+  <data name="Confirm.Done.Title" xml:space="preserve">
+    <value>E-Mail-Adresse bestätigt</value>
+  </data>
+  <data name="Confirm.Done.Body" xml:space="preserve">
+    <value>Danke, {0} ist bestätigt.</value>
+  </data>
+  <data name="Confirm.Pending.Body" xml:space="preserve">
+    <value>Wir haben einen Link an {0} geschickt. Öffne ihn, um deine Adresse zu bestätigen, und mach dann hier weiter.</value>
+  </data>
+  <data name="Confirm.Pending.Description" xml:space="preserve">
+    <value>Bestätige deine E-Mail-Adresse, um zu spielen.</value>
+  </data>
+  <data name="Confirm.Resend" xml:space="preserve">
+    <value>Link erneut senden</value>
+  </data>
+  <data name="Confirm.Resent" xml:space="preserve">
+    <value>Ein neuer Link ist unterwegs.</value>
+  </data>
+  <data name="Reset.Request.Title" xml:space="preserve">
+    <value>Passwort zurücksetzen</value>
+  </data>
+  <data name="Reset.Request.Description" xml:space="preserve">
+    <value>Wir schicken dir einen Link, mit dem du ein neues Passwort wählst.</value>
+  </data>
+  <data name="Reset.Request.Submit" xml:space="preserve">
+    <value>Link senden</value>
+  </data>
+  <data name="Reset.Request.Remember" xml:space="preserve">
+    <value>Doch wieder eingefallen?</value>
+  </data>
+  <data name="Reset.Sent" xml:space="preserve">
+    <value>Wenn ein Konto diese Adresse nutzt, haben wir ihm einen Link zum Wählen eines neuen Passworts geschickt.</value>
+  </data>
+  <data name="Reset.Invalid" xml:space="preserve">
+    <value>Dieser Link zum Zurücksetzen ist ungültig oder abgelaufen. Jeder Link funktioniert einmal, eine Stunde lang.</value>
+  </data>
+  <data name="Reset.Title" xml:space="preserve">
+    <value>Neues Passwort wählen</value>
+  </data>
+  <data name="Reset.Description" xml:space="preserve">
+    <value>Alle anderen Anmeldungen des Kontos werden beendet.</value>
+  </data>
+  <data name="Field.NewPassword" xml:space="preserve">
+    <value>Neues Passwort</value>
+  </data>
+  <data name="Reset.Submit" xml:space="preserve">
+    <value>Passwort ändern</value>
+  </data>
+  <data name="Reset.Failed" xml:space="preserve">
+    <value>Das Passwort konnte nicht geändert werden.</value>
+  </data>
+  <data name="Reset.Done.Title" xml:space="preserve">
+    <value>Dein Passwort ist geändert</value>
+  </data>
+  <data name="Reset.Done.Body" xml:space="preserve">
+    <value>Melde dich mit deinem neuen Passwort an. Alle anderen Anmeldungen dieses Kontos wurden beendet.</value>
+  </data>
 </root>

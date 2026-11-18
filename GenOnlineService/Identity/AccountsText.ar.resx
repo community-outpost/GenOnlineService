@@ -309,4 +309,82 @@
   <data name="Mail.PasswordReset.Subject" xml:space="preserve">
     <value>إعادة تعيين كلمة مرور Generals Online</value>
   </data>
+  <data name="SignIn.Forgot" xml:space="preserve">
+    <value>نسيت كلمة المرور؟</value>
+  </data>
+  <data name="Link.Invalid.Title" xml:space="preserve">
+    <value>الرابط غير صالح</value>
+  </data>
+  <data name="Link.SendNew" xml:space="preserve">
+    <value>إرسال رابط جديد</value>
+  </data>
+  <data name="Mail.TooMany" xml:space="preserve">
+    <value>طُلب عدد كبير جدًا من الرسائل. يُرجى المحاولة مرة أخرى بعد بضع دقائق.</value>
+  </data>
+  <data name="Mail.SendFailed" xml:space="preserve">
+    <value>تعذّر إرسال الرسالة. يُرجى المحاولة لاحقًا.</value>
+  </data>
+  <data name="CheckEmail.Title" xml:space="preserve">
+    <value>تحقق من بريدك الإلكتروني</value>
+  </data>
+  <data name="Confirm.Invalid" xml:space="preserve">
+    <value>رابط التأكيد هذا غير صالح أو منتهي الصلاحية.</value>
+  </data>
+  <data name="Confirm.Done.Title" xml:space="preserve">
+    <value>تم تأكيد عنوان البريد الإلكتروني</value>
+  </data>
+  <data name="Confirm.Done.Body" xml:space="preserve">
+    <value>شكرًا، تم تأكيد {0}.</value>
+  </data>
+  <data name="Confirm.Pending.Body" xml:space="preserve">
+    <value>أرسلنا رابطًا إلى {0}. افتحه لتأكيد عنوانك، ثم تابع من هنا.</value>
+  </data>
+  <data name="Confirm.Pending.Description" xml:space="preserve">
+    <value>أكّد عنوان بريدك الإلكتروني لكي تلعب.</value>
+  </data>
+  <data name="Confirm.Resend" xml:space="preserve">
+    <value>إرسال الرابط مرة أخرى</value>
+  </data>
+  <data name="Confirm.Resent" xml:space="preserve">
+    <value>رابط جديد في الطريق إليك.</value>
+  </data>
+  <data name="Reset.Request.Title" xml:space="preserve">
+    <value>إعادة تعيين كلمة المرور</value>
+  </data>
+  <data name="Reset.Request.Description" xml:space="preserve">
+    <value>نرسل إليك رابطًا لاختيار كلمة مرور جديدة.</value>
+  </data>
+  <data name="Reset.Request.Submit" xml:space="preserve">
+    <value>إرسال الرابط</value>
+  </data>
+  <data name="Reset.Request.Remember" xml:space="preserve">
+    <value>تذكّرتها؟</value>
+  </data>
+  <data name="Reset.Sent" xml:space="preserve">
+    <value>إذا كان هناك حساب يستخدم هذا العنوان، فقد أرسلنا إليه رابطًا لاختيار كلمة مرور جديدة.</value>
+  </data>
+  <data name="Reset.Invalid" xml:space="preserve">
+    <value>رابط إعادة تعيين كلمة المرور هذا غير صالح أو منتهي الصلاحية. يعمل كل رابط مرة واحدة ولمدة ساعة.</value>
+  </data>
+  <data name="Reset.Title" xml:space="preserve">
+    <value>اختر كلمة مرور جديدة</value>
+  </data>
+  <data name="Reset.Description" xml:space="preserve">
+    <value>تنتهي جميع جلسات تسجيل الدخول الأخرى للحساب.</value>
+  </data>
+  <data name="Field.NewPassword" xml:space="preserve">
+    <value>كلمة المرور الجديدة</value>
+  </data>
+  <data name="Reset.Submit" xml:space="preserve">
+    <value>تغيير كلمة المرور</value>
+  </data>
+  <data name="Reset.Failed" xml:space="preserve">
+    <value>تعذّر تغيير كلمة المرور.</value>
+  </data>
+  <data name="Reset.Done.Title" xml:space="preserve">
+    <value>تم تغيير كلمة المرور</value>
+  </data>
+  <data name="Reset.Done.Body" xml:space="preserve">
+    <value>سجّل الدخول بكلمة المرور الجديدة. انتهت جميع جلسات تسجيل الدخول الأخرى لهذا الحساب.</value>
+  </data>
 </root>

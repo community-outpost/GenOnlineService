@@ -309,4 +309,82 @@
   <data name="Mail.PasswordReset.Subject" xml:space="preserve">
     <value>Сброс пароля Generals Online</value>
   </data>
+  <data name="SignIn.Forgot" xml:space="preserve">
+    <value>Забыли пароль?</value>
+  </data>
+  <data name="Link.Invalid.Title" xml:space="preserve">
+    <value>Ссылка недействительна</value>
+  </data>
+  <data name="Link.SendNew" xml:space="preserve">
+    <value>Отправить новую ссылку</value>
+  </data>
+  <data name="Mail.TooMany" xml:space="preserve">
+    <value>Запрошено слишком много писем. Попробуйте ещё раз через несколько минут.</value>
+  </data>
+  <data name="Mail.SendFailed" xml:space="preserve">
+    <value>Не удалось отправить письмо. Попробуйте позже.</value>
+  </data>
+  <data name="CheckEmail.Title" xml:space="preserve">
+    <value>Проверьте почту</value>
+  </data>
+  <data name="Confirm.Invalid" xml:space="preserve">
+    <value>Ссылка для подтверждения недействительна или устарела.</value>
+  </data>
+  <data name="Confirm.Done.Title" xml:space="preserve">
+    <value>Адрес электронной почты подтверждён</value>
+  </data>
+  <data name="Confirm.Done.Body" xml:space="preserve">
+    <value>Спасибо, адрес {0} подтверждён.</value>
+  </data>
+  <data name="Confirm.Pending.Body" xml:space="preserve">
+    <value>Мы отправили ссылку на {0}. Откройте её, чтобы подтвердить адрес, затем продолжите здесь.</value>
+  </data>
+  <data name="Confirm.Pending.Description" xml:space="preserve">
+    <value>Подтвердите адрес электронной почты, чтобы играть.</value>
+  </data>
+  <data name="Confirm.Resend" xml:space="preserve">
+    <value>Отправить ссылку ещё раз</value>
+  </data>
+  <data name="Confirm.Resent" xml:space="preserve">
+    <value>Новая ссылка уже в пути.</value>
+  </data>
+  <data name="Reset.Request.Title" xml:space="preserve">
+    <value>Сброс пароля</value>
+  </data>
+  <data name="Reset.Request.Description" xml:space="preserve">
+    <value>Мы пришлём ссылку для выбора нового пароля.</value>
+  </data>
+  <data name="Reset.Request.Submit" xml:space="preserve">
+    <value>Отправить ссылку</value>
+  </data>
+  <data name="Reset.Request.Remember" xml:space="preserve">
+    <value>Вспомнили пароль?</value>
+  </data>
+  <data name="Reset.Sent" xml:space="preserve">
+    <value>Если этот адрес используется учётной записью, мы отправили на него ссылку для выбора нового пароля.</value>
+  </data>
+  <data name="Reset.Invalid" xml:space="preserve">
+    <value>Ссылка для сброса пароля недействительна или устарела. Каждая ссылка работает один раз в течение часа.</value>
+  </data>
+  <data name="Reset.Title" xml:space="preserve">
+    <value>Выберите новый пароль</value>
+  </data>
+  <data name="Reset.Description" xml:space="preserve">
+    <value>Все остальные входы в учётную запись будут завершены.</value>
+  </data>
+  <data name="Field.NewPassword" xml:space="preserve">
+    <value>Новый пароль</value>
+  </data>
+  <data name="Reset.Submit" xml:space="preserve">
+    <value>Сменить пароль</value>
+  </data>
+  <data name="Reset.Failed" xml:space="preserve">
+    <value>Не удалось сменить пароль.</value>
+  </data>
+  <data name="Reset.Done.Title" xml:space="preserve">
+    <value>Пароль изменён</value>
+  </data>
+  <data name="Reset.Done.Body" xml:space="preserve">
+    <value>Войдите с новым паролем. Все остальные входы в эту учётную запись завершены.</value>
+  </data>
 </root>

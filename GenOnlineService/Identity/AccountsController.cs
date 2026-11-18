@@ -111,7 +111,22 @@ namespace GenOnlineService.Identity
 			{
 				return "/users/sign_in";
 			}
-			string back = path == "/profile/two_factor_auth/disable" ? "/profile/two_factor_auth" : path;
+			if (path == ResetRequestAction)
+			{
+				return ResetRequestPath;
+			}
+			if (path == AccountMail.ResetPasswordEditPath)
+			{
+				// the reset form again, with its link's token
+				string token = Request.HasFormContentType ? Request.Form[ResetTokenField].ToString() : String.Empty;
+				return $"{path}?{ResetTokenField}={Uri.EscapeDataString(token)}";
+			}
+			string back = path switch
+			{
+				"/profile/two_factor_auth/disable" => "/profile/two_factor_auth",
+				AccountMail.ConfirmationPath => ConfirmationPendingPath,
+				_ => path
+			};
 			string? returnUrl = Request.HasFormContentType ? Request.Form[ReturnUrlField].ToString() : null;
 			return String.IsNullOrEmpty(returnUrl) ? back : $"{back}?{ReturnUrlField}={Uri.EscapeDataString(returnUrl)}";
 		}
@@ -188,7 +203,7 @@ namespace GenOnlineService.Identity
 				// self-service reset needs mail; without it an operator resets (users password-reset)
 				if (m_mail.Enabled)
 				{
-					body.Append(PortalLook.Link(ResetRequestPath, "Forgot your password?"));
+					body.Append(PortalLook.Link(ResetRequestPath, T("SignIn.Forgot")));
 				}
 				if (providers.Count > 0)
 				{
@@ -546,7 +561,7 @@ namespace GenOnlineService.Identity
 			// with mail, the new address is confirmed by a link before the first token (S4); a failed send is retried from the waiting page
 			if (m_mail.Enabled)
 			{
-				await m_mail.SendConfirmation(result.User!);
+				await m_mail.SendConfirmation(result.User!, Culture);
 			}
 
 			await m_passwords.RecordSignIn(result.User!);

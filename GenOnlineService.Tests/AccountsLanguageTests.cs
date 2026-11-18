@@ -264,6 +264,43 @@ public class AccountsLanguageTests
 		Assert.Contains("ReturnUrl=%2Fusers%2Fsign_up%3FReturnUrl%3D%252Fprofile\"", refused.Body);
 	}
 
+	// The account mails go out in the language of the page that asked for them: the sign-up's confirmation, then a reset
+	// asked for after switching language, whose pages and mail follow the switch
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AccountMailsAreInThePagesLanguage(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var mail = new RecordingEmailSender();
+		AccountsBrowser browser = await EmailConfirmationTests.Browser(probe, mail);
+		browser.Headers["Accept-Language"] = "ru-RU";
+
+		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Polyglot", "polyglot@example.org", "a long enough password")).Status);
+		EmailMessage confirmation = Assert.Single(mail.Sent);
+		Assert.Equal("Подтвердите адрес электронной почты", confirmation.Subject);
+		PageResponse confirmed = await browser.Get(RecordingEmailSender.LinkIn(confirmation));
+		Assert.Equal(200, confirmed.Status);
+		Assert.Contains("<title>Адрес электронной почты подтверждён · Generals Online</title>", confirmed.Body);
+		mail.Sent.Clear();
+
+		Assert.Equal(302, (await browser.Get("/users/language?culture=ar&ReturnUrl=%2Fusers%2Fpassword%2Fnew")).Status);
+		PageResponse request = await browser.Get("/users/password/new");
+		Assert.Equal("ar/rtl", Lang(request));
+		PageResponse sent = await browser.Post("/users/password", new() { ["__go_consent_token"] = AccountsBrowser.Token(request), ["email"] = "polyglot@example.org" });
+		Assert.Equal(200, sent.Status);
+		Assert.Contains("فقد أرسلنا إليه رابطًا", sent.Body);
+		// the switch on the answer goes back to the request form, not to the POST
+		Assert.Contains("ReturnUrl=%2Fusers%2Fpassword%2Fnew\"", sent.Body);
+
+		EmailMessage reset = Assert.Single(mail.Sent);
+		Assert.Equal("إعادة تعيين كلمة مرور Generals Online", reset.Subject);
+		Assert.Contains("dir=\"rtl\"", reset.Html);
+		PageResponse edit = await browser.Get(RecordingEmailSender.LinkIn(reset));
+		Assert.Equal("ar/rtl", Lang(edit));
+		Assert.Contains(">كلمة المرور الجديدة</label>", edit.Body);
+	}
+
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
 	public async Task TheSwitchRefusesUnknownLanguagesAndForeignAddresses(string provider)
