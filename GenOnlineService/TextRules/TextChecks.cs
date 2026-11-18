@@ -146,20 +146,25 @@ namespace GenOnlineService.TextRules
 	{
 		private const string ResourcePrefix = "GenOnlineService.data.textrules.";
 
-		public static IReadOnlyList<TextRuleTerm> Terms()
+		// The seed version: 1 the service's own lists and the plugin's reserved words, 2 the LDNOOBW lists, their exceptions
+		// and the stricter display name rules. An environment seeded with an older version gets what came after (TextChecks.SeedAsync).
+		public const int Version = 2;
+
+		// The seed words added after a seed version; a word in more than one list keeps its first entry, so the service's own wins
+		public static IReadOnlyList<TextRuleTerm> Terms(int after = 0)
 		{
-			var terms = new List<TextRuleTerm>();
+			var terms = new List<(TextRuleTerm Term, int Since)>();
 			foreach (string language in TextLanguages.All)
 			{
 				foreach (string[] fields in Lines(language + ".txt"))
 				{
-					terms.Add(new TextRuleTerm { Term = fields[0], Language = language, Category = fields[1], Severity = fields[2], Match = fields[3], Source = TextRuleSources.Seed });
+					terms.Add((new TextRuleTerm { Term = fields[0], Language = language, Category = fields[1], Severity = fields[2], Match = fields[3], Source = TextRuleSources.Seed }, 1));
 				}
 			}
 			// the plugin's list: a word with anything but letters keeps the plugin's literal rule, as folding would read it otherwise
 			foreach (string word in ProfileActions.ReservedNameWords)
 			{
-				terms.Add(new TextRuleTerm
+				terms.Add((new TextRuleTerm
 				{
 					Term = word,
 					Language = TextLanguages.English,
@@ -167,13 +172,24 @@ namespace GenOnlineService.TextRules
 					Severity = TextSeverities.Block,
 					Match = word.All(Char.IsLetter) ? TextMatchModes.Anywhere : TextMatchModes.Literal,
 					Source = TextRuleSources.Reserved
-				});
+				}, 1));
 			}
-			return terms;
+			// the LDNOOBW lists (CC BY 4.0, LICENSE-THIRD-PARTY.md), as flag words
+			foreach (string language in TextLanguages.All)
+			{
+				foreach (string[] fields in Lines("ldnoobw-" + language + ".txt"))
+				{
+					terms.Add((new TextRuleTerm { Term = fields[0], Language = language, Category = fields[1], Severity = fields[2], Match = fields[3], Source = TextRuleSources.Ldnoobw }, 2));
+				}
+			}
+			return terms.DistinctBy(t => (t.Term.Language, t.Term.Term)).Where(t => t.Since > after).Select(t => t.Term).ToList();
 		}
 
-		public static IReadOnlyList<TextRuleException> Exceptions() =>
-			Lines("exceptions.txt").Select(f => new TextRuleException { Term = f[0], Language = f[1], Source = TextRuleSources.Seed }).ToList();
+		// The seed exceptions added after a seed version; the third field is the version that added one, 1 when left out
+		public static IReadOnlyList<TextRuleException> Exceptions(int after = 0) =>
+			Lines("exceptions.txt")
+				.Where(f => (f.Length > 2 ? Int32.Parse(f[2], System.Globalization.CultureInfo.InvariantCulture) : 1) > after)
+				.Select(f => new TextRuleException { Term = f[0], Language = f[1], Source = TextRuleSources.Seed }).ToList();
 
 		private static IEnumerable<string[]> Lines(string file)
 		{
@@ -203,6 +219,8 @@ namespace GenOnlineService.TextRules
 
 		// application_settings key whose value changes with every change of the lists or rules
 		public const string RevisionKey = "text_rules.revision";
+
+		public const string SeedVersionKey = "text_rules.seed_version";
 
 		private static readonly ILogger s_log = AppLog.For(typeof(TextChecks));
 		private static readonly Lazy<TextRuleSet> s_defaults = new(BuildDefaults);
@@ -257,24 +275,48 @@ namespace GenOnlineService.TextRules
 			};
 		}
 
-		// The seed lists and default rules, written once: the revision row goes first, so a second copy starting at the
-		// same time fails on its key and writes nothing. Answers whether this call seeded.
+		// The seed lists and default rules. A new database gets everything; one seeded with an older seed version gets only
+		// what later versions added: the seed words and exceptions it does not hold (a seed word staff removed before stays
+		// removed, as only entries of later versions are added) and a new default workflow where the stored one is still a
+		// default of before (staff edits stay). One transaction writes it all: a second copy starting at the same time fails on
+		// the key of the version row or of a word it adds too, and writes nothing.
+		// Answers whether this call wrote anything.
 		public static async Task<bool> SeedAsync(AppDbContext db)
 		{
-			if (await db.ApplicationSettings.AsNoTracking().AnyAsync(s => s.Key == RevisionKey))
+			bool seeded = await db.ApplicationSettings.AsNoTracking().AnyAsync(s => s.Key == RevisionKey);
+			string? stored = await db.ApplicationSettings.AsNoTracking().Where(s => s.Key == SeedVersionKey).Select(s => s.Value).FirstOrDefaultAsync();
+			// a database seeded before versions were kept holds version 1
+			int from = !seeded ? 0 : stored == null ? 1 : Int32.Parse(stored, System.Globalization.CultureInfo.InvariantCulture);
+			if (from >= TextRuleSeeds.Version)
 			{
 				return false;
 			}
 
 			DateTime now = DateTime.UtcNow;
-			IReadOnlyList<TextRuleTerm> terms = TextRuleSeeds.Terms();
-			IReadOnlyList<TextRuleException> exceptions = TextRuleSeeds.Exceptions();
 			try
 			{
 				await using var transaction = await db.Database.BeginTransactionAsync();
-				db.ApplicationSettings.Add(new ApplicationSetting { Key = RevisionKey, Value = NewRevision(), UpdatedBy = "startup", UpdatedAt = now });
-				await db.SaveChangesAsync();
+				string version = TextRuleSeeds.Version.ToString(System.Globalization.CultureInfo.InvariantCulture);
+				if (!seeded)
+				{
+					db.ApplicationSettings.Add(new ApplicationSetting { Key = RevisionKey, Value = NewRevision(), UpdatedBy = "startup", UpdatedAt = now });
+				}
+				if (stored == null)
+				{
+					db.ApplicationSettings.Add(new ApplicationSetting { Key = SeedVersionKey, Value = version, UpdatedBy = "startup", UpdatedAt = now });
+					await db.SaveChangesAsync();
+				}
+				else
+				{
+					ApplicationSetting row = await db.ApplicationSettings.AsTracking().SingleAsync(s => s.Key == SeedVersionKey);
+					row.Value = version;
+					row.UpdatedAt = now;
+				}
 
+				HashSet<(string, string)> termsHeld = (await db.TextRuleTerms.AsNoTracking().Select(t => new { t.Language, t.Term }).ToListAsync()).Select(t => (t.Language, t.Term)).ToHashSet();
+				HashSet<(string, string)> exceptionsHeld = (await db.TextRuleExceptions.AsNoTracking().Select(e => new { e.Language, e.Term }).ToListAsync()).Select(e => (e.Language, e.Term)).ToHashSet();
+				List<TextRuleTerm> terms = TextRuleSeeds.Terms(from).Where(t => !termsHeld.Contains((t.Language, t.Term))).ToList();
+				List<TextRuleException> exceptions = TextRuleSeeds.Exceptions(from).Where(e => !exceptionsHeld.Contains((e.Language, e.Term))).ToList();
 				foreach (TextRuleTerm term in terms)
 				{
 					term.UpdatedBy = "startup";
@@ -287,10 +329,31 @@ namespace GenOnlineService.TextRules
 					exception.UpdatedAt = now;
 					db.TextRuleExceptions.Add(exception);
 				}
+
+				var workflows = new List<string>();
+				Dictionary<string, TextRuleWorkflow> rows = await db.TextRuleWorkflows.AsTracking().ToDictionaryAsync(w => w.Kind, StringComparer.Ordinal);
 				foreach ((string kind, TextWorkflowDefinition definition) in TextRuleWorkflows.Defaults)
 				{
-					db.TextRuleWorkflows.Add(new TextRuleWorkflow { Kind = kind, Definition = TextRuleWorkflows.Serialize(definition), UpdatedBy = "startup", UpdatedAt = now });
+					string current = TextRuleWorkflows.Serialize(definition);
+					if (!rows.TryGetValue(kind, out TextRuleWorkflow? row))
+					{
+						db.TextRuleWorkflows.Add(new TextRuleWorkflow { Kind = kind, Definition = current, UpdatedBy = "startup", UpdatedAt = now });
+						workflows.Add(kind);
+					}
+					else if (row.Definition != current && TextRuleWorkflows.PreviousDefaults.TryGetValue(kind, out IReadOnlyList<TextWorkflowDefinition>? previous)
+						&& previous.Any(p => TextRuleWorkflows.Serialize(p) == row.Definition))
+					{
+						row.Definition = current;
+						row.UpdatedBy = "startup";
+						row.UpdatedAt = now;
+						workflows.Add(kind);
+					}
 				}
+				if (seeded)
+				{
+					await TouchAsync(db, "startup");
+				}
+
 				db.AuditLog.Add(new AuditLogEntry
 				{
 					CreatedAt = now,
@@ -299,22 +362,21 @@ namespace GenOnlineService.TextRules
 					Action = TextRuleAudit.Seed,
 					TargetKind = TextRuleAudit.TargetKind,
 					Source = "seed",
-					Details = JsonSerializer.Serialize(new { terms = terms.Count, exceptions = exceptions.Count, workflows = TextRuleWorkflows.Defaults.Count })
+					Details = JsonSerializer.Serialize(new { from_version = from, to_version = TextRuleSeeds.Version, terms = terms.Count, exceptions = exceptions.Count, workflows })
 				});
 				await db.SaveChangesAsync();
 				await transaction.CommitAsync();
+				s_log.LogInformation("Seeded the text rules from version {FromVersion} to {ToVersion}: {TermCount} words, {ExceptionCount} exceptions, workflows {Workflows}",
+					from, TextRuleSeeds.Version, terms.Count, exceptions.Count, String.Join(", ", workflows));
 			}
 			catch (Exception ex) when (DbHelpers.IsUniqueViolation(ex))
 			{
-				db.ChangeTracker.Clear();
 				return false;
 			}
 			finally
 			{
 				db.ChangeTracker.Clear();
 			}
-
-			s_log.LogInformation("Seeded the text rules: {TermCount} words, {ExceptionCount} exceptions", terms.Count, exceptions.Count);
 			return true;
 		}
 
