@@ -34,9 +34,11 @@ namespace GenOnlineService.Realtime
 
 		public readonly record struct Named(long UserID, string Name, int Tag);
 
-		// The ids in order of appearance without duplicates, at most Max. Names compare case insensitively after NFC (never on the
-		// look-alike key), the longest name wins and must end at the end of the text, whitespace, punctuation or '#'. A written tag
-		// must match, with or without leading zeros; an outsider resolves only with its tag.
+		// The ids in order of appearance without duplicates, at most Max. A mention starts at '@' at the start of the text or after
+		// whitespace or punctuation. Names compare case insensitively after NFC (never on the look-alike key), the longest name wins
+		// and must end at the end of the text, whitespace, punctuation or '#'. A tag written after that name must match, with or
+		// without leading zeros, or the mention resolves to nobody (never to a shorter name); a bare name more than one user shares
+		// resolves to nobody; an outsider resolves only with its tag.
 		public static long[] Resolve(string content, IReadOnlyCollection<Named> members, IReadOnlyCollection<Named> outsiders)
 		{
 			string text = content.Normalize(NormalizationForm.FormC);
@@ -56,49 +58,64 @@ namespace GenOnlineService.Realtime
 				}
 
 				int start = at + 1;
-				int longest = 0;
-				int resumeAt = start;
-				List<long> matched = new();
-				foreach ((Named user, bool member) in candidates)
+				position = start;
+				if (at > 0 && !Char.IsWhiteSpace(text[at - 1]) && !Char.IsPunctuation(text[at - 1]))
 				{
-					int nameLength = user.Name.Length;
-					if (nameLength < longest || start + nameLength > text.Length || String.Compare(text, start, user.Name, 0, nameLength, StringComparison.OrdinalIgnoreCase) != 0)
-					{
-						continue;
-					}
-
-					int end = start + nameLength;
-					if (!EndsName(text, end))
-					{
-						continue;
-					}
-
-					long tag = ReadTag(text, end, out int afterTag);
-					if (tag >= 0 ? tag != user.Tag : !member)
-					{
-						continue;
-					}
-
-					if (nameLength > longest)
-					{
-						longest = nameLength;
-						matched.Clear();
-					}
-					matched.Add(user.UserID);
-					resumeAt = Math.Max(resumeAt, tag >= 0 ? afterTag : end);
+					continue;
 				}
 
-				foreach (long userID in matched)
+				// with a tag, the longest name among everyone decides; without one, only members can be meant
+				List<(Named User, bool Member)> longest = Longest(text, start, candidates);
+				if (longest.Count == 0)
 				{
-					if (mentioned.Count < Max && !mentioned.Contains(userID))
-					{
-						mentioned.Add(userID);
-					}
+					continue;
 				}
-				position = resumeAt;
+				int end = start + longest[0].User.Name.Length;
+				long tag = ReadTag(text, end, out int afterTag);
+				List<long> matched;
+				if (tag >= 0)
+				{
+					matched = longest.Where(c => c.User.Tag == tag).Select(c => c.User.UserID).Distinct().ToList();
+					position = afterTag;
+				}
+				else
+				{
+					List<(Named User, bool Member)> named = Longest(text, start, candidates.Where(c => c.Member));
+					matched = named.Select(c => c.User.UserID).Distinct().ToList();
+					position = named.Count > 0 ? start + named[0].User.Name.Length : start;
+				}
+
+				if (matched.Count == 1 && !mentioned.Contains(matched[0]))
+				{
+					mentioned.Add(matched[0]);
+				}
 			}
 
 			return mentioned.ToArray();
+		}
+
+		// The candidates whose name is written at start and ends a name there, keeping only the longest
+		private static List<(Named User, bool Member)> Longest(string text, int start, IEnumerable<(Named User, bool Member)> candidates)
+		{
+			List<(Named User, bool Member)> longest = new();
+			foreach ((Named User, bool Member) candidate in candidates)
+			{
+				int nameLength = candidate.User.Name.Length;
+				if (longest.Count > 0 && nameLength < longest[0].User.Name.Length)
+				{
+					continue;
+				}
+				if (start + nameLength > text.Length || String.Compare(text, start, candidate.User.Name, 0, nameLength, StringComparison.OrdinalIgnoreCase) != 0 || !EndsName(text, start + nameLength))
+				{
+					continue;
+				}
+				if (longest.Count > 0 && nameLength > longest[0].User.Name.Length)
+				{
+					longest.Clear();
+				}
+				longest.Add(candidate);
+			}
+			return longest;
 		}
 
 		// The names written as @name#tag, which a channel looks up among every user; a name never holds '#', so it ends at the first one
@@ -132,8 +149,8 @@ namespace GenOnlineService.Realtime
 			return names.ToArray();
 		}
 
-		// Resolves the text against the stored names of the members, and with outsidersByTag (channel: only) against every user
-		// written as @name#tag. Reads nothing when the text holds no '@'.
+		// Resolves the text against the stored names of the members, and with outsidersByTag (channel: only) against every active,
+		// unbanned user written as @name#tag. Reads nothing when the text holds no '@'.
 		public static async Task<long[]> ResolveAsync(AppDbContext db, string content, IEnumerable<long> memberIDs, bool outsidersByTag)
 		{
 			if (!content.Contains('@'))
@@ -149,9 +166,11 @@ namespace GenOnlineService.Realtime
 			if (written.Length > 0)
 			{
 				// the normalized column narrows the read, the exact NFC comparison in Resolve decides
+				// an outsider who is not active (blocked or deactivated) or is banned never resolves
 				string[] keys = written.Select(NameNormalizer.Normalize).Distinct(StringComparer.Ordinal).ToArray();
+				IQueryable<Sanction> bans = Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, DateTime.UtcNow);
 				outsiders = (await db.Users.AsNoTracking()
-					.Where(u => keys.Contains(u.UsernameNormalized))
+					.Where(u => keys.Contains(u.UsernameNormalized) && u.State == UserStates.Active && !bans.Any(b => b.UserID == u.ID))
 					.Select(u => new { u.ID, u.Username, u.NameTag })
 					.ToListAsync())
 					.Select(u => new Named(u.ID, u.Username, u.NameTag))

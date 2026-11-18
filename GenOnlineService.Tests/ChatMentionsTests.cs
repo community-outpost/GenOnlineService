@@ -18,6 +18,7 @@
 
 using Database;
 using GenOnlineService.Realtime;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Xunit;
 
@@ -102,8 +103,36 @@ public class ChatMentionsTests
 		ChatMentions.Named otherBob = new(9, "bob", 5);
 		Assert.Equal(new long[] { 9 }, Members("@Bob#0005 hi", Bob, otherBob));
 		Assert.Equal(new long[] { 1 }, Members("@Bob#42 hi", Bob, otherBob));
-		// a bare name both share mentions both, in member order
-		Assert.Equal(new long[] { 1, 9 }, Members("@Bob hi", Bob, otherBob));
+		// a bare name both share is ambiguous and mentions nobody; the tag tells them apart
+		Assert.Empty(Members("@Bob hi", Bob, otherBob));
+		Assert.Equal(new long[] { 3 }, Members("@Bob and @Ann", Bob, otherBob, Ann));
+	}
+
+	[Theory]
+	[InlineData("@Bob", true)]
+	[InlineData("hi @Bob", true)]
+	[InlineData("hi,@Bob", true)]
+	[InlineData("(@Bob)", true)]
+	[InlineData("mail@Bob", false)]
+	[InlineData("mail@Bob.com", false)]
+	[InlineData("1@Bob", false)]
+	[InlineData("👍@Bob", false)]
+	public void AMentionStartsOnlyAtTheStartOrAfterWhitespaceOrPunctuation(string content, bool mentioned)
+	{
+		Assert.Equal(mentioned ? new long[] { 1 } : Array.Empty<long>(), Members(content, Bob));
+	}
+
+	[Fact]
+	public void AWrongTagOnTheLongestNameMentionsNobodyAndNeverFallsBackToAShorterName()
+	{
+		Assert.Empty(Members("@Bob Smith#99 hi", Bob, BobSmith));
+		Assert.Equal(new long[] { 2 }, Members("@Bob Smith#7 hi", Bob, BobSmith));
+		// without a tag the longest member name still wins
+		Assert.Equal(new long[] { 2 }, Members("@Bob Smith hi", Bob, BobSmith));
+		// an outsider of the longest name with another tag mentions nobody either
+		Assert.Empty(ChatMentions.Resolve("@Bob Smith#99", [Bob], [new ChatMentions.Named(21, "Bob Smith", 3)]));
+		// an outsider is never the longest name of a mention written without a tag
+		Assert.Equal(new long[] { 21, 1 }, ChatMentions.Resolve("@Bob Smith#3 and @Bob Smith hi", [Bob], [new ChatMentions.Named(21, "Bob Smith", 3)]));
 	}
 
 	[Fact]
@@ -205,6 +234,17 @@ public class ChatMentionsTests
 		long bob = await AddUser(probe, "Bob", 42);
 		long carl = await AddUser(probe, "Carl", 7);
 		await AddUser(probe, "Carl", 8);
+		long gone = await AddUser(probe, "Gone", 1);
+		long banned = await AddUser(probe, "Banned", 1);
+		long served = await AddUser(probe, "Served", 1);
+		await using (AppDbContext setup = probe.Open())
+		{
+			await setup.Users.Where(u => u.ID == gone).ExecuteUpdateAsync(set => set.SetProperty(u => u.State, UserStates.Deactivated));
+			DateTime now = DateTime.UtcNow;
+			setup.Sanctions.Add(new Sanction { UserID = banned, Type = SanctionTypes.Ban, Reason = "test", CreatedAt = now });
+			setup.Sanctions.Add(new Sanction { UserID = served, Type = SanctionTypes.Ban, Reason = "test", CreatedAt = now.AddDays(-2), ExpiresAt = now.AddDays(-1) });
+			await setup.SaveChangesAsync();
+		}
 
 		await using AppDbContext db = probe.Open();
 		string content = "@Ann Lee @Carl#0007 @Carl @Bob";
@@ -212,6 +252,8 @@ public class ChatMentionsTests
 		Assert.Equal(new[] { ann, carl, bob }, await ChatMentions.ResolveAsync(db, content, [ann, bob], outsidersByTag: true));
 		Assert.Equal(new[] { ann, bob }, await ChatMentions.ResolveAsync(db, content, [ann, bob], outsidersByTag: false));
 		Assert.Empty(await ChatMentions.ResolveAsync(db, "@Carl#0009 @Dan#0001", [ann, bob], outsidersByTag: true));
+		// a deactivated or banned outsider never resolves; a ban that ran out no longer counts
+		Assert.Equal(new[] { served }, await ChatMentions.ResolveAsync(db, "@Gone#1 @Banned#1 @Served#1", [ann, bob], outsidersByTag: true));
 	}
 
 	// mentions is stored with the message and every history read returns it; a message without any keeps the column null

@@ -27,17 +27,25 @@ namespace GenOnlineService.Realtime
 		internal static MentionThrottle Throttle { get; } = new MentionThrottle(TimeProvider.System);
 
 		// The mentioned users to notify, in mention order: online, outside the channel, not blocked either way with the author
-		// and admitted by the throttle. Offline users get nothing, now or later.
+		// and admitted by the throttle. Offline users get nothing, now or later. Every mentioned user outside the channel spends
+		// the author's budget, notified or not.
 		public static long[] Recipients(long author, long channelID, IReadOnlyList<long> mentions, Func<long, MentionPresence> presenceOf, IReadOnlySet<long> blocked, MentionThrottle throttle)
 		{
 			List<long> recipients = new();
+			HashSet<long> seen = new();
 			foreach (long userID in mentions)
 			{
-				if (userID == author || recipients.Contains(userID) || presenceOf(userID) != MentionPresence.Outside || blocked.Contains(userID))
+				if (userID == author || !seen.Add(userID))
 				{
 					continue;
 				}
-				if (throttle.TryAdmit(author, userID, channelID))
+				MentionPresence presence = presenceOf(userID);
+				if (presence == MentionPresence.InChannel)
+				{
+					continue;
+				}
+				bool reachable = presence == MentionPresence.Outside && !blocked.Contains(userID);
+				if (throttle.TryAdmit(author, userID, channelID, reachable))
 				{
 					recipients.Add(userID);
 				}
@@ -75,7 +83,8 @@ namespace GenOnlineService.Realtime
 		}
 	}
 
-	// At most one MentionCreate per user per channel per 30 s and at most 5 per author per minute; a refused notice spends neither
+	// At most one MentionCreate per user per channel per 30 s and at most 5 outsider mentions per author per minute. Every outsider
+	// mention spends the author's budget whether or not a notice goes out; only a sent notice starts the recipient's window.
 	internal sealed class MentionThrottle
 	{
 		public static readonly TimeSpan RecipientWindow = TimeSpan.FromSeconds(30);
@@ -93,30 +102,30 @@ namespace GenOnlineService.Realtime
 			m_clock = clock;
 		}
 
-		public bool TryAdmit(long author, long recipient, long channelID)
+		// Spends one of the author's outsider mentions; true when a notice to the reachable recipient may go out
+		public bool TryAdmit(long author, long recipient, long channelID, bool reachable)
 		{
 			lock (m_lock)
 			{
 				DateTimeOffset now = m_clock.GetUtcNow();
 				Sweep(now);
 
-				if (m_lastNotice.TryGetValue((recipient, channelID), out DateTimeOffset last) && now - last < RecipientWindow)
+				if (!m_byAuthor.TryGetValue(author, out Queue<DateTimeOffset>? spent))
+				{
+					spent = new Queue<DateTimeOffset>();
+					m_byAuthor[author] = spent;
+				}
+				Expire(spent, now);
+				if (spent.Count >= AuthorLimit)
 				{
 					return false;
 				}
+				spent.Enqueue(now);
 
-				if (!m_byAuthor.TryGetValue(author, out Queue<DateTimeOffset>? sent))
-				{
-					sent = new Queue<DateTimeOffset>();
-					m_byAuthor[author] = sent;
-				}
-				Expire(sent, now);
-				if (sent.Count >= AuthorLimit)
+				if (!reachable || (m_lastNotice.TryGetValue((recipient, channelID), out DateTimeOffset last) && now - last < RecipientWindow))
 				{
 					return false;
 				}
-
-				sent.Enqueue(now);
 				m_lastNotice[(recipient, channelID)] = now;
 				return true;
 			}

@@ -294,14 +294,15 @@ namespace GenOnlineService.Realtime
 		{
 			try
 			{
-				// the block read is spent only when someone could be notified
-				if (!mentions.Any(id => id != author && MentionNotices.PresenceOf(id, channelID) == MentionPresence.Outside))
+				// every outsider spends the author's budget; the block read is spent only when someone could be notified
+				Dictionary<long, MentionPresence> presence = mentions.Where(id => id != author).Distinct().ToDictionary(id => id, id => MentionNotices.PresenceOf(id, channelID));
+				if (presence.Values.All(p => p == MentionPresence.InChannel))
 				{
 					return;
 				}
 
-				HashSet<long> blocked = (await BlockedEitherWayOfAsync(author)).ToHashSet();
-				long[] recipients = MentionNotices.Recipients(author, channelID, mentions, id => MentionNotices.PresenceOf(id, channelID), blocked, MentionNotices.Throttle);
+				HashSet<long> blocked = presence.Values.Any(p => p == MentionPresence.Outside) ? (await BlockedEitherWayOfAsync(author)).ToHashSet() : new HashSet<long>();
+				long[] recipients = MentionNotices.Recipients(author, channelID, mentions, id => presence.GetValueOrDefault(id, MentionPresence.InChannel), blocked, MentionNotices.Throttle);
 				await MentionNotices.SendAsync(message, recipients, RealtimeOut.User);
 			}
 			catch (Exception ex)

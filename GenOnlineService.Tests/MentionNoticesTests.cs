@@ -127,15 +127,23 @@ public class MentionNoticesTests
 	}
 
 	[Fact]
-	public void ARecipientStillWithinItsWindowDoesNotSpendTheAuthorsBudget()
+	public void EveryOutsiderMentionSpendsTheAuthorsBudgetEvenWithoutANotice()
 	{
 		ManualClock clock = new ManualClock();
 		MentionThrottle throttle = new MentionThrottle(clock);
-		Dictionary<long, MentionPresence> online = Enumerable.Range(10, 6).ToDictionary(i => (long)i, _ => MentionPresence.Outside);
+		Dictionary<long, MentionPresence> online = new()
+		{
+			[10] = MentionPresence.Outside,
+			[12] = MentionPresence.Outside,
+			[13] = MentionPresence.Outside,
+			[14] = MentionPresence.Outside,
+			[20] = MentionPresence.InChannel,
+		};
 
-		Assert.Equal(new long[] { 10 }, Recipients([10], online, throttle));
-		// 10 is still within its window and costs nothing, so four more fill the author's five per minute and 15 is left out
-		Assert.Equal(new long[] { 11, 12, 13, 14 }, Recipients([10, 11, 12, 13, 14, 15], online, throttle));
+		// 20 is in the channel and costs nothing
+		Assert.Equal(new long[] { 10 }, Recipients([20, 10], online, throttle));
+		// 10 within its window, 11 offline and 12 blocked get no notice but each spends one, so 13 is the fifth and 14 is left out
+		Assert.Equal(new long[] { 13 }, Recipients([10, 11, 12, 13, 14], online, throttle, Channel, 12));
 	}
 
 	private static async Task<long> AddUser(ProbeDatabase probe, string name)
