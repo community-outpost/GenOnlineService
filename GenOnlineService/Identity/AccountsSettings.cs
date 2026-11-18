@@ -202,6 +202,39 @@ namespace GenOnlineService.Identity
 		// Agreements (top-level section): the documents each account agrees to before playing (S19)
 		public AgreementsSettings Agreements { get; init; } = new();
 
+		// The faction key art behind the sign-in pages, from the Generals Online design: one of these is picked per visit,
+		// shown grey and dark under a vignette
+		public static readonly IReadOnlyList<string> DefaultCoverImages = ["/portal/faction-usa.webp", "/portal/faction-china.webp", "/portal/faction-gla.webp"];
+
+		// Accounts:cover_images, a list of public paths on this service. The faction art when the setting is missing; a
+		// configured list replaces it, and an empty one (an empty array, or an empty value) leaves the plain dark ground.
+		public List<string> CoverImages { get; init; } = new(DefaultCoverImages);
+
+		// The cover setting: missing means the default; every entry must be a path on this service, since a page that names
+		// another host would hand every visitor's address to it
+		internal static List<string> ReadCoverImages(IConfigurationSection section)
+		{
+			if (!section.Exists())
+			{
+				return new(DefaultCoverImages);
+			}
+			var paths = new List<string>();
+			foreach (string? entry in section.GetChildren().Select(c => c.Value).Append(section.Value))
+			{
+				string path = (entry ?? String.Empty).Trim();
+				if (path.Length == 0)
+				{
+					continue;
+				}
+				if (!path.StartsWith('/') || path.StartsWith("//", StringComparison.Ordinal) || path.StartsWith("/\\", StringComparison.Ordinal) || path.Any(Char.IsWhiteSpace) || path.Contains('"') || path.Contains('\''))
+				{
+					throw new InvalidOperationException($"Accounts:cover_images entries must be paths on this service, such as /portal/faction-usa.webp. \"{path}\" is not.");
+				}
+				paths.Add(path);
+			}
+			return paths;
+		}
+
 		public IEnumerable<UpstreamProviderSettings> EnabledProviders => Providers.Where(p => p.Enabled);
 
 		// Core:enforce_https, true when missing: https-only cookies and OpenIddict transport security here, HSTS and the
@@ -279,7 +312,8 @@ namespace GenOnlineService.Identity
 				Clients = clients,
 				Providers = providers,
 				Password = PasswordSignInSettings.Read(section.GetSection("password")),
-				Agreements = AgreementsSettings.Read(config.GetSection("Agreements"))
+				Agreements = AgreementsSettings.Read(config.GetSection("Agreements")),
+				CoverImages = ReadCoverImages(section.GetSection("cover_images"))
 			};
 		}
 	}
