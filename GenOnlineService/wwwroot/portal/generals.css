@@ -2733,6 +2733,11 @@ select.gp-input { width: auto; min-width: 240px; }
 .gp-rules { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .gp-rules li { display: flex; gap: 10px; align-items: flex-start; padding: var(--go-space-2) var(--go-space-3); border-radius: var(--go-radius-md); background: var(--go-color-bg-surface); font-size: var(--go-font-size-sm); color: var(--go-color-text-primary); }
 .gp-rules svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--go-color-accent-default); }
+/* every rule group on one page: a title with its icon over the group's intro and rules */
+.gp-rule-group { display: flex; flex-direction: column; gap: var(--go-space-2); }
+.gp-rule-group + .gp-rule-group { padding-block-start: var(--go-space-4); border-block-start: 1px solid var(--go-color-border-subtle); }
+.gp-rule-title { display: flex; align-items: center; gap: var(--go-space-2); margin: 0; font-family: var(--go-font-display); font-size: var(--go-font-size-md); font-weight: var(--go-font-weight-semibold); color: var(--go-color-text-primary); }
+.gp-rule-title svg { flex: none; width: 18px; height: 18px; color: var(--go-color-accent-default); }
 
 /* the account shell: the top bar never changes, the sidebar belongs to the area, one centred column */
 .gp-shell { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; font-size: var(--go-font-size-sm); }
