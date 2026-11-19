@@ -145,8 +145,14 @@ namespace GenOnlineService
 
 				if (parsed.Command == "delete")
 				{
-					// a banned account keeps its mailbox and provider ids as hashes made with the device key
-					DeviceHasher.Initialize(DeviceHasher.GetKeyPath(WebApplication.CreateBuilder(Array.Empty<string>()).Configuration));
+					// a banned account keeps its mailbox and provider ids as hashes made with the service's device key; a key this
+					// command made itself would never match, so a missing key stops it
+					string keyPath = DeviceHasher.GetKeyPath(WebApplication.CreateBuilder(Array.Empty<string>()).Configuration);
+					if (!File.Exists(keyPath))
+					{
+						throw new CliException($"The device HMAC key is not at {keyPath}. Run this on the service's host with its configuration (Devices:hmac_key_path).");
+					}
+					DeviceHasher.Initialize(keyPath);
 					var actor = new Database.ModerationActor { Kind = AuditActorKinds.Cli, Name = CliActor(), Source = ModerationSources.Cli };
 					// the running service picks up the deactivated account on its 5 second access reload and ends its connections
 					ErasureResult erased = await AccountErasure.Erase(db, parsed.UserID, actor, parsed.Reason, live: false);

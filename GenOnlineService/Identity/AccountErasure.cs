@@ -96,7 +96,7 @@ namespace GenOnlineService.Identity
 			{
 				await db.SaveChangesAsync(cancellationToken);
 			}
-			catch (DbUpdateException)
+			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
 			{
 				await transaction.RollbackAsync(cancellationToken);
 				db.ChangeTracker.Clear();

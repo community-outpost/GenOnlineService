@@ -129,6 +129,16 @@ public class IdentifierHashesTests
 
 		// the shared mailbox stays taken for a new account
 		Assert.False((await SignUp(Users(probe), "o.l.d.p.l.a.y.e.r@gmail.com")).Succeeded);
+
+		// both older accounts keep working: every Identity update (stamp, failed sign-ins, password) validates the user again
+		UserManager<User> users = Users(probe);
+		foreach (long id in new[] { first, second })
+		{
+			User account = (await users.FindByIdAsync(id.ToString()))!;
+			Assert.True((await users.UpdateSecurityStampAsync(account)).Succeeded);
+			Assert.True((await users.AccessFailedAsync(account)).Succeeded);
+			Assert.True((await users.ResetAccessFailedCountAsync(account)).Succeeded);
+		}
 	}
 
 	[ProbeTheory]

@@ -117,6 +117,12 @@ namespace GenOnlineService.Identity
 			{
 				return false;
 			}
+			// an account that already holds this mailbox keeps it: Identity validates on every update (stamp, failed sign-ins),
+			// and accounts from before the rule may share one
+			if (await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.UserID == userID && h.SanctionID == null, cancellationToken))
+			{
+				return false;
+			}
 			return await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.UserID != userID, cancellationToken);
 		}
 
