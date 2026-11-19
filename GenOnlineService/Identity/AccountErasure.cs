@@ -47,8 +47,8 @@ namespace GenOnlineService.Identity
 	// Erasure of an account on request (Privacy Policy, "Your rights"). The users row stays as a tombstone under the same id,
 	// so matches, ratings, stats, leaderboards and sanctions keep pointing at it; every personal field is cleared and the name
 	// becomes a neutral one. The player's name leaves their matches (replay files are not touched). While a ban is active, the
-	// canonical mailbox and every sign-in provider id are kept only as keyed hashes (IdentifierHashes) so the same person
-	// cannot sign up again unbanned with that mailbox (in any spelling) or provider id, and the device rows stay without their raw value or address for evasion matching;
+	// exact email address and every sign-in provider id are kept only as keyed hashes (IdentifierHashes) so the same address
+	// or provider id cannot sign up again unbanned, and the device rows stay without their raw value or address for evasion matching;
 	// IdentifierHashes.PurgeEndedHolds removes the hashes once no ban is active, the device purge the devices 90 days later.
 	// Moderation records stay for their own retention: sanctions, their evidence, the staff log, reports, anti-cheat reports
 	// and automated rule matches.
@@ -192,7 +192,7 @@ namespace GenOnlineService.Identity
 			return renamed;
 		}
 
-		// What a ban needs of an erased account, as hashes: the canonical mailbox and each provider id, tied to the longest active
+		// What a ban needs of an erased account, as hashes: the exact address and each provider id, tied to the longest active
 		// ban. The device rows stay for evasion matching (by value_hmac) but lose the raw value and the address.
 		private static async Task HoldForBan(AppDbContext db, Int64 userID, string? email, DateTime now, CancellationToken cancellationToken)
 		{

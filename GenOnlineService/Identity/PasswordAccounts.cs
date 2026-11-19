@@ -231,8 +231,9 @@ namespace GenOnlineService.Identity
 		}
 	}
 
-	// Identity's own user validator assumes unique user names; display names are not (Name#tag), and a mailbox is no
-	// identity: more than one account may share one. The only refusal is a mailbox a ban holds (IdentifierHashes)
+	// Identity's own user validator assumes unique user names; display names are not (Name#tag), and an address is only a
+	// login identifier: it is unique per account (case and width folded), a +tag or a dot makes another one, and an address a ban
+	// holds is refused (IdentifierHashes)
 	public sealed class GoUserValidator : IUserValidator<User>
 	{
 		public const string DuplicateEmail = nameof(IdentityErrorDescriber.DuplicateEmail);
@@ -260,7 +261,7 @@ namespace GenOnlineService.Identity
 				return IdentityResult.Success;
 			}
 
-			// the address is the login identifier, so another account already using it refuses this one; the mailbox may be shared
+			// the address is the login identifier, so another account already using it refuses this one
 			if (await Database.Users.AddressHeldByOther(db, normalized, user.ID))
 			{
 				return IdentityResult.Failed(new IdentityError { Code = DuplicateEmail, Description = "This email address is already used by another account." });

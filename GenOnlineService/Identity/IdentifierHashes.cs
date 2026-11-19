@@ -23,10 +23,10 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace GenOnlineService.Identity
 {
-	// A keyed hash of something a ban holds: for an erased account under an active ban, its canonical mailbox (a +tag or Gmail's
-	// dots do not make another one) and each sign-in provider id, so the same person cannot sign up again while the ban lasts.
-	// Only the hash is stored; the key is the device HMAC key (DeviceHasher). A live account keeps no hash: its exact address
-	// stays in users.email and is unique there (users.email_normalized); the mailbox form matters only to a ban.
+	// A keyed hash of something a ban holds: for an erased account under an active ban, its exact email address and each
+	// sign-in provider id, so the same address or provider id cannot sign up again while the ban lasts. Only the hash is
+	// stored; the key is the device HMAC key (DeviceHasher). A live account keeps no hash: its address stays in users.email
+	// and is held by address uniqueness, not here.
 	public class IdentifierHash
 	{
 		public const int KindMaxLength = 48;
@@ -51,7 +51,7 @@ namespace GenOnlineService.Identity
 		{
 			builder.ToTable("identifier_hashes");
 			builder.HasKey(e => e.ID);
-			// a lookup path for the holds; not unique: several banned accounts may hold the same mailbox or provider id
+			// a lookup path for the holds; not unique: several banned accounts may hold the same address or provider id
 			// (each ban keeps its own hold)
 			builder.HasIndex(e => new { e.Kind, e.ValueHmac }).HasDatabaseName("ix_identifier_hashes_kind_value");
 			builder.HasIndex(e => e.UserID).HasDatabaseName("ix_identifier_hashes_user");
@@ -76,70 +76,27 @@ namespace GenOnlineService.Identity
 
 	public static class IdentifierHashes
 	{
-		private const string GmailDomain = "gmail.com";
-
-		// One mailbox, one form: lower case, the +tag of the local part dropped (Gmail, Outlook, iCloud, Proton and Fastmail
-		// all deliver it to the base address), and for Gmail the dots of the local part dropped and googlemail.com read as
-		// gmail.com. Null for a value that is not an address.
-		public static string? CanonicalEmail(string? email)
-		{
-			string trimmed = (email ?? String.Empty).Trim().Normalize(NormalizationForm.FormKC).ToLowerInvariant();
-			int at = trimmed.LastIndexOf('@');
-			if (at <= 0 || at == trimmed.Length - 1)
-			{
-				return null;
-			}
-
-			string local = trimmed.Substring(0, at);
-			string domain = trimmed.Substring(at + 1);
-			int plus = local.IndexOf('+');
-			if (plus >= 0)
-			{
-				local = local.Substring(0, plus);
-			}
-			if (domain == "googlemail.com")
-			{
-				domain = GmailDomain;
-			}
-			if (domain == GmailDomain)
-			{
-				local = local.Replace(".", String.Empty);
-			}
-			return local.Length == 0 ? null : local + "@" + domain;
-		}
-
 		public static byte[] Hash(string kind, string value) => DeviceHasher.HashIdentifier(kind + "\n" + value);
 
-		public static byte[]? EmailHash(string? email) => CanonicalEmail(email) is string canonical ? Hash(HashedIdentifierKinds.Email, canonical) : null;
+		// The exact address, in the same form login uses (EmailNormalized). No mailbox grouping: a +tag or a dot is a
+		// different address. Null for no address.
+		public static byte[]? EmailHash(string? email) =>
+			String.IsNullOrWhiteSpace(email) ? null : Hash(HashedIdentifierKinds.Email, NameNormalizer.Normalize(email));
 
-		// A mailbox a ban holds: an erased account's hash kept while its ban lasts, or a live account under an active ban. A
-		// mailbox used by an unbanned live account is free, so more than one account may share it. `exceptUserID` lets an
-		// account keep its own address while it changes another one.
+		// An address a ban holds: an erased account keeps a keyed hash of its exact address while its ban lasts, so that
+		// address cannot sign up again. A live banned account's address is held by its row (address uniqueness), not here.
+		// `exceptUserID` lets an account keep its own address while it changes another one.
 		public static async Task<bool> EmailHeldByBan(AppDbContext db, string? email, Int64 exceptUserID, DateTime utcNow, CancellationToken cancellationToken = default)
 		{
-			string? canonical = CanonicalEmail(email);
-			if (canonical == null)
+			byte[]? hash = EmailHash(email);
+			if (hash == null)
 			{
 				return false;
 			}
 
 			IQueryable<Int64> banned = Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, utcNow).Select(s => s.UserID);
-			byte[] hash = Hash(HashedIdentifierKinds.Email, canonical);
-
-			// the hold an erased account kept while its ban lasts
-			if (await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.SanctionID != null
-				&& h.UserID != exceptUserID && banned.Contains(h.UserID), cancellationToken))
-			{
-				return true;
-			}
-
-			// a live account under an active ban holds its mailbox in users.email; no hash is kept for it
-			List<string?> addresses = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, utcNow)
-				.Where(s => s.UserID != exceptUserID)
-				.Join(db.Users.AsNoTracking().Where(u => u.Email != null && u.ID != exceptUserID), s => s.UserID, u => u.ID, (s, u) => u.Email)
-				.Distinct()
-				.ToListAsync(cancellationToken);
-			return addresses.Any(address => String.Equals(CanonicalEmail(address), canonical, StringComparison.Ordinal));
+			return await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.SanctionID != null
+				&& h.UserID != exceptUserID && banned.Contains(h.UserID), cancellationToken);
 		}
 
 		// A provider id an erased, banned account kept: signing in with it again is refused while the ban lasts

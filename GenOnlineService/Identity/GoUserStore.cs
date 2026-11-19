@@ -84,8 +84,8 @@ namespace GenOnlineService.Identity
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
 			user.CreatedAt = user.UpdatedAt = DateTime.UtcNow;
 
-			// the address is the login identifier and the mailbox may be shared: the account commits only if no other account
-			// uses this address and no ban holds its mailbox. The checks and the account row share one transaction, so a refused
+			// the address is the login identifier, with no mailbox logic: the account commits only if no other account uses
+			// this exact address and no ban holds it. The checks and the account row share one transaction, so a refused
 			// sign-up leaves nothing behind.
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 			if (await Database.Users.AddressHeldByOther(db, user.EmailNormalized, user.ID, cancellationToken))
