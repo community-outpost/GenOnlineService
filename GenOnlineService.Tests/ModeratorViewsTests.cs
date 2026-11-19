@@ -201,7 +201,7 @@ public class ModeratorViewsTests
 		long matchID;
 		await using (AppDbContext db = probe.Open())
 		{
-			var match = new global::Match { Name = "old game", MapName = "Alpine Assault", IsOfficialMap = true, StartedAt = started };
+			var match = new global::Match { Id = 7101, Name = "old game", MapName = "Alpine Assault", IsOfficialMap = true, StartedAt = started };
 			db.Matches.Add(match);
 			await db.SaveChangesAsync();
 			matchID = match.Id;
