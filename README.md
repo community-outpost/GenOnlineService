@@ -153,7 +153,7 @@ The `Mail` section sends account mail (email confirmation and password reset lin
 - `Mail:from` (required unless `none`): the sending address. `Mail:from_name` (default `Generals Online`), `Mail:reply_to` (optional address), `Mail:timeout_seconds` (1 to 120, default 15)
 - `smtp` (MailKit): `Mail:smtp:host` (required), `Mail:smtp:security` `starttls` (default), `tls` or `none` (a relay on the same host or network only), `Mail:smtp:port` (default 587, or 465 with `tls`), `Mail:smtp:user` and `Mail:smtp:password` (both or neither)
 - `brevo`: `Mail:brevo:api_key`. `resend`: `Mail:resend:api_key`. `mailgun`: `Mail:mailgun:api_key`, `Mail:mailgun:domain` (the sending domain) and `Mail:mailgun:region` `us` (default) or `eu`. `cloudflare` (Cloudflare Email Service, beta): `Mail:cloudflare:api_token` (a token allowed to send) and `Mail:cloudflare:account_id`
-- Example (Brevo): `Accounts__issuer=https://login.generals.online/`, `Mail__delivery_method=brevo`, `Mail__from=no-reply@generals.online`, `Mail__from_name=Generals Online`, `Mail__brevo__api_key` from the secret store
+- Example (Brevo): `Accounts__issuer=https://login.generals.online/`, `Mail__delivery_method=brevo`, `Mail__from=noreply@generals.online`, `Mail__from_name=Generals Online`, `Mail__brevo__api_key` from the secret store
 - Mails are MJML templates compiled in the service (`GenOnlineService/Mail/Templates`), each with a plain-text part; their links point at `Accounts:issuer`. The name in a mail is the player's Name#tag, or the address while a name is still owed
 - `GenOnlineService mail test <email address>` sends one test mail through the configured method and prints whether the provider accepted it: exit 0 sent, 1 not configured or refused (the reason printed), 2 a bad command line
 
