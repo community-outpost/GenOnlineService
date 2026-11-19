@@ -625,10 +625,10 @@ public class AdminAreaTests
 		{
 			// two finished today, one finished yesterday, one still running
 			seed.Matches.AddRange(
-				new global::Match { Name = "today 1", StartedAt = dayStart.AddHours(-1), FinishedAt = dayStart },
-				new global::Match { Name = "today 2", StartedAt = dayStart, FinishedAt = dayStart.AddSeconds(1) },
-				new global::Match { Name = "yesterday", StartedAt = dayStart.AddHours(-3), FinishedAt = dayStart.AddHours(-2) },
-				new global::Match { Name = "running", StartedAt = dayStart });
+				new global::Match { Id = 1, Name = "today 1", StartedAt = dayStart.AddHours(-1), FinishedAt = dayStart },
+				new global::Match { Id = 2, Name = "today 2", StartedAt = dayStart, FinishedAt = dayStart.AddSeconds(1) },
+				new global::Match { Id = 3, Name = "yesterday", StartedAt = dayStart.AddHours(-3), FinishedAt = dayStart.AddHours(-2) },
+				new global::Match { Id = 4, Name = "running", StartedAt = dayStart });
 			for (int i = 0; i < 4; i++)
 			{
 				seed.PlayerReports.Add(new PlayerReport

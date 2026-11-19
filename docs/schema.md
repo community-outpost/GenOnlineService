@@ -199,7 +199,7 @@ New match ids are 48 bit snowflakes made by the service (`MatchIds.cs`): 32 bits
 
 Each service copy holds one row of `match_id_workers`. `reserved_until` is the last second (since the same epoch) the holder may put into an id; the copy moves it ahead with an `UPDATE` conditioned on its `generation` when it needs a later second. A copy takes a row only once its `reserved_until` is in the past, with an `UPDATE` conditioned on the `generation` and `reserved_until` it read (so a take read before the holder's extension loses), raises `generation` and starts at the next second, so a copy that stopped or paused can no longer extend it and the ids of the two never meet, whatever their clocks say. The statements are portable and need no database clock. The migration seeds all 32 rows free.
 
-`matches.id` keeps its identity / `AUTO_INCREMENT` in this release so a copy from before the switch still writes matches next to a migrated database; the service always sets the id itself. A later release drops it. On MySQL/MariaDB an insert with an explicit id raises the `AUTO_INCREMENT` counter, so nothing may insert a match without an id once snowflakes are in use.
+`matches.id` has no identity / `AUTO_INCREMENT` since the migration `MatchIdsWithoutIdentity`: the service always sets the id, and an insert without one fails instead of taking a value next to a snowflake. The release before it kept the identity so a copy from before the switch could still write matches during a handover. On MySQL the migration drops and re-adds the foreign keys of `match_players` and `match_publications`, since MySQL refuses to change a referenced column.
 
 ### Players and devices
 

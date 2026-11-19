@@ -1424,11 +1424,8 @@ namespace GenOnlineService.Migrations.MySql
             modelBuilder.Entity("Match", b =>
                 {
                     b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
                         .HasColumnName("id");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("AllowObservers")
                         .HasColumnType("tinyint(1)")

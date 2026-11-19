@@ -17,6 +17,7 @@
 */
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Xunit;
 
 namespace GenOnlineService.Tests;
@@ -162,46 +163,75 @@ public class MatchIdWorkersProbeTests
 		Assert.Equal(1_000 + Window, (await Row(probe, a.WorkerID)).ReservedUntil);
 	}
 
+	// The column's identity / AUTO_INCREMENT, read from the catalog: true while the database still picks ids
+	private static async Task<bool> MatchIdIsGenerated(AppDbContext db)
+	{
+		string sql = db.Database.IsNpgsql()
+			? "SELECT is_identity AS \"Value\" FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'matches' AND column_name = 'id'"
+			: "SELECT extra AS `Value` FROM information_schema.columns WHERE table_schema = database() AND table_name = 'matches' AND column_name = 'id'";
+		string value = await db.Database.SqlQueryRaw<string>(sql).SingleAsync();
+		return value.Equals("YES", StringComparison.OrdinalIgnoreCase) || value.Contains("auto_increment", StringComparison.OrdinalIgnoreCase);
+	}
+
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task MatchesStoreSnowflakeIdsNextToSequentialOnes(string provider)
+	public async Task TheImportSequenceCheckPassesOnAFullyMigratedDatabase(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
 
-		// a match written before the switch keeps its sequential id
-		long sequential;
+		// the import checks every table it lists for an identity; matches has none since MatchIdsWithoutIdentity, and an imported match must not fail it
+		await using AppDbContext db = probe.Open();
+		db.Matches.Add(NewMatch("imported", 41));
+		await db.SaveChangesAsync();
+		await db.Database.OpenConnectionAsync();
+		Assert.True(await Database.Import.VerifySequences(db, new Database.ImportReport()));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task DroppingTheIdentityKeepsEveryMatchAndItsPlayers(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider, migrate: false);
+		Assert.NotNull(probe);
+
+		// the database as the previous release left it: snowflake ids next to sequential ones, the column still generated
 		await using (AppDbContext db = probe.Open())
 		{
-			Match old = NewMatch("before the switch");
-			db.Matches.Add(old);
-			await db.SaveChangesAsync();
-			sequential = old.Id;
+			string previous = db.Database.GetMigrations().Single(m => m.EndsWith("_MatchIdWorkers", StringComparison.Ordinal));
+			await db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(previous);
+			Assert.True(await MatchIdIsGenerated(db));
 		}
 
 		MatchIdGenerator generator = new MatchIdGenerator(new DatabaseMatchIdWorkerStore(new ProbeFactory(probe)), TimeProvider.System, "probe");
-		long[] snowflakes = { await generator.NextAsync(), await generator.NextAsync() };
+		long sequential = 7;
+		long snowflake = await generator.NextAsync();
 		await using (AppDbContext db = probe.Open())
 		{
-			db.Matches.AddRange(snowflakes.Select((id, i) => NewMatch($"snowflake {i}", id)));
+			Match old = NewMatch("before the switch", sequential);
+			old.Players.Add(new MatchPlayer { Slot = 0, Team = 1 });
+			db.Matches.AddRange(old, NewMatch("snowflake", snowflake));
+			await db.SaveChangesAsync();
+		}
+
+		await using (AppDbContext db = probe.Open())
+		{
+			await db.Database.MigrateAsync();
+			Assert.False(await MatchIdIsGenerated(db));
+		}
+
+		long next = await generator.NextAsync();
+		await using (AppDbContext db = probe.Open())
+		{
+			db.Matches.Add(NewMatch("after the drop", next));
 			await db.SaveChangesAsync();
 		}
 
 		await using (AppDbContext db = probe.Open())
 		{
 			List<long> newestFirst = await db.Matches.AsNoTracking().OrderByDescending(m => m.Id).Select(m => m.Id).ToListAsync();
-			Assert.Equal(new[] { snowflakes[1], snowflakes[0], sequential }, newestFirst);
-			Assert.True(sequential < snowflakes[0]);
-		}
-
-		if (provider == "postgres")
-		{
-			// an older copy that still lets the database pick the id gets the next sequence value, never a snowflake
-			await using AppDbContext db = probe.Open();
-			Match fromOldCopy = NewMatch("old copy after the switch");
-			db.Matches.Add(fromOldCopy);
-			await db.SaveChangesAsync();
-			Assert.Equal(sequential + 1, fromOldCopy.Id);
+			Assert.Equal(new[] { next, snowflake, sequential }, newestFirst);
+			Assert.Equal(1, await db.MatchPlayers.CountAsync(p => p.MatchId == sequential));
 		}
 	}
 }
