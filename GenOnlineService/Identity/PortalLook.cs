@@ -339,7 +339,7 @@ namespace GenOnlineService.Identity
 			string input = $"<input id=\"{E(id)}\" class=\"gp-input{(large ? " gp-input-lg" : String.Empty)}{(code ? " gp-code" : String.Empty)}\"{describedBy} {attributes}{valueAttribute}>";
 			if (suffix != null)
 			{
-				input = $"<div class=\"gp-input-wrap\">{input}<span id=\"{E(id)}-suffix\" class=\"gp-suffix\" dir=\"ltr\"{(suffixLabel == null ? String.Empty : $" aria-label=\"{E(suffixLabel)}\"")}>{E(suffix)}</span></div>";
+				input = $"<div class=\"gp-input-wrap\">{input}<span id=\"{E(id)}-suffix\" class=\"gp-suffix\"{(suffixLabel == null ? String.Empty : $" aria-label=\"{E(suffixLabel)}\"")}><bdi dir=\"ltr\">{E(suffix)}</bdi></span></div>";
 			}
 			string labelHtml = aside == null ? $"<label for=\"{E(id)}\" class=\"gp-label\">{E(label)}</label>"
 				: $"<div class=\"gp-label-row\"><label for=\"{E(id)}\" class=\"gp-label\">{E(label)}</label>{aside}</div>";

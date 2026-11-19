@@ -232,7 +232,8 @@ public class PortalLookTests
 			Assert.Contains("fill=\"#4285F4\"", page); // Google's own colours
 			Assert.Contains($"src=\"{PortalAssets.Url(PortalLook.GameReplaysLogoPath)}\"", page);
 			Assert.Contains("gp-prov gp-prov-discord", page);
-			Assert.Contains("<span id=\"f-suffix\" class=\"gp-suffix\" dir=\"ltr\">#0042</span>", page);
+			// the suffix follows the page direction, so it sits at the inline end in right to left pages, and only the tag reads left to right
+			Assert.Contains("<span id=\"f-suffix\" class=\"gp-suffix\"><bdi dir=\"ltr\">#0042</bdi></span>", page);
 			Assert.Contains("aria-describedby=\"f-suffix f-hint\"", page);
 			AssertGpClassesDefined(page);
 			AssertSelfContained(page);
