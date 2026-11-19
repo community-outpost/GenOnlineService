@@ -322,8 +322,8 @@ namespace Database
 		}
 	}
 
-	// A stored device as staff see it: a short fingerprint of the keyed hash, never a raw value
-	// Key is the whole keyed hash for the investigation search, ValueRaw stays on the host to look up a MAC vendor
+	// A stored device as staff see it: a short fingerprint of the keyed hash. Key is the whole keyed hash for the
+	// investigation search; ValueRaw looks up a MAC vendor and leaves the host only on an audited reveal (inspection ?raw=true)
 	public sealed record InspectedDevice(string Kind, string Fingerprint, DateTime FirstSeenAt, DateTime LastSeenAt, string? LastIp, string Key, string? ValueRaw);
 
 	public sealed record InspectedAddress(string Ip, string? Country, DateTime FirstSeenAt, DateTime LastSeenAt, int Events);

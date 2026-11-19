@@ -391,8 +391,9 @@ namespace GenOnlineService.Rest
 		}
 
 		// Sign-ins, devices, addresses and possible duplicates, after one audit row an hour per staff member and player;
-		// addresses carry their GeoIP facts and MAC addresses their vendor, without enrichment the files of the service are used
-		public static async Task<Result<PortalInspection>> InspectAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, long userID, CancellationToken cancellationToken = default, StaffEnrichment? enrichment = null)
+		// addresses carry their GeoIP facts and MAC addresses their vendor, without enrichment the files of the service are used.
+		// With raw the devices also carry the value the client sent, after a device_reveal audit row on every call
+		public static async Task<Result<PortalInspection>> InspectAsync(IDbContextFactory<AppDbContext> dbFactory, Database.ModerationActor actor, long userID, CancellationToken cancellationToken = default, StaffEnrichment? enrichment = null, bool raw = false)
 		{
 			enrichment ??= new StaffEnrichment(MaxMindAddressDirectory.Default, OuiRegistry.Default);
 			await using AppDbContext db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -407,6 +408,12 @@ namespace GenOnlineService.Rest
 			List<UserIdentity> identities = await db.Identities.AsNoTracking().Where(i => i.UserID == userID).OrderBy(i => i.Provider).ToListAsync(cancellationToken);
 			Database.LastSession? last = await Database.StaffInspection.GetLastSession(db, userID, cancellationToken);
 			List<Database.InspectedDevice> devices = await Database.StaffInspection.GetDevices(db, userID, cancellationToken);
+			if (raw)
+			{
+				// every reveal is a row, unlike the inspection window; a failed write shows nothing
+				await Database.Moderation.AddAuditEntry(db, actor, ModerationActions.DeviceReveal, AuditTargetKinds.User, userID, null,
+					new { devices = devices.Count(d => d.ValueRaw != null) });
+			}
 			List<Database.InspectedAddress> addresses = await Database.StaffInspection.GetAddresses(db, userID, cancellationToken);
 			List<Database.DuplicateAccount> duplicates = await Database.StaffInspection.GetDuplicates(db, userID, cancellationToken);
 
@@ -431,7 +438,9 @@ namespace GenOnlineService.Rest
 					LastSeenAt = d.LastSeenAt,
 					LastIp = d.LastIp,
 					Key = d.Key,
-					Vendor = enrichment.VendorOf(d.Kind, d.ValueRaw)
+					Vendor = enrichment.VendorOf(d.Kind, d.ValueRaw),
+					HasValue = d.ValueRaw != null,
+					Value = raw ? d.ValueRaw : null
 				}).ToList(),
 				Addresses = addresses.Select(a =>
 				{
@@ -531,15 +540,16 @@ namespace GenOnlineService.Rest
 			return ApiResults.Answer(player);
 		}
 
-		// The personal data of a player, players.inspect and audited before it is read
+		// The personal data of a player, players.inspect and audited before it is read; ?raw=true adds the raw device
+		// values, which only admins and owners hold players.inspect for, and writes a device_reveal row on every call
 		[AllowSignInCookie]
 		[Authorize(Policy = PermissionPolicies.Prefix + Permissions.PlayersInspect)]
 		[EndpointSummary("Reads the devices and addresses of a player account.")]
 		[ProducesResponseType<PortalInspection>(StatusCodes.Status200OK)]
 		[HttpGet("~/api/v1/players/{userID:long}/inspection")]
-		public async Task<IActionResult> Inspect(long userID)
+		public async Task<IActionResult> Inspect(long userID, [FromQuery] bool raw = false)
 		{
-			return ApiResults.Answer(await StaffPlayerActions.InspectAsync(m_dbFactory, CallerActors.Of(User), userID, HttpContext.RequestAborted, StaffEnrichment.Of(HttpContext.RequestServices)));
+			return ApiResults.Answer(await StaffPlayerActions.InspectAsync(m_dbFactory, CallerActors.Of(User), userID, HttpContext.RequestAborted, StaffEnrichment.Of(HttpContext.RequestServices), raw));
 		}
 	}
 }

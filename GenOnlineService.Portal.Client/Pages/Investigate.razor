@@ -66,6 +66,26 @@ else
                             <CountryFlag Country="@found.Value" />
                         }<span class="bb:font-mono">@(Key != null ? found.Value[..8] : found.Value)</span></BbCardTitle>
                     <BbCardDescription>@Describe(found)</BbCardDescription>
+                    @if (Key != null)
+                    {
+                        @if (found.RawValue != null)
+                        {
+                            <p class="bb:text-sm" data-testid="investigate-raw">Value <span class="bb:font-mono">@found.RawValue</span> (this reveal is in the audit log)</p>
+                        }
+                        else if (m_raw)
+                        {
+                            <p class="bb:text-sm go-muted" data-testid="investigate-raw">The service never kept the value of this device, only its keyed hash.</p>
+                        }
+                        else
+                        {
+                            <div>
+                                <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" OnClick="Reveal" data-testid="investigate-reveal">
+                                    <LucideIcon Name="eye" Class="bb:h-4 bb:w-4" />
+                                    Show value
+                                </BbButton>
+                            </div>
+                        }
+                    }
                 </BbCardHeader>
                 <BbCardContent>
                     <BbDataTable TData="PortalInvestigationAccount" Data="@found.Accounts" ShowToolbar="false" ShowPagination="false" AriaLabel="Accounts">
@@ -130,6 +150,8 @@ else
     private PortalInvestigation? m_found;
     private string? m_error;
     private bool m_loading;
+    // the shown answer carries the raw value of the device key, each reveal is a device_reveal audit row
+    private bool m_raw;
 
     // The layout renders pages only once the session is known
     private PortalSessionInfo Session => Api.Session!;
@@ -175,6 +197,7 @@ else
         m_typed = Key == null ? Value : null;
         m_found = null;
         m_error = null;
+        m_raw = false;
         if (!Session.Can(PortalPermissions.PlayersInspect) || (String.IsNullOrWhiteSpace(Value) && Key == null))
         {
             return;
@@ -185,6 +208,25 @@ else
         m_loading = false;
         m_found = answer.Value;
         m_error = answer.Ok ? null : answer.Error;
+    }
+
+    // the same search again with the value of the device, the host writes a device_reveal audit row for it
+    private async Task Reveal()
+    {
+        if (Key == null)
+        {
+            return;
+        }
+        PortalAnswer<PortalInvestigation> answer = await Api.InvestigateAsync(m_kind, null, Key, Page, PerPage, raw: true);
+        if (answer.Ok)
+        {
+            m_found = answer.Value;
+            m_raw = true;
+        }
+        else
+        {
+            m_error = answer.Error;
+        }
     }
 
     private void Search()
