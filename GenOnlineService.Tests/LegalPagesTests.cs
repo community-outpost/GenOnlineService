@@ -42,7 +42,8 @@ public class LegalPagesTests
 		if (probe == null) return;
 		var browser = new AccountsBrowser(probe, new Dictionary<string, string?>());
 
-		foreach ((string path, string title) in new[] { (LegalPages.RulesPath, "Rules of Engagement"), (LegalPages.TermsPath, "Terms of Service"), (LegalPages.PrivacyPath, "Privacy Policy") })
+		// support answers players, security@ takes reports and legal@ notices; the privacy page names the controller's own address
+		foreach ((string path, string title, string contacts) in new[] { (LegalPages.RulesPath, "Rules of Engagement", "support@generals.online|security@generals.online"), (LegalPages.TermsPath, "Terms of Service", "support@generals.online|legal@generals.online|arcticdolphin@generals.online"), (LegalPages.PrivacyPath, "Privacy Policy", "arcticdolphin@generals.online") })
 		{
 			PageResponse page = await browser.Get(path);
 			Assert.Equal(200, page.Status);
@@ -52,7 +53,10 @@ public class LegalPagesTests
 			Assert.Contains("<footer class=\"gp-footer\">", page.Body);
 			Assert.Contains("class=\"gp-lang\"", page.Body);
 			Assert.Contains("<div class=\"gp-doc\" lang=\"en\" dir=\"ltr\">", page.Body);
-			Assert.Contains("support@generals.online", page.Body);
+			foreach (string contact in contacts.Split('|'))
+			{
+				Assert.Contains(contact, page.Body);
+			}
 			Assert.DoesNotContain("draft", page.Body, StringComparison.OrdinalIgnoreCase);
 			Assert.DoesNotContain("TODO", page.Body);
 			Assert.DoesNotContain("<!--", page.Body);
