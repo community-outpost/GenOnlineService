@@ -271,6 +271,7 @@ public class AgreementPagesTests
 		// without agreements configured the section is not there
 		AccountsBrowser plain = await AgreementGateTests.Browser(probe);
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(plain, "profiled@example.org", "a long enough password")).Status);
-		Assert.DoesNotContain("Rules of Engagement", (await plain.Get("/profile")).Body);
+		// (the footer still links the rules, the built-in page)
+		Assert.DoesNotContain("The rules and terms you agreed to on this environment.", (await plain.Get("/profile")).Body);
 	}
 }

@@ -56,14 +56,6 @@ public class AgreementsTests
 		Assert.Empty(settings.Required);
 	}
 
-	// a document with a version only: the url is required, so a player can read what they agree to
-	[Fact]
-	public void AVersionWithoutAUrlStopsTheStart()
-	{
-		var error = Assert.Throws<InvalidOperationException>(() => Read(("Agreements:rules:version", "1")));
-		Assert.Equal("Agreements:rules:url is required when Agreements:rules:version is set: players must be able to read what they agree to.", error.Message);
-	}
-
 	[Theory]
 	[InlineData("18.11.2026")]
 	[InlineData("2026-13-01")]

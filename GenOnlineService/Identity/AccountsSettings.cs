@@ -312,7 +312,7 @@ namespace GenOnlineService.Identity
 				Clients = clients,
 				Providers = providers,
 				Password = PasswordSignInSettings.Read(section.GetSection("password")),
-				Agreements = AgreementsSettings.Read(config.GetSection("Agreements")),
+				Agreements = AgreementsSettings.Read(config.GetSection("Agreements"), section.GetValue<string>("issuer")),
 				CoverImages = ReadCoverImages(section.GetSection("cover_images"))
 			};
 		}

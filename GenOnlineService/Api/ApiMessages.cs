@@ -111,6 +111,19 @@ namespace GenOnlineService.Api
 		public long SanctionId { get; init; }
 	}
 
+	// The match whose screenshots of the sanctioned player the sanction relies on
+	public sealed record HoldEvidenceRequest
+	{
+		public long? MatchId { get; init; }
+	}
+
+	// The evidence/ keys the sanction now holds for that match, and the screenshots already gone (past their 90 days)
+	public sealed record HoldEvidenceResponse
+	{
+		public IReadOnlyList<string> Held { get; init; } = [];
+		public int Missing { get; init; }
+	}
+
 	// A sanction as staff see it, created_by is null when a tool or a sign-in provider created it
 	public sealed record SanctionInfo
 	{

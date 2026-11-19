@@ -1428,7 +1428,8 @@ namespace Database
 					continue;
 				}
 
-				candidates.Add((user, email, NameNormalizer.Normalize(email)));
+				// grouped by mailbox, as the service compares them (one account per person): a +tag or Gmail's dots are the same one
+				candidates.Add((user, email, GenOnlineService.Identity.IdentifierHashes.CanonicalEmail(email) ?? NameNormalizer.Normalize(email)));
 			}
 
 			foreach (var group in candidates.GroupBy(c => c.Normalized))

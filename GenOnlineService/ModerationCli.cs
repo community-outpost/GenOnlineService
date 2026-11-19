@@ -37,7 +37,8 @@ namespace GenOnlineService
 			"Usage:\n"
 			+ "  GenOnlineService bans list <user_id>\n"
 			+ "  GenOnlineService bans add <user_id> --reason <text> [--days <n>] [--by <user_id>]\n"
-			+ "  GenOnlineService bans revoke <user_id> [--reason <text>] [--by <user_id>]";
+			+ "  GenOnlineService bans revoke <user_id> [--reason <text>] [--by <user_id>]\n"
+			+ "  GenOnlineService bans evidence <sanction_id> --match <match_id> [--by <user_id>]";
 
 		private const string ReportsUsage =
 			"Usage:\n"
@@ -231,12 +232,56 @@ namespace GenOnlineService
 
 		public static Task<int> RunBans(string[] args) => Run(async () =>
 		{
-			Arguments parsed = Parse(args, BansUsage, "--reason", "--days", "--by");
+			Arguments parsed = Parse(args, BansUsage, "--reason", "--days", "--by", "--match");
 			string verb = parsed.Positional.FirstOrDefault()?.ToLowerInvariant() ?? String.Empty;
 
-			if (parsed.Positional.Count != 2 || (verb != "list" && verb != "add" && verb != "revoke"))
+			if (parsed.Positional.Count != 2 || (verb != "list" && verb != "add" && verb != "revoke" && verb != "evidence"))
 			{
 				throw new CliException(BansUsage);
+			}
+
+			// any sanction, kicks and mutes included: copies the player's screenshots of the match to evidence/, kept until 90
+			// days after the sanction ends
+			// the options are shared by the verbs: one a verb does not use is refused, never ignored
+			if (verb != "evidence" && parsed.Options.ContainsKey("--match"))
+			{
+				throw new CliException($"--match is for bans evidence only.{Environment.NewLine}{BansUsage}");
+			}
+			if (verb == "evidence" && (parsed.Options.ContainsKey("--days") || parsed.Options.ContainsKey("--reason")))
+			{
+				throw new CliException($"bans evidence takes --match and --by only.{Environment.NewLine}{BansUsage}");
+			}
+
+			if (verb == "evidence")
+			{
+				if (!Int64.TryParse(parsed.Positional[1], NumberStyles.None, CultureInfo.InvariantCulture, out Int64 sanctionID) || sanctionID <= 0)
+				{
+					throw new CliException($"Not a sanction id: {parsed.Positional[1]}");
+				}
+				if (!parsed.Options.TryGetValue("--match", out string? matchText) || !Int64.TryParse(matchText, NumberStyles.None, CultureInfo.InvariantCulture, out Int64 matchID) || matchID <= 0)
+				{
+					throw new CliException("Name the match whose screenshots the sanction relies on (--match <match_id>).");
+				}
+
+				await using AppDbContext db = await OpenDatabase();
+				Program.g_Config ??= WebApplication.CreateBuilder(Array.Empty<string>()).Configuration;
+				S3CredentialManager.Initialize();
+				EvidenceResult result = await Database.SanctionEvidenceStore.HoldMatchScreenshots(db, S3CredentialManager.Store, sanctionID, matchID, ParseActor(parsed), DateTime.UtcNow);
+				switch (result.Outcome)
+				{
+					case EvidenceOutcome.Held:
+						Console.WriteLine($"Sanction #{sanctionID} holds {result.Held.Count} screenshot(s) of match {matchID}, {result.Missing} already gone.");
+						foreach (string key in result.Held)
+						{
+							Console.WriteLine($"  {key}");
+						}
+						return 0;
+					case EvidenceOutcome.SanctionNotFound: throw new CliException($"Sanction {sanctionID} does not exist.");
+					case EvidenceOutcome.MatchNotFound: throw new CliException($"Match {matchID} does not exist.");
+					case EvidenceOutcome.NotInMatch: throw new CliException($"The sanctioned player did not play in match {matchID}.");
+					case EvidenceOutcome.HoldOver: throw new CliException($"Sanction {sanctionID} ended more than 90 days ago, its evidence is no longer kept.");
+					default: throw new CliException("Match data uploads are off (MatchData:upload_match_data), so there is no bucket to copy from.");
+				}
 			}
 
 			Int64 userID = ParseUserID(parsed.Positional[1]);

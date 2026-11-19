@@ -87,7 +87,7 @@ user_roles
   granted_by varchar(64) null, granted_at, reason varchar(512) null
   pk (user_id, role, source)
 
-sanctions                 -- never purged
+sanctions                 -- retention: purged 2 years after it ended (lifted or expired); an active permanent ban is kept
   id, user_id, type varchar(16) ('kick' | 'mute' | 'ban'), source varchar(32) ('local' | 'upstream:<provider>'),
   reason varchar(512) null, created_by_kind varchar(16), created_by_id bigint null, created_at,
   expires_at null, lifted_at null, lifted_by_kind varchar(16) null, lifted_by_id bigint null,
@@ -96,10 +96,36 @@ sanctions                 -- never purged
   -- kick: expires_at = created_at, never active; mute: expires_at required; ban: null expires_at is permanent
   -- several active sanctions per user allowed; the longest lasting ban decides what the player sees
 
-audit_log                 -- append-only, no retention purge
+audit_log                 -- append-only, purged 2 years after created_at
   id, created_at, actor_kind varchar(16) ('user' | 'cli' | 'discord' | 'service_account' | 'upstream'; upstream rows: actor = provider name),
   actor_id bigint null, actor varchar(64), action varchar(64), target_kind varchar(16) ('user' | 'service_account' | 'token' | 'client'),
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
+  index (target_kind, target_id), index (created_at)
+
+identifier_hashes         -- keyed HMACs (the device key) of what identifies a person, never the value itself
+  id, user_id, kind varchar(48) ('email' | 'provider:<name>', any configured provider), value_hmac binary(32),
+  sanction_id bigint null, created_at
+  unique (kind, value_hmac), index (user_id)
+  -- email: one row per account with an address, of its canonical form (lower case, +tag dropped, Gmail dots dropped and
+  -- googlemail.com read as gmail.com); sign-up and email changes are refused when another account holds it (one account
+  -- per person). The account and its row commit in one transaction, so of two sign-ups with one mailbox at the same moment
+  -- the unique index lets one through. Imported accounts are hashed by a startup backfill; the import keeps each mailbox on one
+  -- account. sanction_id set: kept by an erased account for its ban (the mailbox and every provider id);
+  -- a provider sign-in with a held id is refused as deactivated. Retention: those rows go once no ban on the account is active
+
+erased_accounts           -- one row per account erased on request (AccountErasure, docs/identity.md section 7); the users row
+                          -- stays as a tombstone under the same id, so matches, ratings and sanctions keep it
+  user_id pk, erased_at
+
+sanction_evidence         -- retention: the row and its object go 90 days after the sanction ended (lifted or expired),
+                          -- or when the sanction is gone; an object another sanction still holds stays
+  id, sanction_id, user_id, match_id, object_key varchar(256), created_at, created_by_id bigint null
+  unique (sanction_id, object_key), index (object_key)
+  -- a screenshot a sanction relies on: screenshots/ objects expire after 90 days (filer TTL), so staff copy the
+  -- sanctioned player's screenshots of a match to evidence/<same key> (no TTL, the service deletes it). The copy is a GET
+  -- then PUT of the bytes, never an S3 CopyObject, which may carry the source's TTL. A copy another sanction made is
+  -- shared; the purge checks right before each delete that no holding sanction still has the key. No foreign key, like the other
+  -- moderation tables
                           -- source: where the action came in, for example 'api' (REST), 'realtime' (hub), 'discord', 'cli', 'import', 'startup_sweep'
 ```
 
@@ -190,7 +216,7 @@ devices                   id, user_id, kind varchar(16) ('machine_guid' | 'mac' 
                           value_hmac binary(32), value_raw varchar(64) null, first_seen_at, last_seen_at,
                           last_ip varchar(45) null
                           unique (user_id, kind, value_hmac)
-                          -- retention: purged 180 days after last_seen_at
+                          -- retention: purged 90 days after last_seen_at, kept while the account has an active ban
 
 session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | 'end' | 'denied'),
                           result varchar(32), client varchar(32), client_version varchar(32),
@@ -201,7 +227,7 @@ session_events            id, user_id, kind varchar(16) ('start' | 'refresh' | '
 
 `devices.value_hmac` is HMAC-SHA-256 with a per-deployment key (`Devices:hmac_key_path`). Equality lookups for ban evasion still work; a plain SHA-256 of a MAC or volume serial is reversible by brute force. The key can never rotate without rehashing, so it is created once and must outlive the cluster: the official deployment creates it once with OpenTofu (outpost-infra `opentofu/genonline`), keeps it in OpenBao, which backs it up with its snapshots, never rotates it, and mounts it read-only. If the file is missing and the path is writable, the service creates a new key, so every copy must read the same mounted file.
 
-`devices.value_raw` is the value the client sent, upper-cased, as the old `hwid_3..5` columns held it. Purpose: staff review of ban evasion and anti-cheat reports. It is personal data: it leaves with the row 180 days after the device was last seen, and it is null on rows whose raw value was never known. Matching always uses `value_hmac`.
+`devices.value_raw` is the value the client sent, upper-cased, as the old `hwid_3..5` columns held it. Purpose: staff review of ban evasion and anti-cheat reports. It is personal data: it leaves with the row 90 days after the device was last seen (later while a ban on the account is active), and it is null on rows whose raw value was never known. Matching always uses `value_hmac`.
 
 ### Matches and stats
 
