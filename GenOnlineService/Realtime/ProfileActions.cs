@@ -72,6 +72,11 @@ namespace GenOnlineService.Realtime
 		// plugin's NameRules.check rule, both sides lower-cased with Java's Locale.ROOT rules, then a substring match.
 		public static string? ReservedWordIn(string name)
 		{
+			// the name of an erased account must not be taken by a live player
+			if (AccountErasure.IsTombstoneShaped(name))
+			{
+				return "deleted";
+			}
 			return TextRules.TextChecks.RefusedNameWord(name);
 		}
 	}

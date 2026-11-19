@@ -319,7 +319,8 @@ namespace GenOnlineService
 			long blockSequence = RealtimeBlocks.Sequence;
 			(string Name, int Tag) name = await Database.DisplayNames.Get(_db, ownerID) ?? (String.Empty, 0);
 			string strDisplayName = name.Name;
-			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
+			// strCountry may be the lobby fallback; the record holds only a country GeoIP knows
+			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, Realtime.GeoLocation.KnownCountry(ipAddr), bIsReconnect);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
 			UserSession? userCacheData = WebSocketManager.GetSessionFromUser(ownerID, sessionType);
@@ -2015,7 +2016,12 @@ namespace GenOnlineService
 			};
 
 			m_s3client = new AmazonS3Client(access_key, secret_key, config);
+			s_store = new GenOnlineService.Service.S3MatchDataStore(m_s3client, bucket_name);
 		}
+
+		// The bucket the service reads and writes itself, null while match data uploads are off
+		public static GenOnlineService.Service.IMatchDataStore? Store => s_store;
+		private static GenOnlineService.Service.IMatchDataStore? s_store;
 
 		private static void GetS3Config(out int TTL, out string access_key, out string secret_key, out string bucket_name, out string endpoint)
 		{

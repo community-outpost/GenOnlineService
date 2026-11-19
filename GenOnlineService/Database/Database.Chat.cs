@@ -857,7 +857,8 @@ namespace Database
 		{
 			string conversationWithUser = DirectConversationKey(userId);
 
-			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+			// joins the caller's transaction (account erasure), else runs in its own
+			await using var transaction = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
 
 			int removed = await db.ChatMessages.Where(m => m.SenderID == userId).ExecuteDeleteAsync(cancellationToken);
 			removed += await db.ChatReadMarkers.Where(r => r.UserID == userId || r.Conversation == conversationWithUser).ExecuteDeleteAsync(cancellationToken);
@@ -873,7 +874,10 @@ namespace Database
 				}
 			}
 
-			await transaction.CommitAsync(cancellationToken);
+			if (transaction != null)
+			{
+				await transaction.CommitAsync(cancellationToken);
+			}
 			return removed;
 		}
 

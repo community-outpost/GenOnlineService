@@ -117,6 +117,26 @@ namespace GenOnlineService.Realtime
 			}
 		}
 
+		// The country GeoIP knows for the address, else the country the network is registered in; null when neither is known,
+		// never the fallback. A sign-in records this, so staff never see the lobby fallback as the player's country.
+		public static string? KnownCountry(string ipAddress)
+		{
+			if (s_reader == null)
+			{
+				return null;
+			}
+
+			try
+			{
+				var city = s_reader.City(ipAddress);
+				return city.Country.IsoCode ?? city.RegisteredCountry.IsoCode;
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
 		public static GeoLocation Lookup(string ipAddress)
 		{
 			if (s_reader == null)

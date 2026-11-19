@@ -466,6 +466,40 @@ public class AdminAreaTests
 		Assert.Equal("Cleaned", (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!.Username);
 	}
 
+	// evidence for a sanction the caller may not give answers as if it did not exist, so its id leaks nothing
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task EvidenceForABanAModeratorCannotGiveLooksMissing(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var moderator = new AdminBrowser(probe);
+		await moderator.SignUp("Warden", "warden@example.org");
+		await AdminArea.Grant(probe, "warden@example.org", StaffRoles.Moderator);
+		long banID, muteID;
+		await using (AppDbContext db = probe.Open())
+		{
+			var banRow = new Sanction { UserID = 424242, Type = SanctionTypes.Ban, CreatedAt = DateTime.UtcNow };
+			var muteRow = new Sanction { UserID = 424242, Type = SanctionTypes.Mute, CreatedAt = DateTime.UtcNow, ExpiresAt = DateTime.UtcNow.AddDays(1) };
+			db.Sanctions.AddRange(banRow, muteRow);
+			await db.SaveChangesAsync();
+			(banID, muteID) = (banRow.ID, muteRow.ID);
+			await StaffRoles.Reload(db);
+		}
+
+		Dictionary<string, string> csrf = await moderator.Csrf();
+		PageResponse ban = await moderator.SendJson("POST", $"/api/v1/sanctions/{banID}/evidence", new { match_id = 1 }, csrf);
+		PageResponse none = await moderator.SendJson("POST", "/api/v1/sanctions/987654321/evidence", new { match_id = 1 }, csrf);
+		Assert.Equal(404, ban.Status);
+		Assert.Equal(none.Status, ban.Status);
+		Assert.Equal(none.Body, ban.Body);
+
+		// a mute the moderator may give is looked at: here the match does not exist
+		PageResponse mute = await moderator.SendJson("POST", $"/api/v1/sanctions/{muteID}/evidence", new { match_id = 1 }, csrf);
+		Assert.Equal(404, mute.Status);
+		Assert.Contains("match", mute.Body);
+	}
+
 	// IPs and devices need players.inspect: a player and a moderator get 403 and no audit row is written; an admin reads it
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
