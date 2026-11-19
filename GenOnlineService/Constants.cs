@@ -319,7 +319,8 @@ namespace GenOnlineService
 			long blockSequence = RealtimeBlocks.Sequence;
 			(string Name, int Tag) name = await Database.DisplayNames.Get(_db, ownerID) ?? (String.Empty, 0);
 			string strDisplayName = name.Name;
-			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, strCountry, bIsReconnect);
+			// strCountry may be the lobby fallback; the record holds only a country GeoIP knows
+			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr, client_id, Realtime.GeoLocation.KnownCountry(ipAddr), bIsReconnect);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
 			UserSession? userCacheData = WebSocketManager.GetSessionFromUser(ownerID, sessionType);
