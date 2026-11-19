@@ -216,7 +216,10 @@ else
                         @if (m_inspection is PortalInspection seen)
                         {
                             <p class="bb:text-sm" data-testid="last-address">
-                                Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@(seen.LastCountry != null ? $" ({seen.LastCountry})" : "")@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
+                                Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@if (seen.LastCountry != null)
+                                {
+                                    <text> (<CountryFlag Country="@seen.LastCountry" />@seen.LastCountry)</text>
+                                }@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
                             </p>
                         }
                         else
@@ -835,7 +838,7 @@ else
                                         <CellTemplate Context="address">
                                             @if (address.Country != null)
                                             {
-                                                <BbLink Href="@PortalRoutes.InvestigateOf("country", address.Country)">@address.Country</BbLink>
+                                                <CountryFlag Country="@address.Country" /><BbLink Href="@PortalRoutes.InvestigateOf("country", address.Country)">@address.Country</BbLink>
                                             }
                                         </CellTemplate>
                                     </BbDataTableColumn>

@@ -1311,6 +1311,13 @@ a.go-list-item:hover {
   white-space: nowrap;
 }
 
+/* a country flag beside its code: a regional-indicator emoji in the system's emoji font, nothing fetched */
+.go-flag {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
+  margin-inline-end: 0.25em;
+  line-height: 1;
+}
+
 /* the game config as a settings page: the groups as a sub-menu with a search above it, the chosen group as a form */
 .go-settings {
   display: grid;
