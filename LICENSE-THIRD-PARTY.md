@@ -25,6 +25,15 @@ The MAC vendor names of the staff pages come from the public listings of the IEE
 file records the retrieval date. The listings remain the IEEE's; their use is subject to the terms of use of the IEEE
 website (https://www.ieee.org/site-terms-conditions.html).
 
+## flag-icons (`GenOnlineService/wwwroot/portal/flags`)
+
+The country flags of the staff pages, served by the service itself:
+
+- Title: "flag-icons", by Panayiotis Lipiridis and contributors
+- Source: npm package `flag-icons` 7.6.0 (https://github.com/lipis/flag-icons), retrieved 2026-11-19
+- License: MIT; the license text is in `GenOnlineService/wwwroot/portal/flags/LICENSE`
+- Used: the 4:3 SVGs (`flags/4x3`) of the 250 codes `PortalText.CountryFlag` knows, unmodified
+
 ## MaxMind GeoLite2 (`GenOnlineService/data/GeoLite2-*.mmdb`)
 
 Not part of this repository or its image. The deployment downloads GeoLite2-City (and GeoLite2-ASN when configured) with
