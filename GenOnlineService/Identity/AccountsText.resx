@@ -135,6 +135,12 @@
   <data name="TwoFactor.Setup.Key" xml:space="preserve">
     <value>Key: {0}</value>
   </data>
+  <data name="TwoFactor.Setup.Scan" xml:space="preserve">
+    <value>Scan the code with your authenticator app, or type the key below — either way works.</value>
+  </data>
+  <data name="TwoFactor.Setup.QrLabel" xml:space="preserve">
+    <value>Authenticator setup QR code</value>
+  </data>
   <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
     <value>Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.</value>
   </data>
@@ -390,8 +396,11 @@
   <data name="Reset.Done.Body" xml:space="preserve">
     <value>Sign in with your new password. Every other sign-in of this account has ended.</value>
   </data>
-  <data name="Agreements.Card.Description" xml:space="preserve">
-    <value>Rule {0} of {1}</value>
+  <data name="Agreements.Rules.Title" xml:space="preserve">
+    <value>The rules</value>
+  </data>
+  <data name="Agreements.Rules.Description" xml:space="preserve">
+    <value>Read them once and agree to all of them.</value>
   </data>
   <data name="Agreements.Agree" xml:space="preserve">
     <value>Agree</value>
@@ -481,7 +490,7 @@
     <value>No cheating.</value>
   </data>
   <data name="Rules.fair_play.2" xml:space="preserve">
-    <value>No smurfing.</value>
+    <value>A sanction applies to every account you hold.</value>
   </data>
   <data name="Rules.fair_play.3" xml:space="preserve">
     <value>No win trading or boosting.</value>

@@ -160,20 +160,18 @@ public class LegalPagesTests
 		PageResponse gated = await browser.Get("/oauth/authorize" + AgreementGateTests.AuthorizeQuery);
 		Assert.StartsWith(AgreementGateTests.GatedPrefix, gated.Location);
 
+		// every rule on one page, whose link goes to the built-in rules
 		PageResponse page = await browser.Get(gated.Location!);
-		for (int card = 0; card < s_cards.Length; card++)
+		Assert.Equal(200, page.Status);
+		Assert.Contains($"<a href=\"{issuer}/legal/rules\" target=\"_blank\" rel=\"noopener noreferrer\">Read the full rules</a>", page.Body);
+		Dictionary<string, string> fields = new();
+		foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(page.Body, "<input type=\"hidden\" name=\"([^\"]+)\" value=\"([^\"]*)\">"))
 		{
-			Assert.Equal(200, page.Status);
-			Assert.Contains($"<a href=\"{issuer}/legal/rules#{s_cards[card]}\" target=\"_blank\" rel=\"noopener noreferrer\">Read the full rules</a>", page.Body);
-			Dictionary<string, string> fields = new();
-			foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(page.Body, "<input type=\"hidden\" name=\"([^\"]+)\" value=\"([^\"]*)\">"))
-			{
-				fields[WebUtility.HtmlDecode(match.Groups[1].Value)] = WebUtility.HtmlDecode(match.Groups[2].Value);
-			}
-			PageResponse agreed = await browser.Post("/users/agreements", fields);
-			Assert.Equal(302, agreed.Status);
-			page = await browser.Get(agreed.Location!);
+			fields[WebUtility.HtmlDecode(match.Groups[1].Value)] = WebUtility.HtmlDecode(match.Groups[2].Value);
 		}
+		PageResponse agreed = await browser.Post("/users/agreements", fields);
+		Assert.Equal(302, agreed.Status);
+		page = await browser.Get(agreed.Location!);
 
 		Assert.Contains("I agree to the Terms of Service", page.Body);
 		Assert.Contains($"href=\"{issuer}/legal/terms\"", page.Body);

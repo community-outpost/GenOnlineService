@@ -64,7 +64,7 @@ namespace GenOnlineService.Identity
 
 		public async Task<IdentityResult> CreateAsync(User user, CancellationToken cancellationToken)
 		{
-			// sign-ups waiting on one mailbox can deadlock (InnoDB); the one the database ends runs again and then finds it taken
+			// a deadlocked attempt (InnoDB) is rolled back by the database; the retry starts with a clean user row
 			const int DeadlockAttempts = 3;
 			for (int attempt = 1; ; attempt++)
 			{
@@ -84,9 +84,15 @@ namespace GenOnlineService.Identity
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
 			user.CreatedAt = user.UpdatedAt = DateTime.UtcNow;
 
-			// the account and its mailbox hash commit together: a second sign-up with the same mailbox at the same moment waits
-			// on the unique hash and fails, so it leaves no account behind (one account per person)
+			// the address is the login identifier, with no mailbox logic: the account commits only if no other account uses
+			// this exact address and no ban holds it. The checks and the account row share one transaction, so a refused
+			// sign-up leaves nothing behind.
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+			if (await Database.Users.AddressHeldByOther(db, user.EmailNormalized, user.ID, cancellationToken))
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return DuplicateAddress();
+			}
 			for (int attempt = 1; ; attempt++)
 			{
 				await Database.DisplayNames.AssignNewUser(db, user, attempt);
@@ -96,43 +102,41 @@ namespace GenOnlineService.Identity
 					await db.SaveChangesAsync(cancellationToken);
 					break;
 				}
-				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < Database.DisplayNames.NewUserAttempts)
-				{
-					// a look-alike sign-up took the same tag at the same moment, so pick another; EF rolled back to its savepoint
-					db.Entry(user).State = EntityState.Detached;
-				}
 				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
 				{
+					// EF rolled back to its savepoint. A concurrent sign-up may have taken this exact address (the unique index),
+					// which is not a name collision; otherwise a look-alike took the same tag, so pick another. The check runs on
+					// its own connection: on MySQL the transaction's snapshot predates the other sign-up's commit.
+					db.Entry(user).State = EntityState.Detached;
+					await using AppDbContext fresh = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+					if (await Database.Users.AddressHeldByOther(fresh, user.EmailNormalized, user.ID, cancellationToken))
+					{
+						await transaction.RollbackAsync(cancellationToken);
+						return DuplicateAddress();
+					}
+					if (attempt < Database.DisplayNames.NewUserAttempts)
+					{
+						continue;
+					}
+					await transaction.RollbackAsync(cancellationToken);
 					return IdentityResult.Failed(new IdentityError { Code = "DuplicateUserName", Description = "The username is taken." });
 				}
 			}
 
-			if (!await TryClaimEmail(db, user, newAccount: true, cancellationToken))
+			if (await IdentifierHashes.EmailHeldByBan(db, user.Email, user.ID, DateTime.UtcNow, cancellationToken))
 			{
 				await transaction.RollbackAsync(cancellationToken);
-				return DuplicateEmail();
+				return BannedAddress();
 			}
 			await transaction.CommitAsync(cancellationToken);
 			return IdentityResult.Success;
 		}
 
-		private static IdentityResult DuplicateEmail() =>
-			IdentityResult.Failed(new IdentityError { Code = GoUserValidator.DuplicateEmail, Description = "An account with this email address already exists." });
+		private static IdentityResult BannedAddress() =>
+			IdentityResult.Failed(new IdentityError { Code = GoUserValidator.DuplicateEmail, Description = "This email address cannot be used while a ban on it is active." });
 
-		// False when another account holds the mailbox (the unique hash refused it)
-		private static async Task<bool> TryClaimEmail(AppDbContext db, User user, bool newAccount, CancellationToken cancellationToken)
-		{
-			try
-			{
-				await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken, newAccount);
-				return true;
-			}
-			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
-			{
-				db.ChangeTracker.Clear();
-				return false;
-			}
-		}
+		private static IdentityResult DuplicateAddress() =>
+			IdentityResult.Failed(new IdentityError { Code = GoUserValidator.DuplicateEmail, Description = "This email address is already used by another account." });
 
 		public async Task<IdentityResult> UpdateAsync(User user, CancellationToken cancellationToken)
 		{
@@ -155,14 +159,27 @@ namespace GenOnlineService.Identity
 				return IdentityResult.Success;
 			}
 
-			// a new address and its mailbox hash commit together, as at sign-up
+			// a new address commits only if no other account uses it and no ban holds it, as at sign-up
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-			await db.SaveChangesAsync(cancellationToken);
-			db.ChangeTracker.Clear();
-			if (!await TryClaimEmail(db, user, newAccount: false, cancellationToken))
+			if (await Database.Users.AddressHeldByOther(db, user.EmailNormalized, user.ID, cancellationToken))
 			{
 				await transaction.RollbackAsync(cancellationToken);
-				return DuplicateEmail();
+				return DuplicateAddress();
+			}
+			try
+			{
+				await db.SaveChangesAsync(cancellationToken);
+			}
+			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return DuplicateAddress();
+			}
+			db.ChangeTracker.Clear();
+			if (await IdentifierHashes.EmailHeldByBan(db, user.Email, user.ID, DateTime.UtcNow, cancellationToken))
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return BannedAddress();
 			}
 			await transaction.CommitAsync(cancellationToken);
 			return IdentityResult.Success;

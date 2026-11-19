@@ -138,6 +138,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.HasIndex(e => new { e.UsernameNormalized, e.NameTag }).IsUnique().HasDatabaseName("ux_users_username_normalized_name_tag");
 		// closes the race between two look-alike names on one tag, which the code checks cannot
 		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
+		// the address is the password account's login identifier, so it is unique per account (like a provider id); the
+		// mailbox it belongs to may be shared, and only a ban holds a mailbox (IdentifierHashes)
 		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
 		// the staff player list's sorts (T17f): last seen newest first (a backward scan serves the other way), and creation
 		builder.HasIndex(e => new { e.LastSignInAt, e.ID }).IsDescending(true, true).HasDatabaseName("ix_users_last_sign_in_at");
@@ -267,6 +269,17 @@ namespace Database
 		private static readonly ILogger s_log = AppLog.For(typeof(Users));
 
 		private const int FavoriteMapMaxLength = 128;
+
+		// Another account already uses this exact address (the login identifier). The mailbox may be shared; erased accounts
+		// keep no address, and provider accounts have none, so neither holds one.
+		public static Task<bool> AddressHeldByOther(AppDbContext db, string? normalizedEmail, Int64 userID, CancellationToken cancellationToken = default)
+		{
+			if (normalizedEmail == null)
+			{
+				return Task.FromResult(false);
+			}
+			return db.Users.AsNoTracking().AnyAsync(u => u.EmailNormalized == normalizedEmail && u.ID != userID, cancellationToken);
+		}
 
 		public static async Task<Dictionary<long, EloData>> GetBulkELOData(AppDbContext db, List<long> userIds)
 		{

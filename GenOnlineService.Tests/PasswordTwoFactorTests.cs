@@ -121,6 +121,64 @@ public class PasswordTwoFactorTests
 		Assert.Equal(10, await db.UserRecoveryCodes.CountAsync(c => c.UserID == user.ID && c.UsedAt == null));
 	}
 
+	// the setup page draws the otpauth URI as an inline QR, and keeps the link and the key as fallbacks
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheSetupPageShowsAScannableQrCode(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		var browser = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
+		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, "Scanned", "scan@example.org", "the right password")).Status);
+
+		PageResponse setup = await browser.Get("/profile/two_factor_auth?ReturnUrl=%2Fdone");
+		Assert.Equal(200, setup.Status);
+
+		System.Text.RegularExpressions.Match link = Regex.Match(setup.Body, "<a href=\"(otpauth://[^\"]+)\"");
+		Assert.True(link.Success, "the setup page shows no otpauth link: " + setup.Body);
+		string uri = WebUtility.HtmlDecode(link.Groups[1].Value);
+
+		System.Text.RegularExpressions.Match svg = Regex.Match(setup.Body, "<svg class=\"gp-qr\".*?</svg>", RegexOptions.Singleline);
+		Assert.True(svg.Success, "the setup page shows no inline SVG QR code: " + setup.Body);
+		(bool[,] modules, _) = QrDecoder.MatrixFromSvg(svg.Value);
+		// the code in the page decodes back to the exact URI the link carries
+		Assert.Equal(uri, QrDecoder.Decode(modules).Text);
+
+		// the accessible name, the white card of the dark theme, and the alternatives below
+		Assert.Contains("<title>Authenticator setup QR code</title>", svg.Value);
+		Assert.Contains("aria-label=\"Authenticator setup QR code\"", svg.Value);
+		Assert.Contains("role=\"img\"", svg.Value);
+		Assert.Contains("<rect width=", svg.Value);
+		Assert.Contains("fill=\"#FFFFFF\"", svg.Value);
+		Assert.Contains("fill=\"#000000\"", svg.Value);
+		Assert.Contains("class=\"gp-qr-card\" dir=\"ltr\"", setup.Body);
+		Assert.Contains("Scan the code with your authenticator app", setup.Body);
+		Assert.Contains("<code dir=\"ltr\" class=\"gp-key\">", setup.Body);
+		Assert.Equal(KeyOf(setup), Regex.Match(uri, "secret=([A-Z2-7]+)").Groups[1].Value);
+		PortalLookTests.AssertGpClassesDefined(setup.Body);
+		PortalLookTests.AssertSelfContained(setup.Body);
+	}
+
+	// an account that already has two-factor on sees the manage page and no setup code
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AnEnabledAccountSeesNoSetupCode(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(string key, _) = await SetUp(probe, "enabled@example.org");
+		var browser = new AccountsBrowser(probe, PasswordPagesTests.Enabled());
+		Assert.Equal(302, (await PasswordPagesTests.SignIn(browser, "enabled@example.org", "the right password")).Status);
+		Assert.Equal(302, (await SecondFactor(browser, "code", Totp(key))).Status);
+
+		PageResponse manage = await browser.Get("/profile/two_factor_auth");
+
+		Assert.Equal(200, manage.Status);
+		Assert.Contains("Turn two-factor sign-in off", manage.Body);
+		Assert.DoesNotContain("gp-qr", manage.Body);
+		Assert.DoesNotContain("otpauth://", manage.Body);
+	}
+
 	// a wrong first code leaves two-factor sign-in off
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]

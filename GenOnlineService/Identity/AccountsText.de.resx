@@ -132,6 +132,12 @@
   <data name="TwoFactor.Setup.Key" xml:space="preserve">
     <value>Schlüssel: {0}</value>
   </data>
+  <data name="TwoFactor.Setup.Scan" xml:space="preserve">
+    <value>Scanne den Code mit deiner Authenticator-App oder gib den Schlüssel unten ein – beides funktioniert.</value>
+  </data>
+  <data name="TwoFactor.Setup.QrLabel" xml:space="preserve">
+    <value>QR-Code zum Einrichten der Authenticator-App</value>
+  </data>
   <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
     <value>Bewahre diese Wiederherstellungscodes sicher auf. Jeder meldet dich einmal ohne die App an; sie werden nicht noch einmal angezeigt.</value>
   </data>
@@ -387,8 +393,12 @@
   <data name="Reset.Done.Body" xml:space="preserve">
     <value>Melde dich mit deinem neuen Passwort an. Alle anderen Anmeldungen dieses Kontos wurden beendet.</value>
   </data>
-  <data name="Agreements.Card.Description" xml:space="preserve">
-    <value>Rule {0} of {1}</value>
+  <data name="Agreements.Rules.Title" xml:space="preserve">
+    <value>The rules</value>
+    <comment>TODO translate</comment>
+  </data>
+  <data name="Agreements.Rules.Description" xml:space="preserve">
+    <value>Read them once and agree to all of them.</value>
     <comment>TODO translate</comment>
   </data>
   <data name="Agreements.Agree" xml:space="preserve">
@@ -508,7 +518,7 @@
     <comment>TODO translate</comment>
   </data>
   <data name="Rules.fair_play.2" xml:space="preserve">
-    <value>No smurfing.</value>
+    <value>A sanction applies to every account you hold.</value>
     <comment>TODO translate</comment>
   </data>
   <data name="Rules.fair_play.3" xml:space="preserve">

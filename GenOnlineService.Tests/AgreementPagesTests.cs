@@ -49,10 +49,10 @@ public class AgreementPagesTests
 		return fields;
 	}
 
-	// The sign-in of a new player end to end: the name first, then the six cards, then the Terms, then the code
+	// The sign-in of a new player end to end: the name first, then all the rules on one page, then the Terms, then the code
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task AFirstSignInGoesNameCardsTermsThenPlays(string provider)
+	public async Task AFirstSignInGoesNameRulesTermsThenPlays(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
@@ -77,36 +77,34 @@ public class AgreementPagesTests
 		PageResponse gated = await browser.Get(Authorize);
 		Assert.Equal(Wizard, gated.Location);
 
+		// every rule on one page, with one Agree
 		PageResponse page = await browser.Get(gated.Location!);
-		for (int card = 0; card < s_cardTitles.Length; card++)
+		Assert.Equal(200, page.Status);
+		Assert.Contains("<h1 class=\"gp-title\">The rules</h1>", page.Body);
+		foreach (string title in s_cardTitles)
 		{
-			Assert.Equal(200, page.Status);
-			Assert.Contains($"<h1 class=\"gp-title\">{WebUtility.HtmlEncode(s_cardTitles[card])}</h1>", page.Body);
-			Assert.Contains($"Rule {card + 1} of 6", page.Body);
-			Assert.Contains($"href=\"{AgreementsTests.RulesUrl}\"", page.Body);
-			Assert.Contains("Read the full rules", page.Body);
-			Assert.Contains(">Agree</button>", page.Body);
-			Assert.DoesNotContain("type=\"checkbox\"", page.Body);
-			// the first card's one primary action is a large (48px) button, not a small one
-			Assert.Matches("<button type=\"submit\" class=\"gp-btn gp-btn-primary gp-btn-lg gp-btn-fill\">Agree</button>", page.Body);
-			if (card == 0)
-			{
-				Assert.Contains("Treat every player with respect, whether they are your teammate, your opponent or new to the game.", page.Body);
-				Assert.Contains("No doxxing.", page.Body);
-				// a first agreement shows no change notice
-				Assert.DoesNotContain("The rules changed", page.Body);
-			}
-			if (card == 5)
-			{
-				Assert.Contains("Found a security problem? Tell us privately.", page.Body);
-			}
-
-			PageResponse agreed = await AgreeCard(browser, page);
-			Assert.Equal(302, agreed.Status);
-			page = await browser.Get(agreed.Location!);
+			Assert.Contains($"<h2 class=\"gp-rule-title\">", page.Body);
+			Assert.Contains($"<span>{WebUtility.HtmlEncode(title)}</span>", page.Body);
 		}
+		Assert.Equal(s_cardTitles.Length, System.Text.RegularExpressions.Regex.Matches(page.Body, "<h2 class=\"gp-rule-title\">").Count);
+		Assert.Contains("Treat every player with respect, whether they are your teammate, your opponent or new to the game.", page.Body);
+		Assert.Contains("No doxxing.", page.Body);
+		Assert.Contains("Found a security problem? Tell us privately.", page.Body);
+		Assert.DoesNotContain("Rule 1 of 6", page.Body);
+		Assert.Contains($"href=\"{AgreementsTests.RulesUrl}\"", page.Body);
+		Assert.Contains("Read the full rules", page.Body);
+		Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(page.Body, ">Agree</button>").Count);
+		Assert.DoesNotContain("type=\"checkbox\"", page.Body);
+		Assert.Matches("<button type=\"submit\" class=\"gp-btn gp-btn-primary gp-btn-lg gp-btn-fill\">Agree</button>", page.Body);
+		// a first agreement shows no change notice
+		Assert.DoesNotContain("The rules changed", page.Body);
 
-		// nothing is recorded by the cards alone
+		PageResponse agreed = await AgreeCard(browser, page);
+		Assert.Equal(302, agreed.Status);
+		Assert.Contains("step=terms", agreed.Location);
+		page = await browser.Get(agreed.Location!);
+
+		// nothing is recorded by the rules page alone
 		await using (AppDbContext db = probe.Open())
 		{
 			Assert.False(await db.UserAgreements.AnyAsync(a => a.UserID == user.ID));
@@ -172,24 +170,10 @@ public class AgreementPagesTests
 		Assert.Contains("The rules changed on 2026-12-01.", page.Body);
 		Assert.Contains("Respect", page.Body);
 
-		for (int card = 0; card < s_cardTitles.Length; card++)
-		{
-			if (card > 0)
-			{
-				Assert.DoesNotContain("The rules changed", page.Body);
-			}
-			PageResponse agreed = await AgreeCard(browser, page);
-			Assert.Equal(302, agreed.Status);
-			if (card < s_cardTitles.Length - 1)
-			{
-				page = await browser.Get(agreed.Location!);
-			}
-			else
-			{
-				// no Terms step: the last card records the rules and goes back to the sign-in
-				Assert.Equal(Authorize, agreed.Location);
-			}
-		}
+		// no Terms step: the one rules page records the rules and goes back to the sign-in
+		PageResponse agreedAgain = await AgreeCard(browser, page);
+		Assert.Equal(302, agreedAgain.Status);
+		Assert.Equal(Authorize, agreedAgain.Location);
 		Assert.StartsWith("http://127.0.0.1/callback?code=", (await browser.Get(Authorize)).Location);
 		await using AppDbContext db = probe.Open();
 		Assert.True(await db.UserAgreements.AnyAsync(a => a.UserID == user.ID && a.Document == "rules" && a.Version == "2026-12"));
@@ -214,6 +198,28 @@ public class AgreementPagesTests
 		ticked["agree_terms"] = "1";
 		Assert.Equal(Authorize, (await browser.Post("/users/agreements", ticked)).Location);
 		Assert.StartsWith("http://127.0.0.1/callback?code=", (await browser.Get(Authorize)).Location);
+	}
+
+	// a page of the earlier card-by-card flow, open during a deploy, posts step=card: it still agrees to the rules
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task APageOfTheOldCardFlowStillAgrees(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser browser, User user) = await AgreementGateTests.SignedUp(probe, "Oldpage", AgreementsTests.Configured());
+		await AgreementGateTests.Agree(probe, user.ID, "terms", "1");
+
+		PageResponse page = await browser.Get(Wizard + "&card=3");
+		Assert.Equal(200, page.Status);
+		Assert.Contains("<h1 class=\"gp-title\">The rules</h1>", page.Body);
+		Dictionary<string, string> fields = HiddenFields(page);
+		fields["step"] = "card";
+		fields["card"] = "5";
+		Assert.Equal(Authorize, (await browser.Post("/users/agreements", fields)).Location);
+
+		await using AppDbContext db = probe.Open();
+		Assert.True(await db.UserAgreements.AnyAsync(a => a.UserID == user.ID && a.Document == "rules" && a.Version == "2026-11"));
 	}
 
 	// the Terms step records nothing unless the rules step came first: a post of the tick alone while the rules are owed
