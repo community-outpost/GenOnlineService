@@ -157,10 +157,10 @@ public class PasswordPagesTests
 		Assert.Equal(0, await db.Users.CountAsync());
 	}
 
-	// a second account with the same email address is refused
+	// a second account may use the same email address
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task AnEmailAddressHoldsOneAccount(string provider)
+	public async Task AnEmailAddressMayBackMoreThanOneAccount(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
@@ -168,10 +168,9 @@ public class PasswordPagesTests
 
 		PageResponse second = await SignUp(new AccountsBrowser(probe, Enabled()), "Second", "Same@Example.org", "another long password");
 
-		Assert.Equal(400, second.Status);
-		Assert.Contains("An account with this email address already exists.", second.Body);
+		Assert.Equal(302, second.Status);
 		await using AppDbContext db = probe.Open();
-		Assert.Equal(1, await db.Users.CountAsync());
+		Assert.Equal(2, await db.Users.CountAsync());
 	}
 
 	// a form posted without its antiforgery token changes nothing

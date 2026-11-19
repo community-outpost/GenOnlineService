@@ -1044,8 +1044,7 @@ namespace GenOnlineService.Migrations.MySql
                         .HasDatabaseName("ix_identifier_hashes_user");
 
                     b.HasIndex("Kind", "ValueHmac")
-                        .IsUnique()
-                        .HasDatabaseName("ux_identifier_hashes_kind_value");
+                        .HasDatabaseName("ix_identifier_hashes_kind_value");
 
                     b.ToTable("identifier_hashes", (string)null);
                 });
@@ -2777,8 +2776,7 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("ID");
 
                     b.HasIndex("EmailNormalized")
-                        .IsUnique()
-                        .HasDatabaseName("ux_users_email_normalized");
+                        .HasDatabaseName("ix_users_email_normalized");
 
                     b.HasIndex("CreatedAt", "ID")
                         .HasDatabaseName("ix_users_created_at");

@@ -35,8 +35,8 @@ internal static class IdentifierHashTestKey
 	internal static void Use() => DeviceHasher.Initialize(Path.Combine(Path.GetTempPath(), "gn_probe_device_hmac.key"));
 }
 
-// One account per person (2026-11-19): one mailbox written another way is the same mailbox; a deleted banned account keeps
-// its mailbox and provider ids only as keyed hashes while the ban lasts
+// A mailbox is no identity (2026-11-19): more than one live account may share one; only a mailbox a ban holds refuses a
+// new sign-up, and a deleted banned account keeps its mailbox and provider ids only as keyed hashes while the ban lasts
 public class IdentifierHashesTests
 {
 	private sealed class Factory : IDbContextFactory<AppDbContext>
@@ -59,6 +59,19 @@ public class IdentifierHashesTests
 	private static Task<IdentityResult> SignUp(UserManager<User> users, string email) =>
 		users.CreateAsync(new User { Username = "Player", Email = email, EmailNormalized = NameNormalizer.Normalize(email) }, "correct horse battery");
 
+	private static async Task Ban(ProbeDatabase probe, Int64 userID)
+	{
+		await using AppDbContext db = probe.Open();
+		db.Sanctions.Add(new Sanction { UserID = userID, Type = SanctionTypes.Ban, Reason = "cheating", CreatedAt = DateTime.UtcNow });
+		await db.SaveChangesAsync();
+	}
+
+	private static async Task LiftBan(ProbeDatabase probe, Int64 userID)
+	{
+		await using AppDbContext db = probe.Open();
+		await db.Sanctions.Where(s => s.UserID == userID).ExecuteUpdateAsync(s => s.SetProperty(x => x.LiftedAt, DateTime.UtcNow));
+	}
+
 	[Theory]
 	[InlineData("Jane.Doe+games@Gmail.com", "janedoe@gmail.com")]
 	[InlineData("jane.doe@googlemail.com", "janedoe@gmail.com")]
@@ -74,7 +87,7 @@ public class IdentifierHashesTests
 
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task OneMailboxHoldsOneAccount(string provider)
+	public async Task TwoLiveAccountsMayShareOneMailbox(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
@@ -83,59 +96,27 @@ public class IdentifierHashesTests
 		Assert.True((await SignUp(users, "jane.doe@gmail.com")).Succeeded);
 		foreach (string variant in new[] { "jane.doe+smurf@gmail.com", "JaneDoe@googlemail.com", "j.a.n.e.d.o.e@gmail.com" })
 		{
-			IdentityResult refused = await SignUp(users, variant);
-			Assert.False(refused.Succeeded, variant);
-			Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(refused.Errors).Code);
+			Assert.True((await SignUp(users, variant)).Succeeded, variant);
 		}
-		// another mailbox is free; outside Gmail the dots matter
+		// another mailbox is free too, and the dots matter outside Gmail
 		Assert.True((await SignUp(users, "jane.doe@outlook.com")).Succeeded);
 		Assert.True((await SignUp(users, "janedoe@outlook.com")).Succeeded);
-		Assert.False((await SignUp(users, "jane.doe+x@outlook.com")).Succeeded);
 
-		// changing the address moves the claim: the old mailbox is free again, the new one taken
+		// changing the address does not take the old one back from the other accounts that hold it
 		User jane = (await users.FindByEmailAsync("jane.doe@gmail.com"))!;
 		Assert.True((await users.SetEmailAsync(jane, "jane.new@example.org")).Succeeded);
 		Assert.True((await SignUp(users, "jane.doe+back@gmail.com")).Succeeded);
-		Assert.False((await SignUp(users, "jane.new+2@example.org")).Succeeded);
 
-		// only a hash is stored, never the address
 		await using AppDbContext db = probe.Open();
-		Assert.All(await db.IdentifierHashes.ToListAsync(), h => Assert.Equal(32, h.ValueHmac.Length));
+		Assert.Equal(7, await db.Users.CountAsync());
+		// no hash is kept for a live unbanned account, only the holds a ban keeps
+		Assert.Equal(0, await db.IdentifierHashes.CountAsync());
 	}
 
-	// imported accounts get their mailbox hash at startup; each keeps working and holds its mailbox
+	// two accounts with one mailbox signing up at the same moment both get an account (sharing is allowed)
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task TheBackfillHashesImportedAccounts(string provider)
-	{
-		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
-		if (probe == null) return;
-		long imported;
-		await using (AppDbContext db = probe.Open())
-		{
-			var a = new User { Username = "Old", UsernameNormalized = NameNormalizer.Normalize("Old"), NameTag = 1, Email = "old.player@gmail.com", EmailNormalized = NameNormalizer.Normalize("old.player@gmail.com"), CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-			var c = new User { Username = "Steam", UsernameNormalized = NameNormalizer.Normalize("Steam"), NameTag = 3, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-			db.Users.AddRange(a, c);
-			await db.SaveChangesAsync();
-			imported = a.ID;
-
-			Assert.Equal(1, await IdentifierHashes.Backfill(db));
-			Assert.Equal(0, await IdentifierHashes.Backfill(db));
-		}
-
-		UserManager<User> users = Users(probe);
-		Assert.False((await SignUp(users, "o.l.d.p.l.a.y.e.r+new@gmail.com")).Succeeded);
-		// every Identity update validates the user again; the account that holds the mailbox keeps working
-		User account = (await users.FindByIdAsync(imported.ToString()))!;
-		Assert.True((await users.UpdateSecurityStampAsync(account)).Succeeded);
-		Assert.True((await users.AccessFailedAsync(account)).Succeeded);
-		Assert.True((await users.ResetAccessFailedCountAsync(account)).Succeeded);
-	}
-
-	// sign-ups with one mailbox at the same moment: exactly one account is made each time, the others leave nothing behind
-	[ProbeTheory]
-	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task SimultaneousSignUpsWithOneMailboxMakeOneAccount(string provider)
+	public async Task SimultaneousSignUpsWithOneMailboxAllMakeAccounts(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
@@ -144,13 +125,114 @@ public class IdentifierHashesTests
 		{
 			string[] variants = { $"race{round}@gmail.com", $"race{round}+x@gmail.com", $"r.a.c.e{round}@googlemail.com" };
 			IdentityResult[] results = await Task.WhenAll(variants.Select(v => Task.Run(() => SignUp(Users(probe), v))));
-			Assert.Single(results, r => r.Succeeded);
-			Assert.All(results.Where(r => !r.Succeeded), r => Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(r.Errors).Code));
+			Assert.All(results, r => Assert.True(r.Succeeded, r.Errors.FirstOrDefault()?.Description));
 		}
 
 		await using AppDbContext db = probe.Open();
-		Assert.Equal(10, await db.Users.CountAsync());
-		Assert.Equal(10, await db.IdentifierHashes.CountAsync(h => h.Kind == HashedIdentifierKinds.Email));
+		Assert.Equal(30, await db.Users.CountAsync());
+		Assert.Equal(0, await db.IdentifierHashes.CountAsync());
+	}
+
+	// a live account under an active ban holds its mailbox: a new sign-up (or a move to that mailbox) is refused until the ban ends
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ABannedMailboxRefusesANewSignUp(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		UserManager<User> users = Users(probe);
+
+		Assert.True((await SignUp(users, "cheater@gmail.com")).Succeeded);
+		User cheater = (await users.FindByEmailAsync("cheater@gmail.com"))!;
+		Assert.True((await SignUp(users, "cheater+buddy@gmail.com")).Succeeded);
+		User buddy = (await users.FindByEmailAsync("cheater+buddy@gmail.com"))!;
+		Assert.True((await SignUp(users, "other@gmail.com")).Succeeded);
+		User other = (await users.FindByEmailAsync("other@gmail.com"))!;
+		await Ban(probe, cheater.ID);
+
+		foreach (string variant in new[] { "cheater+again@gmail.com", "c.h.e.a.t.e.r@googlemail.com" })
+		{
+			IdentityResult refused = await SignUp(users, variant);
+			Assert.False(refused.Succeeded, variant);
+			Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(refused.Errors).Code);
+		}
+
+		// an account that already shares the mailbox keeps working through Identity's updates
+		Assert.True((await users.UpdateSecurityStampAsync(buddy)).Succeeded);
+		Assert.True((await users.AccessFailedAsync(buddy)).Succeeded);
+
+		// the same hold refuses a move of an existing unbanned account to the banned mailbox
+		IdentityResult moved = await users.SetEmailAsync(other, "CHEATER+move@gmail.com");
+		Assert.False(moved.Succeeded);
+		Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(moved.Errors).Code);
+
+		// an unrelated mailbox is still free
+		Assert.True((await SignUp(users, "someone.else@example.org")).Succeeded);
+	}
+
+	// a mailbox whose ban ended behaves like any other, with or without the hourly purge
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AMailboxWhoseBanEndedIsFree(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		UserManager<User> users = Users(probe);
+
+		Assert.True((await SignUp(users, "cheater@gmail.com")).Succeeded);
+		User cheater = (await users.FindByEmailAsync("cheater@gmail.com"))!;
+		await Ban(probe, cheater.ID);
+		Assert.False((await SignUp(users, "cheater+again@gmail.com")).Succeeded);
+
+		await LiftBan(probe, cheater.ID);
+		Assert.True((await SignUp(users, "cheater+again@gmail.com")).Succeeded);
+	}
+
+	// a provider account has no mailbox and still signs up
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task AProviderAccountWithoutAMailboxSignsUp(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		UserManager<User> users = Users(probe);
+
+		Assert.True((await users.CreateAsync(new User { Username = "SteamPlayer" }, "correct horse battery")).Succeeded);
+		Assert.True((await users.CreateAsync(new User { Username = "DiscordPlayer" }, "correct horse battery")).Succeeded);
+
+		await using AppDbContext db = probe.Open();
+		Assert.Equal(2, await db.Users.CountAsync());
+		Assert.All(await db.Users.ToListAsync(), u => Assert.Null(u.Email));
+		Assert.Equal(0, await db.IdentifierHashes.CountAsync());
+	}
+
+	// imported accounts keep their address in users.email; no hash is written for them either
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ImportedMailboxesAreNotReserved(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		long imported;
+		await using (AppDbContext db = probe.Open())
+		{
+			var a = new User { Username = "Old", UsernameNormalized = NameNormalizer.Normalize("Old"), NameTag = 1, Email = "old.player@gmail.com", EmailNormalized = NameNormalizer.Normalize("old.player@gmail.com"), CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+			db.Users.Add(a);
+			await db.SaveChangesAsync();
+			imported = a.ID;
+
+			Assert.Equal(0, await IdentifierHashes.Backfill(db));
+			Assert.Equal(0, await IdentifierHashes.Backfill(db));
+		}
+
+		UserManager<User> users = Users(probe);
+		// the imported mailbox is free for a new account, in any spelling
+		Assert.True((await SignUp(users, "o.l.d.p.l.a.y.e.r+new@gmail.com")).Succeeded);
+		// every Identity update validates the user again; the imported account keeps working
+		User account = (await users.FindByIdAsync(imported.ToString()))!;
+		Assert.True((await users.UpdateSecurityStampAsync(account)).Succeeded);
+		Assert.True((await users.AccessFailedAsync(account)).Succeeded);
+		Assert.True((await users.ResetAccessFailedCountAsync(account)).Succeeded);
 	}
 
 	[ProbeTheory]

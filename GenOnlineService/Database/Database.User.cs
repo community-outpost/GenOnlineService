@@ -138,7 +138,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.HasIndex(e => new { e.UsernameNormalized, e.NameTag }).IsUnique().HasDatabaseName("ux_users_username_normalized_name_tag");
 		// closes the race between two look-alike names on one tag, which the code checks cannot
 		builder.HasIndex(e => new { e.NameKey, e.NameTag }).IsUnique().HasDatabaseName("ux_users_name_key_name_tag");
-		builder.HasIndex(e => e.EmailNormalized).IsUnique().HasDatabaseName("ux_users_email_normalized");
+		// a mailbox is no identity: several accounts may share one, so this only speeds the lookup
+		builder.HasIndex(e => e.EmailNormalized).HasDatabaseName("ix_users_email_normalized");
 		// the staff player list's sorts (T17f): last seen newest first (a backward scan serves the other way), and creation
 		builder.HasIndex(e => new { e.LastSignInAt, e.ID }).IsDescending(true, true).HasDatabaseName("ix_users_last_sign_in_at");
 		builder.HasIndex(e => new { e.CreatedAt, e.ID }).HasDatabaseName("ix_users_created_at");

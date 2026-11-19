@@ -23,9 +23,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace GenOnlineService.Identity
 {
-	// A keyed hash of something that identifies a person: the canonical email of an account (one account per person), or, for
-	// an erased account under an active ban, its email and each sign-in provider id, so the same person cannot sign up again
-	// while the ban lasts. Only the hash is stored; the key is the device HMAC key (DeviceHasher).
+	// A keyed hash of something a ban holds: for an erased account under an active ban, its canonical email and each sign-in
+	// provider id, so the same person cannot sign up again while the ban lasts. Only the hash is stored; the key is the device
+	// HMAC key (DeviceHasher). A live unbanned account keeps no hash: its address stays in users.email and is no identity.
 	public class IdentifierHash
 	{
 		public const int KindMaxLength = 48;
@@ -50,8 +50,9 @@ namespace GenOnlineService.Identity
 		{
 			builder.ToTable("identifier_hashes");
 			builder.HasKey(e => e.ID);
-			// one row per mailbox or provider id: the database itself keeps one account per person, also for sign-ups at the same moment
-			builder.HasIndex(e => new { e.Kind, e.ValueHmac }).IsUnique().HasDatabaseName("ux_identifier_hashes_kind_value");
+			// a lookup path for the holds; not unique: a mailbox may belong to more than one account, and several banned
+			// accounts may share one (each ban keeps its own hold)
+			builder.HasIndex(e => new { e.Kind, e.ValueHmac }).HasDatabaseName("ix_identifier_hashes_kind_value");
 			builder.HasIndex(e => e.UserID).HasDatabaseName("ix_identifier_hashes_user");
 
 			builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
@@ -110,38 +111,34 @@ namespace GenOnlineService.Identity
 
 		public static byte[]? EmailHash(string? email) => CanonicalEmail(email) is string canonical ? Hash(HashedIdentifierKinds.Email, canonical) : null;
 
-		// Another account, live or erased under a ban, already holds this mailbox
-		public static async Task<bool> EmailHeldByOther(AppDbContext db, string? email, Int64 userID, CancellationToken cancellationToken = default)
+		// A mailbox a ban holds: an erased account's hash kept while its ban lasts, or a live account under an active ban. A
+		// mailbox used by an unbanned live account is free, so more than one account may share it. `exceptUserID` lets an
+		// account keep its own address while it changes another one.
+		public static async Task<bool> EmailHeldByBan(AppDbContext db, string? email, Int64 exceptUserID, DateTime utcNow, CancellationToken cancellationToken = default)
 		{
-			byte[]? hash = EmailHash(email);
-			if (hash == null)
+			string? canonical = CanonicalEmail(email);
+			if (canonical == null)
 			{
 				return false;
 			}
-			// an account that already holds this mailbox keeps it: Identity validates on every update (stamp, failed sign-ins),
-			// and accounts from before the rule may share one
-			if (await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.UserID == userID && h.SanctionID == null, cancellationToken))
-			{
-				return false;
-			}
-			return await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.UserID != userID, cancellationToken);
-		}
 
-		// The account's mailbox row follows its email: replaced when it changes, removed when it has none. A new account has no
-		// row to replace, so it only inserts: a delete there would conflict with other sign-ups under MariaDB's snapshot isolation
-		public static async Task SyncEmail(AppDbContext db, Int64 userID, string? email, CancellationToken cancellationToken = default, bool newAccount = false)
-		{
-			byte[]? hash = EmailHash(email);
-			if (!newAccount)
+			IQueryable<Int64> banned = Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, utcNow).Select(s => s.UserID);
+			byte[] hash = Hash(HashedIdentifierKinds.Email, canonical);
+
+			// the hold an erased account kept while its ban lasts
+			if (await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.SanctionID != null
+				&& h.UserID != exceptUserID && banned.Contains(h.UserID), cancellationToken))
 			{
-				await db.IdentifierHashes.Where(h => h.UserID == userID && h.Kind == HashedIdentifierKinds.Email && h.SanctionID == null).ExecuteDeleteAsync(cancellationToken);
+				return true;
 			}
-			if (hash != null)
-			{
-				db.IdentifierHashes.Add(new IdentifierHash { UserID = userID, Kind = HashedIdentifierKinds.Email, ValueHmac = hash, CreatedAt = DateTime.UtcNow });
-				await db.SaveChangesAsync(cancellationToken);
-				db.ChangeTracker.Clear();
-			}
+
+			// a live account under an active ban holds its mailbox in users.email; no hash is kept for it
+			List<string?> addresses = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, utcNow)
+				.Where(s => s.UserID != exceptUserID)
+				.Join(db.Users.AsNoTracking().Where(u => u.Email != null && u.ID != exceptUserID), s => s.UserID, u => u.ID, (s, u) => u.Email)
+				.Distinct()
+				.ToListAsync(cancellationToken);
+			return addresses.Any(address => String.Equals(CanonicalEmail(address), canonical, StringComparison.Ordinal));
 		}
 
 		// A provider id an erased, banned account kept: signing in with it again is refused while the ban lasts
@@ -152,36 +149,9 @@ namespace GenOnlineService.Identity
 			return db.IdentifierHashes.AnyAsync(h => h.Kind == kind && h.ValueHmac == hash && h.SanctionID != null, cancellationToken);
 		}
 
-		// Mailbox rows for accounts that have an email and none yet: imported accounts, which the import already keeps to one
-		// per mailbox; returns how many
-		public static async Task<int> Backfill(AppDbContext db, CancellationToken cancellationToken = default)
-		{
-			int added = 0;
-			while (true)
-			{
-				var missing = await db.Users.AsNoTracking()
-					.Where(u => u.Email != null && !db.IdentifierHashes.Any(h => h.UserID == u.ID && h.Kind == HashedIdentifierKinds.Email))
-					.OrderBy(u => u.ID)
-					.Select(u => new { u.ID, u.Email })
-					.Take(1000)
-					.ToListAsync(cancellationToken);
-				if (missing.Count == 0)
-				{
-					return added;
-				}
-
-				DateTime now = DateTime.UtcNow;
-				foreach (var user in missing)
-				{
-					// an address with no canonical form still gets a row, of its plain lower case, so the backfill ends
-					byte[] hash = EmailHash(user.Email) ?? Hash(HashedIdentifierKinds.Email, user.Email!.Trim().ToLowerInvariant());
-					db.IdentifierHashes.Add(new IdentifierHash { UserID = user.ID, Kind = HashedIdentifierKinds.Email, ValueHmac = hash, CreatedAt = now });
-				}
-				await db.SaveChangesAsync(cancellationToken);
-				db.ChangeTracker.Clear();
-				added += missing.Count;
-			}
-		}
+		// A live account keeps no mailbox hash any more (a mailbox is no identity), so the startup call has nothing to do.
+		// Kept so older callers keep compiling.
+		public static Task<int> Backfill(AppDbContext db, CancellationToken cancellationToken = default) => Task.FromResult(0);
 
 		// The hashes an erased account kept for a ban go once no ban on it is active (or the ban row is gone)
 		public static Task<int> PurgeEndedHolds(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)

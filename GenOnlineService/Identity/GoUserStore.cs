@@ -64,7 +64,7 @@ namespace GenOnlineService.Identity
 
 		public async Task<IdentityResult> CreateAsync(User user, CancellationToken cancellationToken)
 		{
-			// sign-ups waiting on one mailbox can deadlock (InnoDB); the one the database ends runs again and then finds it taken
+			// a deadlocked attempt (InnoDB) is rolled back by the database; the retry starts with a clean user row
 			const int DeadlockAttempts = 3;
 			for (int attempt = 1; ; attempt++)
 			{
@@ -84,8 +84,8 @@ namespace GenOnlineService.Identity
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
 			user.CreatedAt = user.UpdatedAt = DateTime.UtcNow;
 
-			// the account and its mailbox hash commit together: a second sign-up with the same mailbox at the same moment waits
-			// on the unique hash and fails, so it leaves no account behind (one account per person)
+			// the account commits only if no ban holds its mailbox: the check and the account row share one transaction, so a
+			// refused sign-up leaves no account behind. A mailbox is no identity, so an unbanned holder does not refuse it.
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 			for (int attempt = 1; ; attempt++)
 			{
@@ -107,32 +107,17 @@ namespace GenOnlineService.Identity
 				}
 			}
 
-			if (!await TryClaimEmail(db, user, newAccount: true, cancellationToken))
+			if (await IdentifierHashes.EmailHeldByBan(db, user.Email, user.ID, DateTime.UtcNow, cancellationToken))
 			{
 				await transaction.RollbackAsync(cancellationToken);
-				return DuplicateEmail();
+				return BannedMailbox();
 			}
 			await transaction.CommitAsync(cancellationToken);
 			return IdentityResult.Success;
 		}
 
-		private static IdentityResult DuplicateEmail() =>
-			IdentityResult.Failed(new IdentityError { Code = GoUserValidator.DuplicateEmail, Description = "An account with this email address already exists." });
-
-		// False when another account holds the mailbox (the unique hash refused it)
-		private static async Task<bool> TryClaimEmail(AppDbContext db, User user, bool newAccount, CancellationToken cancellationToken)
-		{
-			try
-			{
-				await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken, newAccount);
-				return true;
-			}
-			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
-			{
-				db.ChangeTracker.Clear();
-				return false;
-			}
-		}
+		private static IdentityResult BannedMailbox() =>
+			IdentityResult.Failed(new IdentityError { Code = GoUserValidator.DuplicateEmail, Description = "This email address cannot be used while a ban on it is active." });
 
 		public async Task<IdentityResult> UpdateAsync(User user, CancellationToken cancellationToken)
 		{
@@ -155,14 +140,14 @@ namespace GenOnlineService.Identity
 				return IdentityResult.Success;
 			}
 
-			// a new address and its mailbox hash commit together, as at sign-up
+			// a new address commits only if no ban holds it, as at sign-up
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 			await db.SaveChangesAsync(cancellationToken);
 			db.ChangeTracker.Clear();
-			if (!await TryClaimEmail(db, user, newAccount: false, cancellationToken))
+			if (await IdentifierHashes.EmailHeldByBan(db, user.Email, user.ID, DateTime.UtcNow, cancellationToken))
 			{
 				await transaction.RollbackAsync(cancellationToken);
-				return DuplicateEmail();
+				return BannedMailbox();
 			}
 			await transaction.CommitAsync(cancellationToken);
 			return IdentityResult.Success;
