@@ -42,8 +42,8 @@ public class LegalPagesTests
 		if (probe == null) return;
 		var browser = new AccountsBrowser(probe, new Dictionary<string, string?>());
 
-		// support answers players, security@ takes reports and legal@ notices; the privacy page names the controller's own address
-		foreach ((string path, string title, string contacts) in new[] { (LegalPages.RulesPath, "Rules of Engagement", "support@generals.online|security@generals.online"), (LegalPages.TermsPath, "Terms of Service", "support@generals.online|legal@generals.online|arcticdolphin@generals.online"), (LegalPages.PrivacyPath, "Privacy Policy", "arcticdolphin@generals.online") })
+		// support answers players, security@ takes reports and legal@ notices; privacy@ takes data requests, on the privacy page and for account deletion in the terms
+		foreach ((string path, string title, string contacts) in new[] { (LegalPages.RulesPath, "Rules of Engagement", "support@generals.online|security@generals.online"), (LegalPages.TermsPath, "Terms of Service", "support@generals.online|legal@generals.online|privacy@generals.online"), (LegalPages.PrivacyPath, "Privacy Policy", "privacy@generals.online") })
 		{
 			PageResponse page = await browser.Get(path);
 			Assert.Equal(200, page.Status);
