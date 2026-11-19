@@ -105,9 +105,11 @@ namespace GenOnlineService.Identity
 				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
 				{
 					// EF rolled back to its savepoint. A concurrent sign-up may have taken this exact address (the unique index),
-					// which is not a name collision; otherwise a look-alike took the same tag, so pick another.
+					// which is not a name collision; otherwise a look-alike took the same tag, so pick another. The check runs on
+					// its own connection: on MySQL the transaction's snapshot predates the other sign-up's commit.
 					db.Entry(user).State = EntityState.Detached;
-					if (await Database.Users.AddressHeldByOther(db, user.EmailNormalized, user.ID, cancellationToken))
+					await using AppDbContext fresh = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+					if (await Database.Users.AddressHeldByOther(fresh, user.EmailNormalized, user.ID, cancellationToken))
 					{
 						await transaction.RollbackAsync(cancellationToken);
 						return DuplicateAddress();

@@ -137,6 +137,27 @@ public class IdentifierHashesTests
 		Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(moved.Errors).Code);
 	}
 
+	// several sign-ups on one exact address at the same moment: one account, and the others are told the address is used (not
+	// that the name is taken), also on MySQL where the transaction's snapshot predates the winner's commit
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task SimultaneousSignUpsOnOneAddressMakeOneAccount(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+
+		for (int round = 0; round < 5; round++)
+		{
+			string address = $"same{round}@example.org";
+			IdentityResult[] results = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(() => SignUp(Users(probe), address))));
+			Assert.Single(results, r => r.Succeeded);
+			Assert.All(results.Where(r => !r.Succeeded), r => Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(r.Errors).Code));
+		}
+
+		await using AppDbContext db = probe.Open();
+		Assert.Equal(5, await db.Users.CountAsync());
+	}
+
 	// two accounts with one mailbox signing up at the same moment both get an account (sharing is allowed)
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
