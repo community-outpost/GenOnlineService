@@ -132,6 +132,12 @@
   <data name="TwoFactor.Setup.Key" xml:space="preserve">
     <value>المفتاح: {0}</value>
   </data>
+  <data name="TwoFactor.Setup.Scan" xml:space="preserve">
+    <value>امسح الرمز بتطبيق المصادقة أو اكتب المفتاح أدناه — كلاهما يعمل.</value>
+  </data>
+  <data name="TwoFactor.Setup.QrLabel" xml:space="preserve">
+    <value>رمز QR لإعداد تطبيق المصادقة</value>
+  </data>
   <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
     <value>احتفظ برموز الاسترداد هذه في مكان آمن. يتيح كل رمز تسجيل الدخول مرة واحدة دون التطبيق، ولن تُعرض مرة أخرى.</value>
   </data>

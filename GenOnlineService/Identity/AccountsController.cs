@@ -447,6 +447,9 @@ namespace GenOnlineService.Identity
 
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(PortalLook.Text(WebUtility.HtmlEncode(T("TwoFactor.Setup.Intro"))));
+			// the symbol is drawn here: no script, no image request, and white on black even in the dark theme
+			body.Append($"<div class=\"gp-qr-card\" dir=\"ltr\">{QrCode.Svg(uri, T("TwoFactor.Setup.QrLabel"))}</div>");
+			body.Append(PortalLook.Text(WebUtility.HtmlEncode(T("TwoFactor.Setup.Scan"))));
 			body.Append($"<p class=\"gp-copy gp-break\" dir=\"ltr\"><a href=\"{WebUtility.HtmlEncode(uri)}\">{WebUtility.HtmlEncode(uri)}</a></p>");
 			// the key stays left to right inside any language's sentence
 			string keyCode = $"<code dir=\"ltr\" class=\"gp-key\">{WebUtility.HtmlEncode(grouped)}</code>";

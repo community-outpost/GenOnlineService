@@ -2617,6 +2617,10 @@ a.go-list-item:hover {
 .gp-icon-lg { width: 24px; height: 24px; }
 [dir="rtl"] .gp-directional { transform: scaleX(-1); }
 
+/* the authenticator setup code: a white card so the dark theme cannot tint the symbol, at phone-camera size */
+.gp-qr-card { display: flex; justify-content: center; padding: var(--go-space-3); }
+.gp-qr { display: block; width: 200px; max-width: 100%; height: auto; border-radius: var(--go-radius-sm); }
+
 /* forms */
 .gp-form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
 .gp-card-wizard > .gp-form, .gp-card-wizard > .gp-pane { flex: 1; }

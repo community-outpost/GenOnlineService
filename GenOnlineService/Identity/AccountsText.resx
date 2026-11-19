@@ -135,6 +135,12 @@
   <data name="TwoFactor.Setup.Key" xml:space="preserve">
     <value>Key: {0}</value>
   </data>
+  <data name="TwoFactor.Setup.Scan" xml:space="preserve">
+    <value>Scan the code with your authenticator app, or type the key below — either way works.</value>
+  </data>
+  <data name="TwoFactor.Setup.QrLabel" xml:space="preserve">
+    <value>Authenticator setup QR code</value>
+  </data>
   <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
     <value>Keep these recovery codes somewhere safe. Each signs in once without the app; they are not shown again.</value>
   </data>

@@ -132,6 +132,12 @@
   <data name="TwoFactor.Setup.Key" xml:space="preserve">
     <value>Ключ: {0}</value>
   </data>
+  <data name="TwoFactor.Setup.Scan" xml:space="preserve">
+    <value>Отсканируйте код в приложении-аутентификаторе или введите ключ ниже — подойдёт любой способ.</value>
+  </data>
+  <data name="TwoFactor.Setup.QrLabel" xml:space="preserve">
+    <value>QR-код для настройки аутентификатора</value>
+  </data>
   <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
     <value>Сохраните эти коды восстановления в надёжном месте. Каждый позволяет войти один раз без приложения; повторно они не показываются.</value>
   </data>

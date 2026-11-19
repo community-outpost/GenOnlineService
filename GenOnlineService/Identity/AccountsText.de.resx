@@ -132,6 +132,12 @@
   <data name="TwoFactor.Setup.Key" xml:space="preserve">
     <value>Schlüssel: {0}</value>
   </data>
+  <data name="TwoFactor.Setup.Scan" xml:space="preserve">
+    <value>Scanne den Code mit deiner Authenticator-App oder gib den Schlüssel unten ein – beides funktioniert.</value>
+  </data>
+  <data name="TwoFactor.Setup.QrLabel" xml:space="preserve">
+    <value>QR-Code zum Einrichten der Authenticator-App</value>
+  </data>
   <data name="TwoFactor.RecoveryCodes" xml:space="preserve">
     <value>Bewahre diese Wiederherstellungscodes sicher auf. Jeder meldet dich einmal ohne die App an; sie werden nicht noch einmal angezeigt.</value>
   </data>
