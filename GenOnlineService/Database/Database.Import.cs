@@ -1428,8 +1428,9 @@ namespace Database
 					continue;
 				}
 
-				// grouped by mailbox, as the service compares them (one account per person): a +tag or Gmail's dots are the same one
-				candidates.Add((user, email, GenOnlineService.Identity.IdentifierHashes.CanonicalEmail(email) ?? NameNormalizer.Normalize(email)));
+				// grouped by the exact address, as the service compares them (the address is the login identifier); a +tag or a
+				// dot is a different address and keeps its own account
+				candidates.Add((user, email, NameNormalizer.Normalize(email)));
 			}
 
 			foreach (var group in candidates.GroupBy(c => c.Normalized))

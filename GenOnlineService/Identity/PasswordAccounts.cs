@@ -252,12 +252,18 @@ namespace GenOnlineService.Identity
 			}
 
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
-			// an account that already holds this mailbox keeps it: Identity validates on every update (stamp, failed sign-ins),
-			// and an account may share its mailbox with one under a ban
-			string? stored = user.ID == 0 ? null : await db.Users.AsNoTracking().Where(u => u.ID == user.ID).Select(u => u.Email).FirstOrDefaultAsync();
-			if (user.ID != 0 && String.Equals(IdentifierHashes.CanonicalEmail(stored), IdentifierHashes.CanonicalEmail(user.Email), StringComparison.Ordinal))
+			string normalized = NameNormalizer.Normalize(user.Email);
+			// an account keeps its own address through Identity's routine updates (stamp, failed sign-ins)
+			string? stored = user.ID == 0 ? null : await db.Users.AsNoTracking().Where(u => u.ID == user.ID).Select(u => u.EmailNormalized).FirstOrDefaultAsync();
+			if (user.ID != 0 && String.Equals(stored, normalized, StringComparison.Ordinal))
 			{
 				return IdentityResult.Success;
+			}
+
+			// the address is the login identifier, so another account already using it refuses this one; the mailbox may be shared
+			if (await Database.Users.AddressHeldByOther(db, normalized, user.ID))
+			{
+				return IdentityResult.Failed(new IdentityError { Code = DuplicateEmail, Description = "This email address is already used by another account." });
 			}
 
 			bool taken = await IdentifierHashes.EmailHeldByBan(db, user.Email, user.ID, DateTime.UtcNow);

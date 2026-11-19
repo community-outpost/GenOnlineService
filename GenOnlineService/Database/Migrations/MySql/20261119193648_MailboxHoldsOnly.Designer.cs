@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GenOnlineService.Migrations.MySql
 {
     [DbContext(typeof(MySqlAppDbContext))]
-    [Migration("20261119180308_MailboxHoldsOnly")]
+    [Migration("20261119193648_MailboxHoldsOnly")]
     partial class MailboxHoldsOnly
     {
         /// <inheritdoc />
@@ -2779,7 +2779,8 @@ namespace GenOnlineService.Migrations.MySql
                     b.HasKey("ID");
 
                     b.HasIndex("EmailNormalized")
-                        .HasDatabaseName("ix_users_email_normalized");
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_email_normalized");
 
                     b.HasIndex("CreatedAt", "ID")
                         .HasDatabaseName("ix_users_created_at");

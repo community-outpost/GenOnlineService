@@ -23,9 +23,10 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace GenOnlineService.Identity
 {
-	// A keyed hash of something a ban holds: for an erased account under an active ban, its canonical email and each sign-in
-	// provider id, so the same person cannot sign up again while the ban lasts. Only the hash is stored; the key is the device
-	// HMAC key (DeviceHasher). A live unbanned account keeps no hash: its address stays in users.email and is no identity.
+	// A keyed hash of something a ban holds: for an erased account under an active ban, its canonical mailbox (a +tag or Gmail's
+	// dots do not make another one) and each sign-in provider id, so the same person cannot sign up again while the ban lasts.
+	// Only the hash is stored; the key is the device HMAC key (DeviceHasher). A live account keeps no hash: its exact address
+	// stays in users.email and is unique there (users.email_normalized); the mailbox form matters only to a ban.
 	public class IdentifierHash
 	{
 		public const int KindMaxLength = 48;
@@ -50,8 +51,8 @@ namespace GenOnlineService.Identity
 		{
 			builder.ToTable("identifier_hashes");
 			builder.HasKey(e => e.ID);
-			// a lookup path for the holds; not unique: a mailbox may belong to more than one account, and several banned
-			// accounts may share one (each ban keeps its own hold)
+			// a lookup path for the holds; not unique: several banned accounts may hold the same mailbox or provider id
+			// (each ban keeps its own hold)
 			builder.HasIndex(e => new { e.Kind, e.ValueHmac }).HasDatabaseName("ix_identifier_hashes_kind_value");
 			builder.HasIndex(e => e.UserID).HasDatabaseName("ix_identifier_hashes_user");
 
@@ -149,8 +150,8 @@ namespace GenOnlineService.Identity
 			return db.IdentifierHashes.AnyAsync(h => h.Kind == kind && h.ValueHmac == hash && h.SanctionID != null, cancellationToken);
 		}
 
-		// A live account keeps no mailbox hash any more (a mailbox is no identity), so the startup call has nothing to do.
-		// Kept so older callers keep compiling.
+		// A live account keeps no address hash (its address is held by address uniqueness), so the startup call has nothing
+		// to do. Kept so older callers keep compiling.
 		public static Task<int> Backfill(AppDbContext db, CancellationToken cancellationToken = default) => Task.FromResult(0);
 
 		// The hashes an erased account kept for a ban go once no ban on it is active (or the ban row is gone)

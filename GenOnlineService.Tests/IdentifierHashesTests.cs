@@ -113,6 +113,30 @@ public class IdentifierHashesTests
 		Assert.Equal(0, await db.IdentifierHashes.CountAsync());
 	}
 
+	// the exact address is the login identifier, so it is unique per account (case and width fold together): a second account
+	// cannot use it, but another spelling of the same mailbox is a different address and is free
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheSameAddressCannotBackTwoAccounts(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		UserManager<User> users = Users(probe);
+
+		Assert.True((await SignUp(users, "jane.doe@example.org")).Succeeded);
+		IdentityResult again = await SignUp(users, "Jane.Doe@Example.org");
+		Assert.False(again.Succeeded);
+		Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(again.Errors).Code);
+		// a different spelling that is a different address is a separate account
+		Assert.True((await SignUp(users, "jane.doe+second@example.org")).Succeeded);
+
+		// moving an existing account onto an address another holds is refused too
+		User second = (await users.FindByEmailAsync("jane.doe+second@example.org"))!;
+		IdentityResult moved = await users.SetEmailAsync(second, "jane.doe@example.org");
+		Assert.False(moved.Succeeded);
+		Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(moved.Errors).Code);
+	}
+
 	// two accounts with one mailbox signing up at the same moment both get an account (sharing is allowed)
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]

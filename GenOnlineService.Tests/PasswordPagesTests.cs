@@ -157,18 +157,21 @@ public class PasswordPagesTests
 		Assert.Equal(0, await db.Users.CountAsync());
 	}
 
-	// a second account may use the same email address
+	// a person may hold more than one account, each with its own address: the exact address is the login identifier, so a
+	// second account cannot take it, but another spelling of the same mailbox is free
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task AnEmailAddressMayBackMoreThanOneAccount(string provider)
+	public async Task AnEmailAddressBacksOneAccountButAMailboxMayHoldSeveral(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
 		Assert.Equal(302, (await SignUp(new AccountsBrowser(probe, Enabled()), "First", "same@example.org", "a long enough password")).Status);
 
-		PageResponse second = await SignUp(new AccountsBrowser(probe, Enabled()), "Second", "Same@Example.org", "another long password");
+		PageResponse sameAddress = await SignUp(new AccountsBrowser(probe, Enabled()), "Second", "Same@Example.org", "another long password");
+		PageResponse otherSpelling = await SignUp(new AccountsBrowser(probe, Enabled()), "Third", "same+second@example.org", "another long password");
 
-		Assert.Equal(302, second.Status);
+		Assert.NotEqual(302, sameAddress.Status);
+		Assert.Equal(302, otherSpelling.Status);
 		await using AppDbContext db = probe.Open();
 		Assert.Equal(2, await db.Users.CountAsync());
 	}

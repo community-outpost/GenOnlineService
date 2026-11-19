@@ -11,7 +11,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GenOnlineService.Migrations.Postgres
 {
     [DbContext(typeof(PostgresAppDbContext))]
-    [Migration("20261119180317_MailboxHoldsOnly")]
+    [Migration("20261119193640_MailboxHoldsOnly")]
     partial class MailboxHoldsOnly
     {
         /// <inheritdoc />
@@ -2772,7 +2772,8 @@ namespace GenOnlineService.Migrations.Postgres
                     b.HasKey("ID");
 
                     b.HasIndex("EmailNormalized")
-                        .HasDatabaseName("ix_users_email_normalized");
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_email_normalized");
 
                     b.HasIndex("CreatedAt", "ID")
                         .HasDatabaseName("ix_users_created_at");
