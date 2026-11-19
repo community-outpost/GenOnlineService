@@ -65,7 +65,10 @@ else
                         {
                             <CountryFlag Country="@found.Value" />
                         }<span class="bb:font-mono">@(Key != null ? found.Value[..8] : found.Value)</span></BbCardTitle>
-                    <BbCardDescription>@Describe(found)</BbCardDescription>
+                    <BbCardDescription>@if (found.Network?.Country is string networkCountry)
+                        {
+                            <CountryFlag Country="@networkCountry" />
+                        }@Describe(found)</BbCardDescription>
                     @if (Key != null)
                     {
                         @if (found.RawValue != null)
@@ -176,8 +179,7 @@ else
         }
         if (found.Network is PortalAddressFacts network)
         {
-            string? country = network.Country == null ? null : (PortalText.CountryFlag(network.Country) is string flag ? flag + " " : "") + network.Country;
-            string place = String.Join(", ", new[] { network.City, country }.Where(p => p != null));
+            string place = String.Join(", ", new[] { network.City, network.Country }.Where(p => p != null));
             if (place.Length > 0)
             {
                 parts.Add("GeoIP: " + place + ".");
