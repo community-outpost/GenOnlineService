@@ -216,7 +216,10 @@ else
                         @if (m_inspection is PortalInspection seen)
                         {
                             <p class="bb:text-sm" data-testid="last-address">
-                                Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@(seen.LastCountry != null ? $" ({seen.LastCountry})" : "")@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
+                                Last address <span class="bb:font-mono">@(seen.LastIp ?? "none")</span>@if (seen.LastCountry != null)
+                                {
+                                    <text> (<CountryFlag Country="@seen.LastCountry" />@seen.LastCountry)</text>
+                                }@(seen.LastSeenAt != null ? ", seen " + PortalText.Date(seen.LastSeenAt) : "")
                             </p>
                         }
                         else
@@ -780,7 +783,20 @@ else
                     <BbCard>
                         <BbCardHeader>
                             <BbCardTitle As="h2">Devices</BbCardTitle>
-                            <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows, never the value itself. A MAC address shows its vendor from the IEEE registry; virtual adapters and randomized addresses read locally administered. Open a fingerprint to find every account of the device.</BbCardDescription>
+                            <BbCardDescription>Device values are stored as keyed hashes. The fingerprint is the start of the hash, enough to compare two rows. Show values reveals what the clients sent, where the service kept it; every reveal is in the audit log. A MAC address shows its vendor from the IEEE registry; virtual adapters and randomized addresses read locally administered. Open a fingerprint to find every account of the device.</BbCardDescription>
+                            @if (m_devicesRevealed)
+                            {
+                                <p class="bb:text-sm go-muted" data-testid="devices-revealed">The values the clients sent are shown; this reveal is in the audit log.</p>
+                            }
+                            else if (inspection.Devices.Any(d => d.HasValue))
+                            {
+                                <div>
+                                    <BbButton Variant="ButtonVariant.Outline" Size="ButtonSize.Small" Disabled="@m_revealing" OnClick="RevealDevicesAsync" data-testid="devices-reveal">
+                                        <LucideIcon Name="eye" Class="bb:h-4 bb:w-4" />
+                                        Show values
+                                    </BbButton>
+                                </div>
+                            }
                         </BbCardHeader>
                         <BbCardContent>
                             <BbDataTable TData="PortalDevice" Data="@inspection.Devices" ShowToolbar="false" ShowPagination="@(inspection.Devices.Count > 10)" InitialPageSize="10" AriaLabel="Devices">
@@ -795,6 +811,10 @@ else
                                             else
                                             {
                                                 <span class="bb:font-mono">@device.Fingerprint</span>
+                                            }
+                                            @if (device.Value != null)
+                                            {
+                                                <div class="bb:font-mono bb:text-xs" data-testid="device-value">@device.Value</div>
                                             }
                                         </CellTemplate>
                                     </BbDataTableColumn>
@@ -835,7 +855,7 @@ else
                                         <CellTemplate Context="address">
                                             @if (address.Country != null)
                                             {
-                                                <BbLink Href="@PortalRoutes.InvestigateOf("country", address.Country)">@address.Country</BbLink>
+                                                <CountryFlag Country="@address.Country" /><BbLink Href="@PortalRoutes.InvestigateOf("country", address.Country)">@address.Country</BbLink>
                                             }
                                         </CellTemplate>
                                     </BbDataTableColumn>
@@ -1058,6 +1078,9 @@ else
     private string? m_connectionsError;
     private string? m_error;
     private string? m_inspectionError;
+    // the devices carry the values the clients sent, each reveal is a device_reveal audit row on the host
+    private bool m_devicesRevealed;
+    private bool m_revealing;
 
     private bool m_dialogOpen;
     private bool m_saving;
@@ -1097,6 +1120,7 @@ else
         m_player = null;
         m_inspection = null;
         m_inspectionError = null;
+        m_devicesRevealed = false;
         m_connections = null;
         m_connectionsError = null;
         m_antiCheat = null;
@@ -1113,6 +1137,23 @@ else
         }
         await LoadAntiCheatAsync();
         await LoadConnectionsAsync();
+    }
+
+    // The inspection again with the raw device values, on the staff member's click only
+    private async Task RevealDevicesAsync()
+    {
+        m_revealing = true;
+        PortalAnswer<PortalInspection> answer = await Api.GetInspectionAsync(Id, raw: true);
+        m_revealing = false;
+        if (answer.Ok)
+        {
+            m_inspection = answer.Value;
+            m_devicesRevealed = true;
+        }
+        else
+        {
+            m_inspectionError = answer.Error;
+        }
     }
 
     // The connection reports once per opened player, when the tab is first shown

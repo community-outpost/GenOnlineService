@@ -1,0 +1,11 @@
+@* The flag of a two-letter country code, beside the code itself: an emoji the browser draws, nothing loaded from another
+   site. Hidden from screen readers since the code next to it already reads; an unknown or null code shows nothing *@
+@if (PortalText.CountryFlag(Country) is string flag)
+{
+    <span class="go-flag" aria-hidden="true" title="@Country!.ToUpperInvariant()" data-testid="country-flag">@flag</span>
+}
+
+@code {
+    [Parameter]
+    public string? Country { get; set; }
+}

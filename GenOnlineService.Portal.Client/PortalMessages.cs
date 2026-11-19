@@ -175,6 +175,7 @@ namespace GenOnlineService.Portal.Client
 			"report_view" => "Report viewed",
 			"report_close" => "Report closed",
 			"player_inspect" => "Personal data read",
+			"device_reveal" => "Device values revealed",
 			"connection_lookup" => "Connections looked up",
 			"anticheat_review" => "Anti-cheat row reviewed",
 			"announcement" => "Announcement",
@@ -226,7 +227,7 @@ namespace GenOnlineService.Portal.Client
 		[
 			"role_grant", "role_revoke", "kick", "mute", "unmute", "ban", "unban", "rename", "name_reset",
 			"message_delete", "message_lookup", "staff_message", "report_view", "report_close", "player_inspect",
-			"connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
+			"device_reveal", "connection_lookup", "anticheat_review", "announcement", "setting_update", "token_mint", "token_rotate",
 			"token_revoke", "sa_create", "sa_update", "sa_grant", "sa_revoke", "sa_disable", "sa_enable", "password_reset",
 			"two_factor_reset", "revoke_sessions", "revoke_client_sessions", "client_add", "text_term_add", "text_term_update",
 			"text_term_remove", "text_exception_add", "text_exception_remove", "text_workflow_update", "text_rules_seed", "investigate_search", "flag_create", "flag_update", "flag_archive", "flag_restore", "flags_publish", "flags_rollback", "flags_import", "flags_reset",
@@ -543,6 +544,12 @@ namespace GenOnlineService.Portal.Client
 
 		// A MAC address: its vendor in the IEEE registry, or "locally administered / virtual"; null when unknown
 		public string? Vendor { get; init; }
+
+		// Whether the host kept the value the client sent, so ?raw=true can show it
+		public bool HasValue { get; init; }
+
+		// The value the client sent, only with ?raw=true (audited as device_reveal); null otherwise or when never kept
+		public string? Value { get; init; }
 	}
 
 	public sealed record PortalAddress
@@ -603,6 +610,8 @@ namespace GenOnlineService.Portal.Client
 		public string? Vendor { get; init; }
 		// an IP search: what the GeoIP databases know about the address
 		public PortalAddressFacts? Network { get; init; }
+		// a device key search with &raw=true: the value the client sent (audited as device_reveal), null when never kept
+		public string? RawValue { get; init; }
 		public IReadOnlyList<PortalInvestigationAccount> Accounts { get; init; } = [];
 
 		[JsonIgnore]
