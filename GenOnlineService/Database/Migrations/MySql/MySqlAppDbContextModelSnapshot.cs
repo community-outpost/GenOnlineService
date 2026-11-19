@@ -1044,7 +1044,8 @@ namespace GenOnlineService.Migrations.MySql
                         .HasDatabaseName("ix_identifier_hashes_user");
 
                     b.HasIndex("Kind", "ValueHmac")
-                        .HasDatabaseName("ix_identifier_hashes_kind_value");
+                        .IsUnique()
+                        .HasDatabaseName("ux_identifier_hashes_kind_value");
 
                     b.ToTable("identifier_hashes", (string)null);
                 });

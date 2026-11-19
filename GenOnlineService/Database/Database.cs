@@ -63,6 +63,25 @@ public static class DbHelpers
 
 		return false;
 	}
+
+	// The database ended this transaction to break a deadlock; running it again from the start is safe
+	public static bool IsDeadlock(Exception? ex)
+	{
+		for (Exception? current = ex; current != null; current = current.InnerException)
+		{
+			if (current is PostgresException pgEx && pgEx.SqlState == PostgresErrorCodes.DeadlockDetected)
+			{
+				return true;
+			}
+
+			if (current is MySqlException mySqlEx && mySqlEx.ErrorCode == MySqlErrorCode.LockDeadlock)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
 }
 
 // One model for both providers; provider differences live in Database.Providers.cs.

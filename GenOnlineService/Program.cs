@@ -1666,7 +1666,7 @@ namespace GenOnlineService
 				});
 			}
 
-			// Accounts from before identifier_hashes get their mailbox hash once, so one account per person holds for them too
+			// Imported accounts get their mailbox hash once, so one account per person holds for them too
 			_ = RunObservedBackgroundJobAsync("identifier_hash_backfill", app.Logger, async () =>
 			{
 				using var scope = app.Services.CreateScope();
@@ -1675,8 +1675,7 @@ namespace GenOnlineService
 				int added = await GenOnlineService.Identity.IdentifierHashes.Backfill(db, stopping);
 				if (added > 0)
 				{
-					int shared = (await GenOnlineService.Identity.IdentifierHashes.SharedMailboxes(db, stopping)).Count;
-					app.Logger.LogInformation("Hashed the mailbox of {AccountCount} existing accounts; {SharedCount} mailbox(es) are shared by more than one account (GenOnlineService users shared-mailboxes)", added, shared);
+					app.Logger.LogInformation("Hashed the mailbox of {AccountCount} imported accounts", added);
 				}
 			}, stopping);
 

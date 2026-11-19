@@ -64,9 +64,29 @@ namespace GenOnlineService.Identity
 
 		public async Task<IdentityResult> CreateAsync(User user, CancellationToken cancellationToken)
 		{
+			// sign-ups waiting on one mailbox can deadlock (InnoDB); the one the database ends runs again and then finds it taken
+			const int DeadlockAttempts = 3;
+			for (int attempt = 1; ; attempt++)
+			{
+				try
+				{
+					return await CreateOnce(user, cancellationToken);
+				}
+				catch (Exception ex) when (DbHelpers.IsDeadlock(ex) && attempt < DeadlockAttempts)
+				{
+					user.ID = 0;
+				}
+			}
+		}
+
+		private async Task<IdentityResult> CreateOnce(User user, CancellationToken cancellationToken)
+		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
 			user.CreatedAt = user.UpdatedAt = DateTime.UtcNow;
 
+			// the account and its mailbox hash commit together: a second sign-up with the same mailbox at the same moment waits
+			// on the unique hash and fails, so it leaves no account behind (one account per person)
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 			for (int attempt = 1; ; attempt++)
 			{
 				await Database.DisplayNames.AssignNewUser(db, user, attempt);
@@ -74,18 +94,43 @@ namespace GenOnlineService.Identity
 				try
 				{
 					await db.SaveChangesAsync(cancellationToken);
-					await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken);
-					return IdentityResult.Success;
+					break;
 				}
 				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < Database.DisplayNames.NewUserAttempts)
 				{
-					// a look-alike sign-up took the same tag at the same moment, so pick another
+					// a look-alike sign-up took the same tag at the same moment, so pick another; EF rolled back to its savepoint
 					db.Entry(user).State = EntityState.Detached;
 				}
 				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
 				{
 					return IdentityResult.Failed(new IdentityError { Code = "DuplicateUserName", Description = "The username is taken." });
 				}
+			}
+
+			if (!await TryClaimEmail(db, user, newAccount: true, cancellationToken))
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return DuplicateEmail();
+			}
+			await transaction.CommitAsync(cancellationToken);
+			return IdentityResult.Success;
+		}
+
+		private static IdentityResult DuplicateEmail() =>
+			IdentityResult.Failed(new IdentityError { Code = GoUserValidator.DuplicateEmail, Description = "An account with this email address already exists." });
+
+		// False when another account holds the mailbox (the unique hash refused it)
+		private static async Task<bool> TryClaimEmail(AppDbContext db, User user, bool newAccount, CancellationToken cancellationToken)
+		{
+			try
+			{
+				await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken, newAccount);
+				return true;
+			}
+			catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex))
+			{
+				db.ChangeTracker.Clear();
+				return false;
 			}
 		}
 
@@ -104,12 +149,22 @@ namespace GenOnlineService.Identity
 			entry.Property(u => u.NameKey).IsModified = false;
 			entry.Property(u => u.RenamedAt).IsModified = false;
 			entry.Property(u => u.NameRequiredAt).IsModified = false;
-			await db.SaveChangesAsync(cancellationToken);
-			if (!String.Equals(storedEmail, user.EmailNormalized, StringComparison.Ordinal))
+			if (String.Equals(storedEmail, user.EmailNormalized, StringComparison.Ordinal))
 			{
-				db.ChangeTracker.Clear();
-				await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken);
+				await db.SaveChangesAsync(cancellationToken);
+				return IdentityResult.Success;
 			}
+
+			// a new address and its mailbox hash commit together, as at sign-up
+			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+			await db.SaveChangesAsync(cancellationToken);
+			db.ChangeTracker.Clear();
+			if (!await TryClaimEmail(db, user, newAccount: false, cancellationToken))
+			{
+				await transaction.RollbackAsync(cancellationToken);
+				return DuplicateEmail();
+			}
+			await transaction.CommitAsync(cancellationToken);
 			return IdentityResult.Success;
 		}
 

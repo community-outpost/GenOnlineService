@@ -101,44 +101,56 @@ public class IdentifierHashesTests
 		// only a hash is stored, never the address
 		await using AppDbContext db = probe.Open();
 		Assert.All(await db.IdentifierHashes.ToListAsync(), h => Assert.Equal(32, h.ValueHmac.Length));
-		Assert.Empty(await IdentifierHashes.SharedMailboxes(db));
 	}
 
+	// imported accounts get their mailbox hash at startup; each keeps working and holds its mailbox
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task TheBackfillHashesOlderAccountsAndFindsSharedMailboxes(string provider)
+	public async Task TheBackfillHashesImportedAccounts(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
-		long first, second;
+		long imported;
 		await using (AppDbContext db = probe.Open())
 		{
-			// made before the rule: two spellings of one mailbox, and an account without an email
 			var a = new User { Username = "Old", UsernameNormalized = NameNormalizer.Normalize("Old"), NameTag = 1, Email = "old.player@gmail.com", EmailNormalized = NameNormalizer.Normalize("old.player@gmail.com"), CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-			var b = new User { Username = "Old", UsernameNormalized = NameNormalizer.Normalize("Old"), NameTag = 2, Email = "oldplayer+alt@gmail.com", EmailNormalized = NameNormalizer.Normalize("oldplayer+alt@gmail.com"), CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
 			var c = new User { Username = "Steam", UsernameNormalized = NameNormalizer.Normalize("Steam"), NameTag = 3, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-			db.Users.AddRange(a, b, c);
+			db.Users.AddRange(a, c);
 			await db.SaveChangesAsync();
-			(first, second) = (a.ID, b.ID);
+			imported = a.ID;
 
-			Assert.Equal(2, await IdentifierHashes.Backfill(db));
+			Assert.Equal(1, await IdentifierHashes.Backfill(db));
 			Assert.Equal(0, await IdentifierHashes.Backfill(db));
-			List<Int64> shared = Assert.Single(await IdentifierHashes.SharedMailboxes(db));
-			Assert.Equal(new[] { first, second }, shared);
 		}
 
-		// the shared mailbox stays taken for a new account
-		Assert.False((await SignUp(Users(probe), "o.l.d.p.l.a.y.e.r@gmail.com")).Succeeded);
-
-		// both older accounts keep working: every Identity update (stamp, failed sign-ins, password) validates the user again
 		UserManager<User> users = Users(probe);
-		foreach (long id in new[] { first, second })
+		Assert.False((await SignUp(users, "o.l.d.p.l.a.y.e.r+new@gmail.com")).Succeeded);
+		// every Identity update validates the user again; the account that holds the mailbox keeps working
+		User account = (await users.FindByIdAsync(imported.ToString()))!;
+		Assert.True((await users.UpdateSecurityStampAsync(account)).Succeeded);
+		Assert.True((await users.AccessFailedAsync(account)).Succeeded);
+		Assert.True((await users.ResetAccessFailedCountAsync(account)).Succeeded);
+	}
+
+	// sign-ups with one mailbox at the same moment: exactly one account is made each time, the others leave nothing behind
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task SimultaneousSignUpsWithOneMailboxMakeOneAccount(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+
+		for (int round = 0; round < 10; round++)
 		{
-			User account = (await users.FindByIdAsync(id.ToString()))!;
-			Assert.True((await users.UpdateSecurityStampAsync(account)).Succeeded);
-			Assert.True((await users.AccessFailedAsync(account)).Succeeded);
-			Assert.True((await users.ResetAccessFailedCountAsync(account)).Succeeded);
+			string[] variants = { $"race{round}@gmail.com", $"race{round}+x@gmail.com", $"r.a.c.e{round}@googlemail.com" };
+			IdentityResult[] results = await Task.WhenAll(variants.Select(v => Task.Run(() => SignUp(Users(probe), v))));
+			Assert.Single(results, r => r.Succeeded);
+			Assert.All(results.Where(r => !r.Succeeded), r => Assert.Equal(GoUserValidator.DuplicateEmail, Assert.Single(r.Errors).Code));
 		}
+
+		await using AppDbContext db = probe.Open();
+		Assert.Equal(10, await db.Users.CountAsync());
+		Assert.Equal(10, await db.IdentifierHashes.CountAsync(h => h.Kind == HashedIdentifierKinds.Email));
 	}
 
 	[ProbeTheory]

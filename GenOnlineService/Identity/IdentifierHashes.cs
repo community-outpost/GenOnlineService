@@ -50,7 +50,8 @@ namespace GenOnlineService.Identity
 		{
 			builder.ToTable("identifier_hashes");
 			builder.HasKey(e => e.ID);
-			builder.HasIndex(e => new { e.Kind, e.ValueHmac }).HasDatabaseName("ix_identifier_hashes_kind_value");
+			// one row per mailbox or provider id: the database itself keeps one account per person, also for sign-ups at the same moment
+			builder.HasIndex(e => new { e.Kind, e.ValueHmac }).IsUnique().HasDatabaseName("ux_identifier_hashes_kind_value");
 			builder.HasIndex(e => e.UserID).HasDatabaseName("ix_identifier_hashes_user");
 
 			builder.Property(e => e.ID).HasColumnName("id").ValueGeneratedOnAdd();
@@ -126,11 +127,15 @@ namespace GenOnlineService.Identity
 			return await db.IdentifierHashes.AnyAsync(h => h.Kind == HashedIdentifierKinds.Email && h.ValueHmac == hash && h.UserID != userID, cancellationToken);
 		}
 
-		// The account's mailbox row follows its email: replaced when it changes, removed when it has none
-		public static async Task SyncEmail(AppDbContext db, Int64 userID, string? email, CancellationToken cancellationToken = default)
+		// The account's mailbox row follows its email: replaced when it changes, removed when it has none. A new account has no
+		// row to replace, so it only inserts: a delete there would conflict with other sign-ups under MariaDB's snapshot isolation
+		public static async Task SyncEmail(AppDbContext db, Int64 userID, string? email, CancellationToken cancellationToken = default, bool newAccount = false)
 		{
 			byte[]? hash = EmailHash(email);
-			await db.IdentifierHashes.Where(h => h.UserID == userID && h.Kind == HashedIdentifierKinds.Email && h.SanctionID == null).ExecuteDeleteAsync(cancellationToken);
+			if (!newAccount)
+			{
+				await db.IdentifierHashes.Where(h => h.UserID == userID && h.Kind == HashedIdentifierKinds.Email && h.SanctionID == null).ExecuteDeleteAsync(cancellationToken);
+			}
 			if (hash != null)
 			{
 				db.IdentifierHashes.Add(new IdentifierHash { UserID = userID, Kind = HashedIdentifierKinds.Email, ValueHmac = hash, CreatedAt = DateTime.UtcNow });
@@ -147,7 +152,8 @@ namespace GenOnlineService.Identity
 			return db.IdentifierHashes.AnyAsync(h => h.Kind == kind && h.ValueHmac == hash && h.SanctionID != null, cancellationToken);
 		}
 
-		// Mailbox rows for accounts that have an email and none yet (accounts made before this table); returns how many
+		// Mailbox rows for accounts that have an email and none yet: imported accounts, which the import already keeps to one
+		// per mailbox; returns how many
 		public static async Task<int> Backfill(AppDbContext db, CancellationToken cancellationToken = default)
 		{
 			int added = 0;
@@ -175,19 +181,6 @@ namespace GenOnlineService.Identity
 				db.ChangeTracker.Clear();
 				added += missing.Count;
 			}
-		}
-
-		// Accounts sharing one mailbox, from before the rule or the backfill: each group's user ids, for staff to review
-		public static async Task<List<List<Int64>>> SharedMailboxes(AppDbContext db, CancellationToken cancellationToken = default)
-		{
-			var rows = await db.IdentifierHashes.AsNoTracking()
-				.Where(h => h.Kind == HashedIdentifierKinds.Email && h.SanctionID == null)
-				.Select(h => new { h.UserID, h.ValueHmac })
-				.ToListAsync(cancellationToken);
-			return rows.GroupBy(r => Convert.ToHexString(r.ValueHmac))
-				.Where(g => g.Select(r => r.UserID).Distinct().Count() > 1)
-				.Select(g => g.Select(r => r.UserID).Distinct().OrderBy(id => id).ToList())
-				.ToList();
 		}
 
 		// The hashes an erased account kept for a ban go once no ban on it is active (or the ban row is gone)
