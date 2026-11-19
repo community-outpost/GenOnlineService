@@ -191,6 +191,13 @@ public static class DeviceHasher
 		return HashLegacyMd5(Helpers.ComputeMD5Hash(rawValue));
 	}
 
+	// Any other identifier (IdentifierHashes): its own input form, so it never equals a device value's hash
+	public static byte[] HashIdentifier(string value)
+	{
+		byte[] key = s_key ?? throw new InvalidOperationException("DeviceHasher is not initialized.");
+		return HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(value));
+	}
+
 	public static byte[] HashLegacyMd5(string md5Hex)
 	{
 		byte[] key = s_key ?? throw new InvalidOperationException("DeviceHasher is not initialized.");

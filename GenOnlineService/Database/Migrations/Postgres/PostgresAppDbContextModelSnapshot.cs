@@ -1003,6 +1003,51 @@ namespace GenOnlineService.Migrations.Postgres
                     b.ToTable("erased_accounts", (string)null);
                 });
 
+            modelBuilder.Entity("GenOnlineService.Identity.IdentifierHash", b =>
+                {
+                    b.Property<long>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ID"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)")
+                        .HasColumnName("kind");
+
+                    b.Property<long?>("SanctionID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sanction_id");
+
+                    b.Property<long>("UserID")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.Property<byte[]>("ValueHmac")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea")
+                        .HasColumnName("value_hmac")
+                        .IsFixedLength();
+
+                    b.HasKey("ID");
+
+                    b.HasIndex("UserID")
+                        .HasDatabaseName("ix_identifier_hashes_user");
+
+                    b.HasIndex("Kind", "ValueHmac")
+                        .HasDatabaseName("ix_identifier_hashes_kind_value");
+
+                    b.ToTable("identifier_hashes", (string)null);
+                });
+
             modelBuilder.Entity("GenOnlineService.Rules.AutomatedRule", b =>
                 {
                     b.Property<long>("ID")

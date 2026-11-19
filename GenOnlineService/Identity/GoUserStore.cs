@@ -74,6 +74,7 @@ namespace GenOnlineService.Identity
 				try
 				{
 					await db.SaveChangesAsync(cancellationToken);
+					await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken);
 					return IdentityResult.Success;
 				}
 				catch (DbUpdateException ex) when (DbHelpers.IsUniqueViolation(ex) && attempt < Database.DisplayNames.NewUserAttempts)
@@ -91,6 +92,7 @@ namespace GenOnlineService.Identity
 		public async Task<IdentityResult> UpdateAsync(User user, CancellationToken cancellationToken)
 		{
 			await using AppDbContext db = await m_dbFactory.CreateDbContextAsync(cancellationToken);
+			string? storedEmail = await db.Users.AsNoTracking().Where(u => u.ID == user.ID).Select(u => u.EmailNormalized).FirstOrDefaultAsync(cancellationToken);
 			user.UpdatedAt = DateTime.UtcNow;
 			var entry = db.Users.Update(user);
 			// Identity writes the copy it read; the state (blocks), the name, tag and owed name (renames) belong to other
@@ -103,6 +105,11 @@ namespace GenOnlineService.Identity
 			entry.Property(u => u.RenamedAt).IsModified = false;
 			entry.Property(u => u.NameRequiredAt).IsModified = false;
 			await db.SaveChangesAsync(cancellationToken);
+			if (!String.Equals(storedEmail, user.EmailNormalized, StringComparison.Ordinal))
+			{
+				db.ChangeTracker.Clear();
+				await IdentifierHashes.SyncEmail(db, user.ID, user.Email, cancellationToken);
+			}
 			return IdentityResult.Success;
 		}
 

@@ -31,12 +31,14 @@ namespace GenOnlineService
 			+ "  GenOnlineService users two-factor-reset <user_id> [--reason <text>]\n"
 			+ "  GenOnlineService users name-reset <user_id> [--reason <text>]\n"
 			+ "  GenOnlineService users delete <user_id> --reason <text> --yes\n"
+			+ "  GenOnlineService users shared-mailboxes\n"
 			+ "password-reset prints a new random password once, or sets the one read from standard input with --password-stdin.\n"
 			+ "Both end the account's lockout, revoke every sign-in of the game with its refresh tokens, and sign it out of the website within a minute.\n"
 			+ "name-reset replaces an inappropriate player name with a placeholder and ends every sign-in; the player chooses a new name when signing in again.\n"
 			+ "delete erases the account on its owner's request and cannot be undone: the personal data goes, the account id stays with a\n"
 			+ "neutral name so matches, ratings and bans keep it, and the name leaves the player's matches. While a ban is active its device\n"
-			+ "ids and sign-in provider links stay until the ban ends. --yes confirms; the reason (the request) is required.";
+			+ "ids and sign-in provider ids stay (as hashes) until the ban ends. --yes confirms; the reason (the request) is required.\n"
+			+ "shared-mailboxes lists the accounts that share one mailbox (a +tag, Gmail dots), made before one account per person was enforced.";
 
 		private sealed class CliException : Exception
 		{
@@ -53,6 +55,10 @@ namespace GenOnlineService
 
 		private static Arguments Parse(string[] args)
 		{
+			if (args.Length == 2 && args[1].Equals("shared-mailboxes", StringComparison.OrdinalIgnoreCase))
+			{
+				return new Arguments("shared-mailboxes", 0, false, null, false);
+			}
 			if (args.Length < 3 || !Int64.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out Int64 userID))
 			{
 				throw new CliException(Usage);
@@ -126,8 +132,21 @@ namespace GenOnlineService
 					return 0;
 				}
 
+				if (parsed.Command == "shared-mailboxes")
+				{
+					List<List<Int64>> groups = await IdentifierHashes.SharedMailboxes(db);
+					Console.WriteLine(groups.Count == 0 ? "No mailbox is shared by more than one account." : $"{groups.Count} mailbox(es) shared by more than one account:");
+					foreach (List<Int64> group in groups)
+					{
+						Console.WriteLine("  users " + String.Join(", ", group));
+					}
+					return 0;
+				}
+
 				if (parsed.Command == "delete")
 				{
+					// a banned account keeps its mailbox and provider ids as hashes made with the device key
+					DeviceHasher.Initialize(DeviceHasher.GetKeyPath(WebApplication.CreateBuilder(Array.Empty<string>()).Configuration));
 					var actor = new Database.ModerationActor { Kind = AuditActorKinds.Cli, Name = CliActor(), Source = ModerationSources.Cli };
 					// the running service picks up the deactivated account on its 5 second access reload and ends its connections
 					ErasureResult erased = await AccountErasure.Erase(db, parsed.UserID, actor, parsed.Reason, live: false);

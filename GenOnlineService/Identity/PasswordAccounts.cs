@@ -233,9 +233,18 @@ namespace GenOnlineService.Identity
 
 	// Identity's own user validator assumes unique user names; display names are not (Name#tag), so only the email
 	// address, when there is one, must belong to no other account
+	// One account per person: the same mailbox written another way (a +tag, Gmail's dots or googlemail.com) is taken too,
+	// and so is the mailbox of an erased account while its ban lasts (IdentifierHashes)
 	public sealed class GoUserValidator : IUserValidator<User>
 	{
 		public const string DuplicateEmail = nameof(IdentityErrorDescriber.DuplicateEmail);
+
+		private readonly IDbContextFactory<AppDbContext> m_dbFactory;
+
+		public GoUserValidator(IDbContextFactory<AppDbContext> dbFactory)
+		{
+			m_dbFactory = dbFactory;
+		}
 
 		public async Task<IdentityResult> ValidateAsync(UserManager<User> manager, User user)
 		{
@@ -245,7 +254,13 @@ namespace GenOnlineService.Identity
 			}
 
 			User? holder = await manager.FindByEmailAsync(user.Email);
-			return holder != null && holder.ID != user.ID
+			bool taken = holder != null && holder.ID != user.ID;
+			if (!taken)
+			{
+				await using AppDbContext db = await m_dbFactory.CreateDbContextAsync();
+				taken = await IdentifierHashes.EmailHeldByOther(db, user.Email, user.ID);
+			}
+			return taken
 				? IdentityResult.Failed(new IdentityError { Code = DuplicateEmail, Description = "An account with this email address already exists." })
 				: IdentityResult.Success;
 		}

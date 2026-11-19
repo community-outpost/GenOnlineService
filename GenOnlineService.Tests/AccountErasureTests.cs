@@ -155,7 +155,7 @@ public class AccountErasureTests
 
 	[ProbeTheory]
 	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
-	public async Task AnActiveBanKeepsTheDeviceIdsAndProviderLinksUntilItEnds(string provider)
+	public async Task AnActiveBanKeepsHashesAndDeviceRowsUntilItEnds(string provider)
 	{
 		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
 		if (probe == null) return;
@@ -169,23 +169,28 @@ public class AccountErasureTests
 
 		await using (AppDbContext db = probe.Open())
 		{
-			Assert.True(await db.Identities.AnyAsync(i => i.UserID == s.Erased));
-			Assert.True(await db.Devices.AnyAsync(d => d.UserID == s.Erased));
+			// the provider link goes, its hash and the mailbox hash stay; the device row stays without its raw value or address
+			Assert.False(await db.Identities.AnyAsync(i => i.UserID == s.Erased));
+			Assert.True(await IdentifierHashes.ProviderHeld(db, IdentityProviders.Steam, "76561190000000001"));
+			Assert.True(await db.IdentifierHashes.AnyAsync(h => h.UserID == s.Erased && h.Kind == HashedIdentifierKinds.Email && h.SanctionID != null));
+			Device device = await db.Devices.SingleAsync(d => d.UserID == s.Erased);
+			Assert.Null(device.ValueRaw);
+			Assert.Null(device.LastIp);
 			Assert.Single(await db.Sanctions.Where(x => x.UserID == s.Erased).ToListAsync());
 			// the rest of the personal data goes as without a ban
 			Assert.Null((await db.Users.SingleAsync(u => u.ID == s.Erased)).Email);
 			Assert.False(await db.SessionEvents.AnyAsync(e => e.UserID == s.Erased));
 
-			// while the ban lasts the purge keeps the links
-			Assert.Equal(0, await AccountErasure.PurgeHeldIdentities(db, DateTime.UtcNow));
+			// while the ban lasts the purge keeps the hashes
+			Assert.Equal(0, await IdentifierHashes.PurgeEndedHolds(db, DateTime.UtcNow));
 			await db.Sanctions.Where(x => x.UserID == s.Erased).ExecuteUpdateAsync(x => x.SetProperty(b => b.LiftedAt, DateTime.UtcNow));
 		}
 
-		// once the ban is lifted the links go; an account that was never erased keeps its own
+		// once the ban is lifted the hashes go; an account that was never erased keeps its own link
 		await using (AppDbContext db = probe.Open())
 		{
-			Assert.Equal(1, await AccountErasure.PurgeHeldIdentities(db, DateTime.UtcNow));
-			Assert.False(await db.Identities.AnyAsync(i => i.UserID == s.Erased));
+			Assert.Equal(2, await IdentifierHashes.PurgeEndedHolds(db, DateTime.UtcNow));
+			Assert.False(await IdentifierHashes.ProviderHeld(db, IdentityProviders.Steam, "76561190000000001"));
 			Assert.True(await db.Identities.AnyAsync(i => i.UserID == s.Other));
 		}
 	}

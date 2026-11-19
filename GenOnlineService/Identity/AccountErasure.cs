@@ -47,8 +47,9 @@ namespace GenOnlineService.Identity
 	// Erasure of an account on request (Privacy Policy, "Your rights"). The users row stays as a tombstone under the same id,
 	// so matches, ratings, stats, leaderboards and sanctions keep pointing at it; every personal field is cleared and the name
 	// becomes a neutral one. The player's name leaves their matches (replay files are not touched). While a ban is active, the
-	// device ids and the sign-in provider links stay so the same machine or Steam/Discord account cannot sign up again
-	// unbanned; PurgeHeldIdentities removes the links once no ban is active, the device purge the devices 90 days later.
+	// mailbox and every sign-in provider id are kept only as keyed hashes (IdentifierHashes) so the same person cannot sign up
+	// again unbanned, and the device rows stay without their raw value or address for ban-evasion matching;
+	// IdentifierHashes.PurgeEndedHolds removes the hashes once no ban is active, the device purge the devices 90 days later.
 	// Moderation records stay for their own retention: sanctions, their evidence, the staff log, reports, anti-cheat reports
 	// and automated rule matches.
 	public static class AccountErasure
@@ -83,6 +84,8 @@ namespace GenOnlineService.Identity
 
 			DateTime now = DateTime.UtcNow;
 			bool banned = await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, now).AnyAsync(s => s.UserID == userID, cancellationToken);
+			// read before the row is cleared: a ban keeps its hash
+			string? email = user.Email;
 
 			await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -137,11 +140,16 @@ namespace GenOnlineService.Identity
 			await db.SessionEvents.Where(e => e.UserID == userID).ExecuteDeleteAsync(cancellationToken);
 			await Database.Chat.DeleteUserData(db, userID, cancellationToken);
 
-			if (!banned)
+			if (banned)
 			{
-				await db.Identities.Where(i => i.UserID == userID).ExecuteDeleteAsync(cancellationToken);
+				await HoldForBan(db, userID, email, now, cancellationToken);
+			}
+			else
+			{
+				await db.IdentifierHashes.Where(h => h.UserID == userID).ExecuteDeleteAsync(cancellationToken);
 				await db.Devices.Where(d => d.UserID == userID).ExecuteDeleteAsync(cancellationToken);
 			}
+			await db.Identities.Where(i => i.UserID == userID).ExecuteDeleteAsync(cancellationToken);
 
 			int matches = await RemoveNameFromMatches(db, userID, cancellationToken);
 
@@ -184,12 +192,33 @@ namespace GenOnlineService.Identity
 			return renamed;
 		}
 
-		// The sign-in provider links an erased account kept for its ban go once no ban on it is active
-		public static Task<int> PurgeHeldIdentities(AppDbContext db, DateTime utcNow, CancellationToken cancellationToken = default)
+		// What a ban needs of an erased account, as hashes: the mailbox and each provider id, tied to the longest active ban.
+		// The device rows stay for evasion matching (by value_hmac) but lose the raw value and the address.
+		private static async Task HoldForBan(AppDbContext db, Int64 userID, string? email, DateTime now, CancellationToken cancellationToken)
 		{
-			IQueryable<Int64> banned = Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, utcNow).Select(s => s.UserID);
-			IQueryable<Int64> erased = db.ErasedAccounts.Select(e => e.UserID);
-			return db.Identities.Where(i => erased.Contains(i.UserID) && !banned.Contains(i.UserID)).ExecuteDeleteAsync(cancellationToken);
+			Int64 banID = (await Database.Moderation.ActiveSanctions(db, SanctionTypes.Ban, now)
+				.Where(s => s.UserID == userID)
+				.OrderByDescending(s => s.ExpiresAt == null)
+				.ThenByDescending(s => s.ExpiresAt)
+				.FirstAsync(cancellationToken)).ID;
+
+			await db.IdentifierHashes.Where(h => h.UserID == userID).ExecuteDeleteAsync(cancellationToken);
+			if (IdentifierHashes.EmailHash(email) is byte[] mailbox)
+			{
+				db.IdentifierHashes.Add(new IdentifierHash { UserID = userID, Kind = HashedIdentifierKinds.Email, ValueHmac = mailbox, SanctionID = banID, CreatedAt = now });
+			}
+
+			List<UserIdentity> identities = await db.Identities.AsNoTracking().Where(i => i.UserID == userID).ToListAsync(cancellationToken);
+			foreach (UserIdentity identity in identities)
+			{
+				string kind = HashedIdentifierKinds.Provider(identity.Provider);
+				db.IdentifierHashes.Add(new IdentifierHash { UserID = userID, Kind = kind, ValueHmac = IdentifierHashes.Hash(kind, identity.ExternUid), SanctionID = banID, CreatedAt = now });
+			}
+			await db.SaveChangesAsync(cancellationToken);
+			db.ChangeTracker.Clear();
+
+			await db.Devices.Where(d => d.UserID == userID)
+				.ExecuteUpdateAsync(s => s.SetProperty(d => d.ValueRaw, (string?)null).SetProperty(d => d.LastIp, (string?)null), cancellationToken);
 		}
 	}
 }

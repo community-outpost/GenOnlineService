@@ -102,6 +102,16 @@ audit_log                 -- append-only, purged 2 years after created_at
   target_id bigint null, reason varchar(512) null, source varchar(32), details json null
   index (target_kind, target_id), index (created_at)
 
+identifier_hashes         -- keyed HMACs (the device key) of what identifies a person, never the value itself
+  id, user_id, kind varchar(48) ('email' | 'provider:<name>', any configured provider), value_hmac binary(32),
+  sanction_id bigint null, created_at
+  index (kind, value_hmac), index (user_id)
+  -- email: one row per account with an address, of its canonical form (lower case, +tag dropped, Gmail dots dropped and
+  -- googlemail.com read as gmail.com); sign-up and email changes are refused when another account holds it (one account
+  -- per person). Accounts from before the table are hashed by a startup backfill; `users shared-mailboxes` lists mailboxes
+  -- that older accounts share. sanction_id set: kept by an erased account for its ban (the mailbox and every provider id);
+  -- a provider sign-in with a held id is refused as deactivated. Retention: those rows go once no ban on the account is active
+
 erased_accounts           -- one row per account erased on request (AccountErasure, docs/identity.md section 7); the users row
                           -- stays as a tombstone under the same id, so matches, ratings and sanctions keep it
   user_id pk, erased_at

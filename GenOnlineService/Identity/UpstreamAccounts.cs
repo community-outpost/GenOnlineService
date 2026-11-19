@@ -99,6 +99,11 @@ namespace GenOnlineService.Identity
 
 				if (user == null)
 				{
+					// the provider id of an erased account under an active ban: refused as that account would be
+					if (await IdentifierHashes.ProviderHeld(db, provider.Name, subject))
+					{
+						return UpstreamSignInResult.Refused(ErrorDeactivated);
+					}
 					if (!provider.AllowSignUp)
 					{
 						return UpstreamSignInResult.Refused(ErrorSignUpDisabled);

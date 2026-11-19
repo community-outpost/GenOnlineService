@@ -1666,6 +1666,20 @@ namespace GenOnlineService
 				});
 			}
 
+			// Accounts from before identifier_hashes get their mailbox hash once, so one account per person holds for them too
+			_ = RunObservedBackgroundJobAsync("identifier_hash_backfill", app.Logger, async () =>
+			{
+				using var scope = app.Services.CreateScope();
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
+				int added = await GenOnlineService.Identity.IdentifierHashes.Backfill(db, stopping);
+				if (added > 0)
+				{
+					int shared = (await GenOnlineService.Identity.IdentifierHashes.SharedMailboxes(db, stopping)).Count;
+					app.Logger.LogInformation("Hashed the mailbox of {AccountCount} existing accounts; {SharedCount} mailbox(es) are shared by more than one account (GenOnlineService users shared-mailboxes)", added, shared);
+				}
+			}, stopping);
+
 			// Devices, session events, chat messages, resolved reports, ended sanctions and the staff log past their retention are
 			// purged hourly
 			{
@@ -1716,18 +1730,18 @@ namespace GenOnlineService
 							app.Logger.LogError(ex, "Sanction and staff log retention purge failed");
 						}
 
-						// The sign-in provider links an erased account kept for its ban go once the ban is over
+						// The identifier hashes an erased account kept for its ban go once the ban is over
 						try
 						{
-							int identities = await GenOnlineService.Identity.AccountErasure.PurgeHeldIdentities(db, DateTime.UtcNow);
-							if (identities > 0)
+							int holds = await GenOnlineService.Identity.IdentifierHashes.PurgeEndedHolds(db, DateTime.UtcNow);
+							if (holds > 0)
 							{
-								app.Logger.LogInformation("Retention purge removed {IdentityCount} sign-in provider links of erased accounts", identities);
+								app.Logger.LogInformation("Retention purge removed {HoldCount} identifier hashes of erased accounts whose ban ended", holds);
 							}
 						}
 						catch (Exception ex) when (!GenOnlineService.Service.SelfRestartingTimer.IsShutdownFault(ex, stopping))
 						{
-							app.Logger.LogError(ex, "Erased account identity purge failed");
+							app.Logger.LogError(ex, "Ban hold identifier hash purge failed");
 						}
 
 						// A copy is held until 90 days after its sanction ended; the rows of a purged sanction go too
