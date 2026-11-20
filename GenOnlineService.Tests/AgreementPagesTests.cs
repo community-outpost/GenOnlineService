@@ -71,7 +71,8 @@ public class AgreementPagesTests
 			["display_name"] = "Newcomer",
 			["ReturnUrl"] = Authorize
 		});
-		Assert.Equal(Authorize, named.Location);
+		// the agreements come right after the name, then back to where the sign-in was going
+		Assert.Equal(Wizard, named.Location);
 
 		// then the agreements
 		PageResponse gated = await browser.Get(Authorize);
@@ -279,5 +280,160 @@ public class AgreementPagesTests
 		Assert.Equal(302, (await PasswordPagesTests.SignIn(plain, "profiled@example.org", "a long enough password")).Status);
 		// (the footer still links the rules, the built-in page)
 		Assert.DoesNotContain("The rules and terms you agreed to on this environment.", (await plain.Get("/profile")).Body);
+	}
+
+	// ---- the agreement at creation: the password sign-up carries a tick box, a provider sign-up goes through the wizard ----
+
+	private static async Task<PageResponse> PostSignUp(AccountsBrowser browser, string name, string email, bool tick)
+	{
+		PageResponse page = await browser.Get("/users/sign_up?ReturnUrl=%2Fprofile");
+		Dictionary<string, string> form = new()
+		{
+			["__go_consent_token"] = AccountsBrowser.Token(page),
+			["display_name"] = name,
+			["email"] = email,
+			["password"] = "a long enough password",
+			["ReturnUrl"] = "/profile"
+		};
+		if (tick)
+		{
+			form["agree_terms"] = "1";
+		}
+		return await browser.Post("/users/sign_up", form);
+	}
+
+	private static (string Key, string Value)[] TermsOnly() => AgreementsTests.Configured().Where(s => !s.Key.StartsWith("Agreements:rules")).ToArray();
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheSignUpPageAsksForTheAgreement(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		AccountsBrowser browser = await AgreementGateTests.Browser(probe, AgreementsTests.Configured());
+
+		PageResponse page = await browser.Get("/users/sign_up");
+		Assert.Equal(200, page.Status);
+		Assert.Contains("By creating an account you agree to the", page.Body);
+		Assert.Contains($"href=\"{AgreementsTests.RulesUrl}\"", page.Body);
+		Assert.Contains($"href=\"{AgreementsTests.TermsUrl}\"", page.Body);
+		Assert.Contains($"href=\"{AgreementsTests.PrivacyUrl}\"", page.Body);
+		Assert.Contains("<input type=\"checkbox\" name=\"agree_terms\" value=\"1\" required", page.Body);
+		Assert.DoesNotContain("<script", page.Body);
+
+		// with only the Terms configured the notice names only the Terms
+		PageResponse termsPage = await (await AgreementGateTests.Browser(probe, TermsOnly())).Get("/users/sign_up");
+		Assert.Contains($"href=\"{AgreementsTests.TermsUrl}\"", termsPage.Body);
+		Assert.DoesNotContain($"href=\"{AgreementsTests.RulesUrl}\"", termsPage.Body);
+		Assert.Contains("name=\"agree_terms\"", termsPage.Body);
+
+		// nothing configured: the page is as before
+		Assert.DoesNotContain("agree_terms", (await (await AgreementGateTests.Browser(probe)).Get("/users/sign_up")).Body);
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ASignUpWithoutTheTickIsRefusedAndKeepsTheFields(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		AccountsBrowser browser = await AgreementGateTests.Browser(probe, AgreementsTests.Configured());
+
+		PageResponse refused = await PostSignUp(browser, "Untick", "untick@example.org", tick: false);
+		Assert.Equal(400, refused.Status);
+		Assert.Contains("Tick the box to agree before creating your account.", refused.Body);
+		Assert.Contains("value=\"Untick\"", refused.Body);
+		Assert.Contains("value=\"untick@example.org\"", refused.Body);
+		Assert.Null(await PasswordPagesTests.UserByEmail(probe, "untick@example.org"));
+	}
+
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ASignUpWithTheTickRecordsTheAgreementAndSkipsTheWizard(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		AccountsBrowser browser = await AgreementGateTests.Browser(probe, AgreementsTests.Configured());
+
+		PageResponse created = await PostSignUp(browser, "Tick", "tick@example.org", tick: true);
+		Assert.Equal(302, created.Status);
+		Assert.Equal("/profile", created.Location);
+		User user = (await PasswordPagesTests.UserByEmail(probe, "tick@example.org"))!;
+
+		await using (AppDbContext db = probe.Open())
+		{
+			var rows = await db.UserAgreements.Where(a => a.UserID == user.ID).OrderBy(a => a.Document).Select(a => new { a.Document, a.Version }).ToListAsync();
+			Assert.Equal(new[] { ("rules", "2026-11"), ("terms", "1") }, rows.Select(r => (r.Document, r.Version)));
+			var audits = await db.AuditLog.Where(a => a.Action == Agreements.AcceptedAction && a.TargetID == user.ID).ToListAsync();
+			Assert.Equal(2, audits.Count);
+			Assert.All(audits, a => Assert.Equal("web", a.Source));
+		}
+
+		// nothing is owed at the first game sign-in
+		Assert.StartsWith("http://127.0.0.1/callback?code=", (await browser.Get(Authorize)).Location);
+	}
+
+	// nothing configured: no tick and nothing recorded; with only the Terms configured, only the Terms are recorded
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task ASignUpNeedsNoTickWhenNothingIsConfigured(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		AccountsBrowser browser = await AgreementGateTests.Browser(probe);
+		Assert.Equal(302, (await PostSignUp(browser, "Plain", "plain@example.org", tick: false)).Status);
+		User plain = (await PasswordPagesTests.UserByEmail(probe, "plain@example.org"))!;
+		await using AppDbContext db = probe.Open();
+		Assert.False(await db.UserAgreements.AnyAsync(a => a.UserID == plain.ID));
+
+		AccountsBrowser termsOnly = await AgreementGateTests.Browser(probe, TermsOnly());
+		Assert.Equal(400, (await PostSignUp(termsOnly, "Termsy", "termsy@example.org", tick: false)).Status);
+		Assert.Equal(302, (await PostSignUp(termsOnly, "Termsy", "termsy@example.org", tick: true)).Status);
+		User termsy = (await PasswordPagesTests.UserByEmail(probe, "termsy@example.org"))!;
+		Assert.Equal(new[] { "terms" }, await db.UserAgreements.Where(a => a.UserID == termsy.ID).Select(a => a.Document).ToListAsync());
+	}
+
+	// a provider sign-up chooses its name, then goes through the wizard, then to where it was going
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheNameStepLeadsToTheWizardWhenAgreementsAreOwed(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser browser, User user) = await AgreementGateTests.SignedUp(probe, "Social", AgreementsTests.Configured());
+		await using (AppDbContext db = probe.Open())
+		{
+			await db.Users.Where(u => u.ID == user.ID).ExecuteUpdateAsync(set => set.SetProperty(u => u.NameRequiredAt, DateTime.UtcNow));
+		}
+		PageResponse welcome = await browser.Get("/users/sign_up/welcome?ReturnUrl=%2Fprofile");
+		PageResponse named = await browser.Post("/users/sign_up/welcome", new()
+		{
+			["__go_consent_token"] = AccountsBrowser.Token(welcome),
+			["display_name"] = "Socialite",
+			["ReturnUrl"] = "/profile"
+		});
+		Assert.Equal("/users/agreements?ReturnUrl=%2Fprofile", named.Location);
+	}
+
+	// without agreements the name step goes straight on, as before
+	[ProbeTheory]
+	[MemberData(nameof(ProbeDatabase.Providers), MemberType = typeof(ProbeDatabase))]
+	public async Task TheNameStepGoesStraightOnWithoutAgreements(string provider)
+	{
+		await using ProbeDatabase? probe = await ProbeDatabase.Create(provider);
+		if (probe == null) return;
+		(AccountsBrowser browser, User user) = await AgreementGateTests.SignedUp(probe, "Plainer");
+		await using (AppDbContext db = probe.Open())
+		{
+			await db.Users.Where(u => u.ID == user.ID).ExecuteUpdateAsync(set => set.SetProperty(u => u.NameRequiredAt, DateTime.UtcNow));
+		}
+		PageResponse welcome = await browser.Get("/users/sign_up/welcome?ReturnUrl=%2Fprofile");
+		PageResponse named = await browser.Post("/users/sign_up/welcome", new()
+		{
+			["__go_consent_token"] = AccountsBrowser.Token(welcome),
+			["display_name"] = "Plainest",
+			["ReturnUrl"] = "/profile"
+		});
+		Assert.Equal("/profile", named.Location);
 	}
 }

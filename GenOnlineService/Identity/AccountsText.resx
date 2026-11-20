@@ -153,6 +153,24 @@
   <data name="SignUp.Description" xml:space="preserve">
     <value>Sign up with an email address and a password.</value>
   </data>
+  <data name="SignUp.Agree.Both" xml:space="preserve">
+    <value>By creating an account you agree to the {0} and the {1}.</value>
+  </data>
+  <data name="SignUp.Agree.Rules" xml:space="preserve">
+    <value>By creating an account you agree to the {0}.</value>
+  </data>
+  <data name="SignUp.Agree.Terms" xml:space="preserve">
+    <value>By creating an account you agree to the {1}.</value>
+  </data>
+  <data name="SignUp.Agree.RulesName" xml:space="preserve">
+    <value>Rules of Engagement</value>
+  </data>
+  <data name="SignUp.Agree.Tick" xml:space="preserve">
+    <value>I agree</value>
+  </data>
+  <data name="SignUp.Agree.Required" xml:space="preserve">
+    <value>Tick the box to agree before creating your account.</value>
+  </data>
   <data name="SignUp.Submit" xml:space="preserve">
     <value>Create account</value>
   </data>

@@ -79,7 +79,9 @@ public class AgreementsTests
 		var browser = new AdminBrowser(probe, settings);
 		string email = name.ToLowerInvariant() + "@example.org";
 		await browser.SignUp(name, email);
-		return (browser, (await PasswordPagesTests.UserByEmail(probe, email))!);
+		User user = (await PasswordPagesTests.UserByEmail(probe, email))!;
+		await AgreementGateTests.Owing(probe, user.ID);
+		return (browser, user);
 	}
 
 	// a moderator, whose staff host page hands out the antiforgery header token a cookie change needs

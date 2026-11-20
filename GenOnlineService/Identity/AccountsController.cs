@@ -551,10 +551,10 @@ namespace GenOnlineService.Identity
 			{
 				return NotFound();
 			}
-			return SignUpForm(200, SafeReturnUrl(returnUrl), null, null, null);
+			return SignUpForm(200, SafeReturnUrl(returnUrl), null, null, null, false);
 		}
 
-		private ContentResult SignUpForm(int status, string target, string? displayName, string? email, string? message)
+		private ContentResult SignUpForm(int status, string target, string? displayName, string? email, string? message, bool agreed)
 		{
 			var body = new System.Text.StringBuilder(Message(message));
 			body.Append(FormStart("/users/sign_up", target));
@@ -567,14 +567,43 @@ namespace GenOnlineService.Identity
 				// no scroll width from it
 				body.Append($"<p style=\"position:absolute;inset-inline-start:-10000px\" aria-hidden=\"true\"><label>Website <input type=\"text\" name=\"{HoneypotField}\" tabindex=\"-1\" autocomplete=\"off\"></label></p>");
 			}
+			body.Append(SignUpAgreement(agreed, message != null && !agreed && message == T("SignUp.Agree.Required")));
 			body.Append(PortalLook.Submit(T("SignUp.Submit"))).Append("</form>");
 			body.Append(PortalLook.Link($"/users/sign_in?{ReturnUrlField}={Uri.EscapeDataString(target)}", T("SignIn.Title"), T("SignUp.HaveAccount")));
 			return Page(status, T("SignUp.Title"), body.ToString(), T("SignUp.Description"));
 		}
 
+		// "By creating an account you agree to the Rules and the Terms" with the tick box, when a document is required: creating
+		// an account is where the player agrees (S19); the wizard stays the way to agree to a new version later
+		private string SignUpAgreement(bool ticked, bool invalid)
+		{
+			AgreementDocument? rules = AgreementSettings.RulesDocument.Required ? AgreementSettings.RulesDocument : null;
+			AgreementDocument? terms = AgreementSettings.TermsDocument.Required ? AgreementSettings.TermsDocument : null;
+			if (rules == null && terms == null)
+			{
+				return String.Empty;
+			}
+
+			// the sentence is translated whole, with its links where each language wants them
+			const string RulesToken = "{rules}";
+			const string TermsToken = "{terms}";
+			string key = rules != null && terms != null ? "SignUp.Agree.Both" : rules != null ? "SignUp.Agree.Rules" : "SignUp.Agree.Terms";
+			string sentence = WebUtility.HtmlEncode(T(key, RulesToken, TermsToken))
+				.Replace(RulesToken, rules == null ? String.Empty : ExternalLink(rules.Url!, T("SignUp.Agree.RulesName")), StringComparison.Ordinal)
+				.Replace(TermsToken, terms == null ? String.Empty : ExternalLink(terms.Url!, T("Agreements.TermsLink")), StringComparison.Ordinal);
+
+			var body = new System.Text.StringBuilder();
+			body.Append(PortalLook.Text(sentence));
+			body.Append(PortalLook.Muted(ExternalLink(AgreementSettings.PrivacyUrl!, T("Agreements.PrivacyLink"))));
+			string state = (ticked ? " checked" : String.Empty) + (invalid ? " aria-invalid=\"true\"" : String.Empty);
+			body.Append($"<label class=\"gp-check\"><input type=\"checkbox\" name=\"{AgreementTermsField}\" value=\"1\" required{state}><span class=\"gp-check-text\"><strong>{WebUtility.HtmlEncode(T("SignUp.Agree.Tick"))}</strong></span></label>");
+			return body.ToString();
+		}
+
 		[HttpPost("~/users/sign_up")]
 		public async Task<IActionResult> SignUp([FromForm(Name = "display_name")] string? displayName, [FromForm] string? email, [FromForm] string? password,
-			[FromForm(Name = HoneypotField)] string? honeypot, [FromForm(Name = ReturnUrlField)] string? returnUrl)
+			[FromForm(Name = HoneypotField)] string? honeypot, [FromForm(Name = ReturnUrlField)] string? returnUrl,
+			[FromForm(Name = AgreementTermsField)] string? agreeTerms)
 		{
 			if (!m_settings.Password.Enabled || !m_settings.Password.AllowSignUp)
 			{
@@ -586,6 +615,12 @@ namespace GenOnlineService.Identity
 			}
 
 			string target = SafeReturnUrl(returnUrl);
+			bool agreed = !String.IsNullOrEmpty(agreeTerms);
+			// no account without the tick while a document is required; nothing is created and the fields stay
+			if (AgreementSettings.Any && !agreed)
+			{
+				return SignUpForm(400, target, displayName, email, T("SignUp.Agree.Required"), false);
+			}
 			PasswordAccountResult result = await m_passwords.SignUp(displayName, email, password, honeypot);
 			AppMetrics.RecordAuthentication("password_sign_up", "password", result.Error ?? "success");
 
@@ -603,7 +638,7 @@ namespace GenOnlineService.Identity
 					PasswordAccounts.ErrorPasswordTooLong => T("SignUp.PasswordTooLong", PasswordSignInSettings.MaximumLength),
 					_ => T("SignUp.Failed")
 				};
-				return SignUpForm(400, target, displayName, email, message);
+				return SignUpForm(400, target, displayName, email, message, agreed);
 			}
 
 			// with mail, the new address is confirmed by a link before the first token (S4); a failed send is retried from the waiting page
@@ -612,6 +647,8 @@ namespace GenOnlineService.Identity
 				await m_mail.SendConfirmation(result.User!, Culture);
 			}
 
+			// the tick agreed to the versions in force now, so the wizard does not ask again at the first game sign-in
+			await AcceptRequiredAgreements(result.User!.ID);
 			await m_passwords.RecordSignIn(result.User!);
 			RaiseSignIn(result.User!.ID, PasswordAccounts.PasswordMethod);
 			await m_signIn.SignInAsync(result.User!, isPersistent: false, authenticationMethod: "password");
@@ -681,7 +718,7 @@ namespace GenOnlineService.Identity
 			{
 				await m_signIn.RefreshSignInAsync(renamed);
 			}
-			return LocalRedirect(target);
+			return LocalRedirect(await AfterName(user.ID, target));
 		}
 
 		[HttpGet("~/users/auth/{provider}")]
@@ -781,7 +818,7 @@ namespace GenOnlineService.Identity
 				}
 				return LocalRedirect(WelcomeUrl(SafeReturnUrl(returnUrl)));
 			}
-			return LocalRedirect(SafeReturnUrl(returnUrl));
+			return LocalRedirect(await AfterName(signIn.User.ID, SafeReturnUrl(returnUrl)));
 		}
 
 		[HttpPost("~/users/sign_out")]

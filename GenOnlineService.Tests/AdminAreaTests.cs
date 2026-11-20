@@ -190,13 +190,19 @@ internal sealed class AdminBrowser
 	{
 		PageResponse page = await Get("/users/sign_up");
 		Assert.Equal(200, page.Status);
-		PageResponse created = await Post("/users/sign_up", new()
+		Dictionary<string, string> form = new()
 		{
 			["__go_consent_token"] = AccountsBrowser.Token(page),
 			["display_name"] = name,
 			["email"] = email,
 			["password"] = "a long enough password"
-		});
+		};
+		// as a person would, tick the agreement box when the page has one
+		if (page.Body.Contains("name=\"agree_terms\"", StringComparison.Ordinal))
+		{
+			form["agree_terms"] = "1";
+		}
+		PageResponse created = await Post("/users/sign_up", form);
 		Assert.Equal(302, created.Status);
 	}
 

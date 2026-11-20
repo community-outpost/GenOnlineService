@@ -43,7 +43,18 @@ public class AgreementGateTests
 		AccountsBrowser browser = await Browser(probe, agreements);
 		string email = name.ToLowerInvariant() + "@example.org";
 		Assert.Equal(302, (await PasswordPagesTests.SignUp(browser, name, email, "a long enough password")).Status);
-		return (browser, (await PasswordPagesTests.UserByEmail(probe, email))!);
+		User user = (await PasswordPagesTests.UserByEmail(probe, email))!;
+		await Owing(probe, user.ID);
+		return (browser, user);
+	}
+
+	// The sign-up's tick agrees at creation; these tests want an account that owes the agreements, so what it recorded is
+	// taken away again
+	internal static async Task Owing(ProbeDatabase probe, long userID)
+	{
+		await using AppDbContext db = probe.Open();
+		await db.UserAgreements.Where(a => a.UserID == userID).ExecuteDeleteAsync();
+		await db.AuditLog.Where(a => a.Action == Agreements.AcceptedAction && a.TargetID == userID).ExecuteDeleteAsync();
 	}
 
 	internal static async Task Agree(ProbeDatabase probe, long userID, string document, string version)

@@ -44,7 +44,7 @@ public class PasswordPagesTests
 		return values;
 	}
 
-	internal static async Task<PageResponse> SignUp(AccountsBrowser browser, string name, string email, string password, string? honeypot = null)
+	internal static async Task<PageResponse> SignUp(AccountsBrowser browser, string name, string email, string password, string? honeypot = null, bool agree = false)
 	{
 		PageResponse page = await browser.Get("/users/sign_up?ReturnUrl=%2Foauth%2Fauthorize%3Fclient_id%3Dx");
 		Assert.Equal(200, page.Status);
@@ -59,6 +59,11 @@ public class PasswordPagesTests
 		if (honeypot != null)
 		{
 			form["website"] = honeypot;
+		}
+		// as a person would, tick the agreement box when the page has one
+		if (agree || page.Body.Contains("name=\"agree_terms\"", StringComparison.Ordinal))
+		{
+			form["agree_terms"] = "1";
 		}
 		return await browser.Post("/users/sign_up", form);
 	}

@@ -150,6 +150,24 @@
   <data name="SignUp.Description" xml:space="preserve">
     <value>Зарегистрируйтесь с адресом электронной почты и паролем.</value>
   </data>
+  <data name="SignUp.Agree.Both" xml:space="preserve">
+    <value>Создавая учётную запись, вы соглашаетесь с {0} и {1}.</value>
+  </data>
+  <data name="SignUp.Agree.Rules" xml:space="preserve">
+    <value>Создавая учётную запись, вы соглашаетесь с {0}.</value>
+  </data>
+  <data name="SignUp.Agree.Terms" xml:space="preserve">
+    <value>Создавая учётную запись, вы соглашаетесь с {1}.</value>
+  </data>
+  <data name="SignUp.Agree.RulesName" xml:space="preserve">
+    <value>Правилами игры</value>
+  </data>
+  <data name="SignUp.Agree.Tick" xml:space="preserve">
+    <value>Я согласен</value>
+  </data>
+  <data name="SignUp.Agree.Required" xml:space="preserve">
+    <value>Поставьте галочку, чтобы согласиться, прежде чем создавать учётную запись.</value>
+  </data>
   <data name="SignUp.Submit" xml:space="preserve">
     <value>Создать учётную запись</value>
   </data>

@@ -150,6 +150,24 @@
   <data name="SignUp.Description" xml:space="preserve">
     <value>أنشئ حسابًا بعنوان بريد إلكتروني وكلمة مرور.</value>
   </data>
+  <data name="SignUp.Agree.Both" xml:space="preserve">
+    <value>بإنشاء حساب فإنك توافق على {0} و{1}.</value>
+  </data>
+  <data name="SignUp.Agree.Rules" xml:space="preserve">
+    <value>بإنشاء حساب فإنك توافق على {0}.</value>
+  </data>
+  <data name="SignUp.Agree.Terms" xml:space="preserve">
+    <value>بإنشاء حساب فإنك توافق على {1}.</value>
+  </data>
+  <data name="SignUp.Agree.RulesName" xml:space="preserve">
+    <value>قواعد الاشتباك</value>
+  </data>
+  <data name="SignUp.Agree.Tick" xml:space="preserve">
+    <value>أوافق</value>
+  </data>
+  <data name="SignUp.Agree.Required" xml:space="preserve">
+    <value>ضع علامة في المربع للموافقة قبل إنشاء حسابك.</value>
+  </data>
   <data name="SignUp.Submit" xml:space="preserve">
     <value>إنشاء الحساب</value>
   </data>

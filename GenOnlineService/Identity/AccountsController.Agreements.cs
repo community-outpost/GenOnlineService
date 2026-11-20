@@ -46,6 +46,20 @@ namespace GenOnlineService.Identity
 
 		private static string TermsStepUrl(string target, string rules) => $"{AgreementsUrl(target)}&{AgreementStepField}={TermsStep}&{AgreementRulesField}={Uri.EscapeDataString(rules)}";
 
+		// Where a player goes once the name is settled: the agreements wizard while one is owed (a provider sign-up has not agreed
+		// to anything yet), then on to where they were going. Two-factor and confirmation come before, as at the sign-in.
+		private async Task<string> AfterName(Int64 userID, string target)
+			=> (await OwedAgreements(userID)).Count > 0 ? AgreementsUrl(target) : target;
+
+		// The player ticked the sign-up's box: the versions in force now, with the audit rows the wizard writes
+		private async Task AcceptRequiredAgreements(Int64 userID)
+		{
+			foreach (AgreementDocument document in AgreementSettings.Required)
+			{
+				await Agreements.AcceptAsync(DbFactory, AgreementSettings, userID, document.Name, document.Version!, AgreementSource);
+			}
+		}
+
 		private AgreementsSettings AgreementSettings => m_settings.Agreements;
 
 		private IDbContextFactory<AppDbContext> DbFactory => HttpContext.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>();
