@@ -63,7 +63,7 @@ namespace GenOnlineService.Flags
 				"fast_recovery": true,
 				"decision_interval_ms": 1000,
 				"fps_history_samples": 30,
-				"catch_up_frames": 1,
+				"catch_up_frames": 2,
 				"slack_percent": 30,
 				"formula": {
 					"latency_window_ms": 0,
